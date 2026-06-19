@@ -28,6 +28,12 @@ tau
 
 Authenticate with your LLM provider using `/login` or set environment variables (e.g., `ANTHROPIC_API_KEY`).
 
+#### Interactive Terminal UI
+
+![Tau TUI](assets/tui.png)
+
+Start a conversation with the agent in the terminal. The rich interface supports markdown rendering, syntax highlighting, and keyboard navigation.
+
 ### Common Commands
 
 ```bash
