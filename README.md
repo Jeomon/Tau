@@ -2,6 +2,12 @@
 
 Inspired by [Pi](https://pi.dev), **τ Tau** brings the same agent framework capabilities to Python developers. A self-extensible agent CLI with a terminal UI, multi-provider LLM support, session management with branching, and a plugin system for tools, commands, and customization.
 
+<p align="center">
+  <img src="assets/tui.png" alt="Tau TUI" width="700">
+</p>
+
+Start a conversation with the agent in the terminal.
+
 ---
 
 ## Quick Start
@@ -27,12 +33,6 @@ tau
 ```
 
 Authenticate with your LLM provider using `/login` or set environment variables (e.g., `ANTHROPIC_API_KEY`).
-
-#### Interactive Terminal UI
-
-![Tau TUI](assets/tui.png)
-
-Start a conversation with the agent in the terminal. The rich interface supports markdown rendering, syntax highlighting, and keyboard navigation.
 
 ### Common Commands
 
