@@ -32,6 +32,14 @@ class InputHandler:
         self._turn_has_content: bool = False
         self._last_user_text: str = ""
 
+        # Raw /command and !terminal inputs entered while the agent was busy.
+        # Running them mid-turn corrupts the tool_use/tool_result pairing (and
+        # !bash would execute immediately, racing the in-flight turn), so they
+        # are held here and replayed verbatim once the turn settles (drained by
+        # ``on_settled``, fired from the agent's ``settled`` event).
+        self._deferred_inputs: list[str] = []
+        self._draining_deferred: bool = False
+
         # Maps session counter → (uuid, absolute_path) for media stored in the project media dir.
         self._clipboard_images: dict[int, tuple[str, str]] = {}
         self._clipboard_image_notes: dict[int, str] = {}
@@ -92,6 +100,11 @@ class InputHandler:
             self._extract_clipboard_video(text)
             self._pasted_texts.clear()
             self._paste_counter = 0
+            # While the agent is mid-turn, defer commands/terminal input until it
+            # goes idle instead of firing them now and corrupting the turn.
+            if agent is not None and not agent.is_idle():
+                self._defer_input(text)
+                return
             if text.startswith("/"):
                 self._layout.add_message(self._make_slash_message(text))
                 self._tui.request_render()
@@ -153,6 +166,49 @@ class InputHandler:
         expanded = self._expand_pasted_texts(text)
         asyncio.ensure_future(self._queue_followup(expanded, images, display_text=text))
 
+    # ── Deferred /command + !terminal ─────────────────────────────────────────
+
+    def _defer_input(self, text: str) -> None:
+        """Hold a /command or !terminal input until the turn settles, then replay it.
+
+        No wakeup is scheduled here: the busy agent is in a turn that will emit
+        ``settled`` when it finishes, which drives ``on_settled`` to drain this.
+        """
+        self._deferred_inputs.append(text)
+        self._layout.set_deferred_queue(list(self._deferred_inputs))
+        self._tui.request_render()
+
+    async def on_settled(self) -> None:
+        """Replay deferred /command + !terminal inputs once the turn has settled.
+
+        Fired from the agent's ``settled`` event (same lifecycle point follow-up
+        messages drain at). Each input is run to completion via ``_invoke`` so the
+        next only starts after the previous turn/command fully finishes. A
+        replayed prompt-style /command starts its own turn and re-emits
+        ``settled``; the re-entrancy guard makes that nested call a no-op, and the
+        loop here continues once ``_invoke`` returns.
+        """
+        if self._draining_deferred or not self._deferred_inputs:
+            return
+        agent = self._runtime.agent
+        if agent is None or not agent.is_idle():
+            # Not safe yet; a later settled (when the agent next goes idle) retries.
+            return
+        self._draining_deferred = True
+        try:
+            # Stop if the agent goes busy again (e.g. the abort path re-running
+            # steering grabbed it); remaining inputs drain on the next settled.
+            while self._deferred_inputs and agent.is_idle():
+                text = self._deferred_inputs.pop(0)
+                self._layout.set_deferred_queue(list(self._deferred_inputs))
+                self._tui.request_render()
+                if text.startswith("/"):
+                    self._layout.add_message(self._make_slash_message(text))
+                    self._tui.request_render()
+                await self._invoke(text)
+        finally:
+            self._draining_deferred = False
+
     def _take_queued_texts(self) -> list[str]:
         """Snapshot and clear all pending steering/follow-up message texts.
 
@@ -182,8 +238,16 @@ class InputHandler:
         self._layout.set_pending_queue([], [])
         return all_texts
 
+    def _take_deferred_texts(self) -> list[str]:
+        """Snapshot and clear pending deferred /command + !terminal inputs."""
+        if not self._deferred_inputs:
+            return []
+        texts, self._deferred_inputs = self._deferred_inputs, []
+        self._layout.set_deferred_queue([])
+        return texts
+
     def _on_dequeue(self) -> None:
-        all_texts = self._take_queued_texts()
+        all_texts = self._take_queued_texts() + self._take_deferred_texts()
         if not all_texts:
             return
         self._layout.restore_queued_to_editor(all_texts)

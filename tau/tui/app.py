@@ -43,6 +43,7 @@ class App:
             runtime, layout, tui,
             on_palette_refresh=self.refresh_palette,
             on_turn_content=self._input.mark_turn_content,
+            on_settled=self._input.on_settled,
         )
         self._unsubs: list[Callable[[], None]] = []
         self._pending_tasks: set[asyncio.Task] = set()

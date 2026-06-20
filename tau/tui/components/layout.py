@@ -117,6 +117,13 @@ class Layout(Component):
 
         # Pending queue display — steering/followup messages waiting to be consumed
         self._pending_lines: _PendingLines = _PendingLines()
+        # Independent sources feeding the pending display. Steering/follow-up are
+        # rebuilt from the engine queues on every queue-update; deferred holds
+        # raw /command and !terminal inputs the user entered while the agent was
+        # busy, which are replayed once the turn settles.
+        self._pending_steering: list[str] = []
+        self._pending_followup: list[str] = []
+        self._pending_deferred: list[str] = []
 
         # Key-tracked widget maps — set_widget/remove_widget manage these;
         # the components are also held in the Container zones above.
@@ -933,15 +940,28 @@ class Layout(Component):
         followup: list[str],
         dequeue_hint: str = "Alt+↑ to edit queued",
     ) -> None:
+        """Update the steering/follow-up sources and rebuild the pending display."""
+        self._pending_steering = steering
+        self._pending_followup = followup
+        self._rebuild_pending(dequeue_hint)
+
+    def set_deferred_queue(self, deferred: list[str]) -> None:
+        """Update the deferred /command + !terminal source and rebuild the display."""
+        self._pending_deferred = deferred
+        self._rebuild_pending()
+
+    def _rebuild_pending(self, dequeue_hint: str = "Alt+↑ to edit queued") -> None:
         """Rebuild the pending-messages display between spinner and input."""
         from tau.tui.ansi import DIM, RESET
         lines: list[str] = []
-        for msg in steering:
-            preview = msg.replace("\n", " ")[:80]
-            lines.append(f"  {DIM}Steering:{RESET} {DIM}{preview}{RESET}")
-        for msg in followup:
-            preview = msg.replace("\n", " ")[:80]
-            lines.append(f"  {DIM}Follow-up:{RESET} {DIM}{preview}{RESET}")
+        for label, msgs in (
+            ("Steering", self._pending_steering),
+            ("Follow-up", self._pending_followup),
+            ("Deferred", self._pending_deferred),
+        ):
+            for msg in msgs:
+                preview = msg.replace("\n", " ")[:80]
+                lines.append(f"  {DIM}{label}:{RESET} {DIM}{preview}{RESET}")
         if lines:
             lines.append(f"  {DIM}↳ {dequeue_hint}{RESET}")
         self._pending_lines.lines = lines

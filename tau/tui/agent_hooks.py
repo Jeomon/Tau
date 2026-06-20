@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Callable, TYPE_CHECKING
+from typing import Awaitable, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -43,12 +43,14 @@ class AgentHookHandler:
 
     def __init__(self, runtime: Runtime, layout: Layout, tui: TUI,
                  on_palette_refresh: Callable[[], None] | None = None,
-                 on_turn_content: Callable[[], None] | None = None) -> None:
+                 on_turn_content: Callable[[], None] | None = None,
+                 on_settled: Callable[[], Awaitable[None]] | None = None) -> None:
         self._runtime = runtime
         self._layout = layout
         self._tui = tui
         self._on_palette_refresh = on_palette_refresh
         self._on_turn_content = on_turn_content
+        self._on_settled_cb = on_settled
 
         self._current_block: MessageBlock | None = None
         self._current_text_length: int = 0
@@ -149,6 +151,8 @@ class AgentHookHandler:
     async def _on_settled(self, _event: object) -> None:
         self._layout.set_pending_queue([], [])
         self._spinner(running=False)
+        if self._on_settled_cb is not None:
+            await self._on_settled_cb()
 
     async def _on_compaction_start(self, _event: object) -> None:
         self._spinner(self._layout.spinner._theme.label_compacting, running=True)
