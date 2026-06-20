@@ -13,11 +13,11 @@ def _headers_to_str(headers: dict | None) -> str:
 
 def open_theme_selector(ctx: CommandContext) -> None:
     """Open the theme selector modal with live preview."""
-    from tau.themes.registry import theme_registry
+    from tau.themes.registry import theme_registry, DEFAULT_THEME
 
     names = theme_registry.list()
     sm = ctx.runtime.settings_manager
-    original = (sm.get_theme() if sm is not None else None) or "default"
+    original = (sm.get_theme() if sm is not None else None) or DEFAULT_THEME
 
     def preview(name: str) -> None:
         """Preview the selected theme."""
@@ -54,7 +54,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
     from tau.tui.components.settings_modal import SettingItem, SettingsModal
     from tau.inference.types import Transport, ThinkingLevel
     from tau.engine.types import SteeringMode, FollowupMode
-    from tau.themes.registry import theme_registry
+    from tau.themes.registry import theme_registry, DEFAULT_THEME
 
     sm = ctx.runtime.settings_manager
     if sm is None:
@@ -137,7 +137,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
             id="theme",
             label="Theme",
             description="Color theme for the interface",
-            current_value=sm.get_theme() or "default",
+            current_value=sm.get_theme() or DEFAULT_THEME,
             submenu_items=theme_registry.list(),
             submenu_title="Theme",
         ),

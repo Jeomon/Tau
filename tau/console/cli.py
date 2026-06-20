@@ -49,7 +49,7 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
 @click.option("--provider", default=None, help="Provider to use (e.g. groq, mistral, openrouter).")
 @click.option("--model", default=None, help="Model ID, or provider/model shorthand (e.g. groq/llama-3.3-70b-versatile).")
 @click.option("--theme", "-t", default=None, metavar="NAME",
-              help="UI theme: default, dracula, nord, gruvbox, catppuccin.")
+              help="UI theme name (default: dark). Builtins: dark, light. See /theme for all installed themes.")
 @click.option("--resume", "-r", is_flag=True, default=False,
               help="Resume the most recent session.")
 @click.option("--system", "-s", default=None, metavar="TEXT",

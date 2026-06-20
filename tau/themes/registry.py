@@ -20,6 +20,11 @@ if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
 
+#: Name of the theme used when none is configured. Must always resolve to a
+#: builtin so the TUI can start even with no global/project themes installed.
+DEFAULT_THEME = "dark"
+
+
 class ThemeRegistry:
     def __init__(self) -> None:
         """Initialize an empty theme registry."""
@@ -74,6 +79,24 @@ class ThemeRegistry:
                 f"Unknown theme {name!r}. Available: {', '.join(self._registry)}"
             )
         return loader()
+
+    def get_default(self) -> "LayoutTheme":
+        """Return a theme that is guaranteed to load.
+
+        Tries the configured default, then any builtin, then falls back to a
+        bare ``LayoutTheme()`` so the UI can always start — even when no theme
+        files are present at all.
+        """
+        self._ensure_builtins()
+        for name in (DEFAULT_THEME, "light"):
+            loader = self._registry.get(name)
+            if loader is not None:
+                return loader()
+        if self._registry:
+            return next(iter(self._registry.values()))()
+        from tau.tui.theme import LayoutTheme
+
+        return LayoutTheme()
 
     def list(self) -> list[str]:
         """Return all available theme names."""

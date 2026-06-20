@@ -60,7 +60,7 @@ class App:
         keybindings: KeyMap | None = None,
     ) -> App:
         """Build the TUI around an already-constructed Runtime."""
-        from tau.themes.registry import theme_registry
+        from tau.themes.registry import theme_registry, DEFAULT_THEME
 
         cwd = runtime.session_manager.cwd if runtime.session_manager is not None else None
         theme_registry.load_external(cwd=cwd)
@@ -69,18 +69,21 @@ class App:
         prompt_registry.load_external(cwd=cwd)
 
         resolved_theme: LayoutTheme | None
-        theme_name = "default"
+        theme_name = DEFAULT_THEME
         if isinstance(theme, str):
             theme_name = theme
             resolved_theme = theme_registry.get(theme_name)
         elif theme is None:
             sm = runtime.settings_manager
-            theme_name = (sm.get_theme() if sm is not None else None) or "default"
+            theme_name = (sm.get_theme() if sm is not None else None) or DEFAULT_THEME
             try:
                 resolved_theme = theme_registry.get(theme_name)
             except ValueError:
-                theme_name = "default"
-                resolved_theme = theme_registry.get(theme_name)
+                # Configured theme is gone (e.g. an uninstalled theme package)
+                # or the default builtin is missing — fall back to a theme that
+                # is guaranteed to load instead of crashing on startup.
+                theme_name = DEFAULT_THEME
+                resolved_theme = theme_registry.get_default()
         else:
             resolved_theme = theme
 
