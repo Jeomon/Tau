@@ -119,12 +119,14 @@ async def await_oauth_code(
     """
     code: Optional[str] = None
     recv_state: Optional[str] = None
+    pending: set = set()
     try:
         if callbacks.on_manual_code_input:
             browser_task = asyncio.ensure_future(code_future)
             manual_task = asyncio.ensure_future(callbacks.on_manual_code_input())
+            pending = {browser_task, manual_task}
             done, pending = await asyncio.wait(
-                [browser_task, manual_task],
+                pending,
                 timeout=300,
                 return_when=asyncio.FIRST_COMPLETED,
             )
@@ -148,7 +150,15 @@ async def await_oauth_code(
                 recv_state = state
             except asyncio.TimeoutError:
                 pass
+    except Exception:
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        raise
     finally:
+        for task in pending:
+            if not task.done():
+                task.cancel()
         server.close()
         await server.wait_closed()
     return code, recv_state

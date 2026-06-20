@@ -54,6 +54,12 @@ class AutocompleteManager:
 
     def clear(self) -> None:
         """Dismiss both pickers — called when another picker takes over."""
+        if self._ac_pending_task is not None:
+            self._ac_pending_task.cancel()
+            self._ac_pending_task = None
+        if self._cmd_arg_pending_task is not None:
+            self._cmd_arg_pending_task.cancel()
+            self._cmd_arg_pending_task = None
         self._ac_picker.clear()
         self._cmd_arg_picker.clear()
         self._ac_active_trigger = ""

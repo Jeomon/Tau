@@ -45,6 +45,7 @@ class App:
             on_turn_content=self._input.mark_turn_content,
         )
         self._unsubs: list[Callable[[], None]] = []
+        self._pending_tasks: set[asyncio.Task] = set()
         self._last_ctrl_c: float = 0.0
         self._last_escape: float = 0.0
 
@@ -175,7 +176,11 @@ class App:
     def _on_model_palette_commit(self, model_id: str, provider: str) -> None:
         import asyncio
         from tau.tui.commands import model as cmd_model
-        asyncio.ensure_future(cmd_model._apply_model(self._ctx(), model_id, provider))
+        self._track_task(asyncio.ensure_future(cmd_model._apply_model(self._ctx(), model_id, provider)))
+
+    def _track_task(self, task: asyncio.Task) -> None:
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     # -------------------------------------------------------------------------
     # UI command registration
@@ -303,14 +308,14 @@ class App:
         # before the loop starts so the layout never renders until the user acts.
         trust_needed = self._setup_trust_screen_if_needed()
 
-        asyncio.ensure_future(self._announce_update())
+        self._track_task(asyncio.ensure_future(self._announce_update()))
 
         await self._runtime.hooks.emit(TuiStartEvent())
         try:
             await self._tui.run()
         finally:
             await self._runtime.hooks.emit(TuiExitEvent())
-            self._cleanup()
+            await self._cleanup()
 
     # -------------------------------------------------------------------------
     # Project trust prompt
@@ -357,7 +362,7 @@ class App:
             import asyncio as _asyncio
             async def _reload() -> None:
                 await self._runtime.reload_extensions()
-            _asyncio.ensure_future(_reload())
+            self._track_task(_asyncio.ensure_future(_reload()))
 
         from tau.tui.components.trust_screen import TrustScreen
         screen = TrustScreen(str(cwd), options, _on_commit)
@@ -452,7 +457,7 @@ class App:
                     ctx = ExtensionContext.from_runtime(runtime)
                     result = h(ctx)
                     if asyncio.iscoroutine(result):
-                        asyncio.ensure_future(result)  # type: ignore[arg-type]
+                        self._track_task(asyncio.ensure_future(result))  # type: ignore[arg-type]
                 return on_input
 
             self._unsubs.append(self._tui.on_input(_make_handler(key, handler)))
@@ -535,9 +540,15 @@ class App:
         ])
         self._layout.set_widget("version_update", banner, placement="above_editor")
 
-    def _cleanup(self) -> None:
+    async def _cleanup(self) -> None:
         self._input.save_history()
         self._hooks.unsubscribe()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        for task in self._pending_tasks:
+            task.cancel()
+        self._pending_tasks.clear()
+        sm = self._runtime.settings_manager
+        if sm is not None:
+            await sm.flush()

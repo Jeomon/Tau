@@ -209,6 +209,7 @@ class InputHandler:
             self._last_user_text = ""
             if last_text:
                 self._layout.input.set_text(last_text)
+            self._clear_clipboard_caches()
 
         self._turn_has_content = False
         # Stop the spinner immediately. The pre-stream branch cancels the invoke
@@ -219,6 +220,18 @@ class InputHandler:
         if queued:
             asyncio.ensure_future(self._run_queued_next(queued))
         self._tui.request_render()
+
+    def _clear_clipboard_caches(self) -> None:
+        """Clear all clipboard media caches."""
+        self._clipboard_images.clear()
+        self._clipboard_image_notes.clear()
+        self._clipboard_image_counter = 0
+        self._clipboard_audio.clear()
+        self._clipboard_audio_counter = 0
+        self._clipboard_video.clear()
+        self._clipboard_video_counter = 0
+        self._pasted_texts.clear()
+        self._paste_counter = 0
 
     async def _run_queued_next(self, texts: list[str]) -> None:
         """Submit queued input as the next task once the aborted task is idle.
