@@ -67,6 +67,7 @@ class ExtensionContext:
         layout: object | None = None,
         runtime: Runtime | None = None,
         model_thinking: bool = False,
+        llm: object | None = None,
     ) -> None:
         self._cwd = cwd
         self._settings = settings
@@ -76,6 +77,7 @@ class ExtensionContext:
         self._layout = layout
         self._runtime = runtime
         self._model_thinking = model_thinking
+        self._llm = llm
 
     @classmethod
     def from_runtime(cls, runtime: Runtime) -> ExtensionContext:
@@ -92,6 +94,7 @@ class ExtensionContext:
             layout=getattr(runtime, "_layout", None),
             runtime=runtime,
             model_thinking=bool(llm.model.thinking) if llm is not None else False,
+            llm=llm,
         )
 
     @property
@@ -118,6 +121,16 @@ class ExtensionContext:
     def model_thinking(self) -> bool:
         """Whether the active model supports extended thinking."""
         return self._model_thinking
+
+    @property
+    def llm(self):
+        """The active text LLM, or None outside a live agent session.
+
+        Exposed so extensions can run their own model calls — for example, a custom
+        ``before_compaction`` handler that summarises with a different prompt or model.
+        Has an async ``invoke(LLMContext) -> list[LLMEvent]`` method.
+        """
+        return self._llm
 
     @property
     def mode(self) -> str:

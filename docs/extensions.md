@@ -200,6 +200,7 @@ def register(tau):
 | `ctx.cwd` | `Path` | Working directory |
 | `ctx.model_id` | `str` | Active model, e.g. `"claude-sonnet-4-6"` |
 | `ctx.provider_id` | `str` | Active provider, e.g. `"anthropic"` |
+| `ctx.llm` | `TextLLM \| None` | Active text LLM for running your own model calls (`await ctx.llm.invoke(LLMContext(...))`); `None` outside a live session |
 | `ctx.settings` | `SettingsManager \| None` | Full settings access |
 | `ctx.mode` | `str` | `"tui"` when running in the interactive terminal, `"headless"` otherwise |
 | `ctx.has_ui` | `bool` | True when dialog-capable UI is available — guards TUI-only calls |
@@ -456,10 +457,12 @@ Multiple extensions run in registration order. The first non-`None` result wins.
 If a handler raises, it is logged and the next handler runs; if all fall through,
 the default algorithm runs.
 
+Runnable examples live in `examples/extensions/`: `full_summary_compaction.py` (replace the default with a single comprehensive summary via `ctx.llm`) and `block_auto_compaction.py` (cancel automatic compaction, keep manual `/compact`).
+
 ### Example — use a different model for summarisation
 
 ```python
-from tau.hooks.types import BeforeCompactionResult
+from tau.hooks import BeforeCompactionResult
 from tau.session.compaction import CompactionResult
 
 def register(tau):
@@ -489,7 +492,7 @@ def register(tau):
 ### Example — block automatic compaction
 
 ```python
-from tau.hooks.types import BeforeCompactionResult
+from tau.hooks import BeforeCompactionResult
 
 def register(tau):
     @tau.on("before_compaction")
