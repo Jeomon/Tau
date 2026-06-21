@@ -449,7 +449,8 @@ class ExtensionAPI:
           ``models``    (list[dict])     — model definitions, each with at minimum
                         ``{"id": "model-name"}``.
                         Optional fields: ``name`` (str), ``context_window`` (int),
-                        ``max_tokens`` (int), ``input_price`` (float),
+                        ``max_input_tokens`` (int), ``max_output_tokens`` (int,
+                        alias ``max_tokens``), ``input_price`` (float),
                         ``output_price`` (float), ``thinking`` (bool),
                         ``input`` (list[str]), ``output`` (list[str]).
                         Modality strings: ``"text"``, ``"image"``, ``"audio"``, ``"video"``.
@@ -500,7 +501,8 @@ class ExtensionAPI:
                 name=m.get("name", model_id),
                 provider=m.get("provider", provider_id),
                 context_window=m.get("context_window", 0),
-                max_tokens=m.get("max_tokens", 16384),
+                max_input_tokens=m.get("max_input_tokens"),
+                max_output_tokens=m.get("max_output_tokens", m.get("max_tokens", 16384)),
                 cost=Cost(
                     input=m.get("input_price", 0.0),
                     output=m.get("output_price", 0.0),

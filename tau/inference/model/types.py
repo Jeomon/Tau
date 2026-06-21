@@ -34,13 +34,27 @@ class Model:
     thinking: bool = False
     default_thinking_level: ThinkingLevel | None = None
     context_window: int = 0
-    max_tokens: int = 16384
+    max_input_tokens: int | None = None
+    max_output_tokens: int = 16384
     input: list[Modality] = field(default_factory=list)
     output: list[Modality] = field(default_factory=list)
     voices: list[str] = field(default_factory=list)
     tts_format: str | None = None
     api: str | None = None
     base_url: str | None = None
+
+    @property
+    def input_limit(self) -> int:
+        """Maximum input/prompt tokens the backend will accept.
+
+        For most models this equals ``context_window``. It differs when a model's
+        total window reserves space for output/reasoning (e.g. GPT-5: 400K total =
+        272K input + 128K output) or when a proxy enforces a smaller prompt cap
+        (e.g. GitHub Copilot caps Claude at 128K). Compaction and overflow detection
+        must key off this value — not the total window — so the proactive threshold
+        sits below the backend's hard limit instead of above it.
+        """
+        return self.max_input_tokens or self.context_window
 
     def get_name(self) -> str:
         """Return the human-readable model name."""

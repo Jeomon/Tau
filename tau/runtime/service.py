@@ -196,7 +196,7 @@ class Runtime:
         if new_llm.model.thinking:
             new_llm.api.options.thinking_level = new_llm.model.default_thinking_level
         agent._engine.set_llm(new_llm)
-        agent._context_window = new_llm.model.context_window or 128_000
+        agent._context_window = new_llm.model.input_limit or 128_000
         await self._context.hooks.emit(
             ModelSelectEvent(
                 model=new_llm.model,

@@ -140,7 +140,7 @@ class TextLLM:
             self.provider_id = resolved_provider.id
 
         if merged.max_tokens is None:
-            merged.max_tokens = model.max_tokens
+            merged.max_tokens = model.max_output_tokens
 
         # Resolve any "$ENV_VAR" / "!command" references in custom headers to
         # their values. Done once here (per provider/model selection); the

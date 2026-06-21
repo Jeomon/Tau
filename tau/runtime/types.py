@@ -280,7 +280,8 @@ class RuntimeContext:
             cwd=cwd,
             system_prompt=system_prompt,
             model=llm.model,
-            context_window=llm.model.context_window or 200_000,
+            # input_limit (not the total window) is the budget compaction/overflow key off.
+            context_window=llm.model.input_limit or 200_000,
         )
 
         # ── Agent ─────────────────────────────────────────────────────────────
