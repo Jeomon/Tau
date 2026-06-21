@@ -73,6 +73,34 @@ The `name` field in the file determines the theme name used in settings and `--t
 
 > **Formats**: `.yaml` and `.yml` are recommended. `.json` is also accepted for backwards compatibility.
 
+### Color values
+
+Every color token accepts three forms, and you can mix them freely in one theme:
+
+| Form | Example | Renders as |
+|------|---------|------------|
+| **Hex** (24-bit truecolor) | `"#a78bfa"` | exact RGB, identical on every terminal |
+| **Named ANSI** | `bright_cyan` | the terminal's own palette color (adapts to the user's terminal theme) |
+| **With attributes** | `{ color: "#a78bfa", bold: true, italic: true, dim: true }` | either hex or named, plus styling |
+
+Valid names: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `default`, and their `bright_` variants (e.g. `bright_black`).
+
+**Which to use?**
+- **Named ANSI** for a theme that should *blend into the user's terminal* (the built-in `dark` theme uses these, so its colors match whatever palette the user has set). Best for a default/adaptive theme.
+- **Hex** for a theme with an *exact, branded look* that should appear the same on every machine (the built-in `light` theme uses hex). Best for a distinctive, designed theme.
+
+An unrecognized value (a typo, or malformed hex like `#fff`) silently falls back to that token's built-in default rather than erroring. Hex must be full `#rrggbb`.
+
+### Syntax highlighting
+
+Fenced code blocks are syntax-highlighted with [Pygments](https://pygments.org/styles/). Choose the style with a top-level `code_syntax_style` key:
+
+```yaml
+code_syntax_style: monokai   # any Pygments style name; "" disables highlighting
+```
+
+Pick a dark style (`monokai`, `dracula`, `nord`, `gruvbox-dark`, …) for dark themes and a light style (`friendly`, `default`, `xcode`, `solarized-light`, …) for light backgrounds. Setting it to `""` falls back to the flat `code_block` color.
+
 ### Theme YAML format
 
 ```yaml
@@ -82,8 +110,11 @@ name: my_theme
 show_thinking:   true   # show/hide the model's thinking blocks
 show_tool_calls: true   # show/hide tool call output
 
+# Syntax highlighting for fenced code blocks (Pygments style; "" to disable)
+code_syntax_style: monokai
+
 colors:
-  # UI chrome
+  # UI chrome — hex for exact colors, or names like `bright_black` to use the terminal palette
   divider:           "#374151"
   spinner_frame:     "#0ea5e9"
   spinner_label:     "#6b7280"
