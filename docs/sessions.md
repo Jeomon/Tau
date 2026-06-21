@@ -246,10 +246,22 @@ Long sessions eventually fill the model's context window. Tau handles this autom
 
 ### How It Works
 
-1. **Auto-trigger** — after each agent turn, Tau estimates the current token usage. If `context_tokens > context_window - reserve_tokens`, compaction runs automatically.
-2. **Cut-point detection** — Tau walks backwards from the most recent message, accumulating token estimates, until it has identified the `keep_recent_tokens` worth of messages to preserve. It never cuts in the middle of a tool call/result pair.
-3. **Summarisation** — the messages before the cut point are sent to the model with a summarisation prompt. The resulting summary is stored in the session file as a `compaction` entry and prepended to the context on the next turn.
-4. **Iterative merging** — if compaction has happened before, the new summary prompt includes the previous summary so history is never lost.
+1. **Cut-point detection** — Tau walks backwards from the most recent message, accumulating token estimates, until it has identified the `keep_recent_tokens` worth of messages to preserve. It never cuts in the middle of a tool call/result pair; if the cut would land inside a turn, the turn's prefix is summarised separately.
+2. **Summarisation** — the messages before the cut point are sent to the model with a structured summarisation prompt (Goal / Progress / Decisions / Next Steps / Critical Context). The resulting summary is stored in the session file as a `compaction` entry and prepended to the context (wrapped in `<context-summary>` tags) on the next turn.
+3. **Iterative merging** — if compaction has happened before, the new summary prompt includes the previous summary so history is never lost.
+
+### When Compaction Runs
+
+Token usage is estimated from the **last successful response's reported usage** plus a chars/4 estimate of anything after it, so the trigger reflects real provider accounting rather than a pure guess. The threshold is `context_tokens > context_window - reserve_tokens`. Tau checks this at three points so context is trimmed before it can overflow:
+
+1. **Pre-flight** — before sending a new turn. Catches resumed or already-oversized sessions that would otherwise fail on the very first request.
+2. **Post-turn** — after each agent turn completes, the normal proactive path.
+3. **Overflow recovery (reactive backstop)** — if a request still fails with a provider *context-overflow* error, Tau catches it, drops the failed response, compacts, and **retries the turn once** automatically. This is bounded to a single attempt per turn — if it overflows again, Tau surfaces a message asking you to reduce context or switch to a larger-context model rather than looping.
+
+Two guards keep this stable:
+
+- **Stale-anchor guard** — immediately after a compaction, the kept messages still carry their pre-compaction (large) usage numbers. Tau skips re-triggering when the usage anchor predates the latest compaction, so it won't compact on every subsequent turn.
+- **Circuit breaker** — if automatic compaction fails repeatedly (3×), Tau stops auto-compacting for the session and surfaces a notice instead of failing silently. You can still run `/compact` manually.
 
 ### Manual Compaction
 

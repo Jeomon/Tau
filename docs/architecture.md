@@ -161,7 +161,7 @@ Before each inference call, the runtime builds the context:
 8. Count tokens
 ```
 
-If tokens exceed the model's context window, automatic compaction summarizes older messages.
+Automatic compaction summarizes older messages when context approaches the limit. It is checked before sending a turn (pre-flight) and after each turn, and — as a reactive backstop — a request that still fails with a provider context-overflow error triggers a compact-and-retry (bounded to one attempt). See [Context Compaction](sessions.md#context-compaction).
 
 ## Hook & Event System
 
