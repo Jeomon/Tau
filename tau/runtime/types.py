@@ -102,7 +102,9 @@ class RuntimeContext:
         config_dir = (config.config_dir or get_config_dir()).resolve()
 
         # Determine project trust status (needed for context file loading)
-        project_trusted: bool = config.project_trusted if config.project_trusted is not None else False
+        project_trusted: bool = (
+            config.project_trusted if config.project_trusted is not None else False
+        )
 
         # ── Settings ──────────────────────────────────────────────────────────
         if settings_manager is None:

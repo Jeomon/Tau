@@ -144,7 +144,9 @@ class Runtime:
     # -------------------------------------------------------------------------
 
     async def user_input(self, text: str, options: PromptOptions | None = None) -> None:
-        """Accept raw user text. ! runs a shell command; / goes to CommandRegistry; everything else to the agent."""
+        """Accept raw user text. ! runs a shell command; / goes to CommandRegistry;
+        everything else to the agent.
+        """
         match text.strip():
             case "":
                 return

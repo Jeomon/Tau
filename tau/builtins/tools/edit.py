@@ -150,15 +150,19 @@ class EditTool(Tool):
         super().__init__(
             name="edit",
             description=(
-                "Replace an exact string in a file. Fails if old_string is not found or (when replace_all=false) "
-                "appears more than once. Use replace_all=true to replace every occurrence."
+                "Replace an exact string in a file. Fails if old_string is not found or"
+                " (when replace_all=false) appears more than once."
+                " Use replace_all=true to replace every occurrence."
             ),
             schema=EditParams,
             kind=ToolKind.Edit,
             render_result=_render_edit_result,
             render_call=_render_edit_call,
             render_shell="default",
-            prompt_guidelines="Read the file first so you understand context. Prefer small, targeted edits over rewriting large sections.",
+            prompt_guidelines=(
+                "Read the file first so you understand context."
+                " Prefer small, targeted edits over rewriting large sections."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:
@@ -218,8 +222,12 @@ class EditTool(Tool):
             )
         )
         diff = "".join(diff_lines)
-        lines_added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
-        lines_removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+        lines_added = sum(
+            1 for line in diff_lines if line.startswith("+") and not line.startswith("+++")
+        )
+        lines_removed = sum(
+            1 for line in diff_lines if line.startswith("-") and not line.startswith("---")
+        )
 
         metadata = {
             "file_path": str(path),

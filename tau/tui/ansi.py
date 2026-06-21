@@ -102,7 +102,9 @@ def _char_width(ch: str) -> int:
     eaw = unicodedata.east_asian_width(ch)
     if eaw in ("W", "F"):
         return 2
-    if (eaw == "Na" or unicodedata.category(ch) in ("Mn", "Me", "Cf")) and unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+    if (eaw == "Na" or unicodedata.category(ch) in ("Mn", "Me", "Cf")) and unicodedata.category(
+        ch
+    ) in ("Mn", "Me", "Cf"):
         # Combining marks and format chars have zero width
         return 0
     return 1

@@ -141,7 +141,9 @@ def _messages_to_input(
     messages: list[LLMMessage],
     supports_thinking: bool = True,
 ) -> tuple[str | None, list[dict[str, Any]]]:
-    """Convert a message list to OpenAI Responses API input items, extracting system as instructions."""
+    """Convert a message list to OpenAI Responses API input items,
+    extracting system as instructions.
+    """
     instructions: str | None = None
     input_items: list[dict[str, Any]] = []
 

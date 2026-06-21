@@ -189,9 +189,12 @@ def prepare_branch_entries(entries: list[Any], token_budget: int = 0) -> BranchP
         if token_budget > 0 and total_tokens + tokens > token_budget:
             from tau.session.types import CompactionEntry
 
-            if isinstance(entry, (CompactionEntry, BranchSummaryEntry)) and total_tokens < token_budget * 0.9:
-                    messages.insert(0, message)
-                    total_tokens += tokens
+            if (
+                isinstance(entry, (CompactionEntry, BranchSummaryEntry))
+                and total_tokens < token_budget * 0.9
+            ):
+                messages.insert(0, message)
+                total_tokens += tokens
             break
 
         messages.insert(0, message)

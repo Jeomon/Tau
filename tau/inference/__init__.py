@@ -5,7 +5,9 @@ Usage:
     from tau.inference import LLM, ImageLLM, AudioLLM, VideoLLM
     from tau.inference import LLMContext, LLMOptions, StopReason
     from tau.inference import ImageContext, ImageOptions, GeneratedImage
-    from tau.inference import AudioOptions, TTSContext, STTContext, SynthesizedAudio, TranscribedAudio
+    from tau.inference import (
+        AudioOptions, TTSContext, STTContext, SynthesizedAudio, TranscribedAudio
+    )
     from tau.inference import VideoContext, VideoOptions, GeneratedVideo
 """
 

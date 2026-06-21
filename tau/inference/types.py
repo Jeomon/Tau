@@ -81,7 +81,9 @@ class ThinkingBudgets:
     max: int | None = 32768
 
     def get(self, level: ThinkingLevel) -> int:
-        """Return the budget_tokens value for the given ThinkingLevel, falling back to built-in defaults."""
+        """Return the budget_tokens value for the given ThinkingLevel,
+        falling back to built-in defaults.
+        """
         _defaults = {
             "minimal": 1024,
             "low": 2048,
@@ -183,7 +185,8 @@ def normalize_structured_response_format(
         return StructuredResponseFormat(name=name, schema=schema, strict=strict)
 
     raise TypeError(
-        "response_format must be a Pydantic model class, JSON schema dict, or StructuredResponseFormat"
+        "response_format must be a Pydantic model class, JSON schema dict,"
+        " or StructuredResponseFormat"
     )
 
 

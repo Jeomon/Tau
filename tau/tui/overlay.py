@@ -45,7 +45,8 @@ class OverlayOptions:
     """
     Positioning and sizing options for a floating overlay window.
 
-    Positioning and sizing options for a floating overlay window with full anchor support, percentage sizes,
+    Positioning and sizing options for a floating overlay window with full anchor support,
+    percentage sizes,
     min/max constraints, explicit row/col positioning, responsive visibility,
     and per-side margin control.
 

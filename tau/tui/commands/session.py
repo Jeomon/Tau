@@ -93,7 +93,9 @@ def _message_snippet(message: object) -> tuple[str, str]:
 
 
 def _message_selectable(message: object) -> bool:
-    """False for an assistant turn with unanswered tool calls (would create a dangling tool_call)."""
+    """False for an assistant turn with unanswered tool calls
+    (would create a dangling tool_call).
+    """
     from tau.message.types import AssistantMessage
 
     return not (isinstance(message, AssistantMessage) and message.tool_calls())
@@ -279,7 +281,8 @@ def open_tree_selector(ctx: CommandContext) -> None:
     def commit(entry_id: str) -> None:
         if entry_id in disabled_ids:
             ctx.notify(
-                "Can't branch from a pending tool call — pick the tool result or a later message instead."
+                "Can't branch from a pending tool call —"
+                " pick the tool result or a later message instead."
             )
             return
         asyncio.ensure_future(_apply_tree_branch(ctx, entry_id))
@@ -367,7 +370,8 @@ async def _apply_tree_branch(ctx: CommandContext, entry_id: str) -> None:
         ctx.layout.spinner.set_label("Summarizing branch…")
 
     try:
-        # When restoring a user message, navigate to its parent (navigate_id may differ from entry_id)
+        # When restoring a user message, navigate to its parent
+        # (navigate_id may differ from entry_id)
         if sm is not None and navigate_id != sm.get_leaf_id():
             ok = await ctx.runtime.navigate_tree(navigate_id, summarize=summarize)
             if not ok:

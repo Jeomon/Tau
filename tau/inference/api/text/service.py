@@ -102,7 +102,9 @@ class TextLLM:
             cand_provider = _providers.get(candidate.provider)
             if cand_provider is None:
                 continue
-            if isinstance(cand_provider, OAuthProvider) and not isinstance(self._auth_manager.get(cand_provider.id), OAuthCredential):
+            if isinstance(cand_provider, OAuthProvider) and not isinstance(
+                self._auth_manager.get(cand_provider.id), OAuthCredential
+            ):
                 continue  # no credentials — try next variant
             model = candidate
             resolved_provider = cand_provider
@@ -184,7 +186,9 @@ class TextLLM:
                         continue
                 else:
                     cred = cls._auth_manager.get(provider.id)
-                    if not isinstance(cred, APICredential) and not os.environ.get(f"{provider.id.upper()}_API_KEY"):
+                    if not isinstance(cred, APICredential) and not os.environ.get(
+                        f"{provider.id.upper()}_API_KEY"
+                    ):
                         # fall back to env var (e.g. ANTHROPIC_API_KEY)
                         continue
                 seen.add(key)
@@ -294,7 +298,10 @@ class TextLLM:
                     if not self._auth_manager.has(self.provider_id):
                         yield ErrorEvent(
                             reason=StopReason.Error,
-                            error="Authentication failed — your session has expired. Run /login to sign in again.",
+                            error=(
+                                "Authentication failed — your session has expired."
+                                " Run /login to sign in again."
+                            ),
                         )
                         return
                     # Transient refresh failure: fall through to standard handling.
@@ -348,7 +355,10 @@ class TextLLM:
                         return [
                             ErrorEvent(
                                 reason=StopReason.Error,
-                                error="Authentication failed — your session has expired. Run /login to sign in again.",
+                                error=(
+                                    "Authentication failed — your session has expired."
+                                    " Run /login to sign in again."
+                                ),
                             )
                         ]
                 return [ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)]

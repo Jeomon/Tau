@@ -85,7 +85,10 @@ class LsTool(Tool):
             render_result=_render_ls_result,
             render_call=_render_ls_call,
             render_shell="default",
-            prompt_guidelines="Use to get an overview of a directory before diving into files. Use glob for targeted file discovery.",
+            prompt_guidelines=(
+                "Use to get an overview of a directory before diving into files."
+                " Use glob for targeted file discovery."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

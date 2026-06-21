@@ -88,7 +88,8 @@ async def run_oauth_login(ctx: CommandContext, provider_id: str) -> None:
 
     ctx.layout.open_oauth_status(
         [
-            f"  {BOLD}Logging in to {provider.name}{RESET}  {DIM}(Esc not available during flow){RESET}",
+            f"  {BOLD}Logging in to {provider.name}{RESET}"
+            f"  {DIM}(Esc not available during flow){RESET}",
         ]
     )
 

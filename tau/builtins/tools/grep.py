@@ -72,7 +72,9 @@ class GrepParams(BaseModel):
     )
     include: str = Field(
         default="",
-        description="Glob pattern to filter files (e.g. '*.py'). Only used when path is a directory.",
+        description=(
+            "Glob pattern to filter files (e.g. '*.py'). Only used when path is a directory."
+        ),
     )
     case_sensitive: bool = Field(default=True, description="Whether the pattern is case-sensitive.")
 
@@ -93,7 +95,10 @@ class GrepTool(Tool):
             render_result=_render_grep_result,
             render_call=_render_grep_call,
             render_shell="default",
-            prompt_guidelines="Prefer over read when searching for a symbol, function, or pattern across the codebase.",
+            prompt_guidelines=(
+                "Prefer over read when searching for a symbol, function,"
+                " or pattern across the codebase."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

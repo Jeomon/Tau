@@ -296,9 +296,7 @@ class MessageBlock:
                     else:
                         lines.append(f"{_TOOL_INDENT}{BOLD}{display_name(item.name)}{RESET}")
                 if tool_results is not None and item.id in tool_results:
-                    lines.extend(
-                        self._render_tool_result(tool_results[item.id], width, item.name)
-                    )
+                    lines.extend(self._render_tool_result(tool_results[item.id], width, item.name))
                 # Separate consecutive tool-call blocks with a blank line so
                 # they don't render flush against each other (mirrors how
                 # ThinkingContent spaces itself above).

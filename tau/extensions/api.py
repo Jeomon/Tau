@@ -506,7 +506,6 @@ class ExtensionAPI:
         )
         TextLLM._builtin_providers().register(provider)
 
-
         models = TextLLM._builtin_models()
         for m in config.get("models", []):
             model_id = m.get("id")

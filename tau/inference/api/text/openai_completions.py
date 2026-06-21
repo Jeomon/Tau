@@ -148,7 +148,8 @@ class OpenAICompletionsAPI(BaseAPI):
         text_buf = ""
         thinking_started = False
         thinking_buf = ""
-        # Tool-call accumulation state keyed by delta index (OpenAI streams partial tool calls per-index).
+        # Tool-call accumulation state keyed by delta index
+        # (OpenAI streams partial tool calls per-index).
         tool_started: dict[int, bool] = {}
         tool_bufs: dict[int, str] = {}
         tool_meta: dict[int, dict[str, str]] = {}

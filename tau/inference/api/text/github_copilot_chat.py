@@ -55,7 +55,9 @@ class GitHubCopilotChatAPI(BaseAPI):
     """Streaming LLM API adapter for the GitHub Copilot Chat endpoint (OpenAI-compatible)."""
 
     def __init__(self, options: LLMOptions) -> None:
-        """Resolve the Copilot base URL and initialise the AsyncOpenAI client with Copilot headers."""
+        """Resolve the Copilot base URL and initialise the AsyncOpenAI client
+        with Copilot headers.
+        """
         super().__init__(options)
         base_url = options.base_url or get_copilot_base_url(options.api_key)
         self._client = AsyncOpenAI(

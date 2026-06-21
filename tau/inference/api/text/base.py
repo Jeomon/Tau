@@ -14,8 +14,9 @@ class BaseLLMAPI(ABC):
         """Validate transport compatibility and store options."""
         if options.transport not in self.SUPPORTED_TRANSPORTS:
             raise ValueError(
-                f"{self.__class__.__name__} does not support transport '{options.transport.value}'. "
-                f"Supported: {[t.value for t in self.SUPPORTED_TRANSPORTS]}"
+                f"{self.__class__.__name__} does not support transport"
+                f" '{options.transport.value}'."
+                f" Supported: {[t.value for t in self.SUPPORTED_TRANSPORTS]}"
             )
         self.options = options
 

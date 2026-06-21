@@ -10,7 +10,8 @@ from tau.tui.ansi import BOLD, CURSOR_MARKER, DIM, RESET, visible_width
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent
 
-# Matches any atomic input token at end-of-string (for backspace) or start-of-string (for delete-forward).
+# Matches any atomic input token at end-of-string (for backspace)
+# or start-of-string (for delete-forward).
 # Session-scoped (#N) and persistent (:{uuid}) variants for image/audio/video, plus paste markers.
 _ATOMIC_TOKEN_END = re.compile(
     r"(?:"

@@ -137,7 +137,8 @@ class PromptBuilder:
     Assembles the system prompt from layered sources.
 
     Layers in order:
-      Identity              — SYSTEM.md if present, else built-in identity; --system bypasses entirely
+      Identity              — SYSTEM.md if present, else built-in identity;
+                              --system bypasses entirely
       Tools section         — auto-generated from tool list (descriptions + guidelines)
       Tau docs              — tau documentation and examples
       Project Instructions  — AGENTS.md or CLAUDE.md from project (if present)
@@ -234,7 +235,8 @@ class PromptBuilder:
             " skills (docs/skills.md), keybindings (docs/keybindings.md),"
             " sessions (docs/sessions.md), usage (docs/usage.md),"
             " Python API (docs/python-api.md), inference providers (docs/inference-providers.md)\n"
-            "- Resolve all doc paths under the Docs directory above, not the current working directory\n"
+            "- Resolve all doc paths under the Docs directory above,"
+            " not the current working directory\n"
             "- Read .md files completely and follow cross-references before answering"
         )
 

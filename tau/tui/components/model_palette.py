@@ -112,7 +112,8 @@ class ModelSelectorModal:
                 else (BRIGHT_BLACK + "scoped" + RESET)
             )
             lines.append(
-                f"  {BRIGHT_BLACK}Scope:{RESET} {all_t}{BRIGHT_BLACK} | {RESET}{sc_t}  {BRIGHT_BLACK}tab: toggle{RESET}"
+                f"  {BRIGHT_BLACK}Scope:{RESET} {all_t}"
+                f"{BRIGHT_BLACK} | {RESET}{sc_t}  {BRIGHT_BLACK}tab: toggle{RESET}"
             )
         else:
             lines.append(f"  {BRIGHT_BLACK}↑/↓: navigate  enter: select  esc: cancel{RESET}")

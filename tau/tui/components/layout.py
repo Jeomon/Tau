@@ -583,7 +583,9 @@ class Layout(Component):
         pass  # inline model palette removed; /model now opens a modal
 
     def _update_arg_hint(self, text: str) -> None:
-        """Show per-placeholder ghost text after the cursor, dropping each token as the user types."""
+        """Show per-placeholder ghost text after the cursor,
+        dropping each token as the user types.
+        """
         import re
         import shlex
 
@@ -778,9 +780,7 @@ class Layout(Component):
             self.widgets_below.remove_child(below)
         self._tui.request_render()
 
-    def set_footer(
-        self, component_or_factory: Component | Callable[[], Component] | None
-    ) -> None:
+    def set_footer(self, component_or_factory: Component | Callable[[], Component] | None) -> None:
         """
         Replace the footer contents with a custom component, or clear it.
 
@@ -813,9 +813,7 @@ class Layout(Component):
         """Wire an extension autocomplete provider into the layout."""
         self._autocomplete.register_provider(registration)
 
-    def set_header(
-        self, component_or_factory: Component | Callable[[], Component] | None
-    ) -> None:
+    def set_header(self, component_or_factory: Component | Callable[[], Component] | None) -> None:
         """
         Set the header component rendered above the message list.
 

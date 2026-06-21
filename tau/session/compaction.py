@@ -152,11 +152,12 @@ def estimate_context_tokens(messages: list) -> ContextUsageEstimate:
 
     for i in range(len(messages) - 1, -1, -1):
         msg = messages[i]
-        if isinstance(msg, AssistantMessage) and msg.stop_reason not in (StopReason.Abort, StopReason.Error):
+        if isinstance(msg, AssistantMessage) and msg.stop_reason not in (
+            StopReason.Abort,
+            StopReason.Error,
+        ):
             u = msg.usage
-            total = (
-                u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
-            )
+            total = u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
             if total > 0:
                 last_usage = total
                 last_usage_idx = i
@@ -547,7 +548,8 @@ async def generate_summary(
 
 async def _generate_turn_prefix_summary(messages: list, llm: TextLLM) -> str:
     conversation_text = serialize_conversation(messages)
-    prompt = f"<conversation>\n{conversation_text}\n</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
+    conv_block = f"<conversation>\n{conversation_text}\n</conversation>"
+    prompt = f"{conv_block}\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
     return await _call_llm_for_summary(prompt, llm)
 
 

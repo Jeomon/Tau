@@ -4,7 +4,9 @@ from typing import Any
 
 
 def set_nested(d: dict, key: str, value: Any) -> None:
-    """Set ``value`` at a dot-separated ``key`` path inside dict ``d``, creating intermediate dicts."""
+    """Set ``value`` at a dot-separated ``key`` path inside dict ``d``,
+    creating intermediate dicts.
+    """
     parts = key.split(".", 1)
     if len(parts) == 1:
         d[key] = value

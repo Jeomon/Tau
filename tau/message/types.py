@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 class _LazyPIL:
-    """Defers PIL import until Image.Image is actually accessed (e.g. by Pydantic's get_type_hints)."""
+    """Defers PIL import until Image.Image is actually accessed
+    (e.g. by Pydantic's get_type_hints).
+    """
 
     def __getattr__(self, name: str):
         import PIL.Image as _pil

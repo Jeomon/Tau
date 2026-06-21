@@ -48,7 +48,10 @@ CALLBACK_HOST = "127.0.0.1"
 CALLBACK_PORT = 53692
 CALLBACK_PATH = "/callback"
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"
-SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+SCOPES = (
+    "org:create_api_key user:profile user:inference"
+    " user:sessions:claude_code user:mcp_servers user:file_upload"
+)
 
 
 def _build_authorization_url(challenge: str, state: str) -> str:
@@ -76,7 +79,10 @@ def _post_json(url: str, body: dict) -> dict:
             "Content-Type": "application/json",
             "Accept": "application/json",
             # Browser UA is required; Anthropic rejects requests without it
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
         },
         method="POST",
     )
@@ -116,7 +122,9 @@ def _refresh_token_sync(refresh_token: str) -> dict:
 
 
 def _validate_token_sync(access_token: str) -> bool:
-    """Probe the models endpoint to confirm the access token is still accepted (401/403 = invalid)."""
+    """Probe the models endpoint to confirm the access token is still accepted
+    (401/403 = invalid).
+    """
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/models",
         headers={
@@ -136,7 +144,9 @@ def _validate_token_sync(access_token: str) -> bool:
 
 
 def _parse_token_response(data: dict) -> tuple[str, str, int]:
-    """Extract (access_token, refresh_token, expires_ms) from an Anthropic token response with 5-minute buffer."""
+    """Extract (access_token, refresh_token, expires_ms) from an Anthropic token response
+    with 5-minute buffer.
+    """
     access = data.get("access_token")
     refresh = data.get("refresh_token")
     expires_in = data.get("expires_in")

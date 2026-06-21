@@ -65,15 +65,17 @@ class WriteTool(Tool):
         super().__init__(
             name="write",
             description=(
-                "Write content to a file, creating it (and any missing parent directories) if needed. "
-                "Overwrites the file if it already exists."
+                "Write content to a file, creating it (and any missing parent directories)"
+                " if needed. Overwrites the file if it already exists."
             ),
             schema=WriteParams,
             kind=ToolKind.Write,
             render_result=_render_write_result,
             render_call=_render_write_call,
             render_shell="default",
-            prompt_guidelines="Only use for new files or complete rewrites. Use edit to modify existing files.",
+            prompt_guidelines=(
+                "Only use for new files or complete rewrites. Use edit to modify existing files."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

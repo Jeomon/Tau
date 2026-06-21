@@ -71,8 +71,9 @@ class ReadTool(Tool):
         super().__init__(
             name="read",
             description=(
-                "Read the contents of a file. Returns lines with 1-based line numbers in the format "
-                "'<n>\\t<content>'. Use offset and limit to read large files in chunks."
+                "Read the contents of a file. Returns lines with 1-based line numbers"
+                " in the format '<n>\\t<content>'."
+                " Use offset and limit to read large files in chunks."
             ),
             schema=ReadParams,
             kind=ToolKind.Read,
@@ -80,7 +81,10 @@ class ReadTool(Tool):
             render_result=_render_read_result,
             render_call=_render_read_call,
             render_shell="default",
-            prompt_guidelines="Use grep first to locate the relevant section, then read with offset/limit instead of loading the entire file.",
+            prompt_guidelines=(
+                "Use grep first to locate the relevant section,"
+                " then read with offset/limit instead of loading the entire file."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

@@ -57,7 +57,9 @@ class TrustStore:
         self._write(data)
 
     def apply_option(self, option: TrustOption) -> None:
-        """Persist a :class:`TrustOption`. ``save_path=None`` means session-only — nothing is written."""
+        """Persist a :class:`TrustOption`. ``save_path=None`` means session-only —
+        nothing is written.
+        """
         if option.save_path is None:
             return
         data = self._read()

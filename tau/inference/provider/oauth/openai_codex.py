@@ -102,7 +102,9 @@ def _build_authorization_url(challenge: str, state: str, originator: str) -> str
 
 
 def _post_token(body: dict[str, str]) -> dict:
-    """POST a token request to OpenAI and return the parsed response; raise RuntimeError on HTTP errors."""
+    """POST a token request to OpenAI and return the parsed response;
+    raise RuntimeError on HTTP errors.
+    """
     data = urllib.parse.urlencode(body).encode()
     req = urllib.request.Request(
         TOKEN_URL,
@@ -296,7 +298,8 @@ async def refresh_openai_codex_token(
     account_id = _get_account_id(access)
     if not account_id:
         raise ValueError(
-            "missing chatgpt_account_id in refreshed token. Ensure you have a valid ChatGPT subscription."
+            "missing chatgpt_account_id in refreshed token."
+            " Ensure you have a valid ChatGPT subscription."
         )
 
     return OAuthCredential(

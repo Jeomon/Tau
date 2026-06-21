@@ -331,7 +331,9 @@ class Agent:
         inp = u.input_tokens + u.cache_read_tokens
         if message.stop_reason == StopReason.Stop and inp > cw:
             return True
-        return bool(message.stop_reason == StopReason.Length and u.output_tokens == 0 and inp >= cw * 0.99)
+        return bool(
+            message.stop_reason == StopReason.Length and u.output_tokens == 0 and inp >= cw * 0.99
+        )
 
     async def _try_overflow_recovery(self) -> bool:
         """If the last turn died with a context-overflow error, compact once and signal a retry.

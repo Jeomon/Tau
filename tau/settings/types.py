@@ -70,9 +70,7 @@ class CompactionSettings:
 @dataclass
 class BranchSummarySettings:
     enabled: bool | None = None  # enable branch summarization (default: True)
-    skip_prompt: bool | None = (
-        None  # always skip the "Summarize branch?" prompt (default: False)
-    )
+    skip_prompt: bool | None = None  # always skip the "Summarize branch?" prompt (default: False)
     reserve_tokens: int | None = None  # tokens to reserve when summarizing (default: 16384)
 
 
@@ -117,9 +115,7 @@ class PackagesSettings:
 @dataclass
 class TerminalSettings:
     shell_path: str | None = None  # custom shell binary (default: system shell)
-    shell_command_prefix: str | None = (
-        None  # lines prepended inside the shell before each command
-    )
+    shell_command_prefix: str | None = None  # lines prepended inside the shell before each command
 
 
 @dataclass
@@ -166,7 +162,8 @@ class Settings:
 
     # Project trust (global only)
     project_trust: Literal["ask", "always", "never"] | None = (
-        None  # default: "ask" — controls loading of project files (.tau/ config, extensions), project context files (AGENTS.md/CLAUDE.md), and project skills
+        None  # default: "ask" — controls loading of project files (.tau/ config, extensions),
+        # project context files (AGENTS.md/CLAUDE.md), and project skills
     )
 
     # Session
@@ -179,10 +176,10 @@ class Settings:
     double_escape_action: Literal["fork", "tree", "none"] | None = (
         None  # action on double-Escape with empty editor (default: "fork")
     )
-    tree_filter_mode: Literal["default", "no-tools", "user-only", "labeled-only", "all"] | None = None  # default /tree filter mode
-    autocomplete_max_visible: int | None = (
-        None  # max items in autocomplete dropdown (default: 5)
+    tree_filter_mode: Literal["default", "no-tools", "user-only", "labeled-only", "all"] | None = (
+        None  # default /tree filter mode
     )
+    autocomplete_max_visible: int | None = None  # max items in autocomplete dropdown (default: 5)
     show_hardware_cursor: bool | None = (
         None  # show terminal cursor while positioning (IME support, default: False)
     )

@@ -140,7 +140,9 @@ class ExtensionContext:
 
     @property
     def mode(self) -> str:
-        """Execution mode: ``'tui'`` when running inside an interactive TUI session, ``'headless'`` otherwise."""
+        """Execution mode: ``'tui'`` when running inside an interactive TUI session,
+        ``'headless'`` otherwise.
+        """
         return "tui" if self._layout is not None else "headless"
 
     @property

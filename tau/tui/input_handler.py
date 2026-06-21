@@ -121,7 +121,8 @@ class InputHandler:
         if missing_images:
             plural = "s" if missing_images > 1 else ""
             self._notify(
-                f"{missing_images} image{plural} could not be found — the media file{plural} may have been deleted or moved.",
+                f"{missing_images} image{plural} could not be found —"
+                f" the media file{plural} may have been deleted or moved.",
                 type="error",
             )
             return

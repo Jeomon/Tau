@@ -21,7 +21,9 @@ class AgentEndReason(StrEnum):
 
 @dataclass
 class ContextEvent:
-    """Carries the full message history just before it is sent to the LLM; handlers may rewrite it."""
+    """Carries the full message history just before it is sent to the LLM;
+    handlers may rewrite it.
+    """
 
     type: Literal["context"] = field(default="context", init=False)
     messages: list[Any] = field(default_factory=list)
@@ -29,7 +31,9 @@ class ContextEvent:
 
 @dataclass
 class BeforeAgentStartEvent:
-    """Fired after the user prompt is known but before the engine loop begins; handlers may override the system prompt."""
+    """Fired after the user prompt is known but before the engine loop begins;
+    handlers may override the system prompt.
+    """
 
     type: Literal["before_agent_start"] = field(default="before_agent_start", init=False)
     prompt: str = ""
@@ -97,7 +101,9 @@ class MessageUpdateEvent:
 
 @dataclass
 class MessageEndEvent:
-    """Fired when the assistant message is fully received; handlers may replace it via MessageEndEventResult."""
+    """Fired when the assistant message is fully received;
+    handlers may replace it via MessageEndEventResult.
+    """
 
     type: Literal["message_end"] = field(default="message_end", init=False)
     message: Any = None
@@ -118,7 +124,9 @@ class MessageRollbackEvent:
 
 @dataclass
 class ToolExecutionFailureEvent:
-    """Fired when a tool raises an uncaught exception, distinct from a tool returning an error result."""
+    """Fired when a tool raises an uncaught exception,
+    distinct from a tool returning an error result.
+    """
 
     type: Literal["tool_execution_failure"] = field(default="tool_execution_failure", init=False)
     tool_name: str = ""
@@ -163,7 +171,9 @@ class ToolCallEvent:
 
 @dataclass
 class ToolResultEvent:
-    """Fired after tool execution; handlers may override the result content via ToolResultEventResult."""
+    """Fired after tool execution; handlers may override the result content
+    via ToolResultEventResult.
+    """
 
     type: Literal["tool_result"] = field(default="tool_result", init=False)
     tool_call_id: str = ""

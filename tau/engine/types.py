@@ -157,7 +157,9 @@ class _MessageQueue:
         return self.queue.empty()
 
     def snapshot(self) -> list[LLMMessage]:
-        """Return a non-destructive copy of queued messages for inspection (e.g. QueueUpdateEvent)."""
+        """Return a non-destructive copy of queued messages for inspection
+        (e.g. QueueUpdateEvent).
+        """
         return list(self.queue._queue)  # type: ignore[attr-defined]
 
     async def dequeue(self) -> list[LLMMessage]:

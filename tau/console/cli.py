@@ -70,7 +70,9 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     "-t",
     default=None,
     metavar="NAME",
-    help="UI theme name (default: dark). Builtins: dark, light. See /theme for all installed themes.",
+    help=(
+        "UI theme name (default: dark). Builtins: dark, light. See /theme for all installed themes."
+    ),
 )
 @click.option("--resume", "-r", is_flag=True, default=False, help="Resume the most recent session.")
 @click.option(

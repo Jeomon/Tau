@@ -82,9 +82,7 @@ def _get_urls(domain: str) -> dict[str, str]:
     }
 
 
-def get_copilot_base_url(
-    token: str | None = None, enterprise_domain: str | None = None
-) -> str:
+def get_copilot_base_url(token: str | None = None, enterprise_domain: str | None = None) -> str:
     """Derive the Copilot API base URL from a token's proxy-ep claim or enterprise domain."""
     if token:
         match = re.search(r"proxy-ep=([^;]+)", token)
@@ -97,10 +95,10 @@ def get_copilot_base_url(
     return "https://api.individual.githubcopilot.com"
 
 
-def _fetch_json(
-    url: str, *, method: str = "GET", headers: dict, body: bytes | None = None
-) -> dict:
-    """Send an HTTP request and return the parsed JSON response; raise RuntimeError on HTTP errors."""
+def _fetch_json(url: str, *, method: str = "GET", headers: dict, body: bytes | None = None) -> dict:
+    """Send an HTTP request and return the parsed JSON response;
+    raise RuntimeError on HTTP errors.
+    """
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=30) as resp:

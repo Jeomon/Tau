@@ -82,7 +82,10 @@ def open_settings_panel(ctx: CommandContext) -> None:
         SettingItem(
             id="show_images",
             label="Show images",
-            description="Render inline images using terminal graphics (Kitty/iTerm2); disable to show text placeholders",
+            description=(
+                "Render inline images using terminal graphics (Kitty/iTerm2);"
+                " disable to show text placeholders"
+            ),
             current_value="true" if sm.get_show_images() else "false",
             values=["true", "false"],
         ),
@@ -148,21 +151,29 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 SettingItem(
                     id="proxy_url",
                     label="URL",
-                    description="Proxy URL for HTTP and HTTPS requests (overrides HTTP_PROXY env var)",
+                    description=(
+                        "Proxy URL for HTTP and HTTPS requests (overrides HTTP_PROXY env var)"
+                    ),
                     current_value=sm.get_proxy_url() or "",
                     text_input=True,
                 ),
                 SettingItem(
                     id="proxy_no_proxy",
                     label="No-proxy hosts",
-                    description="Comma-separated hostnames to exclude from proxying (overrides NO_PROXY env var)",
+                    description=(
+                        "Comma-separated hostnames to exclude from proxying"
+                        " (overrides NO_PROXY env var)"
+                    ),
                     current_value=sm.get_no_proxy() or "",
                     text_input=True,
                 ),
                 SettingItem(
                     id="proxy_headers",
                     label="Headers (JSON)",
-                    description='Custom proxy headers as JSON object, e.g. {"Authorization": "Bearer token"}',
+                    description=(
+                        "Custom proxy headers as JSON object,"
+                        ' e.g. {"Authorization": "Bearer token"}'
+                    ),
                     current_value=_headers_to_str(sm.get_proxy_headers()),
                     text_input=True,
                 ),
@@ -215,7 +226,9 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 SettingItem(
                     id="compaction_reserve_tokens",
                     label="Reserve tokens",
-                    description="Tokens reserved for LLM response during compaction (default: 16384)",
+                    description=(
+                        "Tokens reserved for LLM response during compaction (default: 16384)"
+                    ),
                     current_value=str(sm.get_compaction_reserve_tokens()),
                     text_input=True,
                 ),
@@ -245,7 +258,10 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 SettingItem(
                     id="branch_summary_skip_prompt",
                     label="Skip prompt",
-                    description="Always skip the 'Summarize branch?' confirmation (only applies when enabled)",
+                    description=(
+                        "Always skip the 'Summarize branch?' confirmation"
+                        " (only applies when enabled)"
+                    ),
                     current_value="true" if sm.get_branch_summary_skip_prompt() else "false",
                     values=["false", "true"],
                 ),
@@ -284,7 +300,10 @@ def open_settings_panel(ctx: CommandContext) -> None:
         SettingItem(
             id="project_trust",
             label="Project trust",
-            description="Whether to load project config, extensions, and context files from .tau/ directories",
+            description=(
+                "Whether to load project config, extensions,"
+                " and context files from .tau/ directories"
+            ),
             current_value=sm.get_project_trust(),
             values=["ask", "always", "never"],
         ),

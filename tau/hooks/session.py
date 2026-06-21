@@ -48,7 +48,9 @@ class SessionStartEvent:
 
 @dataclass
 class SessionBeforeSwitchEvent:
-    """Fired before the active session is replaced; handlers may cancel with SessionBeforeSwitchResult."""
+    """Fired before the active session is replaced;
+    handlers may cancel with SessionBeforeSwitchResult.
+    """
 
     type: Literal["session_before_switch"] = field(default="session_before_switch", init=False)
     reason: SessionBeforeSwitchReason = SessionBeforeSwitchReason.New
@@ -57,7 +59,9 @@ class SessionBeforeSwitchEvent:
 
 @dataclass
 class SessionBeforeForkEvent:
-    """Fired before a session tree branch is created; handlers may cancel with SessionBeforeForkResult."""
+    """Fired before a session tree branch is created;
+    handlers may cancel with SessionBeforeForkResult.
+    """
 
     type: Literal["session_before_fork"] = field(default="session_before_fork", init=False)
     entry_id: str = ""

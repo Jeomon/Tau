@@ -6,7 +6,9 @@ from typing import Any, Literal
 
 @dataclass
 class InputEvent:
-    """Fired when a new user message is received; handlers may transform or handle it via InputEventResult."""
+    """Fired when a new user message is received;
+    handlers may transform or handle it via InputEventResult.
+    """
 
     type: Literal["input"] = field(default="input", init=False)
     text: str = ""
@@ -110,7 +112,9 @@ class RuntimeStopEvent:
 
 @dataclass
 class InputEventResult:
-    """Returned by input handlers; 'transform' replaces text, 'handled' suppresses normal processing."""
+    """Returned by input handlers; 'transform' replaces text,
+    'handled' suppresses normal processing.
+    """
 
     action: Literal["continue", "transform", "handled"] = "continue"
     text: str | None = None

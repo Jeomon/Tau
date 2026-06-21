@@ -530,7 +530,8 @@ class Engine:
                     await signal_task
 
     async def _loop(self, messages: list[LLMMessage], emit: EmitEvent, signal: AbortSignal) -> None:
-        """Core agentic loop: stream LLM → execute tools → inject steering/follow-ups → repeat until done.
+        """Core agentic loop: stream LLM → execute tools → inject steering/follow-ups →
+        repeat until done.
 
         Args:
             messages: Conversation history to pass to the LLM.
@@ -552,7 +553,8 @@ class Engine:
                 ctx_messages = list(messages)
 
                 if self.options.transform_context is not None:
-                    # Allows callers (e.g. Agent) to inject compaction or strip unusable trailing messages.
+                    # Allows callers (e.g. Agent) to inject compaction
+                    # or strip unusable trailing messages.
                     ctx_messages = self.options.transform_context(ctx_messages, signal)
 
                 if signal.is_set():
@@ -744,7 +746,9 @@ class Engine:
 
                 await emit(TurnEndEvent(message=message, tool_results=tool_results))
 
-                if self.options.should_stop_after_turn and self.options.should_stop_after_turn(message, tool_results):
+                if self.options.should_stop_after_turn and self.options.should_stop_after_turn(
+                    message, tool_results
+                ):
                     break
 
                 tool_results.clear()
@@ -769,7 +773,8 @@ class Engine:
             self.state.idle_event.set()
 
     async def run_continue(self) -> None:
-        """Resume an idle engine from its current message history, draining queued steering/follow-up first.
+        """Resume an idle engine from its current message history,
+        draining queued steering/follow-up first.
 
         Raises:
             RuntimeError: If the engine is currently streaming or has no messages.
@@ -828,7 +833,9 @@ class Engine:
         await self._loop_continue()
 
     async def _loop_continue(self) -> None:
-        """Re-enter the loop with existing state.messages (used when last message is a tool result)."""
+        """Re-enter the loop with existing state.messages
+        (used when last message is a tool result).
+        """
         self._signal = asyncio.Event()  # standalone re-entry gets its own fresh signal
         self.state.is_streaming = True
         self.state.idle_event.clear()

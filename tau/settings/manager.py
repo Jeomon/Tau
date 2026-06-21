@@ -91,7 +91,9 @@ class SettingsManager:
         config_dir: Path | None = None,
         project_trusted: bool = True,
     ) -> SettingsManager:
-        """Create a SettingsManager backed by files in cwd (and optional config_dir for global settings)."""
+        """Create a SettingsManager backed by files in cwd
+        (and optional config_dir for global settings).
+        """
         storage = FileSettingsStorage(cwd, config_dir)
         return SettingsManager.from_storage(storage, project_trusted=project_trusted)
 
@@ -121,7 +123,9 @@ class SettingsManager:
 
     @staticmethod
     def in_memory(settings: dict | None = None) -> SettingsManager:
-        """Create an in-memory SettingsManager with optional seed data (no file I/O, useful for testing)."""
+        """Create an in-memory SettingsManager with optional seed data
+        (no file I/O, useful for testing).
+        """
         storage = InMemorySettingsStorage()
         settings_dict = settings or {}
         storage.with_lock(
@@ -146,7 +150,9 @@ class SettingsManager:
 
     @staticmethod
     def _settings_from_dict(data: dict) -> Settings:
-        """Construct a Settings instance from a raw dict, rebuilding nested dataclasses from plain dicts."""
+        """Construct a Settings instance from a raw dict,
+        rebuilding nested dataclasses from plain dicts.
+        """
         valid_settings = {f.name for f in dc.fields(Settings)}
         kwargs: dict[str, Any] = {}
         for key, value in data.items():
@@ -216,7 +222,9 @@ class SettingsManager:
     def _try_load_from_storage(
         storage: SettingsStorage, scope: SCOPE
     ) -> tuple[Settings, Exception | None]:
-        """Load settings for the given scope, returning an empty Settings and the error on failure."""
+        """Load settings for the given scope,
+        returning an empty Settings and the error on failure.
+        """
         try:
             return (SettingsManager._load_from_storage(storage, scope), None)
         except Exception as e:
@@ -225,7 +233,9 @@ class SettingsManager:
     def _deep_merge_settings(
         self, global_settings: Settings, project_settings: Settings
     ) -> Settings:
-        """Merge global and project settings; project wins, nested dataclasses merge field by field."""
+        """Merge global and project settings; project wins,
+        nested dataclasses merge field by field.
+        """
         merged = copy.deepcopy(global_settings)
         for key, value in vars(project_settings).items():
             if value is None:
@@ -255,7 +265,9 @@ class SettingsManager:
             self.modified_project_nested_fields.setdefault(field, set()).add(nested_field)
 
     def _clone_modified_nested_fields(self, source: dict[str, set[str]]) -> dict[str, set[str]]:
-        """Snapshot the nested-field modification tracker so async writes see state at enqueue time."""
+        """Snapshot the nested-field modification tracker
+        so async writes see state at enqueue time.
+        """
         return {key: set(value) for key, value in source.items()}
 
     def _record_error(self, scope: SCOPE, error: Exception):
@@ -297,7 +309,9 @@ class SettingsManager:
         modified_fields: set[str],
         modified_nested_fields: dict[str, set[str]],
     ):
-        """Write only the modified fields back to storage, merging at the key level to preserve concurrent changes."""
+        """Write only the modified fields back to storage,
+        merging at the key level to preserve concurrent changes.
+        """
 
         def persist_fn(current):
             current_dict = json.loads(current) if current else {}
@@ -321,7 +335,9 @@ class SettingsManager:
         self.storage.with_lock(scope, persist_fn)
 
     def begin_batch(self) -> None:
-        """Suppress disk writes until save_batch() is called. In-memory state still updates immediately."""
+        """Suppress disk writes until save_batch() is called.
+        In-memory state still updates immediately.
+        """
         self._batch_mode = True
 
     def save_batch(self) -> None:
@@ -588,7 +604,9 @@ class SettingsManager:
     # ── Image ─────────────────────────────────────────────────────────────────
 
     def get_image_auto_resize(self) -> bool:
-        """Return whether images are auto-resized to 2000×2000 before being sent to the LLM (default: True)."""
+        """Return whether images are auto-resized to 2000x2000
+        before being sent to the LLM (default: True).
+        """
         i = self.settings.image
         return i.auto_resize if i and i.auto_resize is not None else True
 
@@ -992,7 +1010,9 @@ class SettingsManager:
         return v if v is not None else 5
 
     def set_autocomplete_max_visible(self, value: int) -> None:
-        """Set the maximum number of visible autocomplete suggestions and persist to global settings."""
+        """Set the maximum number of visible autocomplete suggestions
+        and persist to global settings.
+        """
         self.global_settings.autocomplete_max_visible = max(1, value)
         self._mark_modified("autocomplete_max_visible")
         self._save()

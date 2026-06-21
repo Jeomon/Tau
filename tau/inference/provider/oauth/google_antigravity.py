@@ -77,7 +77,9 @@ def _build_authorization_url(state: str) -> str:
 
 
 def _post_form(url: str, body: dict) -> dict:
-    """POST a form-encoded request and return the parsed JSON response; raise RuntimeError on HTTP errors."""
+    """POST a form-encoded request and return the parsed JSON response;
+    raise RuntimeError on HTTP errors.
+    """
     data = urllib.parse.urlencode(body).encode()
     req = urllib.request.Request(
         url,
@@ -154,7 +156,9 @@ _ANTIGRAVITY_AUTH_FILE = Path.home() / ".config" / "operator" / "antigravity_aut
 
 
 def read_antigravity_file_credential() -> OAuthCredential | None:
-    """Read the Antigravity credential from ~/.config/operator/antigravity_auth.json, if available."""
+    """Read the Antigravity credential from ~/.config/operator/antigravity_auth.json,
+    if available.
+    """
     try:
         data = json.loads(_ANTIGRAVITY_AUTH_FILE.read_text(encoding="utf-8"))
         access = data.get("access_token", "")
@@ -261,7 +265,9 @@ class GoogleAntigravityOAuthProvider(OAuthProvider):
         return await refresh_antigravity_token(credential, signal=signal)
 
     async def logout(self, credential: OAuthCredential) -> None:
-        """Revoke the access token at the Google revocation endpoint (best-effort, silently ignores errors)."""
+        """Revoke the access token at the Google revocation endpoint
+        (best-effort, silently ignores errors).
+        """
         # Revoke token via Google's revocation endpoint
         try:
             req = urllib.request.Request(

@@ -77,8 +77,8 @@ async def start_oauth_callback_server(
 
                 if error:
                     writer.write(
-                        b"HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
-                        + OAUTH_ERROR_HTML
+                        b"HTTP/1.1 400 Bad Request\r\n"
+                        b"Content-Type: text/html; charset=utf-8\r\n\r\n" + OAUTH_ERROR_HTML
                     )
                 elif recv_state == expected_state and code:
                     writer.write(
@@ -89,8 +89,8 @@ async def start_oauth_callback_server(
                         code_future.set_result(code)
                 else:
                     writer.write(
-                        b"HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
-                        + OAUTH_ERROR_HTML
+                        b"HTTP/1.1 400 Bad Request\r\n"
+                        b"Content-Type: text/html; charset=utf-8\r\n\r\n" + OAUTH_ERROR_HTML
                     )
             else:
                 writer.write(b"HTTP/1.1 404 Not Found\r\n\r\n")

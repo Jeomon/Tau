@@ -297,7 +297,9 @@ class SessionManager:
         details: dict | None = None,
         from_hook: bool = False,
     ) -> str:
-        """Navigate to branch_from_id and append a branch_summary entry capturing the abandoned path."""
+        """Navigate to branch_from_id and append a branch_summary entry
+        capturing the abandoned path.
+        """
         if branch_from_id is not None and branch_from_id not in self.by_id:
             raise KeyError(f"Entry {branch_from_id} not found.")
         self.leaf_id = branch_from_id
@@ -669,7 +671,9 @@ class SessionManager:
         return sessions
 
     @staticmethod
-    def list_all(on_progress: Callable[[int, int], None] | None = None) -> builtins.list[SessionInfo]:
+    def list_all(
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> builtins.list[SessionInfo]:
         sessions_dir = get_sessions_dir()
         if not sessions_dir.exists():
             return []

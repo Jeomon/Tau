@@ -67,7 +67,8 @@ class SkillRegistry(Registry[Skill, SkillLoadError]):
         lines.append("</available_skills>")
         lines.append("")
         lines.append(
-            "When a task matches a skill's description, use the read tool to load the skill file and follow its instructions."
+            "When a task matches a skill's description, use the read tool to load the skill file"
+            " and follow its instructions."
         )
         return "\n".join(lines)
 

@@ -85,7 +85,9 @@ class TerminalTool(Tool):
             render_result=_render_terminal_result,
             render_call=_render_terminal_call,
             render_shell="default",
-            prompt_guidelines="Run tests or the build after making code changes to verify correctness.",
+            prompt_guidelines=(
+                "Run tests or the build after making code changes to verify correctness."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:
