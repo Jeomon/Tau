@@ -158,6 +158,7 @@ class TextLLM:
         """Return all models whose provider has usable auth (stored credential or env var)."""
         import os
         from tau.inference.provider.types import OAuthProvider
+        from tau.inference.types import AuthType
         from tau.auth.types import OAuthCredential, APICredential
 
         cls._auth_manager.reload()  # pick up any credentials added since startup
@@ -171,7 +172,9 @@ class TextLLM:
                 provider = cls._providers.get(candidate.provider)
                 if provider is None:
                     continue
-                if isinstance(provider, OAuthProvider):
+                if getattr(provider, "auth_type", None) == AuthType.None_:
+                    pass  # no credential required (e.g. local Ollama)
+                elif isinstance(provider, OAuthProvider):
                     if not isinstance(cls._auth_manager.get(provider.id), OAuthCredential):
                         continue
                 else:

@@ -3,7 +3,7 @@ from tau.inference.provider.oauth.anthropic_claude_code import AnthropicClaudeCo
 from tau.inference.provider.oauth.github_copilot import GitHubCopilotOAuthProvider
 from tau.inference.provider.oauth.google_antigravity import GoogleAntigravityOAuthProvider
 from tau.inference.provider.types import APIProvider
-from tau.inference.types import LLMOptions
+from tau.inference.types import AuthType, LLMOptions
 
 api_providers = [
     APIProvider(id="openai",     name="OpenAI",          api="openai_responses",   options=LLMOptions()),
@@ -20,7 +20,7 @@ api_providers = [
     APIProvider(id="deepseek",   name="DeepSeek",        api="openai_completions", options=LLMOptions(base_url="https://api.deepseek.com")),
     APIProvider(id="kilocode",   name="Kilo Code",       api="openai_completions", options=LLMOptions(base_url="https://api.kilo.ai/api/gateway")),
     APIProvider(id="mistral",    name="Mistral",         api="mistral_chat",       options=LLMOptions()),
-    APIProvider(id="ollama",     name="Ollama",          api="ollama_chat",        options=LLMOptions(base_url="http://localhost:11434")),
+    APIProvider(id="ollama",     name="Ollama",          api="ollama_chat",        options=LLMOptions(base_url="http://localhost:11434"), auth_type=AuthType.None_),
 ]
 
 oauth_providers = [

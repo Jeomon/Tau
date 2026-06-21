@@ -32,6 +32,7 @@ class AuthType(str, Enum):
 
     ApiKey = "api_key"
     OAuth = "oauth"
+    None_ = "none"  # provider needs no credential (e.g. local Ollama, which also proxies cloud models)
 
 
 class StopReason(str, Enum):
