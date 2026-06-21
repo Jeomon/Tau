@@ -204,6 +204,7 @@ class OverlayEntry:
     component: "Component"
     options: OverlayOptions = field(default_factory=OverlayOptions)
     hidden: bool = False
+    pre_focus: "Component | None" = None  # focus target to restore when this overlay closes
 
     def is_visible(self, term_w: int, term_h: int) -> bool:
         """Return False if the responsive visible() callback hides this overlay."""

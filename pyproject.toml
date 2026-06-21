@@ -29,6 +29,7 @@ dependencies = [
     "pygments==2.20.0",
     "pathspec==1.1.1",
     "gitpython==3.1.50",
+    "grapheme==0.6.0",
 ]
 
 [project.scripts]

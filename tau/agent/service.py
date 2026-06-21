@@ -268,17 +268,25 @@ class Agent:
         llm_messages = _to_llm_messages(session_ctx.messages)
 
         usage = estimate_context_tokens(llm_messages)
-        if not should_compact(usage.tokens, self._context_window, settings):
-            return
 
-        # Stale-anchor guard: right after a compaction the kept messages still carry
-        # pre-compaction usage on their anchor, which would re-trigger compaction every
-        # turn. Skip if the usage anchor predates the latest compaction boundary.
-        if usage.last_usage_index is not None:
-            anchor = llm_messages[usage.last_usage_index]
-            comp_ts = self._latest_compaction_timestamp()
-            if comp_ts is not None and getattr(anchor, "timestamp", 0.0) <= comp_ts:
+        # "Silent" overflow: some providers accept an over-limit prompt and return a
+        # successful response (z.ai) or truncate the input and stop with no output
+        # (Xiaomi MiMo) instead of erroring. The threshold check can miss these, so
+        # force compaction when the last response shows the symptom.
+        last = self._session_manager.find_last_assistant_message()
+        forced = last is not None and self._is_silent_overflow(last)
+
+        if not forced:
+            if not should_compact(usage.tokens, self._context_window, settings):
                 return
+            # Stale-anchor guard: right after a compaction the kept messages still carry
+            # pre-compaction usage on their anchor, which would re-trigger compaction every
+            # turn. Skip if the usage anchor predates the latest compaction boundary.
+            if usage.last_usage_index is not None:
+                anchor = llm_messages[usage.last_usage_index]
+                comp_ts = self._latest_compaction_timestamp()
+                if comp_ts is not None and getattr(anchor, "timestamp", 0.0) <= comp_ts:
+                    return
 
         preparation = prepare_compaction(entries, settings)
         if preparation is None:
@@ -288,6 +296,25 @@ class Agent:
             await self._apply_compaction(preparation, entries, manual=False)
         except Exception:
             self._compaction_failures += 1
+
+    def _is_silent_overflow(self, message: AssistantMessage) -> bool:
+        """Detect overflow on a *successful* response (no error was raised).
+
+        - Silent (z.ai): a normal stop whose input tokens exceed the window.
+        - Length-stop (Xiaomi MiMo): server truncated the input to fill the window,
+          leaving no room to generate, so it stops with zero output.
+        """
+        from tau.inference.types import StopReason
+        cw = self._context_window
+        if cw <= 0:
+            return False
+        u = message.usage
+        inp = u.input_tokens + u.cache_read_tokens
+        if message.stop_reason == StopReason.Stop and inp > cw:
+            return True
+        if message.stop_reason == StopReason.Length and u.output_tokens == 0 and inp >= cw * 0.99:
+            return True
+        return False
 
     async def _try_overflow_recovery(self) -> bool:
         """If the last turn died with a context-overflow error, compact once and signal a retry.

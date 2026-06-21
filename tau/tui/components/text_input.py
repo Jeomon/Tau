@@ -5,6 +5,8 @@ import unicodedata as _ud
 from typing import Callable
 
 from tau.tui.ansi import CURSOR_MARKER, visible_width, RESET, DIM, BOLD
+import grapheme
+
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent
 
@@ -41,6 +43,7 @@ class TextInput(Component):
     ctrl+k                Kill from cursor to end
     ctrl+u                Kill from start to cursor
     ctrl+w                Delete previous word
+    alt/ctrl + Left/Right Move by word
     ctrl+z / ctrl+y       Undo / redo (word-level grouping)
     Up / Down             Move between lines; browse history at the first/last line
     Enter                 Submit / steer mid-task when agent is busy
@@ -190,6 +193,10 @@ class TextInput(Component):
             self._backspace()
         elif event.matches(Key.DELETE, Key.ctrl("d")):
             self._delete_forward()
+        elif event.matches(Key.alt(Key.LEFT), Key.ctrl(Key.LEFT)):
+            self._word_left()
+        elif event.matches(Key.alt(Key.RIGHT), Key.ctrl(Key.RIGHT)):
+            self._word_right()
         elif event.matches(Key.LEFT):
             self._move_left()
         elif event.matches(Key.RIGHT):
@@ -331,8 +338,10 @@ class TextInput(Component):
                 self._text = self._text[:start] + self._text[self._cursor :]
                 self._cursor = start
             else:
-                self._text = self._text[: self._cursor - 1] + self._text[self._cursor :]
-                self._cursor -= 1
+                # Delete the whole grapheme cluster before the cursor.
+                start = grapheme.safe_split_index(self._text, self._cursor - 1)
+                self._text = self._text[:start] + self._text[self._cursor :]
+                self._cursor = start
             self._line_scrolls = {}
 
     def _delete_forward(self) -> None:
@@ -343,7 +352,9 @@ class TextInput(Component):
             if m:
                 self._text = self._text[: self._cursor] + after[m.end() :]
             else:
-                self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                # Delete the whole grapheme cluster at the cursor.
+                cluster = next(iter(grapheme.graphemes(after)), "")
+                self._text = self._text[: self._cursor] + after[len(cluster):]
             self._line_scrolls = {}
 
     def _move_left(self) -> None:
@@ -356,7 +367,7 @@ class TextInput(Component):
             if m:
                 self._cursor = m.start()
             else:
-                self._cursor -= 1
+                self._cursor = grapheme.safe_split_index(self._text, self._cursor - 1)
 
     def _move_right(self) -> None:
         self._last_edit = None
@@ -366,7 +377,29 @@ class TextInput(Component):
             if m:
                 self._cursor += m.end()
             else:
-                self._cursor += 1
+                cluster = next(iter(grapheme.graphemes(after)), "")
+                self._cursor += len(cluster)
+
+    def _word_left(self) -> None:
+        """Move the cursor to the start of the previous word."""
+        self._last_edit = None
+        i = self._cursor
+        while i > 0 and self._text[i - 1] in (" ", "\n"):
+            i -= 1
+        while i > 0 and self._text[i - 1] not in (" ", "\n"):
+            i -= 1
+        self._cursor = i
+
+    def _word_right(self) -> None:
+        """Move the cursor to the end of the next word."""
+        self._last_edit = None
+        n = len(self._text)
+        i = self._cursor
+        while i < n and self._text[i] in (" ", "\n"):
+            i += 1
+        while i < n and self._text[i] not in (" ", "\n"):
+            i += 1
+        self._cursor = i
 
     @staticmethod
     def _line_offset(idx: int, lines: list[str]) -> int:

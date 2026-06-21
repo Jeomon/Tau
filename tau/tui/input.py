@@ -50,6 +50,7 @@ class KeyEvent:
     shift: bool = False
     meta: bool = False       # super / cmd / win (Kitty keyboard protocol)
     released: bool = False   # True on key-up (Kitty keyboard protocol only)
+    repeat: bool = False     # True on auto-repeat (Kitty keyboard protocol only)
     raw: str = ""       # original bytes received from stdin
 
     def __str__(self) -> str:
@@ -236,6 +237,19 @@ _SS3: dict[str, str] = {
     "D": "left",
     "M": "enter",
 }
+
+# Kitty keypad / functional keys (Unicode private-use codes) → standard equivalents.
+# int → an ASCII codepoint that continues normal char dispatch; str → a key name.
+_KITTY_KP_EQUIV: dict[int, int | str] = {
+    57399: 48, 57400: 49, 57401: 50, 57402: 51, 57403: 52,   # KP 0-4
+    57404: 53, 57405: 54, 57406: 55, 57407: 56, 57408: 57,   # KP 5-9
+    57409: 46, 57410: 47, 57411: 42, 57412: 45, 57413: 43,   # . / * - +
+    57414: 13, 57415: 61, 57416: 44,                          # KP Enter, =, ,
+    57417: "left", 57418: "right", 57419: "up", 57420: "down",
+    57421: "page_up", 57422: "page_down", 57423: "home", 57424: "end",
+    57425: "insert", 57426: "delete",
+}
+
 
 # Kitty / CSI modifier byte → (shift, alt, ctrl, meta)
 # The modifier is encoded as: (value - 1) with bit flags
@@ -535,25 +549,39 @@ class InputParser:
         # ESC [ <codepoint> ; <mods> u
         # ESC [ <codepoint> ; <mods> ; <event_type> u  (Kitty keyboard protocol)
         #   event_type: 1=press  2=repeat  3=release
+        # Kitty field layout: `key[:shifted:base] ; modifiers[:event] ; text`.
         parts = params_str.split(";")
         try:
-            codepoint = int(parts[0])
-        except ValueError:
+            # The key field may carry alternate keys after colons; use the first.
+            codepoint = int(parts[0].split(":")[0])
+        except (ValueError, IndexError):
             return None
 
         shift = alt = ctrl = meta = False
+        released = repeat = False
         if len(parts) >= 2 and parts[1]:
+            # The event type is appended to the modifier field after a colon.
+            mod_field = parts[1].split(":")
             try:
-                shift, alt, ctrl, meta = _decode_modifier(int(parts[1]))
-            except ValueError:
+                shift, alt, ctrl, meta = _decode_modifier(int(mod_field[0]))
+            except (ValueError, IndexError):
                 pass
+            event_str = mod_field[1] if len(mod_field) >= 2 else (parts[2] if len(parts) >= 3 else "")
+            if event_str:
+                try:
+                    et = int(event_str)     # 1 = press, 2 = repeat, 3 = release
+                    released = et == 3
+                    repeat = et == 2
+                except ValueError:
+                    pass
 
-        released = False
-        if len(parts) >= 3 and parts[2]:
-            try:
-                released = int(parts[2]) == 3   # 3 = key-up
-            except ValueError:
-                pass
+        # Normalize keypad / functional keys to their standard equivalents.
+        kp = _KITTY_KP_EQUIV.get(codepoint)
+        if isinstance(kp, str):
+            return KeyEvent(key=kp, char=None, shift=shift, alt=alt, ctrl=ctrl,
+                            meta=meta, released=released, repeat=repeat, raw=raw)
+        if isinstance(kp, int):
+            codepoint = kp
 
         # Map codepoint to key name
         try:
@@ -585,16 +613,16 @@ class InputParser:
 
         if codepoint in _kitty_special:
             key = _kitty_special[codepoint]
-            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
+            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, repeat=repeat, raw=raw)
 
         if codepoint in _kitty_nav:
             key = _kitty_nav[codepoint]
-            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
+            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, repeat=repeat, raw=raw)
 
         # Regular character
         key = ch.lower()
         char = ch if ch.isprintable() else None
-        return KeyEvent(key=key, char=char, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
+        return KeyEvent(key=key, char=char, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, repeat=repeat, raw=raw)
 
     def _parse_mouse(self, raw: str, params: str, final: str) -> MouseEvent | None:
         # SGR mouse: ESC [ < button ; col ; row M/m

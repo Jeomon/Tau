@@ -80,8 +80,6 @@ class TUI(Container):
 
         # Explicit focus target for non-overlay components
         self._focused: Component | None = None
-        # Previous focus target — restored when overlay unfocuses
-        self._pre_focus: Component | None = None
 
         # Terminal background color — populated after startup OSC 11 query
         self.background_color: tuple[int, int, int] | None = None
@@ -281,7 +279,7 @@ class TUI(Container):
         )
         self._overlays.append(entry)
         if not (options and options.non_capturing):
-            self._pre_focus = self._focused
+            entry.pre_focus = self._focused
             self._focused_overlay = entry
             self.set_focus(component)
         self._request_render()
@@ -298,8 +296,7 @@ class TUI(Container):
                     self.set_focus(capturing[-1].component)
                 else:
                     self._focused_overlay = None
-                    self.set_focus(self._pre_focus)
-                    self._pre_focus = None
+                    self.set_focus(entry.pre_focus)
             self._renderer.reset()
             self._request_render()
 
@@ -309,7 +306,7 @@ class TUI(Container):
 
         def _focus() -> None:
             if entry in self._overlays:
-                self._pre_focus = self._focused
+                entry.pre_focus = self._focused
                 self._focused_overlay = entry
                 self.set_focus(entry.component)
                 self._request_render()
@@ -317,8 +314,7 @@ class TUI(Container):
         def _unfocus(target: Component | None) -> None:
             if self._focused_overlay is entry:
                 self._focused_overlay = None
-                restore = target if target is not None else self._pre_focus
-                self._pre_focus = None
+                restore = target if target is not None else entry.pre_focus
                 self.set_focus(restore)
                 self._request_render()
 
@@ -453,9 +449,9 @@ class TUI(Container):
                     self._focused_overlay = _capturing[-1]
                     self.set_focus(_capturing[-1].component)
                 else:
+                    restore = self._focused_overlay.pre_focus
                     self._focused_overlay = None
-                    self.set_focus(self._pre_focus)
-                    self._pre_focus = None
+                    self.set_focus(restore)
 
         if self._focused_overlay is not None and not self._focused_overlay.hidden:
             consumed = self._focused_overlay.component.handle_input(event)

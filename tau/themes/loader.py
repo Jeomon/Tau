@@ -222,6 +222,48 @@ def _parse_theme_file(path: Path) -> tuple[dict | None, str | None]:
     return data, None
 
 
+# Keys the loader actually reads. Used to warn theme authors about typos.
+_VALID_TOP_KEYS = frozenset({
+    "name", "colors", "input", "spinner", "show_thinking", "show_tool_calls",
+    "code_syntax_style",
+})
+_VALID_COLOR_KEYS = frozenset({
+    "assistant_label", "bold", "code_block", "code_block_border", "code_inline",
+    "dim", "divider", "empty", "error_label", "heading", "hr", "indicator",
+    "italic", "link_text", "link_url", "list_bullet", "normal_desc", "normal_label",
+    "quote", "quote_border", "selected_bg", "selected_desc", "selected_label",
+    "spinner_frame", "spinner_label", "stream_cursor", "strikethrough", "thinking",
+    "tool_arrow", "tool_result_err", "tool_result_ok", "you_label",
+})
+
+
+def _valid_color_value(value: Any) -> bool:
+    color = value.get("color") if isinstance(value, dict) else value
+    if not isinstance(color, str):
+        return False
+    return color.strip().lower() in _NAMED_COLORS or _parse_hex(color) is not None
+
+
+def validate_theme_dict(data: dict) -> list[str]:
+    """Return human-readable warnings for typos / invalid values in a theme dict.
+
+    Non-fatal: every issue here still falls back to a sensible default, but
+    surfacing them helps theme authors catch mistakes.
+    """
+    warnings: list[str] = []
+    for key in data:
+        if key not in _VALID_TOP_KEYS:
+            warnings.append(f"unknown key '{key}'")
+    colors = data.get("colors", {})
+    if isinstance(colors, dict):
+        for key, val in colors.items():
+            if key not in _VALID_COLOR_KEYS:
+                warnings.append(f"unknown color '{key}'")
+            elif not _valid_color_value(val):
+                warnings.append(f"invalid color value for '{key}': {val!r}")
+    return warnings
+
+
 def load_theme_from_file(path: Path) -> tuple[LayoutTheme | None, str | None]:
     """Load a single theme file (.yaml, .yml, or .json)."""
     data, err = _parse_theme_file(path)
@@ -256,6 +298,10 @@ def load_themes_from_dir(directory: Path) -> LoadThemesResult:
         if err or theme is None:
             result.errors.append(ThemeLoadError(str(path), err or "unknown error"))
             continue
+
+        # Theme loaded; surface any non-fatal issues (typos, bad values) as warnings.
+        for warn in validate_theme_dict(data):
+            result.errors.append(ThemeLoadError(str(path), f"warning: {warn}"))
 
         result.themes[name.lower()] = theme
 
