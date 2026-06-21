@@ -1,15 +1,59 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from mistletoe.base_renderer import BaseRenderer
 from mistletoe.block_token import Document
 
-from tau.tui.ansi import wrap, visible_width
+from tau.tui.ansi import wrap, visible_width, RESET
 
 if TYPE_CHECKING:
     from tau.tui.theme import MarkdownTheme
+
+
+# ── Syntax highlighting (pygments) ──────────────────────────────────────────────
+
+from pygments import highlight as _pyg_highlight
+from pygments.formatters import Terminal256Formatter
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
+
+
+@lru_cache(maxsize=8)
+def _formatter(style: str) -> Terminal256Formatter:
+    try:
+        return Terminal256Formatter(style=style)
+    except Exception:
+        return Terminal256Formatter(style="default")
+
+
+@lru_cache(maxsize=128)
+def _lexer(lang: str):
+    try:
+        return get_lexer_by_name(lang, stripnl=False)
+    except ClassNotFound:
+        return None
+
+
+def _highlight_code(code: str, lang: str, style: str) -> list[str] | None:
+    """Return syntax-highlighted ANSI lines for a code block, or None to fall back.
+
+    Falls back (returns None) when the fence has no language, the language is
+    unknown, or highlighting raises for any reason — so plain rendering is
+    always a safe default.
+    """
+    if not lang or not style:
+        return None
+    lexer = _lexer(lang.lower())
+    if lexer is None:
+        return None
+    try:
+        out = _pyg_highlight(code, lexer, _formatter(style))
+    except Exception:
+        return None
+    return out.rstrip("\n").split("\n")
 
 
 class _MdContext(BaseRenderer):
@@ -83,9 +127,20 @@ class _Renderer:
                 lang = (getattr(node, "language", "") or "").strip()
                 if lang:
                     lines.append(self.theme.code_block_border(lang))
-                for cl in self._code_content(node).rstrip("\n").split("\n"):
-                    for wl in wrap(cl, self.width - 2) or [""]:
-                        lines.append("  " + self.theme.code_block(wl))
+                code = self._code_content(node).rstrip("\n")
+                style = getattr(self.theme, "code_syntax_style", "")
+                highlighted = _highlight_code(code, lang, style)
+                if highlighted is not None:
+                    # Already coloured by pygments; reset each wrapped segment so a
+                    # trailing colour can't bleed onto the next line (SGR persists
+                    # across newlines in terminals).
+                    for cl in highlighted:
+                        for wl in wrap(cl, self.width - 2) or [""]:
+                            lines.append("  " + wl + RESET)
+                else:
+                    for cl in code.split("\n"):
+                        for wl in wrap(cl, self.width - 2) or [""]:
+                            lines.append("  " + self.theme.code_block(wl))
                 lines.append("")
 
             elif name == "ThematicBreak":

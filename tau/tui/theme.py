@@ -65,6 +65,9 @@ class MarkdownTheme:
     code_inline:     ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
     code_block:      ColorFn = field(default_factory=lambda: _wrap(BRIGHT_GREEN))
     code_block_border: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
+    # Pygments style for syntax-highlighted fenced code blocks; "" disables
+    # highlighting (falls back to the flat `code_block` colour).
+    code_syntax_style: str = "monokai"
     quote:           ColorFn = field(default_factory=lambda: lambda s: "\x1b[3m" + s + RESET)   # italic
     quote_border:    ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
     hr:              ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))

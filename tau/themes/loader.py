@@ -110,6 +110,8 @@ def load_theme_from_dict(data: dict) -> tuple[LayoutTheme | None, str | None]:
         code_inline       = _c(colors, "code_inline")                    or d.message.markdown.code_inline,
         code_block        = _c(colors, "code_block")                     or d.message.markdown.code_block,
         code_block_border = _c(colors, "code_block_border")              or d.message.markdown.code_block_border,
+        code_syntax_style = (data["code_syntax_style"] if "code_syntax_style" in data
+                             else d.message.markdown.code_syntax_style),
         quote             = _c(colors, "quote",             italic=True) or d.message.markdown.quote,
         quote_border      = _c(colors, "quote_border")                   or d.message.markdown.quote_border,
         hr                = _c(colors, "hr")                             or d.message.markdown.hr,

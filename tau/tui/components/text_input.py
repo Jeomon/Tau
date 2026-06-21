@@ -41,6 +41,7 @@ class TextInput(Component):
     ctrl+k                Kill from cursor to end
     ctrl+u                Kill from start to cursor
     ctrl+w                Delete previous word
+    ctrl+z / ctrl+y       Undo / redo (word-level grouping)
     Up / Down             Navigate history
     Enter                 Submit / steer mid-task when agent is busy
     alt+Enter             Queue as follow-up (fires on_followup)
@@ -79,6 +80,14 @@ class TextInput(Component):
         self._history_idx = -1
         self._history_draft = ""
 
+        # Undo/redo. Each entry is a (text, cursor) snapshot of the state *before*
+        # an edit group. Consecutive edits of the same kind coalesce into one group
+        # (word-level for typing) so undo doesn't crawl character-by-character.
+        self._undo: list[tuple[str, int]] = []
+        self._redo: list[tuple[str, int]] = []
+        self._last_edit: str | None = None
+        self._undo_limit = 200
+
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
@@ -96,11 +105,15 @@ class TextInput(Component):
         self._cursor = 0
         self._line_scrolls = {}
         self._arg_hint = ""
+        self._reset_undo()
 
     def set_text(self, text: str) -> None:
         self._text = text
         self._cursor = len(text)
         self._line_scrolls = {}
+        # Wholesale buffer replacement (history recall, external set) is a fresh
+        # editing context — scope undo to the new content.
+        self._reset_undo()
 
     def insert_at_cursor(self, text: str) -> None:
         self._insert(text)
@@ -158,6 +171,8 @@ class TextInput(Component):
             case "enter":
                 if self._text.endswith("\\"):
                     # Replace trailing backslash with a real newline
+                    self._checkpoint("newline")
+                    self._last_edit = None
                     self._text = self._text[:-1] + "\n"
                     self._cursor = len(self._text)
                     self._line_scrolls = {}
@@ -182,15 +197,29 @@ class TextInput(Component):
                 self._move_right()
             case "home" | "ctrl+a":
                 self._cursor = self._line_start()
+                self._last_edit = None
             case "end" | "ctrl+e":
                 self._cursor = self._line_end()
+                self._last_edit = None
             case "ctrl+k":
-                self._text = self._text[: self._cursor]
+                if self._cursor < len(self._text):
+                    self._checkpoint("kill")
+                    self._last_edit = None
+                    self._text = self._text[: self._cursor]
+                    self._line_scrolls = {}
             case "ctrl+u":
-                self._text = self._text[self._cursor :]
-                self._cursor = 0
+                if self._cursor > 0:
+                    self._checkpoint("kill")
+                    self._last_edit = None
+                    self._text = self._text[self._cursor :]
+                    self._cursor = 0
+                    self._line_scrolls = {}
             case "ctrl+w":
                 self._delete_word_back()
+            case "ctrl+z":
+                self._undo_op()
+            case "ctrl+y":
+                self._redo_op()
             case "up":
                 self._history_prev()
             case "down":
@@ -226,16 +255,76 @@ class TextInput(Component):
     # Editing
     # -------------------------------------------------------------------------
 
+    # ── Undo / redo ─────────────────────────────────────────────────────────
+    def _reset_undo(self) -> None:
+        self._undo = []
+        self._redo = []
+        self._last_edit = None
+
+    def _begin_group(self) -> None:
+        """Push a pre-edit snapshot, starting a fresh undo group."""
+        self._undo.append((self._text, self._cursor))
+        if len(self._undo) > self._undo_limit:
+            self._undo.pop(0)
+        self._redo.clear()
+
+    def _checkpoint(self, kind: str) -> None:
+        """Start a new undo group unless this edit continues the current ``kind``.
+
+        Edits of the same ``kind`` in a row coalesce (e.g. a run of backspaces),
+        so each undo reverts a meaningful chunk rather than one keystroke.
+        """
+        if not self._undo or kind != self._last_edit:
+            self._begin_group()
+        self._last_edit = kind
+
+    def _undo_op(self) -> None:
+        if not self._undo:
+            return
+        self._redo.append((self._text, self._cursor))
+        self._text, self._cursor = self._undo.pop()
+        self._line_scrolls = {}
+        self._last_edit = None
+        self._history_idx = -1
+
+    def _redo_op(self) -> None:
+        if not self._redo:
+            return
+        self._undo.append((self._text, self._cursor))
+        self._text, self._cursor = self._redo.pop()
+        self._line_scrolls = {}
+        self._last_edit = None
+        self._history_idx = -1
+
     def _insert(self, text: str) -> None:
         # Editing the buffer commits out of history/message-tree browsing, so the
         # '@' file picker and '/' command palette (both gated on _history_idx == -1)
         # work again instead of staying suppressed until the next submit.
         self._history_idx = -1
+        # Undo grouping for typing is word-level: a word and its trailing spaces
+        # form one group; the next word starts a fresh group. Multi-char inserts
+        # (paste, @file, etc.) are each their own group.
+        if len(text) == 1:
+            if text.isspace():
+                # Trailing space stays in the current word's group; if we weren't
+                # mid-word, open a group so the space is still undoable on its own.
+                if self._last_edit not in ("type", "type-space"):
+                    self._begin_group()
+                self._last_edit = "type-space"
+            else:
+                # A new word begins after spaces or any non-typing edit.
+                if self._last_edit != "type":
+                    self._begin_group()
+                self._last_edit = "type"
+        else:
+            self._begin_group()
+            self._last_edit = None
         self._text = self._text[: self._cursor] + text + self._text[self._cursor :]
         self._cursor += len(text)
 
     def _backspace(self) -> None:
         if self._cursor > 0:
+            self._checkpoint("delete")
             before = self._text[: self._cursor]
             m = re.search(_ATOMIC_TOKEN_END, before)
             if m:
@@ -249,6 +338,7 @@ class TextInput(Component):
 
     def _delete_forward(self) -> None:
         if self._cursor < len(self._text):
+            self._checkpoint("delete-fwd")
             after = self._text[self._cursor :]
             m = re.match(_ATOMIC_TOKEN_START, after)
             if m:
@@ -258,6 +348,9 @@ class TextInput(Component):
             self._line_scrolls = {}
 
     def _move_left(self) -> None:
+        # Moving the insertion point ends the current undo group so the next
+        # edit at the new position is its own step.
+        self._last_edit = None
         if self._cursor > 0:
             before = self._text[: self._cursor]
             m = re.search(_ATOMIC_TOKEN_END, before)
@@ -267,6 +360,7 @@ class TextInput(Component):
                 self._cursor -= 1
 
     def _move_right(self) -> None:
+        self._last_edit = None
         if self._cursor < len(self._text):
             after = self._text[self._cursor :]
             m = re.match(_ATOMIC_TOKEN_START, after)
@@ -276,6 +370,10 @@ class TextInput(Component):
                 self._cursor += 1
 
     def _delete_word_back(self) -> None:
+        if self._cursor <= 0:
+            return
+        self._checkpoint("delete-word")
+        self._last_edit = None  # each word-delete is its own undo step
         i = self._cursor
         # Skip trailing whitespace
         while i > 0 and self._text[i - 1] in (" ", "\n"):

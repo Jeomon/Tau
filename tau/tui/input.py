@@ -5,6 +5,40 @@ from dataclasses import dataclass
 
 # ── Key event ─────────────────────────────────────────────────────────────────
 
+# Modifier name aliases → canonical name. Matching is order- and alias-independent,
+# so "ctrl+shift+p", "shift+ctrl+p", and "control+shift+p" are all equivalent.
+_MOD_ALIASES = {
+    "ctrl": "ctrl", "control": "ctrl",
+    "alt": "alt", "opt": "alt", "option": "alt",
+    "shift": "shift",
+    "super": "meta", "cmd": "meta", "command": "meta", "win": "meta", "meta": "meta",
+}
+
+# Base-key name aliases → canonical name.
+_KEY_ALIASES = {
+    "esc": "escape", "return": "enter", "del": "delete",
+    "spacebar": "space", " ": "space",
+    "pgup": "pageup", "pgdn": "pagedown", "pagedown": "pagedown", "pageup": "pageup",
+}
+
+
+def _normalize_keyid(key_id: str) -> tuple[frozenset[str], str]:
+    """Parse a key identifier like 'ctrl+shift+p' into (modifiers, base_key).
+
+    Order- and alias-independent. Handles '+' as a base key (e.g. 'ctrl++')."""
+    mods: set[str] = set()
+    base_parts: list[str] = []
+    for tok in key_id.split("+"):
+        t = tok.strip().lower()
+        if t in _MOD_ALIASES:
+            mods.add(_MOD_ALIASES[t])
+        else:
+            base_parts.append(tok)
+    base = "+".join(base_parts).lower()
+    base = _KEY_ALIASES.get(base, base)
+    return frozenset(mods), base
+
+
 @dataclass
 class KeyEvent:
     """A single parsed keyboard event."""
@@ -13,6 +47,7 @@ class KeyEvent:
     ctrl: bool = False
     alt: bool = False
     shift: bool = False
+    meta: bool = False       # super / cmd / win (Kitty keyboard protocol)
     released: bool = False   # True on key-up (Kitty keyboard protocol only)
     raw: str = ""       # original bytes received from stdin
 
@@ -24,13 +59,95 @@ class KeyEvent:
             parts.append("alt")
         if self.shift:
             parts.append("shift")
+        if self.meta:
+            parts.append("meta")
         parts.append(self.key)
         return "+".join(parts)
 
+    def _signature(self) -> tuple[frozenset[str], str]:
+        mods = {
+            name for name, on in (
+                ("ctrl", self.ctrl), ("alt", self.alt),
+                ("shift", self.shift), ("meta", self.meta),
+            ) if on
+        }
+        base = _KEY_ALIASES.get(self.key.lower(), self.key.lower())
+        return frozenset(mods), base
+
     def matches(self, *keys: str) -> bool:
-        """Check if this event matches any of the given key combos ('ctrl+c', 'enter', 'up')."""
-        combo = str(self)
-        return combo in keys or self.key in keys
+        """True if this event matches any of the given key combos.
+
+        Matching is modifier-order- and alias-independent: 'ctrl+shift+p',
+        'shift+ctrl+p' and 'control+shift+p' all match the same event. A bare
+        base name (e.g. 'up') matches the key regardless of modifiers, preserving
+        the historical loose-match behaviour.
+        """
+        sig = self._signature()
+        for k in keys:
+            if _normalize_keyid(k) == sig:
+                return True
+            # Bare key name (no '+') matches regardless of held modifiers.
+            if "+" not in k and _KEY_ALIASES.get(k.lower(), k.lower()) == sig[1]:
+                return True
+        return False
+
+
+def matches_key(event: "KeyEvent", *keys: str) -> bool:
+    """Module-level convenience mirroring :meth:`KeyEvent.matches`."""
+    return isinstance(event, KeyEvent) and event.matches(*keys)
+
+
+class Key:
+    """Ergonomic, typo-resistant key identifiers for use with ``matches`` / ``matches_key``.
+
+    Use the constants for special/symbol keys and the modifier builders for
+    combinations::
+
+        event.matches(Key.ESCAPE)
+        event.matches(Key.ctrl("c"))
+        event.matches(Key.ctrl_shift("p"))   # order-independent with shift_ctrl
+
+    Identifiers are plain strings, so they interoperate with literal combos.
+    """
+    # Special keys
+    ESCAPE = "escape"; ENTER = "enter"; TAB = "tab"; SPACE = "space"
+    BACKSPACE = "backspace"; DELETE = "delete"; INSERT = "insert"
+    HOME = "home"; END = "end"; PAGE_UP = "pageup"; PAGE_DOWN = "pagedown"
+    UP = "up"; DOWN = "down"; LEFT = "left"; RIGHT = "right"
+    F1 = "f1"; F2 = "f2"; F3 = "f3"; F4 = "f4"; F5 = "f5"; F6 = "f6"
+    F7 = "f7"; F8 = "f8"; F9 = "f9"; F10 = "f10"; F11 = "f11"; F12 = "f12"
+
+    @staticmethod
+    def ctrl(key: str) -> str:
+        return f"ctrl+{key}"
+
+    @staticmethod
+    def alt(key: str) -> str:
+        return f"alt+{key}"
+
+    @staticmethod
+    def shift(key: str) -> str:
+        return f"shift+{key}"
+
+    @staticmethod
+    def meta(key: str) -> str:
+        return f"meta+{key}"
+
+    @staticmethod
+    def ctrl_shift(key: str) -> str:
+        return f"ctrl+shift+{key}"
+
+    @staticmethod
+    def ctrl_alt(key: str) -> str:
+        return f"ctrl+alt+{key}"
+
+    @staticmethod
+    def alt_shift(key: str) -> str:
+        return f"alt+shift+{key}"
+
+    @staticmethod
+    def ctrl_shift_alt(key: str) -> str:
+        return f"ctrl+shift+alt+{key}"
 
 
 @dataclass
@@ -126,12 +243,12 @@ _SS3: dict[str, str] = {
     "M": "enter",
 }
 
-# Kitty / CSI modifier byte → (shift, alt, ctrl)
+# Kitty / CSI modifier byte → (shift, alt, ctrl, meta)
 # The modifier is encoded as: (value - 1) with bit flags
-# bit 0 = shift, bit 1 = alt, bit 2 = ctrl, bit 3 = super
-def _decode_modifier(mod: int) -> tuple[bool, bool, bool]:
+# bit 0 = shift, bit 1 = alt, bit 2 = ctrl, bit 3 = super (→ meta)
+def _decode_modifier(mod: int) -> tuple[bool, bool, bool, bool]:
     m = mod - 1
-    return bool(m & 1), bool(m & 2), bool(m & 4)
+    return bool(m & 1), bool(m & 2), bool(m & 4), bool(m & 8)
 
 
 # Control characters → key names
@@ -391,10 +508,10 @@ class InputParser:
                 mod = int(parts[1])
             except ValueError:
                 return None
-            shift, alt, ctrl = _decode_modifier(mod)
+            shift, alt, ctrl, meta = _decode_modifier(mod)
             name = _CSI_SIMPLE.get(final)
             if name:
-                return KeyEvent(key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, raw=raw)
+                return KeyEvent(key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, raw=raw)
 
         # ESC [ <n> ~ — tilde sequences
         if final == "~" and len(parts) == 1:
@@ -414,8 +531,8 @@ class InputParser:
                 return None
             name = _CSI_TILDE.get(n)
             if name:
-                shift, alt, ctrl = _decode_modifier(mod)
-                return KeyEvent(key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, raw=raw)
+                shift, alt, ctrl, meta = _decode_modifier(mod)
+                return KeyEvent(key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, raw=raw)
 
         return None
 
@@ -430,10 +547,10 @@ class InputParser:
         except ValueError:
             return None
 
-        shift = alt = ctrl = False
+        shift = alt = ctrl = meta = False
         if len(parts) >= 2 and parts[1]:
             try:
-                shift, alt, ctrl = _decode_modifier(int(parts[1]))
+                shift, alt, ctrl, meta = _decode_modifier(int(parts[1]))
             except ValueError:
                 pass
 
@@ -474,16 +591,16 @@ class InputParser:
 
         if codepoint in _kitty_special:
             key = _kitty_special[codepoint]
-            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, released=released, raw=raw)
+            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
 
         if codepoint in _kitty_nav:
             key = _kitty_nav[codepoint]
-            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, released=released, raw=raw)
+            return KeyEvent(key=key, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
 
         # Regular character
         key = ch.lower()
         char = ch if ch.isprintable() else None
-        return KeyEvent(key=key, char=char, shift=shift, alt=alt, ctrl=ctrl, released=released, raw=raw)
+        return KeyEvent(key=key, char=char, shift=shift, alt=alt, ctrl=ctrl, meta=meta, released=released, raw=raw)
 
     def _parse_mouse(self, raw: str, params: str, final: str) -> MouseEvent | None:
         # SGR mouse: ESC [ < button ; col ; row M/m

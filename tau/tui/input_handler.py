@@ -599,7 +599,43 @@ class InputHandler:
         self._clipboard_video_counter = 0
         return video
 
+    # ESC[<code>;5u — control bytes some terminals (tmux popups with
+    # extended-keys-format=csi-u) re-encode inside a bracketed paste.
+    _CSI_U_CTRL_RE = re.compile(r"\x1b\[(\d+);5u")
+
+    def _sanitize_paste(self, text: str) -> str:
+        """Clean bracketed-paste text before it is stored or inserted.
+
+        1. Decode CSI-u re-encoded control bytes back to their literal byte,
+           so a pasted newline doesn't leak into the buffer as "[106;5u".
+        2. Normalize line endings (CRLF/CR -> LF) and expand tabs to spaces.
+        3. Drop remaining non-printable characters (keep newlines).
+        4. Prepend a space when pasting a path right after a word character.
+        """
+        def _decode(m: "re.Match[str]") -> str:
+            cp = int(m.group(1))
+            if 97 <= cp <= 122:   # ctrl+a..z
+                return chr(cp - 96)
+            if 65 <= cp <= 90:    # ctrl+A..Z
+                return chr(cp - 64)
+            return m.group(0)
+
+        text = self._CSI_U_CTRL_RE.sub(_decode, text)
+        text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\t", "    ")
+        text = "".join(ch for ch in text if ch == "\n" or ord(ch) >= 32)
+
+        # Readability: pasting a path (/, ~, .) right after a word char gets a space.
+        if text[:1] in ("/", "~", "."):
+            inp = self._layout.input
+            buf, cur = inp.text, getattr(inp, "_cursor", 0)
+            if cur > 0 and buf[cur - 1 : cur].isalnum():
+                text = " " + text
+        return text
+
     def _on_paste_text(self, text: str) -> None:
+        text = self._sanitize_paste(text)
+        if not text:
+            return
         lines = text.split("\n")
         if len(lines) > self._LARGE_PASTE_LINES or len(text) > self._LARGE_PASTE_CHARS:
             self._paste_counter += 1

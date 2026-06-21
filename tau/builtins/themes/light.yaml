@@ -1,5 +1,8 @@
 name: light
 
+# Light-background syntax style for fenced code blocks (pygments style name).
+code_syntax_style: friendly
+
 colors:
   # UI chrome
   divider:          "#c8c8c8"
