@@ -42,7 +42,7 @@ class TextInput(Component):
     ctrl+u                Kill from start to cursor
     ctrl+w                Delete previous word
     ctrl+z / ctrl+y       Undo / redo (word-level grouping)
-    Up / Down             Navigate history
+    Up / Down             Move between lines; browse history at the first/last line
     Enter                 Submit / steer mid-task when agent is busy
     alt+Enter             Queue as follow-up (fires on_followup)
     alt+Up                Dequeue queued messages (fires on_dequeue)
@@ -221,9 +221,9 @@ class TextInput(Component):
             case "ctrl+y":
                 self._redo_op()
             case "up":
-                self._history_prev()
+                self._move_up()
             case "down":
-                self._history_next()
+                self._move_down()
             case _:
                 if event.char and not event.ctrl and not event.alt:
                     self._insert(event.char)
@@ -368,6 +368,33 @@ class TextInput(Component):
                 self._cursor += m.end()
             else:
                 self._cursor += 1
+
+    @staticmethod
+    def _line_offset(idx: int, lines: list[str]) -> int:
+        """Character offset of the start of logical line ``idx`` (newlines count as 1)."""
+        return sum(len(l) + 1 for l in lines[:idx])
+
+    def _move_up(self) -> None:
+        """Move the cursor up a line; browse history when already on the first line."""
+        line_idx, col = self._cursor_line_col()
+        if line_idx == 0:
+            self._history_prev()
+            return
+        self._last_edit = None
+        lines = self._text.split("\n")
+        new_col = min(col, len(lines[line_idx - 1]))
+        self._cursor = self._line_offset(line_idx - 1, lines) + new_col
+
+    def _move_down(self) -> None:
+        """Move the cursor down a line; browse history when already on the last line."""
+        line_idx, col = self._cursor_line_col()
+        lines = self._text.split("\n")
+        if line_idx >= len(lines) - 1:
+            self._history_next()
+            return
+        self._last_edit = None
+        new_col = min(col, len(lines[line_idx + 1]))
+        self._cursor = self._line_offset(line_idx + 1, lines) + new_col
 
     def _delete_word_back(self) -> None:
         if self._cursor <= 0:

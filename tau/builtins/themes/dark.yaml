@@ -1,1 +1,50 @@
 name: dark
+
+# The default theme. Colours use named ANSI values (not hex), so they map to the
+# terminal's own 16-colour palette and adapt to the user's terminal theme.
+# Per-token bold/italic is applied by the loader, so only the colour is listed here.
+# Purely structural tokens (bold/italic/strikethrough/dim/reverse, the plain
+# "tool result", spinner label) carry no colour and inherit the code defaults.
+
+# Pygments style for fenced code blocks (dark background).
+code_syntax_style: monokai
+
+colors:
+  # Chrome
+  divider:            bright_black
+
+  # Spinner
+  spinner_frame:      bright_cyan
+
+  # Markdown
+  heading:            bright_cyan
+  code_inline:        bright_yellow
+  code_block:         bright_green
+  code_block_border:  bright_black
+  quote_border:       bright_black
+  hr:                 bright_black
+  list_bullet:        bright_cyan
+  link_text:          bright_cyan
+  link_url:           bright_black
+
+  # Messages
+  you_label:          bright_cyan
+  assistant_label:    bright_green
+  tool_arrow:         bright_yellow
+  tool_result_err:    bright_red
+  error_label:        bright_red
+  stream_cursor:      bright_white
+
+  # Diffs
+  diff_added:         bright_green
+  diff_removed:       bright_red
+  diff_context:       bright_black
+  diff_hunk:          bright_yellow
+
+  # Select list / palette
+  selected_label:     bright_white
+  selected_desc:      bright_black
+  normal_label:       bright_black
+  normal_desc:        bright_black
+  indicator:          bright_black
+  empty:              bright_black

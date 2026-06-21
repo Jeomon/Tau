@@ -6,7 +6,12 @@ from typing import Any
 
 import yaml
 
-from tau.tui.ansi import BOLD, DIM, ITALIC, RESET, fg
+from tau.tui.ansi import (
+    BOLD, DIM, ITALIC, RESET, fg,
+    BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE, DEFAULT,
+    BRIGHT_BLACK, BRIGHT_RED, BRIGHT_GREEN, BRIGHT_YELLOW,
+    BRIGHT_BLUE, BRIGHT_MAGENTA, BRIGHT_CYAN, BRIGHT_WHITE,
+)
 from tau.tui.theme import (
     ColorFn, InputTheme, LayoutTheme, MarkdownTheme,
     MessageTheme, SelectListTheme, SpinnerTheme,
@@ -17,6 +22,19 @@ from tau.themes.types import LoadThemesResult, ThemeLoadError
 # ---------------------------------------------------------------------------
 # Color parsing
 # ---------------------------------------------------------------------------
+
+# Named ANSI colors → their SGR escape. These map to the terminal's own 16-colour
+# palette (not fixed RGB), so a theme written with names adapts to the user's
+# terminal colours — the same behaviour as the in-code defaults.
+_NAMED_COLORS: dict[str, str] = {
+    "black": BLACK, "red": RED, "green": GREEN, "yellow": YELLOW,
+    "blue": BLUE, "magenta": MAGENTA, "cyan": CYAN, "white": WHITE,
+    "default": DEFAULT,
+    "bright_black": BRIGHT_BLACK, "bright_red": BRIGHT_RED,
+    "bright_green": BRIGHT_GREEN, "bright_yellow": BRIGHT_YELLOW,
+    "bright_blue": BRIGHT_BLUE, "bright_magenta": BRIGHT_MAGENTA,
+    "bright_cyan": BRIGHT_CYAN, "bright_white": BRIGHT_WHITE,
+}
 
 def _parse_hex(value: str) -> tuple[int, int, int] | None:
     """Parse '#rrggbb' → (r, g, b) or return None."""
@@ -39,8 +57,9 @@ def _make_color_fn(
     Convert a JSON color value to a ColorFn.
 
     Accepts:
-      - ``"#rrggbb"``          — plain hex
-      - ``{"color": "#rrggbb", "bold": true, "italic": true, "dim": true}``
+      - ``"#rrggbb"``          — plain hex (fixed RGB)
+      - ``"bright_cyan"``      — a named ANSI colour (adapts to the terminal palette)
+      - ``{"color": "...", "bold": true, "italic": true, "dim": true}``
     """
     if value is None:
         return None
@@ -58,11 +77,14 @@ def _make_color_fn(
     if not color_str:
         return None
 
-    rgb = _parse_hex(color_str)
-    if rgb is None:
-        return None
+    # Prefer a named ANSI colour (terminal-palette aware); fall back to hex.
+    code = _NAMED_COLORS.get(color_str.strip().lower())
+    if code is None:
+        rgb = _parse_hex(color_str)
+        if rgb is None:
+            return None
+        code = fg(*rgb)
 
-    r, g, b = rgb
     prefix = ""
     if bold:
         prefix += BOLD
@@ -70,7 +92,7 @@ def _make_color_fn(
         prefix += ITALIC
     if dim:
         prefix += DIM
-    prefix += fg(r, g, b)
+    prefix += code
 
     return lambda s, p=prefix: p + s + RESET
 
