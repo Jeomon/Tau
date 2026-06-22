@@ -60,6 +60,13 @@ _BILLING_PATTERNS = (
     "can only afford",
     "upgrade to a paid account",
     "requires more credits, or fewer max_tokens",
+    # Quota-exhausted 429s that carry a long reset window (days) — non-retryable
+    "monthly usage limit",
+    "gousagelimiterror",
+    "freeusagelimiterror",
+    "out of budget",
+    "quota exceeded",
+    "resets in",  # e.g. "Monthly usage limit reached. Resets in 16 days."
 )
 
 _RATE_LIMIT_PATTERNS = (

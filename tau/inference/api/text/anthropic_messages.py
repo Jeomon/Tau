@@ -219,17 +219,25 @@ class AnthropicMessagesAPI(BaseAPI):
                     u = getattr(event, "usage", None)
                     if u:
                         _output_tokens = getattr(u, "output_tokens", 0) or 0
-                    stop_reason = _STOP_REASON.get(
-                        getattr(getattr(event, "delta", None), "stop_reason", None) or "",
-                        StopReason.Stop,
-                    )
-                    yield EndEvent(
-                        reason=stop_reason,
-                        input_tokens=_input_tokens,
-                        output_tokens=_output_tokens,
-                        cache_read_tokens=_cache_read_tokens,
-                        cache_write_tokens=_cache_write_tokens,
-                    )
+                    delta = getattr(event, "delta", None)
+                    raw_stop = getattr(delta, "stop_reason", None) or ""
+                    if raw_stop == "refusal":
+                        from tau.inference.utils import ErrorKind
+                        stop_details = getattr(delta, "stop_details", None)
+                        explanation = (
+                            getattr(stop_details, "explanation", None)
+                            or "The model refused to complete the request."
+                        )
+                        yield ErrorEvent(reason=StopReason.Error, error=explanation, kind=ErrorKind.CONTENT_BLOCKED)
+                    else:
+                        stop_reason = _STOP_REASON.get(raw_stop, StopReason.Stop)
+                        yield EndEvent(
+                            reason=stop_reason,
+                            input_tokens=_input_tokens,
+                            output_tokens=_output_tokens,
+                            cache_read_tokens=_cache_read_tokens,
+                            cache_write_tokens=_cache_write_tokens,
+                        )
 
                 elif etype == "error":
                     from tau.inference.utils import classify_error
