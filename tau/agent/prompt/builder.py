@@ -10,6 +10,7 @@ from tau.agent.prompt.types import PromptOptions
 from tau.settings.paths import (
     get_append_system_prompt_path,
     get_docs_dir,
+    get_examples_path,
     get_readme_path,
     get_system_prompt_path,
 )
@@ -92,19 +93,19 @@ def load_project_context_files(cwd: Path) -> list[tuple[str, Path]]:
 
 
 _DEFAULT_IDENTITY = """\
-You are a coding agent operating inside tau, a coding agent harness. You help USER understand, write, and modify code and files.
+You are a coding agent operating inside Tau, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 You have strong software engineering skills. You think carefully before making changes,
 and follow the existing style and conventions of the project.
-If a task is ambiguous, ask a clarifying question before proceeding.
-Prefer editing existing files over creating new ones.
-Do only what the task asks; don't add features, refactors, or abstractions beyond scope.
-Write no comments unless the *why* is non-obvious — well-named code explains itself.
-Keep responses short and direct; don't summarize what you just did.
-Never introduce code that exposes or logs secrets or keys.
-Never assume a library is available; check the codebase first before using it.\
-Prioritize accuracy over agreement — investigate before confirming, and disagree when the evidence calls for it.
 """
+
+_GENERAL_GUIDELINES = [
+    "If a task is ambiguous, ask a precise, clarifying question before proceeding.",
+    "Do only what the task asks; don't add features, refactors, or abstractions beyond scope.",
+    "Write comments when the *why* is non-obvious — well-named code explains itself.",
+    "Keep responses short, concise, and direct; don't summarize what you just did.",
+    "Prioritize accuracy over agreement — investigate before confirming, and disagree when the evidence calls for it.",
+]
 
 
 _GIT_STATUS_MAX_LINES = 30
@@ -222,6 +223,7 @@ class PromptBuilder:
     def build(self) -> str:
         """Build the complete system prompt."""
         identity = self._identity()
+        guidelines = self._guidelines_section()
         tools = self._tools_section()
         docs = self._docs_section()
         project_context = self._project_context_section()
@@ -229,7 +231,7 @@ class PromptBuilder:
         append = self._append()
         git = self._git_section()
         footer = self._footer()
-        return identity + tools + docs + project_context + skills + append + git + footer
+        return identity + guidelines + tools + docs + project_context + skills + append + git + footer
 
     # ------------------------------------------------------------------
     # Layers
@@ -244,6 +246,10 @@ class PromptBuilder:
             return system_md
 
         return _DEFAULT_IDENTITY
+
+    def _guidelines_section(self) -> str:
+        bullets = "\n".join(f"- {g}" for g in _GENERAL_GUIDELINES)
+        return f"\n\n# Guidelines\n\n{bullets}"
 
     def _tools_section(self) -> str:
         tools = self._opts.tools
@@ -299,18 +305,28 @@ class PromptBuilder:
     def _docs_section(self) -> str:
         readme = get_readme_path()
         docs = get_docs_dir()
+        examples = get_examples_path()
         return (
             "\n\nTau documentation (read only when the user asks about Tau itself, its"
             " settings, extensions, themes, skills, tools, sessions, or keybindings):\n"
             f"- README: {readme}\n"
             f"- Docs directory: {docs}\n"
-            "- When asked about: settings (docs/settings.md), tools (docs/tools.md),"
+            f"- Examples directory: {examples} (extensions, custom tools, themes, skills)\n"
+            "- When asked about: quickstart (docs/quickstart.md),"
+            " installation (docs/installation.md),"
+            " usage (docs/usage.md), CLI flags (docs/cli-reference.md),"
+            " architecture (docs/architecture.md),"
+            " settings (docs/settings.md), tools (docs/tools.md),"
             " extensions (docs/extensions.md), themes (docs/themes.md),"
-            " skills (docs/skills.md), keybindings (docs/keybindings.md),"
-            " sessions (docs/sessions.md), usage (docs/usage.md),"
-            " Python API (docs/python-api.md), inference providers (docs/inference-providers.md)\n"
+            " skills (docs/skills.md), prompts (docs/prompts.md),"
+            " keybindings (docs/keybindings.md),"
+            " sessions (docs/sessions.md), messages (docs/messages.md),"
+            " Python API (docs/python-api.md),"
+            " inference providers (docs/inference-providers.md),"
+            " auth (docs/auth.md)\n"
             "- Resolve all doc paths under the Docs directory above,"
             " not the current working directory\n"
+            "- Resolve all example paths under the Examples directory above\n"
             "- Read .md files completely and follow cross-references before answering"
         )
 

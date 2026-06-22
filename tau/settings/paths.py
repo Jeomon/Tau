@@ -154,3 +154,18 @@ def get_readme_path() -> Path:
     except (TypeError, ModuleNotFoundError, AttributeError):
         package_root = Path(__file__).parent.parent.parent
         return package_root / "README.md"
+
+
+def get_examples_path() -> Path:
+    """Get the examples directory path.
+
+    Works both when tau is installed via pip and when running from source.
+    """
+    try:
+        from importlib.resources import files
+
+        examples_ref = files("tau").joinpath("examples")
+        return Path(str(examples_ref))
+    except (TypeError, ModuleNotFoundError, AttributeError):
+        package_root = Path(__file__).parent.parent.parent
+        return package_root / "examples"

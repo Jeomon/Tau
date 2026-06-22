@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tau.agent.prompt.builder import (
     _DEFAULT_IDENTITY,
+    _GENERAL_GUIDELINES,
     PromptBuilder,
     _detect_os,
     _detect_shell,
@@ -126,6 +127,25 @@ class TestPromptBuilderIdentity:
         prompt = builder.build()
         assert "My custom identity." in prompt
         assert _DEFAULT_IDENTITY not in prompt
+
+
+class TestPromptBuilderGuidelines:
+    def test_guidelines_section_present(self, tmp_path):
+        builder = PromptBuilder(_opts(tmp_path))
+        prompt = builder.build()
+        assert "# Guidelines" in prompt
+
+    def test_all_general_guidelines_included(self, tmp_path):
+        builder = PromptBuilder(_opts(tmp_path))
+        prompt = builder.build()
+        for guideline in _GENERAL_GUIDELINES:
+            assert guideline in prompt
+
+    def test_guidelines_present_with_custom_prompt(self, tmp_path):
+        builder = PromptBuilder(_opts(tmp_path, custom_prompt="Custom identity."))
+        prompt = builder.build()
+        assert "# Guidelines" in prompt
+        assert _GENERAL_GUIDELINES[0] in prompt
 
 
 class TestPromptBuilderFooter:
