@@ -128,7 +128,7 @@ class LLMOptions:
 
     api_key: str | None = None
     base_url: str | None = None
-    headers: dict[str, str | Callable[[], str]] | None = None
+    headers: dict[str, str] | None = None
     max_retries: int = 3
     retry_base_delay_ms: int = 1000
     timeout: timedelta = field(default_factory=lambda: timedelta(seconds=60))

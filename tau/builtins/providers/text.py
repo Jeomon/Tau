@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from tau.inference.provider.oauth.anthropic_claude_code import AnthropicClaudeCodeOAuthProvider
 from tau.inference.provider.oauth.github_copilot import GitHubCopilotOAuthProvider
 from tau.inference.provider.oauth.google_antigravity import GoogleAntigravityOAuthProvider
@@ -78,6 +80,7 @@ api_providers = [
         options=LLMOptions(
             base_url="https://api.fireworks.ai/inference/v1",
             extra_params={"cache_compat": True},
+            headers={"x-session-affinity": lambda: str(uuid4())},  # type: ignore[dict-item]
         ),
     ),
     APIProvider(id="mistral", name="Mistral", api="mistral_chat", options=LLMOptions()),

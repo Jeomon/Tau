@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Callable
+from collections.abc import Mapping
 
 _cache: dict[str, str] = {}
 _MAX_CACHE = 256
@@ -49,18 +49,18 @@ def resolve_secret(value: str | None) -> str:
     return resolved
 
 
-def resolve_secrets(values: dict[str, str | Callable[[], str]] | None) -> dict[str, str]:
+def resolve_secrets(values: Mapping[str, object] | None) -> dict[str, str]:
     """Resolve every value in a mapping (e.g. a header dict).
 
     String values are resolved via ``resolve_secret`` (env-var / shell / literal).
     Callable values are called fresh each time — intentionally not memoized, so
     each call produces a new value (e.g. ``lambda: str(uuid4())`` for per-request
-    session IDs).
+    session IDs like x-session-affinity).
     """
     if not values:
         return {}
     return {
-        k: resolve_secret(v) if isinstance(v, str) else v()
+        k: resolve_secret(v) if isinstance(v, str) else v()  # type: ignore[operator]
         for k, v in values.items()
     }
 
