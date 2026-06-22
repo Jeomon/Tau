@@ -67,6 +67,7 @@ def cursor_block(ch: str = " ") -> str:
         return REVERSE + ch + "\x1b[27m"
     return ch
 
+
 # Standard foreground colours
 BLACK = "\x1b[30m"
 RED = "\x1b[31m"
