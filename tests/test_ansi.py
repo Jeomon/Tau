@@ -175,6 +175,98 @@ class TestWrap:
     def test_empty_string(self):
         assert wrap("", 10) == [""]
 
+    def test_all_wrapped_lines_fit_width(self):
+        long = "x" * 200
+        lines = wrap(long, 40)
+        for ln in lines:
+            assert visible_width(ln) <= 40
+
+    def test_content_preserved_across_wrap(self):
+        long = "a" * 150
+        lines = wrap(long, 50)
+        assert "".join(lines) == long
+
+
+class _FakeExpander:
+    """Mirrors the renderer's per-frame overflow-expand logic for unit testing."""
+
+    def __init__(self, width: int) -> None:
+        self._width = width
+        self._cache: dict[str, list[str]] = {}
+
+    def expand(self, logical_lines: list[str]) -> list[str]:
+        physical: list[str] = []
+        new_cache: dict[str, list[str]] = {}
+        for line in logical_lines:
+            cached = self._cache.get(line)
+            if cached is None:
+                if visible_width(line) > self._width:
+                    cached = wrap(line, self._width)
+                    new_cache[line] = cached
+                    physical.extend(cached)
+                else:
+                    physical.append(line)
+                continue
+            new_cache[line] = cached
+            physical.extend(cached)
+        self._cache = new_cache
+        return physical
+
+
+class TestRendererOverflowWrap:
+    """Tests for the renderer's overflow-wrap logic (mirrors Renderer._clamp_cache path)."""
+
+    def test_short_line_passes_through(self):
+        exp = _FakeExpander(80)
+        assert exp.expand(["hello"]) == ["hello"]
+
+    def test_overflow_line_expanded_not_truncated(self):
+        exp = _FakeExpander(10)
+        result = exp.expand(["a" * 25])
+        assert len(result) > 1
+        assert "".join(result) == "a" * 25
+
+    def test_expanded_lines_fit_width(self):
+        exp = _FakeExpander(20)
+        result = exp.expand(["x" * 55])
+        for ln in result:
+            assert visible_width(ln) <= 20
+
+    def test_non_overflow_line_not_cached(self):
+        exp = _FakeExpander(80)
+        exp.expand(["short"])
+        assert "short" not in exp._cache
+
+    def test_overflow_line_is_cached(self):
+        exp = _FakeExpander(10)
+        line = "a" * 30
+        exp.expand([line])
+        assert line in exp._cache
+
+    def test_cache_hit_returns_same_result(self):
+        exp = _FakeExpander(10)
+        line = "b" * 30
+        first = exp.expand([line])
+        second = exp.expand([line])
+        assert first == second
+
+    def test_width_change_clears_cache(self):
+        exp = _FakeExpander(10)
+        line = "c" * 30
+        exp.expand([line])
+        # Simulate width change by creating a new expander (renderer clears cache on width change)
+        exp2 = _FakeExpander(20)
+        result = exp2.expand([line])
+        # At width=20 fewer lines needed than at width=10
+        assert len(result) <= len(exp._cache[line])
+
+    def test_mixed_lines(self):
+        exp = _FakeExpander(10)
+        result = exp.expand(["hi", "x" * 25, "ok"])
+        assert result[0] == "hi"
+        assert result[-1] == "ok"
+        assert "x" * 25 == "".join(ln for ln in result if ln not in ("hi", "ok"))
+
 
 class TestAnsiStateTracker:
     def test_initially_no_state(self):

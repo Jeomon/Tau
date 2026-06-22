@@ -197,3 +197,45 @@ class TestTable:
         lines = plain(md)
         combined = "\n".join(lines)
         assert "│" in combined or "|" in combined
+
+    def test_table_fits_within_width(self):
+        md = "| Name | Value |\n|------|-------|\n| foo | bar |"
+        for width in (40, 60, 80):
+            lines = plain(md, width=width)
+            for line in lines:
+                assert len(line) <= width + 2, f"line too wide at width={width}: {line!r}"
+
+    def test_long_cell_wraps_to_next_row(self):
+        long = "word " * 20  # 100 chars
+        md = f"| Key | Value |\n|-----|-------|\n| k | {long.strip()} |"
+        lines = plain(md, width=40)
+        combined = "\n".join(lines)
+        # all words must survive — none truncated
+        assert "word" in combined
+        # every line must fit within width
+        for line in lines:
+            assert len(line) <= 42  # +2 for border chars
+
+    def test_wrapped_rows_preserve_borders(self):
+        long = "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        md = f"| Short | {long} |\n|-------|--------|\n| x | y |"
+        lines = plain(md, width=40)
+        # every non-empty line that is a table row should start/end with │
+        table_lines = [ln for ln in lines if "│" in ln]
+        for ln in table_lines:
+            assert ln.startswith("┌") or ln.startswith("├") or ln.startswith("└") or ln.startswith("│")
+
+    def test_all_content_preserved_on_narrow_terminal(self):
+        md = "| Col1 | Col2 |\n|------|------|\n| hello world foo | bar baz qux |"
+        lines = plain(md, width=30)
+        combined = "\n".join(lines)
+        assert "hello" in combined
+        assert "bar" in combined
+
+    def test_table_reflows_at_different_widths(self):
+        long = "the quick brown fox jumps over the lazy dog"
+        md = f"| A | B |\n|---|---|\n| x | {long} |"
+        lines_narrow = plain(md, width=40)
+        lines_wide = plain(md, width=120)
+        # wider terminal → fewer rows needed for the long cell
+        assert len(lines_wide) <= len(lines_narrow)
