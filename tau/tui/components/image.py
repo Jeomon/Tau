@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import base64
+import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from tau.tui.component import Component
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -154,15 +157,18 @@ class Image(Component):
         if caps.images == "kitty":
             if self._image_id is None:
                 self._image_id = _allocate_image_id()
-            # Kitty requires PNG; convert if needed
+            # Kitty requires PNG; convert if needed. Cache the result in _b64 so
+            # subsequent renders (after invalidate) don't need _raw again.
             b64 = self._b64
             if self._mime != "image/png":
                 try:
                     from tau.utils.image_processing import convert_to_png
 
                     b64 = base64.b64encode(convert_to_png(self._raw)).decode()
+                    self._b64 = b64
+                    self._mime = "image/png"
                 except Exception:
-                    pass
+                    _log.warning("image PNG conversion failed", exc_info=True)
             seq = _encode_kitty(b64, cols, rows, self._image_id)
             lines = [seq] + [""] * (rows - 1)
         elif caps.images == "iterm2":
@@ -175,6 +181,7 @@ class Image(Component):
 
         self._cache = lines
         self._cache_width = width
+        self._raw = b""  # decoded bytes no longer needed after first render
         return lines
 
     def _fallback_text(self) -> str:

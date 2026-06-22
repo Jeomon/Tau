@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,8 @@ from tau.tui.input import InputEvent, KeyEvent
 if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
     from tau.tui.autocomplete import AutocompleteRegistration
+
+_log = logging.getLogger(__name__)
 
 
 class AutocompleteManager:
@@ -212,7 +215,7 @@ class AutocompleteManager:
                 except asyncio.CancelledError:
                     pass
                 except Exception:
-                    pass
+                    _log.debug("autocomplete fetch failed", exc_info=True)
 
             self._ac_pending_task = asyncio.ensure_future(_fetch())
         else:
@@ -240,7 +243,7 @@ class AutocompleteManager:
                 except asyncio.CancelledError:
                     pass
                 except Exception:
-                    pass
+                    _log.debug("cmd-arg autocomplete fetch failed", exc_info=True)
 
             self._cmd_arg_pending_task = asyncio.ensure_future(_fetch())
         else:

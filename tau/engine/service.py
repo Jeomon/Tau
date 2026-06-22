@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Coroutine
 from contextlib import aclosing, suppress
 from pathlib import Path
@@ -63,6 +64,8 @@ if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM as LLM
     from tau.settings.manager import SettingsManager
     from tau.tool.types import Tool
+
+_log = logging.getLogger(__name__)
 
 
 class Engine:
@@ -299,6 +302,7 @@ class Engine:
 
         tool = self._tools.get(tool_call.name)
         if tool is None:
+            _log.warning("tool not found: %s", tool_call.name)
             return ToolResultContent(
                 id=tool_call.id,
                 is_error=True,
@@ -309,6 +313,7 @@ class Engine:
         tool_call.kind = tool.kind
         ok, errors = tool.validate(params=tool_call.args)
         if not ok:
+            _log.debug("tool %s: invalid params: %s", tool_call.name, "; ".join(errors))
             content = f"Invalid parameters for '{tool_call.name}':\n{chr(10).join(errors)}"
             return ToolResultContent(id=tool_call.id, is_error=True, content=content, metadata={})
 
@@ -332,6 +337,7 @@ class Engine:
         async def on_update(partial: ToolResult) -> None:
             await emit(ToolExecutionUpdateEvent(partial_tool_result=partial))
 
+        _log.debug("tool call: %s", tool_call.name)
         tool_result: ToolResultContent
         try:
             await emit(ToolExecutionStartEvent(tool_call=tool_call))
@@ -353,6 +359,7 @@ class Engine:
                 tool_name=tool_call.name,
             )
         except Exception as e:
+            _log.error("tool %s raised: %s", tool_call.name, e, exc_info=True)
             error = f"Tool '{tool_call.name}' execution failed:\n{e}"
             tool_result = ToolResultContent(
                 id=tool_call.id,
@@ -540,12 +547,16 @@ class Engine:
         """
         await emit(AgentStartEvent())
 
+        model_name = self.llm.model.name if self.llm is not None else "unknown"
+        _log.debug("agent loop starting: model=%s", model_name)
+
         tool_calls: list[ToolCallContent] = []
         tool_results: list[ToolResultContent] = []
         end_reason: AgentEndReason = AgentEndReason.Completed
 
         try:
             while True:
+                _log.debug("turn start: messages=%d", len(messages))
                 await emit(TurnStartEvent())
                 message = AssistantMessage()
                 tool_calls.clear()
@@ -666,6 +677,7 @@ class Engine:
                         err_msg = (
                             message.error or f"Turn failed with reason: {message.stop_reason.value}"
                         )
+                        _log.error("llm error: %s", err_msg)
                         end_reason = AgentEndReason.Error
                         await emit(AgentErrorEvent(error=err_msg))
                         await emit(TurnEndEvent(message=None, tool_results=tool_results))
@@ -756,6 +768,7 @@ class Engine:
             end_reason = AgentEndReason.Error
             await emit(AgentErrorEvent(error=str(e)))
 
+        _log.debug("agent loop ended: reason=%s", end_reason.value)
         await emit(AgentEndEvent(messages=messages, reason=end_reason))
 
     async def run(self, ctx: AgentContext, signal: AbortSignal | None = None) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from tau.session.types import SessionEntry
     from tau.settings.manager import SettingsManager
     from tau.tui.ui_context import UIContext
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +254,12 @@ class ExtensionContext:
 
             result = compact_fn(custom_instructions=custom_instructions)
             if inspect.isawaitable(result):
-                asyncio.ensure_future(result)  # type: ignore[arg-type]
+
+                def _log_compact_error(task: asyncio.Task) -> None:
+                    if not task.cancelled() and (exc := task.exception()):
+                        _log.error("extension-triggered compaction failed", exc_info=exc)
+
+                asyncio.ensure_future(result).add_done_callback(_log_compact_error)  # type: ignore[arg-type]
 
     def get_system_prompt(self) -> str:
         """Return the current effective system prompt."""

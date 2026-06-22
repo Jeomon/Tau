@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import traceback
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
     from tau.hooks.service import Hooks
     from tau.tool.types import Tool
+
+_log = logging.getLogger(__name__)
 
 
 # Events where handler return values matter for interception.
@@ -92,6 +95,12 @@ class ExtensionRuntime:
                 return result
             except Exception:
                 tb = traceback.format_exc()
+                _log.warning(
+                    "extension %s handler for %r raised: %s",
+                    ext.path,
+                    getattr(event, "type", "unknown"),
+                    tb.strip().splitlines()[-1],
+                )
                 self._errors.append(
                     ExtensionError(
                         extension_path=ext.path,
@@ -129,6 +138,12 @@ class ExtensionRuntime:
                         await result
                 except Exception:
                     tb = traceback.format_exc()
+                    _log.warning(
+                        "extension %s handler for %r raised: %s",
+                        ext.path,
+                        event_type,
+                        tb.strip().splitlines()[-1],
+                    )
                     self._errors.append(
                         ExtensionError(
                             extension_path=ext.path,

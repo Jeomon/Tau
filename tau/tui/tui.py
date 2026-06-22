@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -12,6 +13,14 @@ from tau.tui.overlay import OverlayEntry, OverlayHandle, OverlayOptions
 from tau.tui.renderer import Renderer
 from tau.tui.terminal import Terminal
 from tau.tui.utils import project_name
+
+_log = logging.getLogger(__name__)
+
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    if not task.cancelled() and (exc := task.exception()):
+        _log.error("Unhandled exception in background task", exc_info=exc)
+
 
 # Minimum milliseconds between rendered frames (~60 fps)
 _MIN_RENDER_INTERVAL = 1 / 60
@@ -86,7 +95,7 @@ class TUI(Container):
         self._bg_color_future: asyncio.Future | None = None
 
         # Wire resize → immediate full re-render (bypasses the streaming throttle)
-        self._terminal.on_resize(self._on_terminal_resize)
+        self._unsub_resize = self._terminal.on_resize(self._on_terminal_resize)
 
     # -------------------------------------------------------------------------
     # Container overrides — request render after structural changes
@@ -136,7 +145,9 @@ class TUI(Container):
             self._terminal.enable_kitty_keyboard()
             loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
             # Fire-and-forget: query terminal background colour for theme hints
-            asyncio.ensure_future(self.query_background_color())
+            asyncio.ensure_future(self.query_background_color()).add_done_callback(
+                _log_task_exception
+            )
             try:
                 await self._stop_event.wait()
             finally:
@@ -441,7 +452,7 @@ class TUI(Container):
         for handler in self._intercept_handlers:
             result = handler(event)
             if asyncio.iscoroutine(result):
-                asyncio.ensure_future(result)
+                asyncio.ensure_future(result).add_done_callback(_log_task_exception)
             elif result is True:
                 return
 
@@ -478,7 +489,7 @@ class TUI(Container):
         for handler in self._input_handlers:
             result = handler(event)
             if asyncio.iscoroutine(result):
-                asyncio.ensure_future(result)
+                asyncio.ensure_future(result).add_done_callback(_log_task_exception)
 
     # -------------------------------------------------------------------------
     # Render scheduling

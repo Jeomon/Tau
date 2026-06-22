@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import fields
 
 from tau.auth.manager import AuthManager
@@ -14,6 +15,8 @@ from tau.inference.types import (
     TranscribedAudio,
     TTSContext,
 )
+
+_log = logging.getLogger(__name__)
 
 
 class AudioLLM:
@@ -107,7 +110,17 @@ class AudioLLM:
             from dataclasses import replace
 
             context = replace(context, response_format=fmt)
-        return await self.api.synthesize(self.model, context)
+        try:
+            return await self.api.synthesize(self.model, context)
+        except Exception as e:
+            _log.error(
+                "synthesize failed: provider=%s model=%s: %s",
+                self.provider_id,
+                self.model.name,
+                e,
+                exc_info=True,
+            )
+            raise
 
     async def transcribe(self, context: STTContext) -> TranscribedAudio:
         """Transcribe audio to text."""
@@ -115,4 +128,14 @@ class AudioLLM:
         api_key = await self._auth_manager.get_api_key(self.provider_id)
         if api_key:
             self.api.options.api_key = api_key
-        return await self.api.transcribe(self.model, context)
+        try:
+            return await self.api.transcribe(self.model, context)
+        except Exception as e:
+            _log.error(
+                "transcribe failed: provider=%s model=%s: %s",
+                self.provider_id,
+                self.model.name,
+                e,
+                exc_info=True,
+            )
+            raise

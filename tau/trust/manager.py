@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from tau.settings.paths import CONFIG_DIR_PATH
 from tau.trust.types import TrustOption
 from tau.trust.utils import find_nearest, get_trust_options, has_project_trust_inputs, normalize
+
+_log = logging.getLogger(__name__)
 
 
 class TrustStore:
@@ -24,7 +27,10 @@ class TrustStore:
     def _read(self) -> dict[str, bool | None]:
         try:
             return json.loads(self._path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError:
+            _log.warning("trust store corrupted at %s, resetting", self._path)
             return {}
 
     def get(self, cwd: str | Path) -> bool | None:

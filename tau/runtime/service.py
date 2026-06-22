@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +30,8 @@ from tau.runtime.types import RuntimeConfig, RuntimeContext
 
 if TYPE_CHECKING:
     from tau.tui.components.layout import Layout
+
+_log = logging.getLogger(__name__)
 
 
 class Runtime:
@@ -254,6 +258,7 @@ class Runtime:
 
         await self._context.hooks.emit(TerminalExecutionEvent(message=msg, streaming=True))
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd.strip(),
@@ -270,6 +275,12 @@ class Runtime:
         except Exception as exc:
             msg.output += f"error: {exc}"
             cancelled = True
+        finally:
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    proc.kill()
+                with contextlib.suppress(Exception):
+                    await proc.wait()
 
         msg.output = msg.output.rstrip()
         msg.exit_code = exit_code
@@ -341,16 +352,14 @@ class Runtime:
 
         # extra_theme_paths: load each directory into the theme registry
         if extra_theme_paths:
-            import logging as _logging
-
             from tau.themes.registry import theme_registry
 
-            _log = _logging.getLogger(__name__)
             for tp in extra_theme_paths:
                 try:
                     from pathlib import Path as _Path
 
-                    theme_registry.load_external(cwd=_Path(tp))
+                    for _err in theme_registry.load_external(cwd=_Path(tp)):
+                        _log.warning("theme load error in %r: %s: %s", tp, _err.path, _err.error)
                 except Exception as _e:
                     _log.warning("resources_discover: failed to load theme path %r: %s", tp, _e)
 
@@ -546,11 +555,7 @@ class Runtime:
                 # Don't let one failed handler abort the reload, but never fail
                 # silently — a botched dispose (e.g. servers not reaped) must be
                 # visible rather than leaking resources unnoticed.
-                import logging
-
-                logging.getLogger(__name__).exception(
-                    "extension %s handler for %r raised", ext.path, event_type
-                )
+                _log.exception("extension %s handler for %r raised", ext.path, event_type)
 
     # -------------------------------------------------------------------------
     # Session lifecycle
@@ -738,9 +743,7 @@ class Runtime:
             if inspect.isawaitable(result):
                 await result
         except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception("with_session callback raised")
+            _log.exception("with_session callback raised")
 
     # -------------------------------------------------------------------------
     # Shutdown
@@ -759,6 +762,10 @@ class Runtime:
         if self._stopped:
             return
         self._stopped = True
+        if self.version_check_task is not None and not self.version_check_task.done():
+            self.version_check_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.version_check_task
         await self._context.hooks.emit(RuntimeStopEvent())
 
     # -------------------------------------------------------------------------

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import urllib.parse
 
 from tau.inference.provider.oauth.types import OAuthLoginCallbacks
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "OAUTH_SUCCESS_HTML",
@@ -97,7 +100,7 @@ async def start_oauth_callback_server(
 
             await writer.drain()
         except Exception:
-            pass
+            _log.debug("oauth callback handler error", exc_info=True)
         finally:
             writer.close()
             await writer.wait_closed()

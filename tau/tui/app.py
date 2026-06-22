@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,8 @@ from tau.tui.tui import TUI
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
     from tau.runtime.types import RuntimeConfig
+
+_log = logging.getLogger(__name__)
 
 
 class App:
@@ -68,7 +71,8 @@ class App:
         from tau.themes.registry import DEFAULT_THEME, theme_registry
 
         cwd = runtime.session_manager.cwd if runtime.session_manager is not None else None
-        theme_registry.load_external(cwd=cwd)
+        for err in theme_registry.load_external(cwd=cwd):
+            _log.warning("theme load error: %s: %s", err.path, err.error)
 
         from tau.prompts.registry import prompt_registry
 
@@ -617,6 +621,7 @@ class App:
 
     async def _cleanup(self) -> None:
         self._input.save_history()
+        self._input.shutdown()
         self._hooks.unsubscribe()
         for unsub in self._unsubs:
             unsub()

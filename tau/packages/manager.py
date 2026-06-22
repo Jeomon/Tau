@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import sys
@@ -9,6 +10,8 @@ from pathlib import Path
 from tau.packages.utils import extensions_from_pyproject, parse_source
 from tau.settings.paths import get_app_name
 from tau.settings.types import PackageEntry
+
+_log = logging.getLogger(__name__)
 
 
 class PackageManager:
@@ -139,7 +142,7 @@ class PackageManager:
                 if declared:
                     return [(pkg_dir / p).resolve() for p in declared if (pkg_dir / p).is_file()]
             except (json.JSONDecodeError, OSError):
-                pass
+                _log.warning("failed to parse package manifest %s", manifest, exc_info=True)
 
         # 2. pyproject.toml (package dir or its parent)
         for pp in [pkg_dir / "pyproject.toml", pkg_dir.parent / "pyproject.toml"]:
@@ -156,7 +159,7 @@ class PackageManager:
                 if "def register(" in content or "async def register(" in content:
                     return [init.resolve()]
             except OSError:
-                pass
+                _log.warning("failed to read package __init__.py %s", init, exc_info=True)
 
         return []
 

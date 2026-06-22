@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from tau.tui.commands.context import CommandContext
+
+_log = logging.getLogger(__name__)
 
 
 def open_login_selector(ctx: CommandContext) -> None:
@@ -225,7 +228,7 @@ def get_palette_overrides() -> dict[str, str]:
             overrides["login"] = "Add credentials  ·  none active"
             overrides["logout"] = "Remove credentials  ·  none active"
     except Exception:
-        pass
+        _log.debug("failed to load auth state for login menu", exc_info=True)
     return overrides
 
 

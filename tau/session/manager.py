@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +43,8 @@ from tau.session.utils import (
     read_session_file,
 )
 from tau.settings.paths import get_sessions_dir
+
+_log = logging.getLogger(__name__)
 
 
 class SessionManager:
@@ -139,7 +142,10 @@ class SessionManager:
         if not self.persist or not self.session_file:
             return None
         lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
-        self.session_file.write_text("\n".join(lines), encoding="utf-8")
+        try:
+            self.session_file.write_text("\n".join(lines), encoding="utf-8")
+        except OSError:
+            _log.error("failed to rewrite session file %s", self.session_file, exc_info=True)
 
     def _build_index(self):
         """Rebuild internal indices from loaded entries."""
@@ -179,13 +185,16 @@ class SessionManager:
             self.flushed = False
             return
 
-        with self.session_file.open("a", encoding="utf-8") as f:
-            if not self.flushed:
-                lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
-                f.writelines(lines)
-                self.flushed = True
-            else:
-                f.write(entry.model_dump_json(exclude_none=True) + "\n")
+        try:
+            with self.session_file.open("a", encoding="utf-8") as f:
+                if not self.flushed:
+                    lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
+                    f.writelines(lines)
+                    self.flushed = True
+                else:
+                    f.write(entry.model_dump_json(exclude_none=True) + "\n")
+        except OSError:
+            _log.error("failed to persist session entry to %s", self.session_file, exc_info=True)
 
     def _append_entry(self, entry: SessionEntry) -> str:
         """Add an entry to the session and persist it."""

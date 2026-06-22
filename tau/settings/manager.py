@@ -4,6 +4,7 @@ import contextlib
 import copy
 import dataclasses as dc
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -35,6 +36,8 @@ from tau.settings.types import (
     ThinkingBudgetsSettings,
 )
 from tau.settings.utils import coerce_enum, set_nested
+
+_log = logging.getLogger(__name__)
 
 _NESTED_FIELD_TYPES: dict[str, type] = {
     "retry": RetrySettings,
@@ -298,6 +301,7 @@ class SettingsManager:
                 task()
                 self._clear_modified_scope(scope)
             except Exception as e:
+                _log.error("failed to persist %s settings: %s", scope, e, exc_info=True)
                 self._record_error(scope, e)
 
         self._write_queue = asyncio.create_task(chained())

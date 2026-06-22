@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import fields
@@ -17,6 +18,8 @@ from tau.message.types import LLMMessage, SystemMessage
 
 if TYPE_CHECKING:
     from tau.inference.types import ThinkingLevel
+
+_log = logging.getLogger(__name__)
 
 
 class TextLLM:
@@ -277,6 +280,7 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
+        _log.debug("stream: provider=%s model=%s", self.provider_id, self.model.name)
         while True:
             received_any = False
             received_content = False
@@ -291,6 +295,13 @@ class TextLLM:
                             received_content = True
                         yield event
                 if not received_content and attempt < max_retries:
+                    _log.warning(
+                        "empty response from %s/%s, retrying (attempt %d/%d)",
+                        self.provider_id,
+                        self.model.name,
+                        attempt + 1,
+                        max_retries,
+                    )
                     yield RetryEvent(
                         attempt=attempt + 1, max_retries=max_retries, error="empty response"
                     )
@@ -311,6 +322,7 @@ class TextLLM:
                     and not oauth_recovery_attempted
                     and self._auth_manager.is_oauth(self.provider_id)  # type: ignore[union-attr]
                 ):
+                    _log.debug("oauth token refresh: provider=%s", self.provider_id)
                     oauth_recovery_attempted = True
                     refreshed = await self._auth_manager.force_refresh(  # type: ignore[union-attr]
                         self.provider_id, stale_access=self.api.options.api_key
@@ -331,8 +343,22 @@ class TextLLM:
                     # Transient refresh failure: fall through to standard handling.
 
                 if received_any or not classified.retryable or attempt >= max_retries:
+                    _log.error(
+                        "inference error from %s/%s: %s",
+                        self.provider_id,
+                        self.model.name,
+                        e,
+                    )
                     yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
                     return
+                _log.warning(
+                    "transient error from %s/%s: %s, retrying (attempt %d/%d)",
+                    self.provider_id,
+                    self.model.name,
+                    e,
+                    attempt + 1,
+                    max_retries,
+                )
                 yield RetryEvent(attempt=attempt + 1, max_retries=max_retries, error=str(e))
                 await asyncio.sleep(base_delay_s * (2**attempt))
                 attempt += 1
@@ -367,6 +393,7 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
+        _log.debug("invoke: provider=%s model=%s", self.provider_id, self.model.name)
         try:
             while True:
                 try:
@@ -383,6 +410,13 @@ class TextLLM:
                     )
 
                     if not has_content and attempt < max_retries:
+                        _log.warning(
+                            "empty response from %s/%s, retrying (attempt %d/%d)",
+                            self.provider_id,
+                            self.model.name,
+                            attempt + 1,
+                            max_retries,
+                        )
                         await asyncio.sleep(base_delay_s * (2**attempt))
                         attempt += 1
                         continue
@@ -399,6 +433,7 @@ class TextLLM:
                         and not oauth_recovery_attempted
                         and self._auth_manager.is_oauth(self.provider_id)  # type: ignore[union-attr]
                     ):
+                        _log.debug("oauth token refresh: provider=%s", self.provider_id)
                         oauth_recovery_attempted = True
                         refreshed = await self._auth_manager.force_refresh(  # type: ignore[union-attr]
                             self.provider_id, stale_access=self.api.options.api_key
@@ -418,10 +453,24 @@ class TextLLM:
                             ]
 
                     if not classified.retryable or attempt >= max_retries:
+                        _log.error(
+                            "inference error from %s/%s: %s",
+                            self.provider_id,
+                            self.model.name,
+                            e,
+                        )
                         return [
                             ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
                         ]
 
+                    _log.warning(
+                        "transient error from %s/%s: %s, retrying (attempt %d/%d)",
+                        self.provider_id,
+                        self.model.name,
+                        e,
+                        attempt + 1,
+                        max_retries,
+                    )
                     await asyncio.sleep(base_delay_s * (2**attempt))
                     attempt += 1
         finally:

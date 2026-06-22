@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,8 @@ from tau.message.types import (
 )
 from tau.message.utils import strip_unusable_trailing_assistant
 from tau.tool.types import ToolInvocation, ToolResult
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tau.engine.service import Engine
@@ -314,6 +317,7 @@ class Agent:
             await self._apply_compaction(preparation, entries, manual=False)
         except Exception:
             self._compaction_failures += 1
+            _log.exception("Auto-compaction failed")
 
     def _is_silent_overflow(self, message: AssistantMessage) -> bool:
         """Detect overflow on a *successful* response (no error was raised).
@@ -369,6 +373,7 @@ class Agent:
             await self._apply_compaction(preparation, entries, manual=False)
         except Exception:
             self._compaction_failures += 1
+            _log.exception("Overflow-triggered compaction failed")
             return False
         return True
 

@@ -50,7 +50,7 @@ class Renderer:
         # ANSI scan for every line that didn't change since the last frame.
         self._clamp_cache: dict[str, str] = {}
         self._clamp_cache_width: int = 0
-        terminal.on_resize(self._on_resize)
+        self._unsub_resize = terminal.on_resize(self._on_resize)
 
     # -------------------------------------------------------------------------
     # Public API

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from tau.inference.provider.oauth import OAuthLoginCallbacks
 from tau.inference.provider.registry import ProviderRegistry
 from tau.settings.paths import get_auth_path
 from tau.utils.secrets import resolve_secret
+
+_log = logging.getLogger(__name__)
 
 
 def _get_env_api_key(provider: str) -> str | None:
@@ -274,6 +277,7 @@ class AuthManager:
                     result=refreshed_credential, next=json.dumps(serialized, indent=2)
                 )
             except Exception as e:
+                _log.error("oauth token refresh failed for %s: %s", provider, e, exc_info=True)
                 self._record_error(e)
                 return LockResult(result=None)
 

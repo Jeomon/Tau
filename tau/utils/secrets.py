@@ -21,6 +21,7 @@ import os
 import subprocess
 
 _cache: dict[str, str] = {}
+_MAX_CACHE = 256
 
 
 def resolve_secret(value: str | None) -> str:
@@ -41,6 +42,8 @@ def resolve_secret(value: str | None) -> str:
         resolved = value
 
     if resolved:  # don't cache failures — allow a later retry after a fix
+        if len(_cache) >= _MAX_CACHE:
+            del _cache[next(iter(_cache))]  # evict oldest (insertion-order)
         _cache[value] = resolved
     return resolved
 

@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
-logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 class EventBus:
@@ -60,7 +60,7 @@ class EventBus:
                     result = await result
                 results.append(result)
             except Exception:
-                logger.exception("EventBus handler %r raised on event %r", handler, event)
+                _log.exception("EventBus handler %r raised on event %r", handler, event)
         return results
 
     def clear(self, event: str | None = None) -> None:

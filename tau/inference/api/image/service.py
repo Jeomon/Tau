@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import fields
 
 from tau.auth.manager import AuthManager
@@ -8,6 +9,8 @@ from tau.inference.api.registry import LazyAPI
 from tau.inference.model.registry import ModelRegistry
 from tau.inference.provider.registry import ImageProviderRegistry, ProviderRegistry
 from tau.inference.types import GeneratedImage, ImageContext, ImageOptions
+
+_log = logging.getLogger(__name__)
 
 
 class ImageLLM:
@@ -70,4 +73,14 @@ class ImageLLM:
         api_key = await self._auth_manager.get_api_key(self.provider_id)
         if api_key:
             self.api.options.api_key = api_key
-        return await self.api.generate(self.model, context)
+        try:
+            return await self.api.generate(self.model, context)
+        except Exception as e:
+            _log.error(
+                "generate failed: provider=%s model=%s: %s",
+                self.provider_id,
+                self.model.name,
+                e,
+                exc_info=True,
+            )
+            raise

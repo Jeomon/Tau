@@ -10,7 +10,7 @@ from typing import Any
 
 from tau.hooks.types import HookEvent
 
-logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 Handler = Callable[[Any], Awaitable[Any] | Any]
 Unsubscribe = Callable[[], None]
@@ -82,7 +82,7 @@ class Hooks:
                     result = await result
                 results.append(result)
             except Exception:
-                logger.error(
+                _log.error(
                     "Hook handler %r raised on event %r:\n%s",
                     getattr(handler, "__name__", handler),
                     event_type,
@@ -95,7 +95,7 @@ class Hooks:
                 if asyncio.iscoroutine(result):
                     await result
             except Exception:
-                logger.error(
+                _log.error(
                     "Hook subscriber %r raised on event %r:\n%s",
                     getattr(subscriber, "__name__", subscriber),
                     event_type,

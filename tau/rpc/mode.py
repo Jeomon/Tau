@@ -14,8 +14,11 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import logging
 import sys
 from typing import TYPE_CHECKING, Any
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -219,6 +222,7 @@ async def _handle_command(
                 try:
                     await runtime.new_session()
                 except Exception:
+                    _log.error("rpc new_session failed", exc_info=True)
                     cancelled = True
                 _ok({"cancelled": cancelled})
 
@@ -340,7 +344,7 @@ async def _handle_command(
                             }
                         )
                 except Exception:
-                    pass
+                    _log.debug("rpc get_available_models failed", exc_info=True)
                 _ok({"models": models})
 
             # ── Thinking ─────────────────────────────────────────────────────
@@ -384,7 +388,7 @@ async def _handle_command(
                                 set_fn(next_tl)
                             new_level = getattr(next_tl, "value", str(next_tl))
                     except Exception:
-                        pass
+                        _log.debug("rpc cycle_thinking_level failed", exc_info=True)
                 _ok({"level": new_level} if new_level is not None else None)
 
             # ── Queue modes ──────────────────────────────────────────────────
@@ -698,7 +702,7 @@ async def _handle_command(
                             {"name": tmpl.name, "description": tmpl.description, "source": "prompt"}
                         )
                 except Exception:
-                    pass
+                    _log.debug("rpc get_commands: prompt registry failed", exc_info=True)
                 try:
                     from tau.skills.registry import skill_registry
 
@@ -711,7 +715,7 @@ async def _handle_command(
                             }
                         )
                 except Exception:
-                    pass
+                    _log.debug("rpc get_commands: skill registry failed", exc_info=True)
                 _ok({"commands": cmds})
 
             # ── Extension UI response (client → tau) ──────────────────────────

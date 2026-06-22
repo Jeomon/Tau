@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -146,7 +149,7 @@ class AgentHookHandler:
 
             update(ExtensionContext.from_runtime(self._runtime))
         except Exception:
-            pass
+            _log.debug("Extension context update failed", exc_info=True)
 
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 

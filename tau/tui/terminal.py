@@ -454,18 +454,17 @@ class Terminal:
     # Size
     # -------------------------------------------------------------------------
 
-    def on_resize(self, callback: Callable[[], None]) -> None:
-        """
-        Register a callback function to run when the terminal is resized.
-
-        The callback will be called whenever the user resizes their terminal window.
-        Multiple callbacks can be registered; all will be called on resize.
-
-        Args:
-            callback: A function that takes no arguments and returns None
-                     Example: on_resize(lambda: print("Resized!"))
-        """
+    def on_resize(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback for terminal resize events. Returns an unsubscribe callable."""
         self._resize_callbacks.append(callback)
+
+        import contextlib
+
+        def _unsub() -> None:
+            with contextlib.suppress(ValueError):
+                self._resize_callbacks.remove(callback)
+
+        return _unsub
 
     def _on_resize(self, *_: object) -> None:
         """

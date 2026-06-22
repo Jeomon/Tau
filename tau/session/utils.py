@@ -1,4 +1,5 @@
 import contextlib
+import logging
 import re
 import uuid
 from collections.abc import Callable
@@ -19,6 +20,8 @@ from tau.session.types import (
     SessionType,
 )
 from tau.settings.paths import get_sessions_dir
+
+_log = logging.getLogger(__name__)
 
 
 def create_session_id() -> str:
@@ -257,6 +260,6 @@ def list_sessions_from_dir(
                 sessions.append(info)
 
     except Exception:
-        pass  # Return what we have on error, or an empty list if early
+        _log.warning("failed to list sessions from %s", dir_path, exc_info=True)
 
     return sessions

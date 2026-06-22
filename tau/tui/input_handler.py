@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+_log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tau.message.types import UserMessage
@@ -31,6 +34,7 @@ class InputHandler:
         self._tui = tui
 
         self._invoke_task: asyncio.Task | None = None
+        self._pending_tasks: set[asyncio.Task] = set()
         self._turn_has_content: bool = False
         self._last_user_text: str = ""
 
@@ -52,6 +56,16 @@ class InputHandler:
         self._clipboard_video_counter: int = 0
         self._pasted_texts: dict[int, str] = {}
         self._paste_counter: int = 0
+
+    def _track_task(self, task: asyncio.Task) -> asyncio.Task:
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+        return task
+
+    def shutdown(self) -> None:
+        for task in self._pending_tasks:
+            task.cancel()
+        self._pending_tasks.clear()
 
     def bind(self) -> None:
         """Wire submit/followup/dequeue and clipboard callbacks onto the layout."""
@@ -147,7 +161,7 @@ class InputHandler:
                     return
 
         if agent is not None and not agent.is_idle():
-            asyncio.ensure_future(self._steer(expanded, images, audio, video))
+            self._track_task(asyncio.ensure_future(self._steer(expanded, images, audio, video)))
             return
 
         # Strip resolved image markers from the text sent to the model so the
@@ -160,8 +174,10 @@ class InputHandler:
         self._last_user_text = text
         self._turn_has_content = False
         self._tui.request_render()
-        asyncio.ensure_future(
-            self._invoke(self._expand_at_mentions(model_text), images, audio, video)
+        self._track_task(
+            asyncio.ensure_future(
+                self._invoke(self._expand_at_mentions(model_text), images, audio, video)
+            )
         )
 
     def _on_followup(self, text: str) -> None:
@@ -169,8 +185,10 @@ class InputHandler:
         audio = self._extract_clipboard_audio(text)
         video = self._extract_clipboard_video(text)
         expanded = self._expand_pasted_texts(text)
-        asyncio.ensure_future(
-            self._queue_followup(expanded, images, audio, video, display_text=text)
+        self._track_task(
+            asyncio.ensure_future(
+                self._queue_followup(expanded, images, audio, video, display_text=text)
+            )
         )
 
     # ── Deferred /command + !terminal ─────────────────────────────────────────
@@ -306,7 +324,7 @@ class InputHandler:
         # If queued input runs next, _on_agent_start will start it again.
         self._layout.spinner.stop()
         if queued:
-            asyncio.ensure_future(self._run_queued_next(queued))
+            self._track_task(asyncio.ensure_future(self._run_queued_next(queued)))
         self._tui.request_render()
 
     def _clear_clipboard_caches(self) -> None:
@@ -361,6 +379,7 @@ class InputHandler:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
+            _log.exception("Error during invoke")
             self._layout.spinner.set_label(f"error: {exc}")
             self._layout.spinner.stop()
             self._tui.request_render()
@@ -398,6 +417,7 @@ class InputHandler:
             msg = self._build_user_message(expanded, images, audio, video)
             await agent._engine.steer(msg)
         except Exception as exc:
+            _log.exception("Error during steer")
             self._layout.spinner.set_label(f"error: {exc}")
             self._tui.request_render()
 
@@ -422,6 +442,7 @@ class InputHandler:
                 msg = self._build_user_message(self._expand_at_mentions(text), images, audio, video)
                 await agent._engine.follow_up(msg)
             except Exception as exc:
+                _log.exception("Error during follow-up")
                 self._layout.spinner.set_label(f"error: {exc}")
                 self._tui.request_render()
 
@@ -443,7 +464,7 @@ class InputHandler:
             else:
                 self._store_clipboard_image(data, suffix)
         except Exception:
-            pass
+            _log.debug("Failed to paste file %r", src_path, exc_info=True)
 
     def _on_paste(self) -> None:
         import io
@@ -462,7 +483,7 @@ class InputHandler:
             item.save(buf, format="PNG")
             self._store_clipboard_image(buf.getvalue(), ".png")
         except Exception:
-            pass
+            _log.debug("Clipboard image grab failed", exc_info=True)
 
     def _get_media_dir(self) -> Path:
         sm = self._runtime.session_manager
@@ -490,7 +511,7 @@ class InputHandler:
                 for p in media_dir.glob(f"{uid}.*"):
                     return p
         except OSError:
-            pass
+            _log.debug("failed to locate media by uuid %s", uid, exc_info=True)
         return None
 
     def _store_clipboard_image(self, raw: bytes, suffix: str) -> None:
@@ -517,8 +538,9 @@ class InputHandler:
                 self._clipboard_image_notes[idx] = note
             self._layout.input.insert_at_cursor(f"[image #{idx}]")
             self._tui.request_render()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.exception("Failed to store clipboard image")
+            self._notify(f"Could not store image: {exc}", type="error")
 
     def _store_clipboard_audio(self, raw: bytes, suffix: str) -> None:
         import uuid as _uuid
@@ -534,8 +556,9 @@ class InputHandler:
             self._clipboard_audio[idx] = (file_uuid, str(media_path))
             self._layout.input.insert_at_cursor(f"[audio #{idx}]")
             self._tui.request_render()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.exception("Failed to store clipboard audio")
+            self._notify(f"Could not store audio: {exc}", type="error")
 
     def _store_clipboard_video(self, raw: bytes, suffix: str) -> None:
         import uuid as _uuid
@@ -551,8 +574,9 @@ class InputHandler:
             self._clipboard_video[idx] = (file_uuid, str(media_path))
             self._layout.input.insert_at_cursor(f"[video #{idx}]")
             self._tui.request_render()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.exception("Failed to store clipboard video")
+            self._notify(f"Could not store video: {exc}", type="error")
 
     def _extract_clipboard_audio(self, text: str) -> list[bytes]:
         audio: list[bytes] = []
@@ -570,7 +594,7 @@ class InputHandler:
                 with open(path, "rb") as f:
                     audio.append(f.read())
             except OSError:
-                pass
+                _log.warning("failed to read clipboard audio %s", path, exc_info=True)
         # Also resolve persistent [audio:{uuid}] markers from history
         seen_uuids: set[str] = set()
         for m in re.finditer(r"\[audio:([^\]]+)\]", text):
@@ -602,7 +626,7 @@ class InputHandler:
                 with open(path, "rb") as f:
                     video.append(f.read())
             except OSError:
-                pass
+                _log.warning("failed to read clipboard video %s", path, exc_info=True)
         # Also resolve persistent [video:{uuid}] markers from history
         seen_uuids: set[str] = set()
         for m in re.finditer(r"\[video:([^\]]+)\]", text):
@@ -737,7 +761,7 @@ class InputHandler:
                 with open(path, "rb") as f:
                     images.append(f.read())
             except OSError:
-                pass
+                _log.warning("failed to read clipboard image %s", path, exc_info=True)
         # Also resolve persistent [image:{uuid}] markers from history
         missing = 0
         seen_uuids: set[str] = set()
@@ -780,7 +804,7 @@ class InputHandler:
                 note = self._clipboard_image_notes.get(idx)
                 contents.append(_IC(images=[data], dimension_note=note))
             except OSError:
-                pass
+                _log.warning("failed to read clipboard image content %s", path, exc_info=True)
         # Also resolve persistent [image:{uuid}] markers from history
         seen_uuids: set[str] = set()
         for m in re.finditer(r"\[image:([^\]]+)\]", text):
@@ -812,7 +836,7 @@ class InputHandler:
                     content = path.read_text(errors="replace")
                     attachments.append(f'<file path="{raw_path}">\n{content}\n</file>')
                 except OSError:
-                    pass
+                    _log.debug("failed to read @mention file %s", path, exc_info=True)
         if not attachments:
             return text
         return "\n".join(attachments) + "\n\n" + text
@@ -871,7 +895,7 @@ class InputHandler:
                 entries.append("\n".join(current))
             self._layout.input._history = entries[-500:]
         except OSError:
-            pass
+            _log.debug("failed to load history", exc_info=True)
 
     def save_history(self) -> None:
         history = self._layout.input._history
@@ -886,7 +910,7 @@ class InputHandler:
                 chunks.append("\x00")
             path.write_text("\n".join(chunks), encoding="utf-8")
         except OSError:
-            pass
+            _log.debug("failed to save history", exc_info=True)
 
 
 def _history_path():

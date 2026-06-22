@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from tau.settings.manager import SettingsManager
     from tau.settings.types import ExtensionEntry
 
-logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 _ENTRY_POINT = "register"
 
@@ -242,13 +242,12 @@ class ExtensionLoader:
             try:
                 cache = json.loads(cache_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
+                _log.debug("dependency cache unreadable at %s, reinstalling", cache_file)
                 cache = {}
 
         key = str(subdir.resolve())
         if cache.get(key) != digest:
-            logger.info(
-                "Installing dependencies for extension %r: %s", subdir.name, ", ".join(deps)
-            )
+            _log.info("Installing dependencies for extension %r: %s", subdir.name, ", ".join(deps))
             pkg_mgr.install_requirements(deps)
             cache[key] = digest
             cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -271,7 +270,7 @@ class ExtensionLoader:
             config = self._entry_configs.get(config_key, {})
             ext, errs = await self._load_one(path, config, source=source)
             if ext is not None:
-                logger.debug("Loaded extension: %s (%s)", path, source)
+                _log.debug("Loaded extension: %s (%s)", path, source)
             return ext, errs
 
         results = await asyncio.gather(*[_load(p, s) for p, s in discovered])
@@ -386,12 +385,17 @@ class ExtensionLoader:
             if runtime is None:
                 return
             reload_one = getattr(runtime, "reload_extension", None)
+
+            def _log_reload_error(task: asyncio.Task) -> None:
+                if not task.cancelled() and (exc := task.exception()):
+                    _log.error("extension reload failed", exc_info=exc)
+
             if reload_one is not None:
-                asyncio.ensure_future(reload_one(module_path))
+                asyncio.ensure_future(reload_one(module_path)).add_done_callback(_log_reload_error)
             else:  # fall back to full reload if single-extension reload is unavailable
                 reload_all = getattr(runtime, "reload_extensions", None)
                 if reload_all is not None:
-                    asyncio.ensure_future(reload_all())
+                    asyncio.ensure_future(reload_all()).add_done_callback(_log_reload_error)
 
         reg = build_manifest_panel(
             schema,
