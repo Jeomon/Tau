@@ -1,6 +1,6 @@
 {
   "tau": {
-    "dependencies": ["ddgs", "exa-py", "tavily-python"],
+    "dependencies": ["ddgs", "AsyncDDGS", "exa-py", "tavily-python"],
     "settings": {
       "title": "Web search",
       "fields": [
