@@ -93,7 +93,8 @@ def load_project_context_files(cwd: Path) -> list[tuple[str, Path]]:
 
 
 _DEFAULT_IDENTITY = """\
-You are a coding agent operating inside Tau, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+You are a coding agent operating inside Tau, a coding agent harness. You help users by
+reading files, executing commands, editing code, and writing new files.
 
 You have strong software engineering skills. You think carefully before making changes,
 and follow the existing style and conventions of the project.
@@ -101,10 +102,16 @@ and follow the existing style and conventions of the project.
 
 _GENERAL_GUIDELINES = [
     "If a task is ambiguous, ask a precise, clarifying question before proceeding.",
-    "Do only what the task asks; don't add features, refactors, or abstractions beyond scope.",
+    (
+        "Do only what the task asks; don't add features, refactors, or abstractions "
+        "beyond scope."
+    ),
     "Write comments when the *why* is non-obvious — well-named code explains itself.",
     "Keep responses short, concise, and direct; don't summarize what you just did.",
-    "Prioritize accuracy over agreement — investigate before confirming, and disagree when the evidence calls for it.",
+    (
+        "Prioritize accuracy over agreement — investigate before confirming, and "
+        "disagree when the evidence calls for it."
+    ),
 ]
 
 
@@ -269,7 +276,10 @@ class PromptBuilder:
             if guideline:
                 guidelines.append(f"- **{t.name}**: {guideline.strip()}")
         section = "\n\n# Available Tools\n\n" + "\n".join(lines)
-        section += "\nIn addition to the tools above, you may have access to other custom tools depending on the project."
+        section += (
+            "\nIn addition to the tools above, you may have access to other custom "
+            "tools depending on the project."
+        )
         if guidelines:
             section += "\n\n## Tool Guidelines\n\n" + "\n".join(guidelines)
         return section
