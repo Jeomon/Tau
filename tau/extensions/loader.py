@@ -6,6 +6,7 @@ import importlib.util
 import inspect
 import json
 import logging
+import sys
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
