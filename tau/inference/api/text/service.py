@@ -244,7 +244,15 @@ class TextLLM:
         """
         import asyncio
 
-        from tau.inference.types import ErrorEvent, RetryEvent, StartEvent, StopReason
+        from tau.inference.types import (
+            ErrorEvent,
+            RetryEvent,
+            StartEvent,
+            StopReason,
+            TextDeltaEvent,
+            TextEndEvent,
+            ToolCallEndEvent,
+        )
         from tau.inference.utils import ErrorKind, classify_error
 
         api_key = await self._auth_manager.get_api_key(self.provider_id)
@@ -265,6 +273,7 @@ class TextLLM:
         oauth_recovery_attempted = False
         while True:
             received_any = False
+            received_content = False
             try:
                 async with aclosing(self.api.stream(api_context, model=self.model)) as stream:
                     async for event in stream:
@@ -272,7 +281,14 @@ class TextLLM:
                         # don't count them as "received data" so retries still fire on empty bodies.
                         if not isinstance(event, (StartEvent, RetryEvent)):
                             received_any = True
+                        if isinstance(event, (TextEndEvent, TextDeltaEvent, ToolCallEndEvent)):
+                            received_content = True
                         yield event
+                if not received_content and attempt < max_retries:
+                    yield RetryEvent(attempt=attempt + 1, max_retries=max_retries, error="empty response")
+                    await asyncio.sleep(base_delay_s * (2**attempt))
+                    attempt += 1
+                    continue
                 return
             except Exception as e:
                 classified = classify_error(e)
@@ -350,12 +366,13 @@ class TextLLM:
 
                     events = await self.api.invoke(api_context, model=self.model)
 
-                    has_tool_calls = any(isinstance(e, ToolCallEndEvent) for e in events)
-                    text = next((e.text.content for e in events if isinstance(e, TextEndEvent)), None)
-                    if text is None:
-                        text = "".join(e.text.content for e in events if isinstance(e, TextDeltaEvent))
+                    has_content = any(
+                        (isinstance(e, ToolCallEndEvent))
+                        or (isinstance(e, (TextEndEvent, TextDeltaEvent)) and e.text.content.strip())
+                        for e in events
+                    )
 
-                    if not has_tool_calls and not text.strip() and attempt < max_retries:
+                    if not has_content and attempt < max_retries:
                         await asyncio.sleep(base_delay_s * (2**attempt))
                         attempt += 1
                         continue
