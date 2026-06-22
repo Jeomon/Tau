@@ -274,16 +274,22 @@ class _Renderer:
         mid = _border("├", "┼", "┤")
         bottom = _border("└", "┴", "┘")
 
-        def _row(cells: list[str]) -> str:
-            padded = [
-                " " + cell + " " * max(1, col_widths[ci] - visible_width(cell) + 1)
-                for ci, cell in enumerate(cells)
-            ]
-            return self.theme.hr("│") + self.theme.hr("│").join(padded) + self.theme.hr("│")
+        def _row(cells: list[str]) -> list[str]:
+            wrapped = [wrap(cell, col_widths[ci]) or [cell] for ci, cell in enumerate(cells)]
+            height = max(len(w) for w in wrapped)
+            out = []
+            for li in range(height):
+                padded = []
+                for ci, lines in enumerate(wrapped):
+                    cw = col_widths[ci]
+                    cell = lines[li] if li < len(lines) else ""
+                    padded.append(" " + cell + " " * max(1, cw - visible_width(cell) + 1))
+                out.append(self.theme.hr("│") + self.theme.hr("│").join(padded) + self.theme.hr("│"))
+            return out
 
         lines: list[str] = [top]
         for ri, cells in enumerate(rendered):
-            lines.append(_row(cells))
+            lines.extend(_row(cells))
             if ri == 0 and has_header:
                 lines.append(mid)
         lines.append(bottom)
