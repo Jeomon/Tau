@@ -119,6 +119,7 @@ class GitHubCopilotChatAPI(BaseAPI):
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
+        has_finish_reason = False
 
         yield StartEvent()
 
@@ -174,6 +175,7 @@ class GitHubCopilotChatAPI(BaseAPI):
                             )
 
                 if choice.finish_reason:
+                    has_finish_reason = True
                     if text_started:
                         yield TextEndEvent(text=TextContent(content=text_buf))
                         text_started = False
@@ -201,3 +203,6 @@ class GitHubCopilotChatAPI(BaseAPI):
                         output_tokens=_output_tokens,
                         cache_read_tokens=_cache_read_tokens,
                     )
+
+        if not has_finish_reason:
+            raise RuntimeError("Stream ended without finish_reason")
