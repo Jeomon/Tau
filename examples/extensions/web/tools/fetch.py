@@ -11,7 +11,7 @@ from tau.tool.render import call_line
 from engines import BaseSearchEngine
 
 
-def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:  # pyright: ignore[reportUnusedParameter]
+def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
     return call_line("web_fetch", args.get("url", ""))
 
 
@@ -137,8 +137,8 @@ class WebFetchTool(Tool):
     async def execute(
         self,
         invocation: ToolInvocation,
-        tool_execution_update_callback=None,  # pyright: ignore[reportUnusedParameter]
-        signal=None,  # pyright: ignore[reportUnusedParameter]
+        tool_execution_update_callback=None,
+        signal=None,
         context: ToolContext | None = None,
     ) -> ToolResult:
         url = invocation.params.get("url")
