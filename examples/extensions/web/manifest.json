@@ -15,7 +15,7 @@
           "key": "engine",
           "label": "Search engine",
           "type": "enum",
-          "values": ["ddgs", "exa", "tavily"],
+          "values": ["ddgs", "exa", "tavily", "jina"],
           "default": "ddgs",
           "description": "Active backend for web_search / web_fetch. Configure each engine below."
         },
@@ -83,6 +83,27 @@
               "values": ["basic", "advanced"],
               "default": "basic",
               "description": "advanced is higher quality but costs more credits."
+            }
+          ]
+        },
+        {
+          "key": "jina",
+          "label": "Jina AI Reader",
+          "type": "group",
+          "description": "Jina Reader (r.jina.ai / s.jina.ai) — no dependencies required. Optional API key for higher rate limits.",
+          "fields": [
+            {
+              "key": "api_key",
+              "label": "API key",
+              "type": "secret",
+              "description": "Optional. Literal key, $ENV_VAR, or !shell-command. Obtain at https://jina.ai/reader."
+            },
+            {
+              "key": "no_cache",
+              "label": "Bypass cache",
+              "type": "bool",
+              "default": false,
+              "description": "Always fetch a fresh copy, bypassing Jina's cache."
             }
           ]
         }

@@ -10,11 +10,12 @@ from typing import Any, Callable
 from .base import BaseSearchEngine, SearchMode, result
 from .ddgs_engine import DDGSearchEngine
 from .exa_engine import ExaSearchEngine
+from .jina_engine import JinaSearchEngine
 from .tavily_engine import TavilySearchEngine
 
 __all__ = [
     "BaseSearchEngine", "SearchMode", "result",
-    "DDGSearchEngine", "ExaSearchEngine", "TavilySearchEngine",
+    "DDGSearchEngine", "ExaSearchEngine", "JinaSearchEngine", "TavilySearchEngine",
     "build_engine", "get_nested",
 ]
 
@@ -64,10 +65,19 @@ def _build_tavily(config: dict) -> BaseSearchEngine:
     )
 
 
+def _build_jina(config: dict) -> BaseSearchEngine:
+    c = _group(config, "jina")
+    return JinaSearchEngine(
+        api_key=_resolve_secret(c.get("api_key", "")),
+        no_cache=bool(c.get("no_cache", False)),
+    )
+
+
 _BUILDERS: dict[str, Callable[[dict], BaseSearchEngine]] = {
     "ddgs":   _build_ddgs,
     "exa":    _build_exa,
     "tavily": _build_tavily,
+    "jina":   _build_jina,
 }
 
 

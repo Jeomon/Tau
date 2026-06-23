@@ -13,10 +13,11 @@ of settings (default: DuckDuckGo):
       "list": [{
         "path": ".tau/extensions/web",
         "settings": {
-          "engine": "ddgs",                       // "ddgs" | "exa" | "tavily"
+          "engine": "ddgs",                       // "ddgs" | "exa" | "tavily" | "jina"
           "ddgs":   { "region": "us-en", "safesearch": "off" },
           "exa":    { "api_key": "$EXA_API_KEY", "type": "auto" },
-          "tavily": { "api_key": "$TAVILY_API_KEY", "search_depth": "basic" }
+          "tavily": { "api_key": "$TAVILY_API_KEY", "search_depth": "basic" },
+          "jina":   { "api_key": "$JINA_API_KEY", "no_cache": false }
         }
       }]
     }
