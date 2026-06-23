@@ -21,6 +21,7 @@ LLM_APIS: list[tuple[str, str]] = [
     ("google_antigravity", "tau.inference.api.text.google_antigravity:GoogleAntigravityAPI"),
     ("google_vertex", "tau.inference.api.text.google_vertex:GoogleVertexAPI"),
     ("anthropic_vertex", "tau.inference.api.text.anthropic_vertex:AnthropicVertexAPI"),
+    ("openai_vertex", "tau.inference.api.text.openai_vertex:OpenAIVertexAPI"),
 ]
 
 # Backward-compat alias

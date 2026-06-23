@@ -26,6 +26,13 @@ api_providers = [
         auth_type=AuthType.None_,
     ),
     APIProvider(
+        id="openai-vertex",
+        name="OpenAI-compatible on Vertex AI",
+        api="openai_vertex",
+        options=LLMOptions(),
+        auth_type=AuthType.None_,
+    ),
+    APIProvider(
         id="nvidia",
         name="NVIDIA",
         api="openai_completions",
