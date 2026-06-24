@@ -310,7 +310,15 @@ class MessageBlock:
         if self._streaming:
             cursor = cursor_block()
             if lines:
-                lines[-1] = lines[-1] + cursor
+                # If appending the cursor would push the last line past the
+                # renderer's clamp width (inner_width + 2), the clamp wraps the
+                # line at the first word boundary ("  "), stripping the indent
+                # from the remaining content (e.g. a table's bottom border).
+                # Put the cursor on a new line instead to avoid the misalignment.
+                if visible_width(lines[-1]) + visible_width(cursor) > inner_width + 2:
+                    lines.append("  " + cursor)
+                else:
+                    lines[-1] = lines[-1] + cursor
             else:
                 lines.append("  " + cursor)
         elif msg.stop_reason == StopReason.Abort:
