@@ -8,6 +8,8 @@ from tau.tui.ansi import (
     is_window_focused,
     truncate,
     visible_width,
+)
+from tau.tui.ansi import (
     wrap as _wrap,
 )
 from tau.tui.component import Component

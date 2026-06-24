@@ -459,7 +459,9 @@ class GoogleAntigravityAPI(BaseAPI):
                     error_body = (await response.aread()).decode(errors="replace")
                     from tau.inference.utils import classify_error
 
-                    _err = _HTTPError(response.status_code, f"HTTP {response.status_code}: {error_body}")
+                    _err = _HTTPError(
+                        response.status_code, f"HTTP {response.status_code}: {error_body}"
+                    )
                     classified = classify_error(_err)
                     yield ErrorEvent(
                         reason=StopReason.Error,

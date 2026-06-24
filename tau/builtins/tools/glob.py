@@ -143,7 +143,7 @@ class GlobTool(Tool):
             return None
         if proc.returncode not in (0, 1):
             return None
-        return [l for l in proc.stdout.splitlines() if l]
+        return [line for line in proc.stdout.splitlines() if line]
 
     def _python_glob(self, pattern: str, base: Path) -> list[str]:
         return sorted(_glob.glob(str(base / pattern), recursive=True))

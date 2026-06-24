@@ -303,7 +303,9 @@ class GoogleVertexAPI(BaseAPI):
                                 tool_id = provided_id
                             else:
                                 _tool_call_counter += 1
-                                tool_id = f"{tool_name}_{int(time.time() * 1000)}_{_tool_call_counter}"
+                                tool_id = (
+                                    f"{tool_name}_{int(time.time() * 1000)}_{_tool_call_counter}"
+                                )
                             seen_tool_ids.add(tool_id)
                             args_str = json.dumps(dict(fc.args)) if fc.args else ""
                             yield ToolCallStartEvent(

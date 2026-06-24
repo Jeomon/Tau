@@ -254,10 +254,7 @@ class _Renderer:
         # Canonical column count comes from the header row when present.
         # Using max() would inflate ncols when a data cell contains a literal
         # "|" that the parser split into an extra column.
-        if has_header and rendered:
-            ncols = len(rendered[0])
-        else:
-            ncols = max(len(r) for r in rendered)
+        ncols = len(rendered[0]) if has_header and rendered else max(len(r) for r in rendered)
 
         # Normalise every row to exactly ncols cells.
         for r in rendered:
@@ -269,7 +266,7 @@ class _Renderer:
                 r.append("")
 
         # Max visible width per column; leave room for outer borders + inner gaps:
-        # "│  " + cells joined by "  │  " + "  │" = 2+2 per cell + ncols+1 separators = ncols*5+1 overhead
+        # "│  " + cells joined by "  │  " + "  │" → ncols*5+1 overhead
         col_widths = [max(visible_width(r[c]) for r in rendered) for c in range(ncols)]
         overhead = ncols * 5 + 1
         available = max(ncols, self.width - overhead)
@@ -316,7 +313,8 @@ class _Renderer:
                     cw = col_widths[ci]
                     cell = lines[li] if li < len(lines) else ""
                     padded.append("  " + cell + " " * max(2, cw - visible_width(cell) + 2))
-                out.append(self.theme.hr("│") + self.theme.hr("│").join(padded) + self.theme.hr("│"))
+                sep = self.theme.hr("│")
+                out.append(sep + sep.join(padded) + sep)
             out.append(blank)
             return out
 

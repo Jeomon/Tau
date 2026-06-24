@@ -244,7 +244,9 @@ class SettingsModal:
         elif self._title:
             lines.append(f"  {DIM}↑/↓ move  enter/spc toggle  esc back  type to search{RESET}")
         else:
-            lines.append(f"  {DIM}↑/↓ move  enter/spc toggle  esc save & close  type to search{RESET}")
+            lines.append(
+                f"  {DIM}↑/↓ move  enter/spc toggle  esc save & close  type to search{RESET}"
+            )
 
         return lines
 

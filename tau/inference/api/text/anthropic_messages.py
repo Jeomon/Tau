@@ -233,7 +233,11 @@ class AnthropicMessagesAPI(BaseAPI):
                             getattr(stop_details, "explanation", None)
                             or "The model refused to complete the request."
                         )
-                        yield ErrorEvent(reason=StopReason.Error, error=explanation, kind=ErrorKind.CONTENT_BLOCKED)
+                        yield ErrorEvent(
+                            reason=StopReason.Error,
+                            error=explanation,
+                            kind=ErrorKind.CONTENT_BLOCKED,
+                        )
                     else:
                         stop_reason = _STOP_REASON.get(raw_stop, StopReason.Stop)
                         yield EndEvent(

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 
 class ThresholdCompactionStop(Exception):
@@ -23,7 +24,6 @@ class ThresholdCompactionStop(Exception):
     continue manually willRetry=false behaviour for threshold
     compaction.
     """
-from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM

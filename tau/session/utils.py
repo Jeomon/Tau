@@ -16,8 +16,8 @@ from tau.message.types import (
     ImageContent,
     LLMMessage,
     Role,
-    TextContent,
     TerminalExecutionMessage,
+    TextContent,
     ToolMessage,
     UserMessage,
 )

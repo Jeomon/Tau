@@ -134,7 +134,11 @@ class GrepTool(Tool):
             return ToolResult.error(invocation.id, result["output"])
         if result["matches"]:
             return ToolResult.ok(invocation.id, result["output"], metadata=result["metadata"])
-        return ToolResult.ok(invocation.id, f"No matches for pattern: {params.pattern}", metadata=result["metadata"])
+        return ToolResult.ok(
+            invocation.id,
+            f"No matches for pattern: {params.pattern}",
+            metadata=result["metadata"],
+        )
 
     async def _rg(self, params: GrepParams, target: Path) -> dict | None:
         cmd = ["rg", "--line-number", "--no-heading", "--with-filename"]
@@ -151,10 +155,10 @@ class GrepTool(Tool):
             return None
         if proc.returncode not in (0, 1):
             return None
-        lines = [l for l in proc.stdout.splitlines() if l]
+        lines = [ln for ln in proc.stdout.splitlines() if ln]
         truncated = len(lines) > _MAX_MATCHES
         lines = lines[:_MAX_MATCHES]
-        files_with_matches = len({l.split(":")[0] for l in lines})
+        files_with_matches = len({ln.split(":")[0] for ln in lines})
         metadata = {
             "pattern": params.pattern,
             "files_searched": files_with_matches,
@@ -171,7 +175,12 @@ class GrepTool(Tool):
         try:
             regex = re.compile(params.pattern, flags)
         except re.error as e:
-            return {"matches": [], "output": f"Invalid regex pattern: {e}", "metadata": {}, "error": True}
+            return {
+                "matches": [],
+                "output": f"Invalid regex pattern: {e}",
+                "metadata": {},
+                "error": True,
+            }
 
         files: list[Path] = []
         if target.is_file():

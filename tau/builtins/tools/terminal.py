@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -165,10 +166,8 @@ class TerminalTool(Tool):
             if proc.returncode is None:
                 proc.kill()
             if proc.stdout is not None:
-                try:
+                with contextlib.suppress(Exception):
                     await asyncio.wait_for(proc.stdout.read(), timeout=5)
-                except Exception:
-                    pass
             await proc.wait()
 
         if timed_out:

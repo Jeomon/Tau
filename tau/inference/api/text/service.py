@@ -280,7 +280,8 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
-        _log.debug("stream: provider=%s model=%s", self.provider_id, getattr(self.model, "name", getattr(self.model, "id", "unknown")))
+        model_name = getattr(self.model, "name", getattr(self.model, "id", "unknown"))
+        _log.debug("stream: provider=%s model=%s", self.provider_id, model_name)
         while True:
             received_any = False
             received_content = False
@@ -393,7 +394,8 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
-        _log.debug("invoke: provider=%s model=%s", self.provider_id, getattr(self.model, "name", getattr(self.model, "id", "unknown")))
+        model_name = getattr(self.model, "name", getattr(self.model, "id", "unknown"))
+        _log.debug("invoke: provider=%s model=%s", self.provider_id, model_name)
         try:
             while True:
                 try:

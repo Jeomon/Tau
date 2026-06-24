@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau.agent.types import AgentConfig, AgentContext, AgentPhase, ContextUsage, PromptOptions
+from tau.hooks.engine import CompactionReason as _CompactionReason
 from tau.hooks.engine import MessageEndEvent, MessageRollbackEvent, SavePointEvent, SettledEvent
 from tau.hooks.service import Hooks
 from tau.message.types import (
@@ -15,6 +16,7 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.message.utils import strip_unusable_trailing_assistant
+from tau.session.compaction import ThresholdCompactionStop as _ThresholdCompactionStop
 from tau.session.utils import to_llm_messages as _to_llm_messages
 from tau.tool.types import ToolInvocation, ToolResult
 
@@ -23,10 +25,6 @@ _log = logging.getLogger(__name__)
 _TOOL_CAP_BYTES = 50 * 1024   # 50 KB — DEFAULT_MAX_BYTES
 _TOOL_CAP_LINES = 2000         # DEFAULT_MAX_LINES
 _TOOL_LINE_CAP_BYTES = 2 * 1024  # 2 KB — max bytes for a single line
-
-
-from tau.hooks.engine import CompactionReason as _CompactionReason
-from tau.session.compaction import ThresholdCompactionStop as _ThresholdCompactionStop
 
 
 def _fmt_size(n: int) -> str:
@@ -191,7 +189,8 @@ class Agent:
                 # Walk back to a valid UTF-8 boundary
                 while buf and (buf[-1] & 0xC0) == 0x80:
                     buf = buf[:-1]
-                capped_lines.append(buf.decode("utf-8", errors="replace") + f" …[line truncated: {_fmt_size(lb)} → {_fmt_size(_TOOL_LINE_CAP_BYTES)}]")
+                suffix = f" …[line truncated: {_fmt_size(lb)} → {_fmt_size(_TOOL_LINE_CAP_BYTES)}]"
+                capped_lines.append(buf.decode("utf-8", errors="replace") + suffix)
             else:
                 capped_lines.append(line)
         lines = capped_lines
@@ -209,8 +208,8 @@ class Agent:
 
         omitted = total_bytes - byte_count
         kept.append(
-            f"[truncated: {_fmt_size(omitted)} omitted"
-            f" — {_fmt_size(total_bytes)} total, showing first {len(kept)} lines / {_fmt_size(byte_count)}]"
+            f"[truncated: {_fmt_size(omitted)} omitted — {_fmt_size(total_bytes)} total,"
+            f" showing first {len(kept)} lines / {_fmt_size(byte_count)}]"
         )
         return ToolResult(
             id=result.id,
@@ -369,9 +368,8 @@ class Agent:
         # model change, it came from a different model. Treating its usage/overflow data as
         # a signal for the new model is unreliable (context windows differ), so skip.
         model_change_ts = self._latest_model_change_timestamp()
-        if model_change_ts is not None and last is not None:
-            if last.timestamp <= model_change_ts:
-                return False
+        if model_change_ts is not None and last is not None and last.timestamp <= model_change_ts:
+            return False
 
         forced = last is not None and is_silent_overflow(last, self._context_window)
 
@@ -443,7 +441,9 @@ class Agent:
         if preparation is None:
             return False
         try:
-            await self._apply_compaction(preparation, entries, manual=False, reason=_CompactionReason.Overflow)
+            await self._apply_compaction(
+                preparation, entries, manual=False, reason=_CompactionReason.Overflow
+            )
         except Exception:
             self._compaction_failures += 1
             _log.exception("Overflow-triggered compaction failed")
@@ -501,7 +501,9 @@ class Agent:
             if res.compaction is not None:
                 return res.compaction, True
 
-        await self.hooks.emit(CompactionStartEvent(manual=manual, reason=reason, will_retry=will_retry))
+        await self.hooks.emit(
+            CompactionStartEvent(manual=manual, reason=reason, will_retry=will_retry)
+        )
         result = await _compact(
             preparation, self._engine.llm, custom_instructions=custom_instructions
         )  # type: ignore[arg-type]
