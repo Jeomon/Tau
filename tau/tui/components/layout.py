@@ -625,6 +625,18 @@ class Layout(Component):
         text = self.input.text
         self._update_arg_hint(text)
 
+        # Mirror the leading '!' in the prompt prefix so the user sees
+        # "! " while typing a shell command and "❯ " otherwise.
+        # _visual_strip=1 hides the '!' from the rendered text so it isn't
+        # shown twice — the prefix already represents it.
+        in_shell = text.startswith("!")
+        desired_prefix = "! " if in_shell else self._theme.input.prefix
+        desired_strip = 1 if in_shell else 0
+        if self.input._prefix != desired_prefix:
+            self.input._prefix = desired_prefix
+        if self.input._visual_strip != desired_strip:
+            self.input._visual_strip = desired_strip
+
         # File picker: activated by '@' with no space between '@' and cursor.
         # Suppressed while browsing history so past @mentions don't hijack focus.
         at_info = self._find_at_query(text) if self.input._history_idx == -1 else None

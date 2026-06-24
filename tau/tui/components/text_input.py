@@ -92,6 +92,10 @@ class TextInput(Component):
         self._last_edit: str | None = None
         self._undo_limit = 200
 
+        # How many leading chars to hide in the rendered display (kept in _text
+        # for submission). Set to 1 when the prefix has consumed the leading '!'.
+        self._visual_strip: int = 0
+
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
@@ -135,7 +139,10 @@ class TextInput(Component):
         available = max(1, width - prefix_w - self._padding_x * 2)
         indent = " " * prefix_w
 
-        if not self._text:
+        # Strip leading chars that the prefix has already represented visually.
+        display_text = self._text[self._visual_strip:] if self._visual_strip else self._text
+
+        if not display_text:
             empty_cursor = CURSOR_MARKER + cursor_block()
             placeholder = self._placeholder[:available] if self._placeholder else ""
             return [
@@ -150,8 +157,11 @@ class TextInput(Component):
                 + RESET
             ]
 
-        text_lines = self._text.split("\n")
+        text_lines = display_text.split("\n")
         cursor_line_idx, cursor_col = self._cursor_line_col()
+        # Adjust column for the hidden leading chars on line 0.
+        if self._visual_strip and cursor_line_idx == 0:
+            cursor_col = max(0, cursor_col - self._visual_strip)
         result = []
 
         last_line_idx = len(text_lines) - 1
