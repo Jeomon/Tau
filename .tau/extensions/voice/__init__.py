@@ -63,9 +63,7 @@ def register(tau: ExtensionAPI) -> None:
     def _on_ready(_event: Any, ctx: Any) -> None:
         if not ctx.has_ui:
             return
-        layout = getattr(ctx, "_layout", None)
-        if layout is None:
-            return
-        controller = VoiceController(layout, cfg, ctx.settings)
+        ui = ctx.ui
+        controller = VoiceController(ui, cfg, ctx.settings)
         state["controller"] = controller
-        layout._tui.on_input_intercept(controller.on_key)
+        ui.on_terminal_input(controller.on_key)

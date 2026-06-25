@@ -1,4 +1,9 @@
-"""Space-hold voice recording state machine."""
+"""Space-hold voice recording state machine.
+
+Talks to the editor only through the public ``ctx.ui`` (UIContext) surface —
+no reaching into rendering internals — so it stays version-stable when
+installed globally.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,7 @@ import logging
 import time
 from typing import Any
 
-from . import audio
+from . import audio, caret
 from .config import RELEASE_GAP, VoiceConfig
 
 _log = logging.getLogger(__name__)
@@ -21,18 +26,14 @@ class VoiceController:
     1. Initial space press  → consume key, start 2 s timer + release-gap watcher.
        Mode: waiting.  Mic is NOT open yet.
     2. Space auto-repeats   → update last-event timestamp, stay consumed.
-    3. 2 s elapses          → open mic, switch to mode: recording, show animation.
+    3. 2 s elapses          → open mic, switch to mode: recording, pulse caret.
     4. Key released         → detected via Kitty release event OR a repeat-gap.
        • mode was waiting   → held < 2 s: type one space, go idle.
        • mode was recording → held ≥ 2 s: stop mic, transcribe.
     """
 
-    _RECORDING_FRAMES = ["Recording .", "Recording ..", "Recording ..."]
-    _TRANSCRIBING_FRAMES = ["Transcribing .", "Transcribing ..", "Transcribing ..."]
-
-    def __init__(self, layout: Any, cfg: VoiceConfig, settings: Any = None) -> None:
-        self._layout = layout
-        self._tui = layout._tui
+    def __init__(self, ui: Any, cfg: VoiceConfig, settings: Any = None) -> None:
+        self._ui = ui
         self._cfg = cfg
         self._settings = settings
 
@@ -50,11 +51,10 @@ class VoiceController:
 
         self._activation_task: asyncio.Task | None = None
         self._watcher_task: asyncio.Task | None = None
-        self._animation_task: asyncio.Task | None = None
+        self._caret_task: asyncio.Task | None = None
 
         self._audio_frames: list[Any] = []
         self._stream: Any = None
-        self._original_placeholder: str = layout.input._placeholder
 
     # ── Enable/disable + model resolution ──────────────────────────────────────
 
@@ -76,34 +76,35 @@ class VoiceController:
                 return ref.id, (ref.provider or self._cfg.stt_provider)
         return self._cfg.stt_model, self._cfg.stt_provider
 
-    # ── Placeholder ───────────────────────────────────────────────────────────
+    # ── Transient status placeholder (errors only) ─────────────────────────────
 
-    def _set_placeholder(self, text: str) -> None:
-        self._layout.input._placeholder = text
-        self._tui.request_render()
+    def _set_status(self, text: str) -> None:
+        self._ui.set_input_placeholder(text)
 
-    def _restore_placeholder(self) -> None:
-        self._layout.input._placeholder = self._original_placeholder
-        self._tui.request_render()
+    def _clear_status(self) -> None:
+        self._ui.reset_input_placeholder()
 
-    # ── Animation ─────────────────────────────────────────────────────────────
+    # ── Caret animation ───────────────────────────────────────────────────────
 
-    def _start_animation(self, frames: list[str]) -> None:
-        if self._animation_task and not self._animation_task.done():
-            self._animation_task.cancel()
-        self._animation_task = asyncio.ensure_future(self._animate(frames))
+    def _start_caret(self, ramp: list[int]) -> None:
+        """Replace the text cursor with a pulsing, coloured block."""
+        if self._caret_task and not self._caret_task.done():
+            self._caret_task.cancel()
+        self._caret_task = asyncio.ensure_future(self._animate_caret(ramp))
 
-    def _stop_animation(self) -> None:
-        if self._animation_task and not self._animation_task.done():
-            self._animation_task.cancel()
-        self._animation_task = None
+    def _stop_caret(self) -> None:
+        """Stop the animation and restore the normal text cursor."""
+        if self._caret_task and not self._caret_task.done():
+            self._caret_task.cancel()
+        self._caret_task = None
+        self._ui.reset_input_cursor()
 
-    async def _animate(self, frames: list[str]) -> None:
+    async def _animate_caret(self, ramp: list[int]) -> None:
         i = 0
         while True:
-            self._set_placeholder(frames[i % len(frames)])
+            self._ui.set_input_cursor(caret.frame(ramp, i))
             i += 1
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(caret.FRAME_INTERVAL)
 
     # ── Background tasks ──────────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ class VoiceController:
             task.cancel()
 
     async def _activation_timer(self) -> None:
-        """Open the mic and show Recording animation after hold_ms."""
+        """Open the mic and start the recording caret after hold_ms."""
         await asyncio.sleep(self._cfg.hold_ms / 1000)
         if self._mode != "waiting":
             return
@@ -120,7 +121,7 @@ class VoiceController:
             self._mode = "idle"
             return
         self._mode = "recording"
-        self._start_animation(self._RECORDING_FRAMES)
+        self._start_caret(caret.RECORDING)
 
     def _release_gap(self) -> float:
         """Seconds of silence that mean the key was released.
@@ -156,7 +157,7 @@ class VoiceController:
             import sounddevice as sd  # type: ignore[import-untyped]
         except ImportError:
             _log.error("sounddevice not installed — voice extension cannot record")
-            self._set_placeholder("Voice: sounddevice missing (check extension deps)")
+            self._set_status("Voice: sounddevice missing (check extension deps)")
             asyncio.ensure_future(self._clear_after(3.0))
             return False
 
@@ -175,7 +176,7 @@ class VoiceController:
             self._stream.start()
         except Exception as exc:
             _log.error("failed to open mic: %s", exc)
-            self._set_placeholder(f"Voice: mic error — {exc!s:.40}")
+            self._set_status(f"Voice: mic error — {exc!s:.40}")
             asyncio.ensure_future(self._clear_after(3.0))
             return False
 
@@ -203,14 +204,12 @@ class VoiceController:
         self._watcher_task = None
 
         self._close_stream()
-        self._stop_animation()
+        self._stop_caret()
 
         if prior_mode == "waiting":
             # Short press — type the space we held back
-            self._restore_placeholder()
             self._mode = "idle"
-            self._layout.input.insert_at_cursor(" ")
-            self._tui.request_render()
+            self._ui.insert_input_text(" ")
         else:
             # Long press — send captured audio to STT
             asyncio.ensure_future(self._transcribe())
@@ -219,12 +218,11 @@ class VoiceController:
 
     async def _transcribe(self) -> None:
         self._mode = "transcribing"
-        self._start_animation(self._TRANSCRIBING_FRAMES)
+        self._start_caret(caret.TRANSCRIBING)
 
         try:
             if not self._audio_frames:
-                self._stop_animation()
-                self._restore_placeholder()
+                self._stop_caret()
                 self._mode = "idle"
                 return
 
@@ -232,27 +230,25 @@ class VoiceController:
             model_id, provider = self._resolve_stt()
             text = await audio.transcribe_wav(wav_bytes, model_id, provider)
 
-            self._stop_animation()
-            self._restore_placeholder()
+            self._stop_caret()
 
             if text.strip():
-                self._layout.input.insert_at_cursor(text.strip())
-                self._tui.request_render()
+                self._ui.insert_input_text(text.strip())
 
             self._mode = "idle"
 
         except Exception as exc:
             _log.exception("voice transcription failed")
-            self._stop_animation()
+            self._stop_caret()
             msg = str(exc)
             suffix = "..." if len(msg) > 45 else ""
-            self._set_placeholder(f"Transcription failed: {msg[:45]}{suffix}")
+            self._set_status(f"Transcription failed: {msg[:45]}{suffix}")
             self._mode = "idle"
             asyncio.ensure_future(self._clear_after(3.0))
 
     async def _clear_after(self, delay: float) -> None:
         await asyncio.sleep(delay)
-        self._restore_placeholder()
+        self._clear_status()
 
     # ── Input intercept ───────────────────────────────────────────────────────
 
@@ -272,11 +268,9 @@ class VoiceController:
                 self._activation_task = None
                 self._watcher_task = None
                 self._close_stream()
-                self._stop_animation()
-                self._restore_placeholder()
+                self._stop_caret()
                 self._mode = "idle"
-                self._layout.input.insert_at_cursor(" ")
-                self._tui.request_render()
+                self._ui.insert_input_text(" ")
             return None
 
         # ── Space key ────────────────────────────────────────────────────────

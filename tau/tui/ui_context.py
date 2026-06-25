@@ -780,3 +780,87 @@ class UIContext:
         layout = self._layout()
         if layout is not None:
             layout._tui.request_render()
+
+    # -------------------------------------------------------------------------
+    # Editor input (the prompt text field)
+    # -------------------------------------------------------------------------
+
+    def get_input_text(self) -> str:
+        """Return the editor's current text (empty string if unavailable)."""
+        layout = self._layout()
+        if layout is None:
+            return ""
+        return layout.input.text
+
+    def set_input_text(self, text: str) -> None:
+        """Replace the editor's entire buffer and place the cursor at the end."""
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.set_text(text)
+        layout._tui.request_render()
+
+    def clear_input(self) -> None:
+        """Clear the editor's buffer."""
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.clear()
+        layout._tui.request_render()
+
+    def insert_input_text(self, text: str) -> None:
+        """Insert ``text`` at the editor's cursor position and re-render."""
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.insert_at_cursor(text)
+        layout._tui.request_render()
+
+    def set_input_placeholder(self, text: str) -> None:
+        """Override the editor placeholder (shown when the input is empty).
+
+        Call :meth:`reset_input_placeholder` to restore the configured one.
+        """
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.set_placeholder_override(text)
+        layout._tui.request_render()
+
+    def reset_input_placeholder(self) -> None:
+        """Restore the editor's configured placeholder text."""
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.set_placeholder_override(None)
+        layout._tui.request_render()
+
+    def set_input_cursor(self, renderer: Callable[[str], str]) -> None:
+        """Override how the editor's text-cursor cell is drawn.
+
+        ``renderer`` receives the character under the cursor and returns the
+        styled cell string (ANSI escapes + glyph). This enables animated or
+        coloured carets without reaching into rendering internals. Call
+        :meth:`reset_input_cursor` to restore the default block cursor.
+
+        Usage::
+
+            ctx.ui.set_input_cursor(lambda ch: f"\\x1b[38;5;199m█\\x1b[0m")
+            # later:
+            ctx.ui.reset_input_cursor()
+        """
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.cursor_cell = renderer
+        layout._tui.request_render()
+
+    def reset_input_cursor(self) -> None:
+        """Restore the editor's default (block) text cursor."""
+        from tau.tui.ansi import cursor_block
+
+        layout = self._layout()
+        if layout is None:
+            return
+        layout.input.cursor_cell = cursor_block
+        layout._tui.request_render()

@@ -67,6 +67,9 @@ class TextInput(Component):
     ) -> None:
         self._prefix = prefix
         self._placeholder = placeholder
+        # Transient override (e.g. extension status text). When None the
+        # configured placeholder above is shown.
+        self._placeholder_override: str | None = None
         self._on_submit = on_submit
         self._on_followup = on_followup
         self._on_dequeue = on_dequeue
@@ -79,6 +82,11 @@ class TextInput(Component):
         self._cursor = 0
         self._line_scrolls: dict[int, int] = {}
         self._arg_hint: str = ""
+
+        # How the text cursor cell is drawn. Defaults to the reverse-video block;
+        # extensions (e.g. voice input) may swap in an animated/coloured cell and
+        # restore this default afterwards.
+        self.cursor_cell: Callable[[str], str] = cursor_block
 
         self._history: list[str] = []
         self._history_idx = -1
@@ -126,6 +134,10 @@ class TextInput(Component):
     def insert_at_cursor(self, text: str) -> None:
         self._insert(text)
 
+    def set_placeholder_override(self, text: str | None) -> None:
+        """Temporarily replace the placeholder (None restores the configured one)."""
+        self._placeholder_override = text
+
     def focus(self) -> None:
         pass
 
@@ -143,8 +155,13 @@ class TextInput(Component):
         display_text = self._text[self._visual_strip:] if self._visual_strip else self._text
 
         if not display_text:
-            empty_cursor = CURSOR_MARKER + cursor_block()
-            placeholder = self._placeholder[:available] if self._placeholder else ""
+            empty_cursor = CURSOR_MARKER + self.cursor_cell(" ")
+            effective_placeholder = (
+                self._placeholder_override
+                if self._placeholder_override is not None
+                else self._placeholder
+            )
+            placeholder = effective_placeholder[:available] if effective_placeholder else ""
             return [
                 BOLD
                 + self._prefix
@@ -168,7 +185,7 @@ class TextInput(Component):
         for i, line_text in enumerate(text_lines):
             line_prefix = self._prefix if i == 0 else indent
             col_in_line = cursor_col if i == cursor_line_idx else -1
-            segments = _render_line_wrapped(line_text, col_in_line, available)
+            segments = _render_line_wrapped(line_text, col_in_line, available, self.cursor_cell)
             for j, seg in enumerate(segments):
                 seg_prefix = line_prefix if j == 0 else indent
                 if (
@@ -546,7 +563,12 @@ def _char_width(ch: str) -> int:
     return 1
 
 
-def _render_line_wrapped(text: str, cursor_col: int, available: int) -> list[str]:
+def _render_line_wrapped(
+    text: str,
+    cursor_col: int,
+    available: int,
+    cursor_cell: Callable[[str], str] = cursor_block,
+) -> list[str]:
     """
     Render one logical line with word-wrap instead of horizontal scrolling.
     cursor_col=-1 means no cursor on this line.
@@ -572,7 +594,7 @@ def _render_line_wrapped(text: str, cursor_col: int, available: int) -> list[str
 
         if cursor_col >= 0 and vis == cursor_vis:
             # CURSOR_MARKER tells the Renderer to move the hardware cursor here
-            current += CURSOR_MARKER + cursor_block(ch)
+            current += CURSOR_MARKER + cursor_cell(ch)
         else:
             current += ch
 
@@ -584,9 +606,9 @@ def _render_line_wrapped(text: str, cursor_col: int, available: int) -> list[str
     if cursor_col >= 0 and cursor_col == len(text):
         if col >= available and col > 0:
             visual_lines.append(current)
-            current = CURSOR_MARKER + cursor_block()
+            current = CURSOR_MARKER + cursor_cell(" ")
         else:
-            current += CURSOR_MARKER + cursor_block()
+            current += CURSOR_MARKER + cursor_cell(" ")
 
     visual_lines.append(current)
     return visual_lines
