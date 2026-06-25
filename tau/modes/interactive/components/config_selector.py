@@ -17,10 +17,12 @@ _VISIBLE_ROWS = 12
 
 @dataclass
 class ConfigEntry:
-    path: str
-    display_name: str
+    path: str  # raw path key, used for toggling/matching
+    name: str  # extension name or title
     enabled: bool
     scope: Literal["global", "project"]
+    author: str | None = None
+    path_display: str = ""  # pretty path shown in parentheses
 
 
 def _strip_ansi(s: str) -> str:
@@ -99,11 +101,16 @@ class ConfigSelector(Component):
             else:
                 assert isinstance(payload, ConfigEntry)
                 is_sel = i == sel_flat_idx
-                checkbox = t.success("[x]") if payload.enabled else t.muted("[ ]")
-                name = t.emphasis(payload.display_name) if is_sel else payload.display_name
+                checkbox = t.success("[✓]") if payload.enabled else t.muted("[ ]")
+                name = t.emphasis(payload.name) if is_sel else payload.name
+                label = name
+                if payload.author:
+                    label += " " + t.muted(f"by {payload.author}")
+                if payload.path_display:
+                    label += " " + t.muted(f"({payload.path_display})")
                 cursor = "→ " if is_sel else "  "
                 cursor_styled = t.emphasis(cursor) if is_sel else cursor
-                lines.append(f"  {cursor_styled}{checkbox} {name}")
+                lines.append(f"  {cursor_styled}{checkbox} {label}")
 
         remaining = count - (start + visible)
         if remaining > 0:
@@ -207,7 +214,10 @@ class ConfigSelector(Component):
         else:
             self._filtered = [
                 e for e in self._all_entries
-                if q in e.display_name.lower() or q in e.path.lower() or q in e.scope.lower()
+                if q in e.name.lower()
+                or (e.author and q in e.author.lower())
+                or q in e.path.lower()
+                or q in e.scope.lower()
             ]
         self._selected = min(self._selected, max(0, len(self._filtered) - 1))
 

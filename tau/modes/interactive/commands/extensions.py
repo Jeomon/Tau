@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from tau.modes.interactive.commands.context import CommandContext
 
@@ -22,6 +23,37 @@ def open_config_panel(ctx: CommandContext) -> None:
         except Exception:
             return path
 
+    def _manifest_meta(path: str) -> tuple[str | None, str | None]:
+        """Best-effort read of an extension's manifest for (title, author)."""
+        import json
+
+        from tau.settings.paths import get_app_name
+
+        try:
+            p = Path(path).expanduser()
+            manifest = (p if p.is_dir() else p.parent) / "manifest.json"
+            if not manifest.is_file():
+                return None, None
+            app = json.loads(manifest.read_text(encoding="utf-8")).get(
+                get_app_name().lower(), {}
+            )
+            title = app.get("name") or (app.get("settings") or {}).get("title")
+            return title, app.get("author")
+        except Exception:
+            return None, None
+
+    def _entry(e, scope: Literal["global", "project"]) -> ConfigEntry:
+        title, m_author = _manifest_meta(e.path)
+        name = e.name or title or Path(e.path).name
+        return ConfigEntry(
+            path=e.path,
+            name=name,
+            author=e.author or m_author,
+            path_display=_display(e.path),
+            enabled=e.enabled,
+            scope=scope,
+        )
+
     global_list = (
         list(sm.global_settings.extensions.list)
         if sm.global_settings.extensions and sm.global_settings.extensions.list
@@ -33,12 +65,8 @@ def open_config_panel(ctx: CommandContext) -> None:
         else []
     )
 
-    all_entries = [
-        ConfigEntry(path=e.path, display_name=_display(e.path), enabled=e.enabled, scope="global")
-        for e in global_list
-    ] + [
-        ConfigEntry(path=e.path, display_name=_display(e.path), enabled=e.enabled, scope="project")
-        for e in project_list
+    all_entries = [_entry(e, "global") for e in global_list] + [
+        _entry(e, "project") for e in project_list
     ]
 
     if not all_entries:
@@ -64,7 +92,7 @@ def open_config_panel(ctx: CommandContext) -> None:
 
         changed = True
         state = "enabled" if enabled else "disabled"
-        ctx.notify(f"Extension {entry.display_name} {state} ({entry.scope})")
+        ctx.notify(f"Extension {entry.name} {state} ({entry.scope})")
 
     def on_close() -> None:
         # Apply toggles live: reloading re-discovers extensions against the new
