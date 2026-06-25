@@ -44,7 +44,7 @@ def register(tau: ExtensionAPI) -> None:
         return
 
     # Populated in tui_ready so the /voice command can reach the live controller.
-    state: dict[str, Any] = {"controller": None}
+    state: dict[str, Any] = {"controller": None, "unsub": None}
 
     def _toggle_voice(ctx: Any, _args: list[str]) -> None:
         controller = state["controller"]
@@ -59,11 +59,31 @@ def register(tau: ExtensionAPI) -> None:
 
     tau.register_command("voice", "Toggle voice input (hold Space) on/off", _toggle_voice)
 
+    def _wire_controller(ui: Any, settings: Any) -> None:
+        controller = VoiceController(ui, cfg, settings)
+        state["controller"] = controller
+        state["unsub"] = ui.on_terminal_input(controller.on_key)
+
+    def _teardown() -> None:
+        unsub = state.get("unsub")
+        if unsub is not None:
+            unsub()
+            state["unsub"] = None
+        state["controller"] = None
+
     @tau.on("tui_ready")
     def _on_ready(_event: Any, ctx: Any) -> None:
         if not ctx.has_ui:
             return
-        ui = ctx.ui
-        controller = VoiceController(ui, cfg, ctx.settings)
-        state["controller"] = controller
-        ui.on_terminal_input(controller.on_key)
+        _wire_controller(ctx.ui, ctx.settings)
+
+    @tau.on("extension_unload")
+    def _on_unload(_event: Any, _ctx: Any) -> None:
+        _teardown()
+
+    @tau.on("extension_reloaded")
+    def _on_reloaded(_event: Any, ctx: Any) -> None:
+        if not ctx.has_ui:
+            return
+        _teardown()
+        _wire_controller(ctx.ui, ctx.settings)
