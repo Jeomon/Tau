@@ -336,6 +336,27 @@ def _decode_modifier(mod: int) -> tuple[bool, bool, bool, bool]:
     return bool(m & 1), bool(m & 2), bool(m & 4), bool(m & 8)
 
 
+def _decode_mod_field(field: str) -> tuple[bool, bool, bool, bool, bool, bool]:
+    """Decode a CSI modifier field, which may carry a Kitty ``:event_type``.
+
+    Terminals that enable the Kitty "report event types" flag (Tau requests it
+    via ``\\x1b[>3u``) append the event type to the modifier with a colon, e.g.
+    ``1:1`` (press), ``1:2`` (repeat), ``1:3`` (release). Plain terminals send
+    just the modifier (``1``). Ghostty uses the colon form even for unmodified
+    arrows, so this must be parsed or the keypress is lost.
+
+    Returns ``(shift, alt, ctrl, meta, released, repeat)``. Raises ``ValueError``
+    when the modifier component is not an integer.
+    """
+    sub = field.split(":")
+    shift, alt, ctrl, meta = _decode_modifier(int(sub[0]))
+    event = 1
+    if len(sub) >= 2 and sub[1]:
+        with contextlib.suppress(ValueError):
+            event = int(sub[1])
+    return shift, alt, ctrl, meta, event == 3, event == 2
+
+
 # Control characters → key names
 _CTRL_CHARS: dict[str, tuple[str, bool]] = {
     "\x00": ("space", True),  # ctrl+space / ctrl+@
@@ -629,17 +650,26 @@ class InputParser:
         # ── CSI with params ───────────────────────────────────────────────────
         parts = params_str.split(";")
 
-        # ESC [ 1 ; <mod> <letter>  — modified arrow/navigation
+        # ESC [ 1 ; <mod>[:<event>] <letter>  — modified arrow/navigation.
+        # The modifier field may carry a Kitty event-type sub-parameter; Ghostty
+        # sends it even for unmodified arrows (e.g. ESC [ 1 ; 1 : 1 A).
         if len(parts) == 2 and parts[0] == "1":
             try:
-                mod = int(parts[1])
+                shift, alt, ctrl, meta, released, repeat = _decode_mod_field(parts[1])
             except ValueError:
                 return None
-            shift, alt, ctrl, meta = _decode_modifier(mod)
             name = _CSI_SIMPLE.get(final)
             if name:
                 return KeyEvent(
-                    key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, raw=raw
+                    key=name,
+                    char=None,
+                    shift=shift,
+                    alt=alt,
+                    ctrl=ctrl,
+                    meta=meta,
+                    released=released,
+                    repeat=repeat,
+                    raw=raw,
                 )
 
         # ESC [ <n> ~ — tilde sequences
@@ -652,17 +682,25 @@ class InputParser:
             if name:
                 return KeyEvent(key=name, char=None, raw=raw)
 
-        # ESC [ <n> ; <mod> ~ — modified tilde sequences
+        # ESC [ <n> ; <mod>[:<event>] ~ — modified tilde sequences (event-type aware)
         if final == "~" and len(parts) == 2:
             try:
-                n, mod = int(parts[0]), int(parts[1])
+                n = int(parts[0])
+                shift, alt, ctrl, meta, released, repeat = _decode_mod_field(parts[1])
             except ValueError:
                 return None
             name = _CSI_TILDE.get(n)
             if name:
-                shift, alt, ctrl, meta = _decode_modifier(mod)
                 return KeyEvent(
-                    key=name, char=None, shift=shift, alt=alt, ctrl=ctrl, meta=meta, raw=raw
+                    key=name,
+                    char=None,
+                    shift=shift,
+                    alt=alt,
+                    ctrl=ctrl,
+                    meta=meta,
+                    released=released,
+                    repeat=repeat,
+                    raw=raw,
                 )
 
         return None

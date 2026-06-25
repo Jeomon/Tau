@@ -421,3 +421,50 @@ class TestInputParser:
         assert len(events) == 1
         assert isinstance(events[0], KeyEvent)
         assert events[0].key == "escape"
+
+
+class TestKittyEventTypeArrows:
+    """Regression: terminals with the Kitty 'report event types' flag (e.g.
+    Ghostty) encode arrows as CSI 1 ; mod : event <letter>. The event-type
+    sub-parameter must be parsed or the keypress is silently dropped.
+    """
+
+    def _events(self, raw: str) -> list[KeyEvent]:
+        from tau.tui.input import InputParser
+
+        return [e for e in InputParser().feed(raw) if isinstance(e, KeyEvent)]
+
+    def test_unmodified_arrow_press_with_event_type(self):
+        # Ghostty form for a plain Up press — previously dropped.
+        e = self._events("\x1b[1;1:1A")
+        assert len(e) == 1
+        assert e[0].key == "up"
+        assert e[0].released is False
+        assert (e[0].ctrl, e[0].alt, e[0].shift, e[0].meta) == (False, False, False, False)
+
+    def test_arrow_repeat_is_not_released(self):
+        e = self._events("\x1b[1;1:2A")
+        assert e[0].key == "up"
+        assert e[0].repeat is True
+        assert e[0].released is False  # repeats must still drive navigation
+
+    def test_arrow_release_is_flagged(self):
+        e = self._events("\x1b[1;1:3A")
+        assert e[0].key == "up"
+        assert e[0].released is True  # dropped downstream by TUI._dispatch
+
+    def test_modified_arrow_with_event_type(self):
+        e = self._events("\x1b[1;2:1A")
+        assert e[0].key == "up"
+        assert e[0].shift is True
+        assert e[0].released is False
+
+    def test_tilde_key_with_event_type(self):
+        e = self._events("\x1b[3;1:1~")
+        assert e[0].key == "delete"
+        assert e[0].released is False
+
+    def test_legacy_arrow_still_works(self):
+        e = self._events("\x1b[A")
+        assert e[0].key == "up"
+        assert e[0].released is False
