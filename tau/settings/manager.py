@@ -881,6 +881,27 @@ class SettingsManager:
         ext = self.settings.extensions
         return ext.list if ext is not None and ext.list is not None else []
 
+    def get_all_extension_entries(self) -> list[ExtensionEntry]:
+        """Return extension entries from BOTH global and project scopes for runtime
+        loading and the settings panel.
+
+        The merged view (:meth:`get_extension_list`) lets a project's
+        ``extensions.list`` replace the global one wholesale — nested-dataclass
+        merge overwrites the whole ``list`` field. That drops the persisted config
+        of globally-installed extensions that are still discovered and loaded from
+        ``~/.tau/extensions``, so their /settings panel falls back to manifest
+        defaults. Loading needs every discovered extension's config regardless of
+        scope, so combine both lists keyed by path (project wins on a path
+        collision). Mirrors :meth:`get_all_packages`.
+        """
+        by_path: dict[str, ExtensionEntry] = {}
+        for source in (self.global_settings, self.project_settings):
+            ext = source.extensions
+            if ext is not None and ext.list:
+                for entry in ext.list:
+                    by_path[entry.path] = entry
+        return list(by_path.values())
+
     def get_extension_paths(self) -> list[str]:
         """Return extension paths from the merged entry list (convenience flat view)."""
         return [entry.path for entry in self.get_extension_list()]

@@ -383,8 +383,30 @@ def open_settings_panel(ctx: CommandContext) -> None:
     # Append sub-panels from loaded extensions that called register_settings()
     ext_runtime = ctx.runtime.extension_runtime
     if ext_runtime is not None:
+        from pathlib import Path as _Path
+
+        from tau.modes.interactive.components.settings_selector import refresh_current_values
+
+        # Build a path→settings lookup from the live settings manager so the
+        # panel always shows the values stored in settings.json, not the
+        # potentially stale snapshot captured at extension load time.
+        ext_settings_map = {
+            e.path: (e.settings or {}) for e in sm.get_all_extension_entries()
+        }
+
         for ext in ext_runtime._extensions:
             for reg in ext.settings_registrations:
+                # Resolve extension directory path (e.g. "/…/voice" for "__init__.py")
+                p = _Path(ext.path)
+                ext_dir = str(p.parent)
+                current_config = ext_settings_map.get(ext_dir, ext.config)
+                refresh_current_values(reg.items, current_config)
+                # Refresh the on/off summary shown on the parent row
+                if reg.summary_key:
+                    raw = current_config.get(reg.summary_key)
+                    if raw is not None:
+                        reg.summary = "on" if (raw is True or str(raw).lower() in ("true", "on")) else "off"
+
                 row_id = f"_ext_{id(reg)}"
                 items.append(
                     SettingItem(

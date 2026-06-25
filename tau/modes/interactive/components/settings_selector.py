@@ -418,6 +418,32 @@ _log = logging.getLogger(__name__)
 _LEAF_TYPES = {"enum", "select", "bool", "int", "string", "secret", "text"}
 
 
+def refresh_current_values(items: list[Any], config: dict) -> None:
+    """Update each SettingItem's current_value in-place from *config*.
+
+    Called when /settings opens so extension panels always show the values
+    stored in settings.json rather than the stale snapshot captured at
+    extension load time (e.g. if settings.json was corrupt at startup).
+    Item ids are dot-notation keys, matching the shape _get_nested reads.
+    """
+    for item in items:
+        if item.submenu_settings:
+            refresh_current_values(item.submenu_settings, config)
+            continue
+        raw = _get_nested(config, item.id, None)
+        if raw is None:
+            continue
+        if item.values == ["off", "on"]:
+            stored = raw is True or str(raw).lower() in ("true", "on")
+            item.current_value = "on" if stored else "off"
+        elif item.text_input:
+            item.current_value = str(raw)
+        elif item.values:
+            s = str(raw)
+            if s in item.values:
+                item.current_value = s
+
+
 def _get_nested(d: dict, path: str, default: Any = "") -> Any:
     obj: Any = d
     for part in path.split("."):

@@ -379,7 +379,7 @@ class Runtime:
                 await self._emit_to_extension(ext, "extension_unload")
             old.unsubscribe()
 
-        entries = sm.get_extension_list()
+        entries = sm.get_all_extension_entries()
         disabled_stems = {Path(e.path).stem for e in entries if not e.enabled}
         entry_configs = {Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled}
         extra_entries = [e for e in entries if e.enabled]
@@ -466,7 +466,7 @@ class Runtime:
             return await self.reload_extensions()
 
         cwd = self._context.session_manager.cwd
-        entries = sm.get_extension_list()
+        entries = sm.get_all_extension_entries()
         entry_configs = {Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled}
         p = Path(ext_path)
         stem = p.parent.name if p.name == "__init__.py" else p.stem

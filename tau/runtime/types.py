@@ -193,7 +193,7 @@ class RuntimeContext:
             if settings_manager.is_extensions_enabled():
                 project_ext_dir = get_extensions_dir(cwd)
                 global_ext_dir = get_extensions_dir()
-                entries = settings_manager.get_extension_list()
+                entries = settings_manager.get_all_extension_entries()
                 disabled_stems = {Path(e.path).stem for e in entries if not e.enabled}
                 entry_configs = {
                     Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled
