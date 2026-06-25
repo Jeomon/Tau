@@ -3,7 +3,7 @@
 Package layout
 ──────────────
 - ``config.py``     — :class:`VoiceConfig` + the ``RELEASE_GAP`` constant.
-- ``audio.py``      — stateless helpers: WAV encoding and the STT call.
+- ``audio.py``      — stateless helpers: WAV encoding and the voice transcription call.
 - ``controller.py`` — :class:`VoiceController`, the space-hold state machine.
 - ``__init__.py``   — this file: the ``register(tau)`` entry point that wires
   the ``/voice`` command and installs the key interceptor on ``tui_ready``.
@@ -34,8 +34,8 @@ def register(tau: ExtensionAPI) -> None:
 
     cfg = VoiceConfig(
         enabled=cfg_raw.get("enabled", True),
-        stt_model=cfg_raw.get("stt_model", "whisper-1"),
-        stt_provider=cfg_raw.get("stt_provider", "openai"),
+        voice_model=cfg_raw.get("voice_model", "whisper-1"),
+        voice_provider=cfg_raw.get("voice_provider", "openai"),
         hold_ms=int(hold_ms),
         sample_rate=int(cfg_raw.get("sample_rate", 16000)),
     )

@@ -13,20 +13,6 @@
           "description": "Hold Space for 2 s to record; release to transcribe and insert text."
         },
         {
-          "key": "stt_model",
-          "label": "STT model",
-          "type": "string",
-          "default": "whisper-1",
-          "description": "Speech-to-text model id (e.g. whisper-1, gpt-4o-transcribe, whisper-large-v3)."
-        },
-        {
-          "key": "stt_provider",
-          "label": "STT provider",
-          "type": "string",
-          "default": "openai",
-          "description": "Provider for the STT model (openai, groq, google, sarvam)."
-        },
-        {
           "key": "hold_ms",
           "label": "Hold duration (ms)",
           "type": "int",

@@ -45,7 +45,10 @@ def open_config_panel(ctx: CommandContext) -> None:
         ctx.notify("No extensions configured. Add extension paths to settings first.")
         return
 
+    changed = False
+
     def on_toggle(entry: ConfigEntry, enabled: bool) -> None:
+        nonlocal changed
         if entry.scope == "global":
             for ext in global_list:
                 if ext.path == entry.path:
@@ -59,10 +62,18 @@ def open_config_panel(ctx: CommandContext) -> None:
                     break
             sm.set_project_extension_list(project_list)
 
+        changed = True
         state = "enabled" if enabled else "disabled"
         ctx.notify(f"Extension {entry.display_name} {state} ({entry.scope})")
 
     def on_close() -> None:
-        ctx.notify("Extensions cancelled.")
+        # Apply toggles live: reloading re-discovers extensions against the new
+        # enabled set, which loads/unloads their commands, tools, prompt appends
+        # and /settings panels without requiring a restart. Batched here so
+        # multiple toggles trigger a single reload.
+        if changed:
+            import asyncio
+
+            asyncio.ensure_future(ctx.runtime.reload_extensions())
 
     ctx.layout.open_config_selector(all_entries, on_toggle, on_close)

@@ -63,15 +63,15 @@ class VoiceController:
             self._handle_release()
         return self._enabled
 
-    def _resolve_stt(self) -> tuple[str, str]:
-        """Resolve the STT (voice) model/provider: settings ``model.voice`` first,
+    def resolve_voice(self) -> tuple[str, str]:
+        """Resolve the voice model/provider: settings ``model.voice`` first,
         then the extension's configured defaults.
         """
         if self._settings is not None:
             ref = self._settings.get_model_ref("voice")
             if ref is not None and ref.id:
-                return ref.id, (ref.provider or self._cfg.stt_provider)
-        return self._cfg.stt_model, self._cfg.stt_provider
+                return ref.id, (ref.provider or self._cfg.voice_provider)
+        return self._cfg.voice_model, self._cfg.voice_provider
 
     # ── Transient status placeholder (errors only) ─────────────────────────────
 
@@ -206,7 +206,7 @@ class VoiceController:
             self._mode = "idle"
             self._ui.insert_input_text(" ")
         else:
-            # Long press — send captured audio to STT
+            # Long press — send captured audio to the voice model
             asyncio.ensure_future(self._transcribe())
 
     # ── Transcription ─────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ class VoiceController:
                 return
 
             wav_bytes = audio.encode_wav(self._audio_frames, self._cfg.sample_rate)
-            model_id, provider = self._resolve_stt()
+            model_id, provider = self.resolve_voice()
             text = await audio.transcribe_wav(wav_bytes, model_id, provider)
 
             self._stop_caret()

@@ -377,6 +377,11 @@ class Runtime:
         if old is not None:
             for ext in old._extensions:
                 await self._emit_to_extension(ext, "extension_unload")
+                # Drop the outgoing extension's commands; the new set is
+                # re-registered below. Without this, a now-disabled extension's
+                # commands would linger in the registry until restart.
+                for name in ext.commands:
+                    self.commands.unregister(name)
             old.unsubscribe()
 
         entries = sm.get_all_extension_entries()

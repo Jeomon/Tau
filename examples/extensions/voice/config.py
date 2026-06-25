@@ -14,7 +14,7 @@ RELEASE_GAP = 1.0
 @dataclass
 class VoiceConfig:
     enabled: bool = True
-    stt_model: str = "whisper-1"
-    stt_provider: str = "openai"
+    voice_model: str = "whisper-1"
+    voice_provider: str = "openai"
     hold_ms: int = 500
     sample_rate: int = 16000

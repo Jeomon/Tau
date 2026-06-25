@@ -28,7 +28,7 @@ def encode_wav(frames: list[Any], sample_rate: int) -> bytes:
 
 
 async def transcribe_wav(wav_bytes: bytes, model_id: str, provider: str) -> str:
-    """Transcribe WAV audio via the configured STT model. Returns raw text."""
+    """Transcribe WAV audio via the configured voice model. Returns raw text."""
     from tau.inference.api.audio.service import AudioLLM
     from tau.inference.types import AudioFormat, STTContext
 
