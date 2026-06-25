@@ -132,12 +132,21 @@ class ToolRenderOptions:
     expanded:   True when the user has toggled tool results open (Ctrl+O).
     is_partial: True while the tool is still executing (streaming output).
     metadata:   Arbitrary data the tool stored in ToolResult.metadata.
+    theme:      The active UI theme — the stable styling surface for renderers.
+                Use its semantic colour roles instead of importing ANSI codes
+                from internal modules (which is fragile across versions,
+                especially for extensions loaded from ~/.tau): ``theme.muted``
+                (dim), ``theme.error`` (red), ``theme.warning`` (yellow),
+                ``theme.success`` (green), ``theme.accent``, ``theme.emphasis``.
+                Each takes a string and returns it wrapped with reset. May be
+                None outside the interactive TUI.
     """
 
     is_error: bool = False
     expanded: bool = False
     is_partial: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    theme: Any = None
 
 
 class Tool(ABC):

@@ -441,6 +441,7 @@ class MessageBlock:
                 expanded=self._expanded,
                 is_partial=self._streaming,
                 metadata=item.metadata,
+                theme=self._theme,
             )
             custom = tool.render_result(item.content, opts)
             if custom:

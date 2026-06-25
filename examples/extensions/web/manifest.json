@@ -1,5 +1,7 @@
 {
   "tau": {
+    "name": "Web search",
+    "author": "jeomon",
     "dependencies": ["ddgs", "AsyncDDGS", "exa-py", "tavily-python"],
     "settings": {
       "title": "Web search",

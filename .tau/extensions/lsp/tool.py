@@ -95,7 +95,23 @@ def _hover_text(hover: Any) -> str:
 
 
 def _render_lsp_result(content: str, opts: Any) -> list[str]:
-    from tau.tui.ansi import DIM, RED, RESET, YELLOW
+    # Derive the ANSI codes from the active UI theme passed on the render
+    # options — the stable styling surface for extensions — rather than importing
+    # them from Tau internals (a path that is not part of the extension contract
+    # and has broken across versions). muted→dim, error→red, warning→yellow.
+    def _codes(fn: Any) -> tuple[str, str]:
+        try:
+            pre, sep, post = fn("\x00").partition("\x00")
+            if sep:
+                return pre, post
+        except Exception:
+            pass
+        return "", ""
+
+    theme = getattr(opts, "theme", None)
+    DIM, RESET = _codes(getattr(theme, "muted", None) or (lambda s: s))
+    RED, _ = _codes(getattr(theme, "error", None) or (lambda s: s))
+    YELLOW, _ = _codes(getattr(theme, "warning", None) or (lambda s: s))
 
     if opts.is_error:
         # One list element per line — an embedded newline in a single element

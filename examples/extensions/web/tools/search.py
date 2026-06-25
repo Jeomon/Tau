@@ -61,14 +61,18 @@ def _result_lines(r: dict, mode: _SearchMode) -> tuple[str, str]:
 
 
 def _render_web_search(content: str, opts: Any) -> list[str]:
-    from tau.tui.ansi import DIM, RESET
+    # Style via the theme on the render options (stable extension surface)
+    # instead of importing ANSI codes from Tau internals.
+    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
+    muted = getattr(opts.theme, "muted", _id)
+
     metadata = opts.metadata or {}
     query        = metadata.get("query", "")
     mode         = metadata.get("mode", "text")
     result_count = metadata.get("result_count", 0)
     results      = metadata.get("results", [])
 
-    mode_tag    = f"  {DIM}{mode}{RESET}" if mode != "text" else ""
+    mode_tag    = f"  {muted(mode)}" if mode != "text" else ""
     result_word = "result" if result_count == 1 else "results"
     summary = f"Found {result_count} {result_word}{mode_tag}"
 
@@ -76,15 +80,15 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
         return [summary]
 
     if not opts.expanded:
-        return [summary, f"{DIM}···  (ctrl+o to expand){RESET}"]
+        return [summary, muted("···  (ctrl+o to expand)")]
 
     out = [summary]
     for i, r in enumerate(results, 1):
         title, url = _result_lines(r, _SearchMode(mode))
         out.append(f"{i}  {title}")
         if url:
-            out.append(f"   {DIM}{url}{RESET}")
-    out.append(f"{DIM}(ctrl+o to collapse){RESET}")
+            out.append(f"   {muted(url)}")
+    out.append(muted("(ctrl+o to collapse)"))
     return out
 
 

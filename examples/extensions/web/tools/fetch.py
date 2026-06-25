@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from tau.tool.types import Tool, ToolContext, ToolExecutionMode, ToolInvocation, ToolKind, ToolResult
 from tau.tool.render import call_line
 
-from engines import BaseSearchEngine
+from engines import BaseSearchEngine  # type: ignore[import]
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -60,17 +60,22 @@ def _human_size(n: int) -> str:
 
 
 def _render_web_fetch(content: str, opts: Any) -> list[str]:
-    from tau.tui.ansi import DIM, RED, RESET
+    # Style via the theme passed on the render options — the stable surface for
+    # extensions — rather than importing ANSI codes from Tau internals.
+    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
+    muted = getattr(opts.theme, "muted", _id)
+    error = getattr(opts.theme, "error", _id)
+
     if opts.is_error:
-        return [f"{RED}{content.strip()}{RESET}"]
+        return [error(content.strip())]
     metadata = opts.metadata or {}
     url            = metadata.get("url", "")
     content_length = metadata.get("content_length", 0)
     extracted      = metadata.get("extracted", False)
 
     domain   = urlparse(url).netloc or url
-    size_tag = f"  {DIM}{_human_size(content_length)}{RESET}" if content_length else ""
-    ext_tag  = f"  {DIM}extracted{RESET}" if extracted else ""
+    size_tag = f"  {muted(_human_size(content_length))}" if content_length else ""
+    ext_tag  = f"  {muted('extracted')}" if extracted else ""
     summary = f"Fetched {domain}{size_tag}{ext_tag}"
 
     # Strip the header lines the tool prepends (URL: ... and [External content...])
@@ -83,12 +88,12 @@ def _render_web_fetch(content: str, opts: Any) -> list[str]:
         return [summary]
 
     if not opts.expanded:
-        return [summary, f"{DIM}···  (ctrl+o to expand){RESET}"]
+        return [summary, muted("···  (ctrl+o to expand)")]
 
     out = [summary]
     for line in body_lines:
         out.append(line)
-    out.append(f"{DIM}(ctrl+o to collapse){RESET}")
+    out.append(muted("(ctrl+o to collapse)"))
     return out
 
 

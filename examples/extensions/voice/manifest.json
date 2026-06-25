@@ -1,5 +1,7 @@
 {
   "tau": {
+    "name": "Voice input",
+    "author": "jeomon",
     "extensions": ["__init__.py"],
     "dependencies": ["sounddevice", "numpy"],
     "settings": {

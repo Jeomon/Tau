@@ -1,5 +1,7 @@
 {
   "tau": {
+    "name": "LSP",
+    "author": "jeomon",
     "settings": {
       "title": "LSP (code intelligence)",
       "fields": [
