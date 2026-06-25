@@ -200,6 +200,8 @@ class SettingsManager:
                 kwargs[key] = ModelSettings(
                     text=ModelRef(id=value, provider=data.get("provider"))
                 )
+            elif key == "extensions" and not isinstance(value, dict):
+                pass  # ignore corrupt/non-dict extensions values
             elif key == "extensions" and isinstance(value, dict):
                 entries = None
                 if isinstance(value.get("list"), list):
