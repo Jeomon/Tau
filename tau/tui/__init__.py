@@ -6,6 +6,14 @@
 #
 #   Themes:        from tau.themes.registry import theme_registry
 
+from tau.tui.component import (
+    Column,
+    Columns,
+    Constrained,
+    Container,
+    Row,
+    Rows,
+)
 from tau.tui.components.box import Box
 from tau.tui.components.select_list import SelectItem, SelectList
 from tau.tui.keybindings import (
@@ -51,4 +59,11 @@ __all__ = [
     "SelectList",
     "SelectItem",
     "Box",
+    # Layout primitives
+    "Container",
+    "Column",
+    "Row",
+    "Rows",
+    "Columns",
+    "Constrained",
 ]
