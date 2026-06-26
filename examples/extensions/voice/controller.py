@@ -53,6 +53,11 @@ class VoiceController:
         self._audio_frames: list[Any] = []
         self._stream: Any = None
 
+        # True while an optimistically echoed space is sitting in the editor.
+        # We insert the space immediately on press so it appears instantly (like
+        # every other key) and only retract it if the hold becomes a recording.
+        self._echoed = False
+
     # ── Enable/disable + model resolution ──────────────────────────────────────
 
     def toggle(self) -> bool:
@@ -117,6 +122,10 @@ class VoiceController:
         if not self._open_stream():
             self._mode = "idle"
             return
+        # The hold has become a recording: retract the space we echoed on press.
+        if self._echoed:
+            self._ui.backspace_input()
+            self._echoed = False
         self._mode = "recording"
         self._start_caret(caret.RECORDING)
 
@@ -202,9 +211,10 @@ class VoiceController:
         self._stop_caret()
 
         if prior_mode == "waiting":
-            # Short press — type the space we held back
+            # Short press — the space was already echoed on press, so it's
+            # already visible; just settle back to idle and keep it.
             self._mode = "idle"
-            self._ui.insert_input_text(" ")
+            self._echoed = False
         else:
             # Long press — send captured audio to the voice model
             asyncio.ensure_future(self._transcribe())
@@ -264,7 +274,11 @@ class VoiceController:
                 self._close_stream()
                 self._stop_caret()
                 self._mode = "idle"
-                self._ui.insert_input_text(" ")
+                # Restore the space only if it isn't already on screen — i.e. the
+                # hold had reached recording and we'd retracted the echo.
+                if not self._echoed:
+                    self._ui.insert_input_text(" ")
+                self._echoed = False
             return None
 
         # ── Space key ────────────────────────────────────────────────────────
@@ -283,9 +297,13 @@ class VoiceController:
             # could false-trip during the OS initial-repeat delay.
             self._repeat_interval = 0.0
             self._mode = "waiting"
+            # Echo the space immediately so it appears with zero lag, exactly like
+            # any other key. It's retracted only if the hold turns into a recording.
+            self._ui.insert_input_text(" ")
+            self._echoed = True
             self._activation_task = asyncio.ensure_future(self._activation_timer())
             self._watcher_task = asyncio.ensure_future(self._release_watcher())
-            return True  # consume; space will be re-emitted if released early
+            return True  # consume the raw key; we've already echoed the space
 
         # Auto-repeat while waiting or recording — keep timestamp fresh and
         # learn the repeat cadence (used to size the release gap).

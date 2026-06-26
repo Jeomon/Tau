@@ -816,6 +816,23 @@ class UIContext:
         layout.input.insert_at_cursor(text)
         layout._tui.request_render()
 
+    def backspace_input(self) -> None:
+        """Delete the character immediately before the editor cursor and re-render.
+
+        No-op if the active editor doesn't support backspacing. Lets an extension
+        retract a character it inserted at the cursor (e.g. an optimistically
+        echoed key) without resetting the cursor the way :meth:`set_input_text`
+        would.
+        """
+        layout = self._layout()
+        if layout is None:
+            return
+        backspace = getattr(layout.input, "backspace", None)
+        if backspace is None:
+            return
+        backspace()
+        layout._tui.request_render()
+
     def set_input_placeholder(self, text: str) -> None:
         """Override the editor placeholder (shown when the input is empty).
 

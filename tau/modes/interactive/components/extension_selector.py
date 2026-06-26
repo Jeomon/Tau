@@ -18,7 +18,7 @@ class ExtensionSelector(Component):
 
     Shown when an extension calls ``ctx.select(title, options)`` or
     ``ctx.confirm(title, message)``.  Simple up/down/enter/escape — no search,
-    matching pi's ExtensionSelectorComponent behaviour.
+    matching ExtensionSelectorComponent behaviour.
     """
 
     def __init__(

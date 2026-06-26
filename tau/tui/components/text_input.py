@@ -206,6 +206,15 @@ class TextInput(Component):
     def insert_at_cursor(self, text: str) -> None:
         self._insert(text)
 
+    def backspace(self) -> None:
+        """Delete the token/grapheme immediately before the cursor.
+
+        Public surface over :meth:`_backspace` so an extension can retract a
+        character it inserted (e.g. the voice extension undoing an optimistically
+        echoed space) without reaching into private editing internals.
+        """
+        self._backspace()
+
     def set_placeholder_override(self, text: str | None) -> None:
         """Temporarily replace the placeholder (None restores the configured one)."""
         self._placeholder_override = text
