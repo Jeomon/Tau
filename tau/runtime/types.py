@@ -23,6 +23,7 @@ from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_PROVIDER = "anthropic"
 
 def _is_project_package(settings_manager: SettingsManager, name: str) -> bool:
     """Return True if the package is project-scoped (in project settings)."""
@@ -137,10 +138,7 @@ class RuntimeContext:
         # ── LLM ───────────────────────────────────────────────────────────────
         text_ref = settings_manager.get_model_ref("text")
         model_id = config.model_id or (text_ref.id if text_ref else None) or _DEFAULT_MODEL
-        if config.model_id is not None:
-            provider = config.provider
-        else:
-            provider = config.provider or (text_ref.provider if text_ref else None)
+        provider = config.provider or (text_ref.provider if text_ref else None) or _DEFAULT_PROVIDER
         llm = LLM(model_id=model_id, provider=provider)
         from datetime import timedelta
 
