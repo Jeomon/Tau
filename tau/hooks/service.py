@@ -42,11 +42,7 @@ class Hooks:
     def register(self, event_type: str, handler: Handler) -> Unsubscribe:
         """Register a handler for the given event type. Returns an unsubscribe callable."""
         self._handlers[event_type].append(handler)
-
-        def unsubscribe() -> None:
-            self.unregister(event_type, handler)
-
-        return unsubscribe
+        return lambda: self.unregister(event_type, handler)
 
     def unregister(self, event_type: str, handler: Handler) -> None:
         """Remove a previously registered handler. No-op if not found."""
@@ -56,7 +52,12 @@ class Hooks:
     def subscribe(self, listener: Handler) -> Unsubscribe:
         """Register a catch-all listener that receives every emitted event."""
         self._subscribers.append(listener)
-        return lambda: self._subscribers.remove(listener)
+        return lambda: self.unsubscribe(listener)
+
+    def unsubscribe(self, listener: Handler) -> None:
+        """Remove a previously registered listener. Idempotent."""
+        with contextlib.suppress(ValueError):
+            self._subscribers.remove(listener)
 
     def on(self, event_type: str) -> Callable[[Handler], Handler]:
         """Decorator for registering a handler for an event type."""

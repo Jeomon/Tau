@@ -112,11 +112,9 @@ class SessionManager:
             )
             self.session_id = session_id
             self.entries = [header]
-            self.by_id.clear()
-            self.labels_by_id.clear()
-            self.label_timestamps_by_id.clear()
-            self.leaf_id = None
+            self._clear_index()
             self.flushed = False
+
             if self.persist:
                 self._rewrite_file()
                 self.flushed = True
@@ -142,10 +140,7 @@ class SessionManager:
 
         self.session_id = session_id
         self.entries = [header]
-        self.by_id.clear()
-        self.labels_by_id.clear()
-        self.label_timestamps_by_id.clear()
-        self.leaf_id = None
+        self._clear_index()
         self.flushed = False
 
         if self.persist:
@@ -166,6 +161,13 @@ class SessionManager:
         except OSError:
             _log.error("failed to rewrite session file %s", self.session_file, exc_info=True)
 
+    def _clear_index(self):
+        """Clear the session indices."""
+        self.by_id.clear()
+        self.labels_by_id.clear()
+        self.label_timestamps_by_id.clear()
+        self.leaf_id = None
+
     def _build_index(self):
         """Rebuild internal indices from loaded entries."""
         self.by_id.clear()
@@ -177,11 +179,13 @@ class SessionManager:
             if isinstance(entry, SessionHeader):
                 continue
             self.by_id[entry.id] = entry
+            
             if isinstance(entry, LeafEntry):
                 # LeafEntry records a navigation point — target_id is the new leaf.
                 self.leaf_id = entry.target_id
             else:
                 self.leaf_id = entry.id
+
             if isinstance(entry, LabelEntry):
                 if entry.label:
                     self.labels_by_id[entry.target_id] = entry.label
