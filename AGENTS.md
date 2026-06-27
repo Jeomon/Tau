@@ -15,9 +15,9 @@
 
 **Installation**: `pip install -e .` then run `tau`
 
-**Configuration**: Global `~/.py/settings.json`, project-local `.py/settings.json`
+**Configuration**: Global `~/.tau/settings.json`, project-local `.tau/settings.json`
 
-**Sessions**: Auto-saved to `~/.py/sessions/` (JSONL format)
+**Sessions**: Auto-saved to `~/.tau/sessions/` (JSONL format)
 
 ## Where are the docs?
 
@@ -176,9 +176,9 @@ Users can extend tau through:
 - **Tools**: Custom tools the agent can call
 - **Commands**: Slash commands (`/command`)
 - **Hooks**: React to events (session_start, tool_execute, before_compaction, etc.)
-- **Themes**: Custom terminal color schemes (YAML files in `~/.py/themes/`)
-- **Skills**: Instruction sets the model loads automatically (Markdown in `~/.py/skills/`)
-- **Prompts**: Reusable prompt templates with argument substitution (`~/.py/prompts/`)
+- **Themes**: Custom terminal color schemes (YAML files in `~/.tau/themes/`)
+- **Skills**: Instruction sets the model loads automatically (Markdown in `~/.tau/skills/`)
+- **Prompts**: Reusable prompt templates with argument substitution (`~/.tau/prompts/`)
 
 See `docs/extensions.md` for implementation details.
 
@@ -197,15 +197,15 @@ All providers are abstracted behind `tau.inference.InferenceClient`. See `docs/i
 
 ## Sessions
 
-Sessions are persisted to disk as JSONL files and can be resumed, forked, or cloned. The session model is a tree — navigating away from a branch triggers branch summarization. See `docs/sessions.md` for details. Session files live in `~/.py/sessions/`.
+Sessions are persisted to disk as JSONL files and can be resumed, forked, or cloned. The session model is a tree — navigating away from a branch triggers branch summarization. See `docs/sessions.md` for details. Session files live in `~/.tau/sessions/`.
 
 ## Configuration
 
 Configuration uses JSON files with inheritance:
 
 1. Built-in defaults
-2. `~/.py/settings.json` (global)
-3. `.py/settings.json` (project)
+2. `~/.tau/settings.json` (global)
+3. `.tau/settings.json` (project)
 4. Environment variables
 5. Command-line flags
 
@@ -213,7 +213,7 @@ Settings files are JSON only (not YAML) — they are both read and written by ta
 
 ## Themes
 
-Themes are YAML files (`.yaml` / `.yml`) stored in `~/.py/themes/` or `.py/themes/`. Tau includes 16 built-in themes: `default`, `dracula`, `nord`, `gruvbox`, `catppuccin`, `ayu-dark`, `everforest`, `horizon`, `kanagawa`, `material-ocean`, `monokai`, `night-owl`, `one-dark`, `rose-pine`, `solarized-dark`, `tokyo-night`, plus `dark` and `light` base themes for extending. See `docs/themes.md`.
+Themes are YAML files (`.yaml` / `.yml`) stored in `~/.tau/themes/` or `.tau/themes/`. Tau includes 16 built-in themes: `default`, `dracula`, `nord`, `gruvbox`, `catppuccin`, `ayu-dark`, `everforest`, `horizon`, `kanagawa`, `material-ocean`, `monokai`, `night-owl`, `one-dark`, `rose-pine`, `solarized-dark`, `tokyo-night`, plus `dark` and `light` base themes for extending. See `docs/themes.md`.
 
 ## Tool Sources
 
