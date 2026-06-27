@@ -17,7 +17,7 @@ from tau.tool.types import (
     ToolResult,
 )
 
-_DEFAULT_TIMEOUT = 120
+_DEFAULT_TIMEOUT = 30
 
 
 def _render_terminal_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -174,14 +174,16 @@ class TerminalTool(Tool):
             await proc.wait()
 
         if timed_out:
-            return ToolResult.error(
-                invocation.id,
-                f"Command timed out after {params.timeout}s: {params.command}",
+            partial_output = "".join(chunks)
+            return ToolResult(
+                id=invocation.id,
+                content=partial_output or "(no output before timeout)",
+                is_error=True,
                 metadata={
                     "command": params.command,
                     "exit_code": -1,
                     "timed_out": True,
-                    "output_length": len("".join(chunks)),
+                    "output_length": len(partial_output),
                 },
             )
 
