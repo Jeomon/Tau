@@ -117,7 +117,7 @@ class RuntimeContext:
             else:
                 # Load global settings first to read project_trust policy
                 _global_sm = SettingsManager.create(
-                    cwd, config_dir=config_dir, project_trusted=False
+                    cwd=cwd, config_dir=config_dir, project_trusted=False
                 )
                 policy = _global_sm.get_project_trust()
                 match policy:

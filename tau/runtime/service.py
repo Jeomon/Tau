@@ -72,7 +72,7 @@ class Runtime:
     @classmethod
     async def create(cls, config: RuntimeConfig) -> Runtime:
         """Create a fully initialised Runtime from config and fire the session_start event."""
-        context = await RuntimeContext.create(config)
+        context = await RuntimeContext.create(config=config)
         runtime = cls(context=context, config=config)
         runtime._start_version_check()
         await runtime._emit_session_start(SessionStartReason.Startup)
