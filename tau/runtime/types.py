@@ -25,6 +25,7 @@ from tau.tool.types import Tool
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_PROVIDER = "anthropic"
 
+
 def _is_project_package(settings_manager: SettingsManager, name: str) -> bool:
     """Return True if the package is project-scoped (in project settings)."""
     project_pkgs = settings_manager.get_packages(local=True)
@@ -127,7 +128,7 @@ class RuntimeContext:
                         project_trusted = True
                     case "never":
                         project_trusted = False
-                    case "ask"|_:
+                    case "ask" | _:
                         stored = trust_store.get(cwd)
                         project_trusted = stored if stored is not None else False
                         _trust_pending = stored is None  # no prior decision → TrustScreen will show
@@ -189,14 +190,23 @@ class RuntimeContext:
             await hooks.emit(RuntimeStartEvent())
 
             if settings_manager.is_extensions_enabled():
-                project_ext_dir = get_extensions_dir(cwd)
                 global_ext_dir = get_extensions_dir()
+                project_ext_dir = get_extensions_dir(cwd)
+
+                disabled_stems = set()
+                entry_configs = {}
+                extra_entries = []
+
                 entries = settings_manager.get_all_extension_entries()
-                disabled_stems = {Path(e.path).stem for e in entries if not e.enabled}
-                entry_configs = {
-                    Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled
-                }
-                extra_entries = [e for e in entries if e.enabled]
+
+                for e in entries:
+                    stem = Path(e.path).stem
+                    if not e.enabled:
+                        disabled_stems.add(stem)
+                    else:
+                        entry_configs[stem] = e.settings or {}
+                        extra_entries.append(e)
+
                 extra_sources: dict[str, str] = {}
 
                 # Discover extension files contributed by installed packages
@@ -205,6 +215,7 @@ class RuntimeContext:
                 from tau.settings.types import ExtensionEntry as _ExtEntry
 
                 pkg_entries = settings_manager.get_all_packages()
+                
                 if pkg_entries:
                     for _scope_local in (False, True):
                         _venv_dir = get_packages_venv(cwd if _scope_local else None)
