@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from tau.settings.paths import CONFIG_DIR_PATH
+from tau.settings.paths import get_config_dir
 from tau.trust.types import TrustOption
 from tau.trust.utils import find_nearest, get_trust_options, has_project_trust_inputs, normalize
 
@@ -19,7 +19,7 @@ class TrustStore:
     """
 
     def __init__(self, config_dir: Path | None = None) -> None:
-        base = config_dir or CONFIG_DIR_PATH
+        base = config_dir or get_config_dir()
         self._path = base / "trust.json"
 
     # ── Read ──────────────────────────────────────────────────────────────────
@@ -36,8 +36,10 @@ class TrustStore:
     def get(self, cwd: str | Path) -> bool | None:
         """Return the stored trust decision, or ``None`` if no decision exists."""
         data = self._read()
-        entry = find_nearest(data, normalize(cwd))
-        return entry[1] if entry is not None else None
+        if entry := find_nearest(data, normalize(cwd)):
+            _, trusted = entry
+            return trusted
+        return None
 
     def get_stored_path(self, cwd: str | Path) -> str | None:
         """Return the directory path that holds the nearest trust decision, or ``None``."""

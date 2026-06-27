@@ -22,6 +22,7 @@ from tau.settings.paths import get_config_dir, get_extensions_dir
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 def _is_project_package(settings_manager: SettingsManager, name: str) -> bool:
     """Return True if the package is project-scoped (in project settings)."""
@@ -134,7 +135,6 @@ class RuntimeContext:
             )
 
         # ── LLM ───────────────────────────────────────────────────────────────
-        _DEFAULT_MODEL = "claude-sonnet-4-6"
         text_ref = settings_manager.get_model_ref("text")
         model_id = config.model_id or (text_ref.id if text_ref else None) or _DEFAULT_MODEL
         if config.model_id is not None:
