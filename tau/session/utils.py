@@ -62,7 +62,7 @@ def generate_timestamp() -> float:
     return now.timestamp()
 
 
-def get_default_session_dir(cwd: str | Path, sessions_dir: Path | None = None) -> Path:
+def get_default_project_session_dir(cwd: str | Path, sessions_dir: Path | None = None) -> Path:
     """Return the per-project session directory under ~/.tau/sessions/<encoded-cwd>/."""
     base = sessions_dir if sessions_dir is not None else get_sessions_dir()
     resolved = str(Path(cwd).resolve())

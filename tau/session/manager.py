@@ -38,7 +38,7 @@ from tau.session.utils import (
     find_most_recent_session,
     generate_id,
     generate_timestamp,
-    get_default_session_dir,
+    get_default_project_session_dir,
     list_sessions_from_dir,
     read_session_file,
 )
@@ -59,7 +59,7 @@ class SessionManager:
         self.cwd = Path(cwd).resolve()
         self.persist = persist
         self.session_dir = (
-            Path(session_dir).resolve() if session_dir else get_default_session_dir(self.cwd)
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(self.cwd)
         )
         self.session_file = session_file
         self.by_id: dict[str, SessionEntry] = {}
@@ -610,7 +610,7 @@ class SessionManager:
     def create(cls, cwd: Path | str, session_dir: Path | str | None = None) -> SessionManager:
         """Create a new SessionManager with a fresh session."""
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_session_dir(cwd)
+        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
         return SessionManager(cwd, session_dir)
 
     @staticmethod
@@ -633,7 +633,7 @@ class SessionManager:
     def continue_recent(cwd: Path | str, session_dir: Path | str | None = None) -> SessionManager:
         """Load the most recent session, or create a new one if none exist."""
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_session_dir(cwd)
+        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
         most_recent = find_most_recent_session(session_dir)
         if most_recent:
             return SessionManager(cwd, session_dir, most_recent)
@@ -662,7 +662,7 @@ class SessionManager:
             raise ValueError(f"Cannot fork: source session has no header: {source}")
 
         session_dir = (
-            Path(session_dir).resolve() if session_dir else get_default_session_dir(target_cwd)
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(target_cwd)
         )
         session_dir.mkdir(parents=True, exist_ok=True)
 
@@ -693,7 +693,7 @@ class SessionManager:
         on_progress: Callable[[int, int], None] | None = None,
     ) -> list[SessionInfo]:
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_session_dir(cwd)
+        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
         sessions = list_sessions_from_dir(session_dir, on_progress=on_progress)
         sessions.sort(key=lambda s: s.modified.timestamp(), reverse=True)
         return sessions
