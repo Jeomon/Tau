@@ -355,7 +355,7 @@ class TestGrepTool:
         f.write_text("x\n")
         result = run(self.tool.execute(_inv("grep", cwd=tmp_path, pattern="[invalid", path=str(f))))
         assert result.is_error
-        assert "invalid regex" in result.content.lower()
+        assert "regex parse error" in result.content.lower()
 
     def test_path_not_found(self, tmp_path):
         result = run(
@@ -373,28 +373,13 @@ class TestGrepTool:
         )
         assert result.metadata["match_count"] == 1
 
-    def test_python_fallback_invalid_regex(self, tmp_path):
-        """_python must return error=True for bad patterns so execute emits ToolResult.error."""
-        f = tmp_path / "f.txt"
-        f.write_text("x\n")
-        tool = GrepTool()
-        from tau.builtins.tools.grep import GrepParams
-
-        params = GrepParams(pattern="[bad", path=str(f))
-        result = run(tool._python(params, f))
-        assert result.get("error") is True
-        assert "invalid regex" in result["output"].lower()
-
-    def test_python_fallback_used_when_rg_absent(self, tmp_path, monkeypatch):
-        """If rg is not found, _python is used and results are correct."""
+    def test_errors_when_rg_is_absent(self, tmp_path, monkeypatch):
         import subprocess as sp
-
-        original_run = sp.run
 
         def fake_run(cmd, **kwargs):
             if cmd[0] == "rg":
                 raise FileNotFoundError
-            return original_run(cmd, **kwargs)
+            raise AssertionError(f"Unexpected command: {cmd}")
 
         monkeypatch.setattr(sp, "run", fake_run)
 
@@ -403,8 +388,8 @@ class TestGrepTool:
         result = run(
             self.tool.execute(_inv("grep", cwd=tmp_path, pattern="TARGET_TOKEN", path=str(f)))
         )
-        assert not result.is_error
-        assert result.metadata["match_count"] == 1
+        assert result.is_error
+        assert "ripgrep" in result.content.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -517,16 +502,13 @@ class TestGlobTool:
         )
         assert "x.py" in result.content
 
-    def test_python_fallback_used_when_rg_absent(self, tmp_path, monkeypatch):
-        """If rg is not found, _python_glob is used and results are correct."""
+    def test_errors_when_rg_is_absent(self, tmp_path, monkeypatch):
         import subprocess as sp
-
-        original_run = sp.run
 
         def fake_run(cmd, **kwargs):
             if cmd[0] == "rg":
                 raise FileNotFoundError
-            return original_run(cmd, **kwargs)
+            raise AssertionError(f"Unexpected command: {cmd}")
 
         monkeypatch.setattr(sp, "run", fake_run)
 
@@ -535,5 +517,5 @@ class TestGlobTool:
         result = run(
             self.tool.execute(_inv("glob", cwd=tmp_path, pattern="*.py", path=str(tmp_path)))
         )
-        assert not result.is_error
-        assert result.metadata["match_count"] == 2
+        assert result.is_error
+        assert "ripgrep" in result.content.lower()

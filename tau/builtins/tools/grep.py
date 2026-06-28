@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -129,7 +128,7 @@ class GrepTool(Tool):
         if not target.exists():
             return ToolResult.error(invocation.id, f"Path not found: {target}")
 
-        result = await self._rg(params, target) or await self._python(params, target)
+        result = await self._rg(params, target)
         if result.get("error"):
             return ToolResult.error(invocation.id, result["output"])
         if result["matches"]:
@@ -140,7 +139,7 @@ class GrepTool(Tool):
             metadata=result["metadata"],
         )
 
-    async def _rg(self, params: GrepParams, target: Path) -> dict | None:
+    async def _rg(self, params: GrepParams, target: Path) -> dict:
         cmd = ["rg", "--line-number", "--no-heading", "--with-filename"]
         if not params.case_sensitive:
             cmd.append("--ignore-case")
@@ -152,9 +151,20 @@ class GrepTool(Tool):
                 subprocess.run, cmd, capture_output=True, text=True, errors="replace"
             )
         except FileNotFoundError:
-            return None
+            return {
+                "matches": [],
+                "output": "ripgrep (rg) is required but was not found.",
+                "metadata": {},
+                "error": True,
+            }
         if proc.returncode not in (0, 1):
-            return None
+            error = proc.stderr.strip() or f"ripgrep exited with status {proc.returncode}."
+            return {
+                "matches": [],
+                "output": error,
+                "metadata": {},
+                "error": True,
+            }
         lines = [ln for ln in proc.stdout.splitlines() if ln]
         truncated = len(lines) > _MAX_MATCHES
         lines = lines[:_MAX_MATCHES]
@@ -169,50 +179,3 @@ class GrepTool(Tool):
         if truncated:
             output += f"\n\n[Results truncated at {_MAX_MATCHES} matches.]"
         return {"matches": lines, "output": output, "metadata": metadata}
-
-    async def _python(self, params: GrepParams, target: Path) -> dict:
-        flags = 0 if params.case_sensitive else re.IGNORECASE
-        try:
-            regex = re.compile(params.pattern, flags)
-        except re.error as e:
-            return {
-                "matches": [],
-                "output": f"Invalid regex pattern: {e}",
-                "metadata": {},
-                "error": True,
-            }
-
-        files: list[Path] = []
-        if target.is_file():
-            files = [target]
-        else:
-            glob_pat = f"**/{params.include}" if params.include else "**/*"
-            files = [p for p in target.glob(glob_pat) if p.is_file()]
-
-        matches: list[str] = []
-        truncated = False
-        for file in sorted(files):
-            if truncated:
-                break
-            try:
-                for lineno, line in enumerate(
-                    file.read_text(encoding="utf-8", errors="replace").splitlines(), 1
-                ):
-                    if regex.search(line):
-                        matches.append(f"{file}:{lineno}: {line}")
-                        if len(matches) >= _MAX_MATCHES:
-                            truncated = True
-                            break
-            except OSError:
-                continue
-
-        metadata = {
-            "pattern": params.pattern,
-            "files_searched": len(files),
-            "match_count": len(matches),
-            "truncated": truncated,
-        }
-        output = "\n".join(matches)
-        if truncated:
-            output += f"\n\n[Results truncated at {_MAX_MATCHES} matches.]"
-        return {"matches": matches, "output": output, "metadata": metadata}

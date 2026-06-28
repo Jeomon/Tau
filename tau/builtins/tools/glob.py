@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import glob as _glob
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -109,9 +108,15 @@ class GlobTool(Tool):
         if not base.is_dir():
             return ToolResult.error(invocation.id, f"Base path is not a directory: {base}")
 
-        matches = await self._rg_files(params.pattern, base)
-        if matches is None:
-            matches = self._python_glob(params.pattern, base)
+        try:
+            matches = await self._rg_files(params.pattern, base)
+        except FileNotFoundError:
+            return ToolResult.error(
+                invocation.id,
+                "ripgrep (rg) is required but was not found.",
+            )
+        except RuntimeError as error:
+            return ToolResult.error(invocation.id, str(error))
 
         truncated = len(matches) > _MAX_RESULTS
         matches = sorted(matches[:_MAX_RESULTS])
@@ -133,17 +138,10 @@ class GlobTool(Tool):
 
         return ToolResult.ok(invocation.id, result, metadata=metadata)
 
-    async def _rg_files(self, pattern: str, base: Path) -> list[str] | None:
+    async def _rg_files(self, pattern: str, base: Path) -> list[str]:
         cmd = ["rg", "--files", "--glob", pattern, str(base)]
-        try:
-            proc = await asyncio.to_thread(
-                subprocess.run, cmd, capture_output=True, text=True
-            )
-        except FileNotFoundError:
-            return None
+        proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True)
         if proc.returncode not in (0, 1):
-            return None
+            error = proc.stderr.strip() or f"ripgrep exited with status {proc.returncode}."
+            raise RuntimeError(error)
         return [line for line in proc.stdout.splitlines() if line]
-
-    def _python_glob(self, pattern: str, base: Path) -> list[str]:
-        return sorted(_glob.glob(str(base / pattern), recursive=True))

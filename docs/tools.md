@@ -56,6 +56,8 @@ Commands run in the agent's current working directory.
 
 Find files matching a glob pattern.
 
+Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `pattern` | string | Yes | — | Glob pattern, e.g. `src/**/*.py` |
@@ -64,6 +66,8 @@ Find files matching a glob pattern.
 ### grep
 
 Search for a regular expression across files.
+
+Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
