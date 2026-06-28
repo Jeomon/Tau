@@ -828,7 +828,7 @@ class Engine:
 
     async def run(self, ctx: AgentContext, signal: AbortSignal | None = None) -> None:
         """Apply context and start a fresh loop. Uses the provided signal or creates one."""
-        self._signal = signal if signal is not None else asyncio.Event()
+        self._signal = signal or asyncio.Event()
         self.state.is_streaming = True
         self.state.idle_event.clear()
         self.state.system_prompt = ctx.system_prompt

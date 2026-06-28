@@ -164,9 +164,10 @@ class Agent:
         result: ToolResult,
         signal: asyncio.Event | None,
     ) -> ToolResult | None:
-        """Cap oversized tool output before it enters the context window.
+        """
+        Cap oversized tool output before it enters the context window.
 
-        Hard cap on tool output size 50 KB / 2000-line 
+        Hard cap on tool output size 50 KB / 2000-line
         Head-truncation keeps the first N lines/bytes; a trailing marker
         reports how much was omitted and the total size.
         """
