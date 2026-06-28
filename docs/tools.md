@@ -47,8 +47,7 @@ Execute a shell command and return combined stdout + stderr.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `command` | string | Yes | — | Shell command to run |
-| `timeout` | integer | No | `120` | Timeout in seconds (max 600) |
+`timeout` | integer | No | `30` | Timeout in seconds (max 600)
 
 Commands run in the agent's current working directory.
 
