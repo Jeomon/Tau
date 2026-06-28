@@ -75,9 +75,9 @@ class PackageManager:
         self.ensure_venv()
 
         if self._has_uv():
-            cmd = ["uv", "pip", "install", "--python", str(self._python), parsed.install_spec]
+            cmd = ["uv", "pip", "install", "--python", str(self._python), parsed.install_spec or ""]
         else:
-            cmd = [str(self._pip_exe), "install", parsed.install_spec]
+            cmd = [str(self._pip_exe), "install", parsed.install_spec or ""]
         subprocess.run(cmd, check=True)
 
         installed_path = self._find_package_dir(parsed.name)
@@ -188,7 +188,7 @@ class PackageManager:
         site_pkgs = self.site_packages()
         if not site_pkgs or not site_pkgs.is_dir():
             return None
-        for candidate in [name, name.replace("-", "_"), name.replace("-", "_").lower()]:
+        for candidate in [name, name.replace("-", "_"), name.replace("-", "_").lower(),name.replace("-", "_").upper()]:
             p = site_pkgs / candidate
             if p.is_dir():
                 return p

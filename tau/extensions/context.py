@@ -102,7 +102,7 @@ class ExtensionContext:
             session_manager=sm,
             layout=getattr(runtime, "_layout", None),
             runtime=runtime,
-            model_thinking=bool(llm.model.thinking) if llm is not None else False,
+            model_thinking=llm.model.thinking if llm is not None else False,
             llm=llm,
         )
 

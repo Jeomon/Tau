@@ -9,7 +9,7 @@ from tau.agent.prompt.types import PromptOptions
 from tau.agent.service import Agent
 from tau.agent.types import AgentConfig
 from tau.builtins.tools import TOOLS
-from tau.engine.service import Engine, EngineOptions
+from tau.engine.service import Engine
 from tau.extensions.api import _RuntimeRef
 from tau.extensions.loader import ExtensionLoader
 from tau.extensions.runtime import ExtensionRuntime
@@ -221,6 +221,7 @@ class RuntimeContext:
                         _venv_dir = get_packages_venv(cwd if _scope_local else None)
                         _pkg_mgr = PackageManager(_venv_dir)
                         add_site_packages_path(_pkg_mgr.site_packages())
+
                     for pkg in pkg_entries:
                         if not pkg.enabled:
                             continue
@@ -228,10 +229,12 @@ class RuntimeContext:
                             cwd if _is_project_package(settings_manager, pkg.name) else None
                         )
                         _pkg_mgr = PackageManager(_venv_dir)
+
                         for ext_file in _pkg_mgr.find_extension_files(pkg.name, pkg.installed_path):
                             extra_entries.append(_ExtEntry(path=str(ext_file), name=pkg.name))
                             extra_sources[str(ext_file)] = "package"
-                loader = ExtensionLoader(
+
+                el = ExtensionLoader(
                     builtins_dir=builtins_ext_dir,
                     project_dir=project_ext_dir,
                     global_dir=global_ext_dir,
@@ -246,14 +249,14 @@ class RuntimeContext:
                 )
             else:
                 # Extensions disabled — load builtins only.
-                loader = ExtensionLoader(
+                el = ExtensionLoader(
                     builtins_dir=builtins_ext_dir,
                     llm=llm,
                     settings=settings_manager,
                     cwd=cwd,
                     runtime_ref=runtime_ref,
                 )
-            load_result = await loader.load()
+            load_result = await el.load()
             ext_runtime = ExtensionRuntime(load_result, hooks, runtime_ref)
 
         assert ext_runtime is not None
@@ -265,6 +268,7 @@ class RuntimeContext:
         for tool in base_tools:
             source = "builtin" if tool in list(TOOLS) else "runtime"
             tool_registry.register(tool, source=source)
+
         for tool in ext_runtime.get_tools():
             tool_registry.register(tool, source="extension")
 
@@ -275,7 +279,6 @@ class RuntimeContext:
             cwd=cwd,
             llm=llm,
             tools=all_tools,
-            options=EngineOptions(),
             hooks=hooks,
             settings=settings_manager,
         )

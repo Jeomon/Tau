@@ -76,9 +76,11 @@ class Registry[T, E](ABC):
         """Load from global and optional project-specific directories."""
         self._ensure_builtins()
         errors: list[E] = []
+        
         g = self._load_from_dir(self._get_dir())
         errors.extend(self._extract_errors(g))
         self._registry.update(self._extract_items(g))
+
         if cwd is not None:
             p = self._load_from_dir(self._get_dir(cwd))
             errors.extend(self._extract_errors(p))
