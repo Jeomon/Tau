@@ -212,9 +212,13 @@ def register(tau):
 
 #### Agent state
 
+| Property | Type | Description |
+|----------|------|-------------|
+| `ctx.phase` | `AgentPhase` | Current lifecycle phase: `idle`, `turn`, `compaction`, or `branch_summary` |
+
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `ctx.is_idle()` | `bool` | `True` when the agent is not currently streaming a response |
+| `ctx.is_idle()` | `bool` | `True` when `ctx.phase` is `AgentPhase.IDLE` |
 | `ctx.abort()` | — | Cancel the current agent turn; no-op if already idle |
 | `ctx.shutdown()` | — | Exit tau gracefully |
 | `ctx.get_context_usage()` | `dict \| None` | Token usage info (see below) |
@@ -312,6 +316,22 @@ without a summary:
 result = await ctx.navigate_tree(target_id, summarize=True)
 ```
 
+Extensions can replace the default branch-summary model call:
+
+```python
+from tau.hooks import SessionBeforeTreeResult
+
+def register(tau):
+    @tau.on("session_before_tree")
+    async def summarize(event, ctx):
+        entries = event.preparation.entries_to_summarize
+        summary = await my_summarizer(entries)
+        return SessionBeforeTreeResult(
+            summary=summary,
+            summary_details={"source": "my-extension"},
+        )
+```
+
 #### `branch_entries` vs `session_entries`
 
 The session file stores entries from every branch ever taken — forks, navigations, abandoned paths. `session_entries` returns all of them. `branch_entries` returns only the linear path from the root to the current leaf — the entries actually in scope for the current conversation.
@@ -368,7 +388,11 @@ def register(tau):
 | `session_shutdown` | `reason`, `target_session_file` | — | Session about to close — last chance for cleanup |
 | `session_before_switch` | `reason`, `target_session_file` | `SessionBeforeSwitchResult` | About to replace the active session — return `cancel=True` to block |
 | `session_before_fork` | `entry_id`, `position` | `SessionBeforeForkResult` | About to create a branch — return `cancel=True` to block |
-| `session_before_tree` | `preparation` | `SessionBeforeTreeResult` | About to rewrite the session tree (branch navigation). Mutate `preparation` or return `cancel=True` |
+| `session_before_tree` | `preparation` | `SessionBeforeTreeResult` | About to rewrite the tree. Return `summary=` and optional `summary_details=` to replace default summarization, or `cancel=True` to block |
+| `branch_summary_start` | `old_leaf_id`, `target_id`, `from_extension` | — | Branch summarization begins |
+| `branch_summary_end` | `old_leaf_id`, `target_id`, `summary_entry_id`, `summary_length`, `from_extension` | — | Summary attached to the destination |
+| `branch_summary_failure` | `old_leaf_id`, `target_id`, `error` | — | Summary failed; navigation continues without it |
+| `branch_summary_cancelled` | `old_leaf_id`, `target_id`, `reason` | — | Summary or navigation was cancelled |
 | `session_tree` | `new_leaf_id`, `old_leaf_id`, `from_extension` | — | Session tree has been rewritten with the new active leaf |
 
 **Agent & turn lifecycle**
@@ -434,9 +458,11 @@ def register(tau):
 
 | Event | Payload fields | Result type | Description |
 |-------|---------------|-------------|-------------|
-| `before_compaction` | `preparation`, `entries`, `manual` | `BeforeCompactionResult` | Before the LLM summarisation call — see [Custom Compaction](#custom-compaction) |
-| `compaction_start` | `manual` | — | Compaction begins (after `before_compaction` passes) |
-| `compaction_end` | `manual`, `tokens_before`, `summary_length`, `from_extension` | — | Compaction finished |
+| `before_compaction` | `preparation`, `entries`, `manual`, `reason`, `will_retry` | `BeforeCompactionResult` | Before summarization; may cancel or provide a complete compaction |
+| `compaction_start` | `manual`, `reason`, `will_retry` | — | Compaction begins after interception |
+| `compaction_end` | `manual`, `reason`, `will_retry`, `tokens_before`, `summary_length`, `from_extension` | — | Compaction succeeds |
+| `compaction_failure` | `manual`, `reason`, `will_retry`, `error` | — | Compaction fails |
+| `compaction_cancelled` | `manual`, `reason`, `will_retry` | — | An extension cancels compaction |
 
 **Model & settings**
 

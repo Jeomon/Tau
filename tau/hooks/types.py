@@ -8,7 +8,9 @@ from tau.hooks.engine import (
     AgentStartEvent,
     BeforeAgentStartEvent,
     BeforeCompactionEvent,
+    CompactionCancelledEvent,
     CompactionEndEvent,
+    CompactionFailureEvent,
     CompactionStartEvent,
     ContextEvent,
     MessageEndEvent,
@@ -39,6 +41,10 @@ from tau.hooks.runtime import (
     UserTerminalEvent,
 )
 from tau.hooks.session import (
+    BranchSummaryCancelledEvent,
+    BranchSummaryEndEvent,
+    BranchSummaryFailureEvent,
+    BranchSummaryStartEvent,
     SessionBeforeForkEvent,
     SessionBeforeSwitchEvent,
     SessionBeforeTreeEvent,
@@ -62,6 +68,10 @@ HookEvent = (
     | SessionShutdownEvent
     | SessionBeforeTreeEvent
     | SessionTreeEvent
+    | BranchSummaryStartEvent
+    | BranchSummaryEndEvent
+    | BranchSummaryFailureEvent
+    | BranchSummaryCancelledEvent
     | ContextEvent
     | BeforeAgentStartEvent
     | AgentStartEvent
@@ -90,6 +100,8 @@ HookEvent = (
     | BeforeCompactionEvent
     | CompactionStartEvent
     | CompactionEndEvent
+    | CompactionFailureEvent
+    | CompactionCancelledEvent
     | BeforeProviderRequestEvent
     | AfterProviderResponseEvent
     | QueueUpdateEvent

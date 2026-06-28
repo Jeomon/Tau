@@ -160,7 +160,9 @@ as a `[Branch Summary]` block.
 - Captures: goal, progress, key decisions, next steps, and files read/modified.
 - Stored as a `branch_summary` entry under the destination node and included in that branch's context.
 - Uses the active model's input limit and a bounded prompt. If summarization fails, navigation still completes without a summary and Tau reports the failure.
-- Extensions can intercept and customise summaries via the `session_before_tree` event (see [Extensions](extensions.md#event-reference)).
+- Extensions can return a complete summary and metadata from
+  `session_before_tree`, bypassing Tau's default summary model call. See
+  [Extensions](extensions.md#event-reference).
 
 ### Resuming a Past Session
 

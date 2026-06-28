@@ -9,7 +9,9 @@ from tau.hooks.engine import (
     BeforeAgentStartEventResult,
     BeforeCompactionEvent,
     BeforeCompactionResult,
+    CompactionCancelledEvent,
     CompactionEndEvent,
+    CompactionFailureEvent,
     CompactionStartEvent,
     ContextEvent,
     ContextEventResult,
@@ -51,6 +53,10 @@ from tau.hooks.runtime import (
 )
 from tau.hooks.service import Hooks
 from tau.hooks.session import (
+    BranchSummaryCancelledEvent,
+    BranchSummaryEndEvent,
+    BranchSummaryFailureEvent,
+    BranchSummaryStartEvent,
     SessionBeforeForkEvent,
     SessionBeforeForkResult,
     SessionBeforeSwitchEvent,
@@ -92,6 +98,10 @@ __all__ = [
     "SessionBeforeSwitchResult",
     "SessionBeforeForkResult",
     "SessionBeforeTreeResult",
+    "BranchSummaryStartEvent",
+    "BranchSummaryEndEvent",
+    "BranchSummaryFailureEvent",
+    "BranchSummaryCancelledEvent",
     # Engine
     "AgentEndReason",
     "ContextEvent",
@@ -116,6 +126,8 @@ __all__ = [
     "BeforeCompactionEvent",
     "CompactionStartEvent",
     "CompactionEndEvent",
+    "CompactionFailureEvent",
+    "CompactionCancelledEvent",
     "ContextEventResult",
     "ToolCallEventResult",
     "ToolResultEventResult",

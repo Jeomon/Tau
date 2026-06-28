@@ -157,6 +157,32 @@ def test_context_set_model_no_runtime_returns_false():
     assert asyncio.run(ctx.set_model("x")) is False
 
 
+def test_context_phase_reports_agent_lifecycle_state():
+    from tau.agent.types import AgentPhase
+
+    class _Agent:
+        phase = AgentPhase.COMPACTION
+
+    class _Runtime:
+        agent = _Agent()
+
+    ctx = ExtensionContext.__new__(ExtensionContext)
+    ctx._runtime = _Runtime()  # type: ignore[attr-defined]
+
+    assert ctx.phase is AgentPhase.COMPACTION
+    assert ctx.is_idle() is False
+
+
+def test_context_phase_defaults_to_idle_without_runtime():
+    from tau.agent.types import AgentPhase
+
+    ctx = ExtensionContext.__new__(ExtensionContext)
+    ctx._runtime = None  # type: ignore[attr-defined]
+
+    assert ctx.phase is AgentPhase.IDLE
+    assert ctx.is_idle() is True
+
+
 def test_send_user_message_trigger_turn_invokes_idle_runtime():
     calls: list[str] = []
 

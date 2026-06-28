@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from tau.agent.types import AgentPhase
+
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
     from tau.session.manager import SessionManager
@@ -215,14 +217,17 @@ class ExtensionContext:
 
     # ── Agent state ───────────────────────────────────────────────────────────
 
-    def is_idle(self) -> bool:
-        """Return True when the agent is not currently streaming a response."""
+    @property
+    def phase(self) -> AgentPhase:
+        """Return the current observable agent phase."""
         if self._runtime is None:
-            return True
+            return AgentPhase.IDLE
         agent = getattr(self._runtime, "agent", None)
-        if agent is None:
-            return True
-        return not getattr(agent, "_running", False)
+        return getattr(agent, "phase", AgentPhase.IDLE)
+
+    def is_idle(self) -> bool:
+        """Return True when the agent has no active lifecycle phase."""
+        return self.phase is AgentPhase.IDLE
 
     def abort(self) -> None:
         """Abort the current agent operation (no-op if idle)."""

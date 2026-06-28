@@ -28,6 +28,7 @@ _log = logging.getLogger(__name__)
 _INTERCEPTABLE_EVENTS: frozenset[str] = frozenset(
     {
         "before_compaction",
+        "session_before_tree",
         "user_terminal",
         "resources_discover",
         "project_trust",

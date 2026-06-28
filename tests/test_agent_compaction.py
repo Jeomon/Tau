@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock
+
+import pytest
 
 from tau.agent.service import Agent
-from tau.session.compaction import CompactionSettings
+from tau.agent.types import AgentPhase
+from tau.hooks.engine import BeforeCompactionResult
+from tau.hooks.service import Hooks
+from tau.session.compaction import CompactionResult, CompactionSettings
 
 
 class _Settings:
@@ -30,8 +38,8 @@ class _Settings:
         return self.keep_recent_tokens
 
 
-def _agent(settings: _Settings | None, context_window: int = 10_000) -> Agent:
-    agent = Agent.__new__(Agent)
+def _agent(settings: _Settings | None, context_window: int = 10_000) -> Any:
+    agent: Any = Agent.__new__(Agent)
     agent._engine = SimpleNamespace(_settings=settings)
     agent._config = SimpleNamespace(
         compaction=CompactionSettings(
@@ -79,3 +87,50 @@ def test_circuit_breaker_notifies_once(monkeypatch) -> None:
     assert agent._compaction_failures == 4
     assert len(notifications) == 1
     assert "disabled after 3 failures" in notifications[0]
+
+
+def test_compaction_events_run_in_explicit_phase() -> None:
+    agent = _agent(_Settings())
+    agent._phase = AgentPhase.IDLE
+    agent._runtime = None
+    agent.hooks = Hooks()
+    agent._session_manager = SimpleNamespace(append_compaction=lambda **kwargs: "entry")
+    agent._run_compaction = AsyncMock(
+        return_value=(
+            CompactionResult(summary="summary", first_kept_entry_id="kept", tokens_before=100),
+            False,
+        )
+    )
+    observed: list[tuple[str, AgentPhase]] = []
+
+    async def observe(event) -> None:
+        if event.type.startswith("compaction_"):
+            observed.append((event.type, agent._phase))
+
+    agent.hooks.subscribe(observe)
+
+    asyncio.run(agent._apply_compaction(SimpleNamespace(), [], manual=True))
+
+    assert observed == [("compaction_end", AgentPhase.COMPACTION)]
+    assert agent._phase == AgentPhase.IDLE
+
+
+def test_cancelled_compaction_emits_cancel_event_and_restores_phase() -> None:
+    agent = _agent(_Settings())
+    agent._phase = AgentPhase.IDLE
+    agent._runtime = None
+    agent.hooks = Hooks()
+    agent._session_manager = SimpleNamespace()
+    events: list[str] = []
+    agent.hooks.register(
+        "before_compaction",
+        lambda event: BeforeCompactionResult(cancel=True),
+    )
+    agent.hooks.subscribe(lambda event: events.append(event.type))
+
+    with pytest.raises(RuntimeError, match="cancelled by extension"):
+        asyncio.run(agent._apply_compaction(SimpleNamespace(), [], manual=True))
+
+    assert "compaction_cancelled" in events
+    assert "compaction_failure" not in events
+    assert agent._phase == AgentPhase.IDLE

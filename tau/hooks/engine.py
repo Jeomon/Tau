@@ -248,6 +248,27 @@ class CompactionEndEvent:
     will_retry: bool = False
 
 
+@dataclass
+class CompactionFailureEvent:
+    """Fires when compaction fails."""
+
+    type: Literal["compaction_failure"] = field(default="compaction_failure", init=False)
+    manual: bool = False
+    reason: CompactionReason = CompactionReason.Manual
+    will_retry: bool = False
+    error: str = ""
+
+
+@dataclass
+class CompactionCancelledEvent:
+    """Fires when an extension cancels compaction."""
+
+    type: Literal["compaction_cancelled"] = field(default="compaction_cancelled", init=False)
+    manual: bool = False
+    reason: CompactionReason = CompactionReason.Manual
+    will_retry: bool = False
+
+
 # ── Result types ──────────────────────────────────────────────────────────────
 
 

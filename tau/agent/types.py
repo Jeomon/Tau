@@ -20,6 +20,8 @@ class AgentPhase(StrEnum):
 
     IDLE = "idle"
     TURN = "turn"
+    COMPACTION = "compaction"
+    BRANCH_SUMMARY = "branch_summary"
 
 
 @dataclass

@@ -27,6 +27,11 @@ from tau.tool.types import ToolInvocation, ToolResult
 
 _log = logging.getLogger(__name__)
 
+
+class _CompactionCancelledError(RuntimeError):
+    """Raised after an extension cancels compaction."""
+
+
 _TOOL_CAP_BYTES = 50 * 1024  # 50 KB — DEFAULT_MAX_BYTES
 _TOOL_CAP_LINES = 2000  # DEFAULT_MAX_LINES
 _TOOL_LINE_CAP_BYTES = 2 * 1024  # 2 KB — max bytes for a single line
@@ -93,6 +98,11 @@ class Agent:
     def session_manager(self) -> SessionManager:
         """Get the session manager instance."""
         return self._session_manager
+
+    @property
+    def phase(self) -> AgentPhase:
+        """Return the current observable agent phase."""
+        return self._phase
 
     def is_idle(self) -> bool:
         """Check if the agent is idle (not processing)."""
@@ -313,41 +323,57 @@ class Agent:
         reason: _CompactionReason = _CompactionReason.Manual,
     ) -> None:
         """Run a prepared compaction, persist the summary, and emit the end event."""
-        from tau.hooks.engine import CompactionEndEvent
+        from tau.hooks.engine import CompactionEndEvent, CompactionFailureEvent
 
         will_retry = reason == _CompactionReason.Overflow
-        result, from_extension = await self._run_compaction(
-            preparation,
-            entries,
-            manual=manual,
-            custom_instructions=custom_instructions,
-            reason=reason,
-            will_retry=will_retry,
-        )
-        self._session_manager.append_compaction(
-            summary=result.summary,
-            first_kept_entry_id=result.first_kept_entry_id,
-            tokens_before=result.tokens_before,
-        )
-        # Notify user that compaction finished.
-        if self._runtime is not None:
-            from tau.extensions.context import ExtensionContext
-
-            ctx = ExtensionContext.from_runtime(self._runtime)
-            if ctx.ui is not None:
-                ctx.ui.notify("Compaction completed.")
-        self._compaction_failures = 0
-        self._compaction_circuit_notified = False
-        await self.hooks.emit(
-            CompactionEndEvent(
+        previous_phase = self._phase
+        self._phase = AgentPhase.COMPACTION
+        try:
+            result, from_extension = await self._run_compaction(
+                preparation,
+                entries,
                 manual=manual,
-                tokens_before=result.tokens_before,
-                summary_length=len(result.summary),
-                from_extension=from_extension,
+                custom_instructions=custom_instructions,
                 reason=reason,
                 will_retry=will_retry,
             )
-        )
+            self._session_manager.append_compaction(
+                summary=result.summary,
+                first_kept_entry_id=result.first_kept_entry_id,
+                tokens_before=result.tokens_before,
+            )
+            if self._runtime is not None:
+                from tau.extensions.context import ExtensionContext
+
+                ctx = ExtensionContext.from_runtime(self._runtime)
+                if ctx.ui is not None:
+                    ctx.ui.notify("Compaction completed.")
+            self._compaction_failures = 0
+            self._compaction_circuit_notified = False
+            await self.hooks.emit(
+                CompactionEndEvent(
+                    manual=manual,
+                    tokens_before=result.tokens_before,
+                    summary_length=len(result.summary),
+                    from_extension=from_extension,
+                    reason=reason,
+                    will_retry=will_retry,
+                )
+            )
+        except _CompactionCancelledError:
+            raise
+        except Exception as error:
+            await self.hooks.emit(
+                CompactionFailureEvent(
+                    manual=manual,
+                    reason=reason,
+                    will_retry=will_retry,
+                    error=str(error),
+                )
+            )
+            raise
+        finally:
+            self._phase = previous_phase
 
     def _latest_model_change_timestamp(self) -> float | None:
         """Timestamp of the most recent model-change entry in the active branch, if any."""
@@ -462,6 +488,8 @@ class Agent:
             # Forced (silent overflow) compaction: caller should continue — the LLM
             # never got a usable response, so there's nothing for the user to resume from.
             return not forced
+        except _CompactionCancelledError:
+            return False
         except Exception:
             self._record_compaction_failure("Auto-compaction failed")
             return False
@@ -511,6 +539,8 @@ class Agent:
             await self._apply_compaction(
                 preparation, entries, manual=False, reason=_CompactionReason.Overflow
             )
+        except _CompactionCancelledError:
+            return False
         except Exception:
             self._record_compaction_failure("Overflow-triggered compaction failed")
             return False
@@ -545,6 +575,7 @@ class Agent:
         from tau.hooks.engine import (
             BeforeCompactionEvent,
             BeforeCompactionResult,
+            CompactionCancelledEvent,
             CompactionStartEvent,
         )
         from tau.session.compaction import compact as _compact
@@ -559,17 +590,28 @@ class Agent:
             )
         )
 
+        provided = None
         for res in before_results:
             if not isinstance(res, BeforeCompactionResult):
                 continue
             if res.cancel:
-                raise RuntimeError("Compaction cancelled by extension")
+                await self.hooks.emit(
+                    CompactionCancelledEvent(
+                        manual=manual,
+                        reason=reason,
+                        will_retry=will_retry,
+                    )
+                )
+                raise _CompactionCancelledError("Compaction cancelled by extension")
             if res.compaction is not None:
-                return res.compaction, True
+                provided = res.compaction
+                break
 
         await self.hooks.emit(
             CompactionStartEvent(manual=manual, reason=reason, will_retry=will_retry)
         )
+        if provided is not None:
+            return provided, True
         result = await _compact(
             preparation, self._engine.llm, custom_instructions=custom_instructions
         )  # type: ignore[arg-type]

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    pass
+    from tau.session.types import SessionEntry
 
 
 class SessionStartReason(StrEnum):
@@ -84,6 +84,7 @@ class TreePreparation:
     target_id: str
     old_leaf_id: str | None
     common_ancestor_id: str | None
+    entries_to_summarize: list[SessionEntry] = field(default_factory=list)
     custom_instructions: str | None = None
     replace_instructions: bool = False
     label: str | None = None
@@ -105,6 +106,50 @@ class SessionTreeEvent:
     new_leaf_id: str | None = None
     old_leaf_id: str | None = None
     from_extension: bool = False
+
+
+@dataclass
+class BranchSummaryStartEvent:
+    """Fired when branch summary generation begins."""
+
+    type: Literal["branch_summary_start"] = field(default="branch_summary_start", init=False)
+    old_leaf_id: str | None = None
+    target_id: str = ""
+    from_extension: bool = False
+
+
+@dataclass
+class BranchSummaryEndEvent:
+    """Fired after a branch summary is attached to the destination."""
+
+    type: Literal["branch_summary_end"] = field(default="branch_summary_end", init=False)
+    old_leaf_id: str | None = None
+    target_id: str = ""
+    summary_entry_id: str = ""
+    summary_length: int = 0
+    from_extension: bool = False
+
+
+@dataclass
+class BranchSummaryFailureEvent:
+    """Fired when branch summarization fails and navigation continues."""
+
+    type: Literal["branch_summary_failure"] = field(default="branch_summary_failure", init=False)
+    old_leaf_id: str | None = None
+    target_id: str = ""
+    error: str = ""
+
+
+@dataclass
+class BranchSummaryCancelledEvent:
+    """Fired when branch summarization or navigation is cancelled."""
+
+    type: Literal["branch_summary_cancelled"] = field(
+        default="branch_summary_cancelled", init=False
+    )
+    old_leaf_id: str | None = None
+    target_id: str = ""
+    reason: str = ""
 
 
 # ── Result types ──────────────────────────────────────────────────────────────
@@ -132,3 +177,5 @@ class SessionBeforeTreeResult:
     custom_instructions: str | None = None
     replace_instructions: bool | None = None
     label: str | None = None
+    summary: str | None = None
+    summary_details: dict[str, Any] | None = None

@@ -1,4 +1,5 @@
 """Tests for tau/agent/types.py — AgentPhase, AgentContext, AgentConfig, ContextUsage."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,7 +19,7 @@ class TestAgentPhase:
 
     def test_members(self):
         members = {m.value for m in AgentPhase}
-        assert members == {"idle", "turn"}
+        assert members == {"idle", "turn", "compaction", "branch_summary"}
 
 
 class TestAgentContext:
@@ -30,6 +31,7 @@ class TestAgentContext:
 
     def test_construction_with_tools(self):
         from tau.builtins.tools.read import ReadTool
+
         t = ReadTool()
         ctx = AgentContext(system_prompt="sp", messages=[], tools=[t])
         assert len(ctx.tools) == 1
@@ -37,6 +39,7 @@ class TestAgentContext:
 
     def test_messages_stored(self):
         from tau.message.types import TextContent, UserMessage
+
         msg = UserMessage(contents=[TextContent(type="text", content="hi")])
         ctx = AgentContext(system_prompt="sp", messages=[msg])
         assert len(ctx.messages) == 1

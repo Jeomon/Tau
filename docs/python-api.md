@@ -185,6 +185,7 @@ agent = runtime.agent
 
 # Check state
 agent.is_idle()
+agent.phase             # AgentPhase.IDLE, TURN, COMPACTION, or BRANCH_SUMMARY
 agent.get_context_usage()   # ContextUsage(tokens, context_window, percent)
 agent.get_system_prompt()
 

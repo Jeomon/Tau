@@ -102,18 +102,20 @@ User input flows through these stages:
 
 ## Agent Execution State Machine
 
-The agent has three main states:
+The agent has four observable phases:
 
 ```
 IDLE ──user input──> TURN ──no more tool calls──> IDLE
-       ↑                ↓
-       └─ tool results ─┘
+  ├── manual/auto compact ──> COMPACTION ──> previous phase
+  └── tree navigation ──────> BRANCH_SUMMARY ──> IDLE
 ```
 
 | State | Meaning |
 |-------|---------|
 | `IDLE` | No active inference; waiting for user input |
 | `TURN` | Processing a turn: calling inference, executing tools |
+| `COMPACTION` | Generating or applying a context compaction summary |
+| `BRANCH_SUMMARY` | Generating or applying a branch-navigation summary |
 
 The state is exposed via `AgentPhase` enum in `agent/types.py` and accessible to extensions via hooks.
 

@@ -7,11 +7,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau.agent.service import Agent
-from tau.agent.types import PromptOptions
+from tau.agent.types import AgentPhase, PromptOptions
 from tau.commands.registry import CommandRegistry
 from tau.commands.types import ParsedCommand
 from tau.hooks.runtime import InputEvent, InputEventResult, RuntimeReadyEvent, RuntimeStopEvent
 from tau.hooks.session import (
+    BranchSummaryCancelledEvent,
+    BranchSummaryEndEvent,
+    BranchSummaryFailureEvent,
+    BranchSummaryStartEvent,
     SessionBeforeForkEvent,
     SessionBeforeForkResult,
     SessionBeforeSwitchEvent,
@@ -661,68 +665,141 @@ class Runtime:
             target_id=target_id,
             old_leaf_id=old_leaf_id,
             common_ancestor_id=common_ancestor_id,
+            entries_to_summarize=entries_to_summarize,
             custom_instructions=custom_instructions,
             replace_instructions=replace_instructions,
             label=label,
         )
+        operation_active = summarize and bool(entries_to_summarize)
+        agent = self._context.agent
+        previous_phase = agent._phase
+        phase_changed = operation_active
+        if operation_active:
+            agent._phase = AgentPhase.BRANCH_SUMMARY
 
-        # Let extensions inspect / mutate / cancel
-        results = await self._context.hooks.emit(SessionBeforeTreeEvent(preparation=preparation))
-        for r in results:
-            if isinstance(r, SessionBeforeTreeResult):
-                if r.cancel:
+        try:
+            results = await self._context.hooks.emit(
+                SessionBeforeTreeEvent(preparation=preparation)
+            )
+            custom_instructions = preparation.custom_instructions
+            replace_instructions = preparation.replace_instructions
+            label = preparation.label
+            summary_text: str | None = None
+            summary_details: dict | None = None
+            from_extension = False
+            for result in results:
+                if not isinstance(result, SessionBeforeTreeResult):
+                    continue
+                if result.cancel:
+                    if operation_active:
+                        await self._context.hooks.emit(
+                            BranchSummaryCancelledEvent(
+                                old_leaf_id=old_leaf_id,
+                                target_id=target_id,
+                                reason="cancelled by extension",
+                            )
+                        )
                     return False
-                if r.custom_instructions is not None:
-                    custom_instructions = r.custom_instructions
-                if r.replace_instructions is not None:
-                    replace_instructions = r.replace_instructions
-                if r.label is not None:
-                    label = r.label
+                if result.custom_instructions is not None:
+                    custom_instructions = result.custom_instructions
+                if result.replace_instructions is not None:
+                    replace_instructions = result.replace_instructions
+                if result.label is not None:
+                    label = result.label
+                if result.summary is not None and summary_text is None:
+                    summary_text = result.summary
+                    summary_details = result.summary_details
+                    from_extension = True
 
-        branch_summary_result = None
-        if summarize and entries_to_summarize:
-            sm_settings = self._context.settings_manager
-            reserve_tokens = (
-                sm_settings.get_branch_summary_reserve_tokens()
-                if sm_settings is not None
-                else 16_384
-            )
-            from tau.session.branch_summarization import generate_branch_summary
+            summary_active = operation_active or summary_text is not None
+            if summary_active and not phase_changed:
+                agent._phase = AgentPhase.BRANCH_SUMMARY
+                phase_changed = True
+            if summary_active:
+                await self._context.hooks.emit(
+                    BranchSummaryStartEvent(
+                        old_leaf_id=old_leaf_id,
+                        target_id=target_id,
+                        from_extension=from_extension,
+                    )
+                )
 
-            llm = self._context.llm
-            result = await generate_branch_summary(
-                entries_to_summarize,
-                llm,
-                context_window=llm.model.input_limit or 128_000,
-                reserve_tokens=reserve_tokens,
-                custom_instructions=custom_instructions,
-                replace_instructions=replace_instructions,
-            )
-            if result.error:
-                _log.warning("Branch summary failed: %s", result.error)
-                self.notify(f"Branch summary failed: {result.error}")
-            elif result.aborted:
-                _log.info("Branch summary cancelled; navigating without a summary")
-                self.notify("Branch summary cancelled; switched branches without a summary.")
-            elif result.summary:
-                branch_summary_result = result
+            if operation_active and summary_text is None:
+                sm_settings = self._context.settings_manager
+                reserve_tokens = (
+                    sm_settings.get_branch_summary_reserve_tokens()
+                    if sm_settings is not None
+                    else 16_384
+                )
+                from tau.session.branch_summarization import generate_branch_summary
 
-        sm.branch(target_id)
-        if branch_summary_result is not None:
-            sm.append_branch_summary(
-                from_id=old_leaf_id or "",
-                summary=branch_summary_result.summary or "",
-                label=label,
-                details={
-                    "read_files": branch_summary_result.read_files,
-                    "modified_files": branch_summary_result.modified_files,
-                },
+                llm = self._context.llm
+                result = await generate_branch_summary(
+                    entries_to_summarize,
+                    llm,
+                    context_window=llm.model.input_limit or 128_000,
+                    reserve_tokens=reserve_tokens,
+                    custom_instructions=custom_instructions,
+                    replace_instructions=replace_instructions,
+                )
+                if result.error:
+                    _log.warning("Branch summary failed: %s", result.error)
+                    self.notify(f"Branch summary failed: {result.error}")
+                    await self._context.hooks.emit(
+                        BranchSummaryFailureEvent(
+                            old_leaf_id=old_leaf_id,
+                            target_id=target_id,
+                            error=result.error,
+                        )
+                    )
+                elif result.aborted:
+                    _log.info("Branch summary cancelled; navigating without a summary")
+                    self.notify("Branch summary cancelled; switched branches without a summary.")
+                    await self._context.hooks.emit(
+                        BranchSummaryCancelledEvent(
+                            old_leaf_id=old_leaf_id,
+                            target_id=target_id,
+                            reason="provider request aborted",
+                        )
+                    )
+                elif result.summary:
+                    summary_text = result.summary
+                    summary_details = {
+                        "read_files": result.read_files,
+                        "modified_files": result.modified_files,
+                    }
+
+            sm.branch(target_id)
+            summary_entry_id = ""
+            if summary_text is not None:
+                summary_entry_id = sm.append_branch_summary(
+                    from_id=old_leaf_id or "",
+                    summary=summary_text,
+                    label=label,
+                    details=summary_details,
+                    from_hook=from_extension,
+                )
+                await self._context.hooks.emit(
+                    BranchSummaryEndEvent(
+                        old_leaf_id=old_leaf_id,
+                        target_id=target_id,
+                        summary_entry_id=summary_entry_id,
+                        summary_length=len(summary_text),
+                        from_extension=from_extension,
+                    )
+                )
+            await self._context.hooks.emit(
+                SessionTreeEvent(
+                    new_leaf_id=target_id,
+                    old_leaf_id=old_leaf_id,
+                    from_extension=from_extension,
+                )
             )
-        await self._context.hooks.emit(
-            SessionTreeEvent(new_leaf_id=target_id, old_leaf_id=old_leaf_id)
-        )
-        await self._emit_session_start(SessionStartReason.Fork)
-        return True
+            await self._emit_session_start(SessionStartReason.Fork)
+            return True
+        finally:
+            if phase_changed:
+                agent._phase = previous_phase
 
     async def fork_session(
         self,
