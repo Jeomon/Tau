@@ -406,8 +406,7 @@ class SessionManager:
                 break
             path.append(current_entry)
             cursor = current_entry.parent_id
-        path.reverse()
-        return path
+        return list(reversed(path))
 
     def build_session_context(self) -> SessionContext:
         """Build a context object from the current branch, including messages and settings."""
@@ -428,31 +427,33 @@ class SessionManager:
                 provider_id=provider_id,
             )
 
-        # Scan all entries for model/thinking-level changes
-        for entry in entries:
+        # Drop history before the most recent compaction
+        last_compaction: CompactionEntry | None = None
+        id_to_idx: dict[str, int] = {}
+        first_kept_idx: int = 0 
+
+        # Scan all entries for model/thinking-level changes and find latest compaction entry
+        for idx, entry in enumerate(entries):
+            id_to_idx[entry.id] = idx
             match entry:
                 case ThinkingLevelChangeEntry():
                     thinking_level = entry.thinking_level
                 case ModelChangeEntry():
                     model_id = entry.model_id
                     provider_id = entry.provider_id
+                case CompactionEntry():
+                    last_compaction = entry
 
         # Drop history before the most recent compaction
-        last_compaction: CompactionEntry | None = None
-        for entry in entries:
-            if isinstance(entry, CompactionEntry):
-                last_compaction = entry
-
         if last_compaction is not None:
-            first_kept_idx = next(
-                (i for i, e in enumerate(entries) if e.id == last_compaction.first_kept_entry_id),
-                len(entries),
+            first_kept_idx = id_to_idx.get(
+                last_compaction.first_kept_entry_id,
+                len(entries)
             )
-            slice_entries = entries[first_kept_idx:]
-        else:
-            slice_entries = entries
 
-        for entry in slice_entries:
+        kept_entries = entries[first_kept_idx:]
+
+        for entry in kept_entries:
             match entry:
                 case MessageEntry():
                     messages.append(entry.message)
