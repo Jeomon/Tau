@@ -34,7 +34,8 @@ class EditParams(BaseModel):
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
     old_string: str = Field(
-        description="Exact string to find and replace.",
+        min_length=1,
+        description="Exact non‑empty string to find and replace.",
         examples=["def old_function():", "MAX_RETRIES = 3"],
     )
     new_string: str = Field(
