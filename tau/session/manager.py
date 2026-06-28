@@ -209,13 +209,17 @@ class SessionManager:
             return
 
         try:
+            import json
+
             with self.session_file.open("a", encoding="utf-8") as f:
                 if not self.flushed:
-                    lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
-                    f.writelines(lines)
+                    for e in self.entries:
+                        json.dump(e.model_dump(exclude_none=True), f, ensure_ascii=False)
+                        f.write("\n")
                     self.flushed = True
                 else:
-                    f.write(entry.model_dump_json(exclude_none=True) + "\n")
+                    json.dump(entry.model_dump(exclude_none=True), f, ensure_ascii=False)
+                    f.write("\n")
         except OSError:
             _log.error("failed to persist session entry to %s", self.session_file, exc_info=True)
 
