@@ -33,6 +33,9 @@ def _visible_len(s: str) -> int:
     return len(_strip_ansi(s))
 
 
+ENABLED_SYMBOL = "✔"
+DISABLED_SYMBOL = "✖"
+
 class ConfigSelector(Component):
     """Enable/disable extensions across global and project scopes.
 
@@ -101,7 +104,7 @@ class ConfigSelector(Component):
             else:
                 assert isinstance(payload, ConfigEntry)
                 is_sel = i == sel_flat_idx
-                checkbox = t.success("[✓]") if payload.enabled else t.muted("[ ]")
+                checkbox = t.success(ENABLED_SYMBOL) if payload.enabled else t.muted(DISABLED_SYMBOL)
                 name = t.emphasis(payload.name) if is_sel else payload.name
                 label = name
                 if payload.author:
