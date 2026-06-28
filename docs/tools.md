@@ -8,7 +8,8 @@ Tau ships with seven built-in tools covering file I/O, search, and shell executi
 
 ### read
 
-Read the contents of a file.
+Read the contents of a file. Every returned line is prefixed with a hashline
+anchor in the form `<line>:<hash>|<content>`. The `edit` tool uses these anchors.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -27,14 +28,18 @@ Create a new file or overwrite an existing file entirely.
 
 ### edit
 
-Make a targeted in-place replacement in an existing file.
+Replace an inclusive line range using hashline anchors returned by `read`.
+The content hash lets an anchor survive line insertions or deletions elsewhere
+in the file; when content occurs more than once, its original line number is
+used as a proximity hint. Edit-result diffs also display hashline anchors:
+removed lines use their old hashes, while added and context lines use current hashes.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | Yes | — | Absolute path to the file |
-| `old_string` | string | Yes | — | Exact text to find and replace |
-| `new_string` | string | Yes | — | Replacement text |
-| `replace_all` | boolean | No | `false` | Replace every occurrence; default replaces only the first |
+| `start_anchor` | string | Yes | — | First line to replace, formatted `<line>:<hash>` |
+| `end_anchor` | string | Yes | — | Last line to replace; use the start anchor for a single-line edit |
+| `new_content` | string | Yes | — | Content that replaces the anchored range |
 
 ### terminal
 

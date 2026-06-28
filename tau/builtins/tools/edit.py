@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
@@ -33,20 +34,45 @@ class EditParams(BaseModel):
         description="Absolute path to the file to edit.",
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
-    old_string: str = Field(
-        min_length=1,
-        description="Exact non‑empty string to find and replace.",
-        examples=["def old_function():", "MAX_RETRIES = 3"],
+    start_anchor: str = Field(
+        pattern=r"^\d+:.{4}$",
+        description="Hashline anchor for the first line to replace, formatted '<line>:<hash>'.",
+        examples=["12:a3f1"],
     )
-    new_string: str = Field(
-        description="Replacement string.",
-        examples=["def new_function():", "MAX_RETRIES = 5"],
+    end_anchor: str = Field(
+        pattern=r"^\d+:.{4}$",
+        description=(
+            "Hashline anchor for the last line to replace, formatted '<line>:<hash>'. "
+            "Use the start anchor for a single-line edit."
+        ),
+        examples=["14:9c8a"],
     )
-    replace_all: bool = Field(
-        default=False,
-        description="Replace all occurrences; default replaces only the first.",
-        examples=[False, True],
+    new_content: str = Field(
+        description="Content that replaces the inclusive anchored line range.",
+        examples=["def new_function():\n    return 5"],
     )
+
+
+def _line_hash(line: str) -> str:
+    """Return the four-character hash used in read-tool anchors."""
+    stripped = line.strip()
+    return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
+
+
+def _parse_anchor(anchor: str) -> tuple[int, str]:
+    """Parse a validated hashline anchor into its line hint and hash."""
+    line_number, line_hash = anchor.split(":", 1)
+    return int(line_number), line_hash
+
+
+def _find_anchor(lines: list[str], anchor: str) -> int | None:
+    """Find the matching line nearest the anchor's original line number."""
+    line_hint, expected_hash = _parse_anchor(anchor)
+    matches = [index for index, line in enumerate(lines) if _line_hash(line) == expected_hash]
+    if not matches:
+        return None
+    expected_index = line_hint - 1
+    return min(matches, key=lambda index: abs(index - expected_index))
 
 
 def _parse_hunks(diff: str) -> list[list[tuple[str, int, int, str]]]:
@@ -79,6 +105,14 @@ def _parse_hunks(diff: str) -> list[list[tuple[str, int, int, str]]]:
     return hunks
 
 
+def _render_hunk_line(char: str, old_line: int, new_line: int, text: str) -> str:
+    """Render a diff line with the hashline anchor for that version."""
+    line_number = old_line if char == "-" else new_line
+    anchor = f"{line_number}:{_line_hash(text)}"
+    marker = f"  {char}  " if char != " " else "     "
+    return f"{anchor}{marker}{text}"
+
+
 def _render_edit_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, GREEN, RED, RESET
 
@@ -107,11 +141,11 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
         for hunk in hunks:
             for char, ol, nl, text in hunk:
                 if char == "+":
-                    result.append(f"{GREEN}{nl}  +  {text}{RESET}")
+                    result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
                 elif char == "-":
-                    result.append(f"{RED}{ol}  -  {text}{RESET}")
+                    result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
                 else:
-                    result.append(f"{nl}     {text}")
+                    result.append(_render_hunk_line(char, ol, nl, text))
     else:
         prev_new_end: int | None = None
         for hunk in hunks:
@@ -138,11 +172,11 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
                     result.append(f"{DIM}  ···  {gap} line{'s' if gap != 1 else ''}{RESET}")
                     has_gaps = True
                 if char == "+":
-                    result.append(f"{GREEN}{nl}  +  {text}{RESET}")
+                    result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
                 elif char == "-":
-                    result.append(f"{RED}{ol}  -  {text}{RESET}")
+                    result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
                 else:
-                    result.append(f"{nl}     {text}")
+                    result.append(_render_hunk_line(char, ol, nl, text))
                 prev_i = i
 
             last = hunk[-1]
@@ -156,15 +190,14 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
 
 
 class EditTool(Tool):
-    """Tool for replacing exact strings in files."""
+    """Tool for replacing line ranges selected by hashline anchors."""
 
     def __init__(self) -> None:
         super().__init__(
             name="edit",
             description=(
-                "Replace an exact string in a file. Fails if old_string is not found or"
-                " (when replace_all=false) appears more than once."
-                " Use replace_all=true to replace every occurrence."
+                "Replace an inclusive line range using hashline anchors returned by read."
+                " Anchors remain valid when surrounding lines shift."
             ),
             schema=EditParams,
             kind=ToolKind.Edit,
@@ -172,8 +205,8 @@ class EditTool(Tool):
             render_call=_render_edit_call,
             render_shell="default",
             prompt_guidelines=(
-                "Read the file first so you understand context."
-                " Prefer small, targeted edits over rewriting large sections."
+                "Read the file first and copy its hashline anchors exactly."
+                " Use the same start and end anchor for a single-line edit."
             ),
         )
 
@@ -200,27 +233,36 @@ class EditTool(Tool):
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
 
-        count = original.count(params.old_string)
-        if count == 0:
-            return ToolResult.error(invocation.id, f"old_string not found in {params.path}")
-        if not params.replace_all and count > 1:
+        lines = original.splitlines()
+        start_index = _find_anchor(lines, params.start_anchor)
+        if start_index is None:
             return ToolResult.error(
                 invocation.id,
-                f"old_string matches {count} locations in {params.path}. "
-                "Provide more context to make it unique, or set replace_all=true.",
+                f"Start anchor hash not found: {params.start_anchor}",
+            )
+        end_index = _find_anchor(lines, params.end_anchor)
+        if end_index is None:
+            return ToolResult.error(
+                invocation.id,
+                f"End anchor hash not found: {params.end_anchor}",
+            )
+        if end_index < start_index:
+            return ToolResult.error(
+                invocation.id,
+                "Resolved end anchor is before the start anchor.",
             )
 
-        if params.replace_all:
-            updated = original.replace(params.old_string, params.new_string)
-        else:
-            updated = original.replace(params.old_string, params.new_string, 1)
+        replacement_lines = params.new_content.splitlines()
+        updated_lines = lines[:start_index] + replacement_lines + lines[end_index + 1 :]
+        updated = "\n".join(updated_lines)
+        if original.endswith("\n") and updated_lines:
+            updated += "\n"
+        replacements = end_index - start_index + 1
 
         try:
             path.write_text(updated, encoding="utf-8")
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot write file: {e}")
-
-        replacements = count if params.replace_all else 1
 
         original_lines = original.splitlines(keepends=True)
         updated_lines = updated.splitlines(keepends=True)
@@ -247,7 +289,8 @@ class EditTool(Tool):
             "lines_removed": lines_removed,
             "diff": diff,
             "occurrences_replaced": replacements,
-            "replace_all": params.replace_all,
+            "start_anchor": params.start_anchor,
+            "end_anchor": params.end_anchor,
             "total_lines": len(updated_lines),
         }
         return ToolResult.ok(

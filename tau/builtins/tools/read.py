@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -58,9 +59,9 @@ def _render_read_result(content: str, opts: Any) -> list[str]:
 
     parsed = []
     for raw in content.splitlines():
-        if "\t" in raw:
-            num, _, text = raw.partition("\t")
-            parsed.append((num.strip(), text))
+        if "|" in raw:
+            anchor, _, text = raw.partition("|")
+            parsed.append((anchor, text))
 
     if not parsed:
         return result
@@ -78,14 +79,14 @@ def _render_read_result(content: str, opts: Any) -> list[str]:
 
 
 class ReadTool(Tool):
-    """Tool for reading file contents with line numbers."""
+    """Tool for reading file contents with hashline anchors."""
 
     def __init__(self) -> None:
         super().__init__(
             name="read",
             description=(
-                "Read the contents of a file. Returns lines with 1-based line numbers"
-                " in the format '<n>\\t<content>'."
+                "Read the contents of a file. Returns each line with a stable hashline"
+                " anchor in the format '<line>:<hash>|<content>'."
                 " Use offset and limit to read large files in chunks."
             ),
             schema=ReadParams,
@@ -130,7 +131,13 @@ class ReadTool(Tool):
         end = min(start + params.limit, total)
         chunk = lines[start:end]
 
-        numbered = "\n".join(f"{start + i + 1}\t{line}" for i, line in enumerate(chunk))
+        def line_hash(txt: str) -> str:
+            stripped = txt.strip()
+            return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
+
+        numbered = "\n".join(
+            f"{start + i + 1}:{line_hash(line)}|{line}" for i, line in enumerate(chunk)
+        )
 
         footer = ""
         truncated = end < total
