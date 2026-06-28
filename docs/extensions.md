@@ -227,7 +227,9 @@ def register(tau):
 Extensions can inject a user message with
 `await ctx.send_user_message(content, deliver_as="steer", trigger_turn=False)`.
 Set `trigger_turn=True` to start a new turn immediately when the agent is idle;
-while it is busy, the message is queued using the selected delivery mode.
+while it is busy, the message is queued using the selected delivery mode. In
+interactive mode, an immediately triggered message is rendered as a normal user
+message before the assistant response.
 
 `get_context_usage()` returns a dict with three keys, or `None` if token data is not yet available (e.g. immediately after compaction, before the next LLM response):
 

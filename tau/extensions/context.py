@@ -397,7 +397,7 @@ class ExtensionContext:
         if agent is None:
             return
         if trigger_turn and agent.is_idle():
-            await self._runtime.invoke(content)
+            await self._runtime.invoke(content, display=True)
             return
         engine = getattr(agent, "_engine", None)
         if engine is None:

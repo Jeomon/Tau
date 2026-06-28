@@ -167,15 +167,15 @@ def test_send_user_message_trigger_turn_invokes_idle_runtime():
     class _Runtime:
         agent = _Agent()
 
-        async def invoke(self, content: str) -> None:
-            calls.append(content)
+        async def invoke(self, content: str, *, display: bool = False) -> None:
+            calls.append(f"{content}:{display}")
 
     ctx = ExtensionContext.__new__(ExtensionContext)
     ctx._runtime = _Runtime()  # type: ignore[attr-defined]
 
     asyncio.run(ctx.send_user_message("peer message", trigger_turn=True))
 
-    assert calls == ["peer message"]
+    assert calls == ["peer message:True"]
 
 
 def test_send_user_message_trigger_turn_queues_when_busy():
@@ -206,6 +206,38 @@ def test_send_user_message_trigger_turn_queues_when_busy():
     )
 
     assert queued == ["peer message"]
+
+
+def test_runtime_invoke_display_renders_user_message():
+    from tau.runtime.service import Runtime
+
+    rendered: list[str] = []
+    invoked: list[str] = []
+    render_requests: list[bool] = []
+
+    class _Agent:
+        async def invoke(self, content: str, _options=None) -> None:
+            invoked.append(content)
+
+    class _Hooks:
+        async def emit(self, _event) -> list:
+            return []
+
+    class _Layout:
+        _tui = SimpleNamespace(request_render=lambda: render_requests.append(True))
+
+        def add_message(self, message) -> None:
+            rendered.append(message.contents[0].content)
+
+    runtime = Runtime.__new__(Runtime)
+    runtime._context = SimpleNamespace(agent=_Agent(), hooks=_Hooks())
+    runtime._layout = _Layout()
+
+    asyncio.run(runtime.invoke("peer request", display=True))
+
+    assert rendered == ["peer request"]
+    assert invoked == ["peer request"]
+    assert render_requests == [True]
 
 
 def test_api_set_model_schedules_runtime_call():

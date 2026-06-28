@@ -298,10 +298,25 @@ class Runtime:
 
         await self._context.hooks.emit(TerminalExecutionEvent(message=msg, streaming=False))
 
-    async def invoke(self, text: str, options: PromptOptions | None = None) -> None:
-        """Forward a plain prompt to the current session."""
+    async def invoke(
+        self,
+        text: str,
+        options: PromptOptions | None = None,
+        *,
+        display: bool = False,
+    ) -> None:
+        """Forward a plain prompt to the current session.
+
+        Set ``display`` when the caller did not originate from the interactive
+        input handler and the prompt should appear in the active TUI transcript.
+        """
         if self._context.agent is None:
             raise RuntimeError("No active session available.")
+        if display and self._layout is not None:
+            from tau.message.types import UserMessage
+
+            self._layout.add_message(UserMessage.from_text(text))
+            self._layout._tui.request_render()
         results = await self._context.hooks.emit(InputEvent(text=text))
         for r in results:
             if isinstance(r, InputEventResult) and r.action == "transform" and r.text is not None:
