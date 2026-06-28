@@ -224,6 +224,11 @@ def register(tau):
 | `ctx.signal` | `asyncio.Event \| None` | The current abort signal while the agent is streaming; the event is set when the turn is aborted. `None` when idle |
 | `ctx.get_system_prompt_options()` | `dict` | Metadata about how the active system prompt was assembled — keys: `skills`, `prompts`, `tools`, `system_prompt_length` |
 
+Extensions can inject a user message with
+`await ctx.send_user_message(content, deliver_as="steer", trigger_turn=False)`.
+Set `trigger_turn=True` to start a new turn immediately when the agent is idle;
+while it is busy, the message is queued using the selected delivery mode.
+
 `get_context_usage()` returns a dict with three keys, or `None` if token data is not yet available (e.g. immediately after compaction, before the next LLM response):
 
 ```python

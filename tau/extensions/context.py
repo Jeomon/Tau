@@ -381,16 +381,23 @@ class ExtensionContext:
         self,
         content: str,
         deliver_as: Literal["steer", "follow_up"] = "steer",
+        *,
+        trigger_turn: bool = False,
     ) -> None:
         """Inject a user message into the active engine queue.
 
         ``deliver_as='steer'`` inserts immediately (mid-turn interception).
         ``deliver_as='follow_up'`` queues for after the current turn completes.
+        When ``trigger_turn`` is true and the agent is idle, the message starts a
+        new turn immediately instead of waiting in the queue.
         """
         if self._runtime is None:
             return
         agent = getattr(self._runtime, "agent", None)
         if agent is None:
+            return
+        if trigger_turn and agent.is_idle():
+            await self._runtime.invoke(content)
             return
         engine = getattr(agent, "_engine", None)
         if engine is None:

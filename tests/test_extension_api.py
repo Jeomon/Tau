@@ -157,6 +157,57 @@ def test_context_set_model_no_runtime_returns_false():
     assert asyncio.run(ctx.set_model("x")) is False
 
 
+def test_send_user_message_trigger_turn_invokes_idle_runtime():
+    calls: list[str] = []
+
+    class _Agent:
+        def is_idle(self) -> bool:
+            return True
+
+    class _Runtime:
+        agent = _Agent()
+
+        async def invoke(self, content: str) -> None:
+            calls.append(content)
+
+    ctx = ExtensionContext.__new__(ExtensionContext)
+    ctx._runtime = _Runtime()  # type: ignore[attr-defined]
+
+    asyncio.run(ctx.send_user_message("peer message", trigger_turn=True))
+
+    assert calls == ["peer message"]
+
+
+def test_send_user_message_trigger_turn_queues_when_busy():
+    queued: list[str] = []
+
+    class _Engine:
+        async def follow_up(self, message) -> None:
+            queued.append(message.contents[0].content)
+
+    class _Agent:
+        _engine = _Engine()
+
+        def is_idle(self) -> bool:
+            return False
+
+    class _Runtime:
+        agent = _Agent()
+
+    ctx = ExtensionContext.__new__(ExtensionContext)
+    ctx._runtime = _Runtime()  # type: ignore[attr-defined]
+
+    asyncio.run(
+        ctx.send_user_message(
+            "peer message",
+            deliver_as="follow_up",
+            trigger_turn=True,
+        )
+    )
+
+    assert queued == ["peer message"]
+
+
 def test_api_set_model_schedules_runtime_call():
     calls: list[tuple[str, str | None]] = []
 
