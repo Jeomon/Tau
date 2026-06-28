@@ -304,7 +304,9 @@ async def cmd(ctx, args):
     ctx.compact(custom_instructions="Keep only the final conclusions.")
 ```
 
-`navigate_tree` optionally generates a branch summary before switching:
+`navigate_tree` optionally generates a branch summary and attaches it to the
+destination branch. If summary generation fails, navigation still completes
+without a summary:
 
 ```python
 result = await ctx.navigate_tree(target_id, summarize=True)

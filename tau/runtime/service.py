@@ -679,7 +679,7 @@ class Runtime:
                 if r.label is not None:
                     label = r.label
 
-        # Generate branch summary if requested
+        branch_summary_result = None
         if summarize and entries_to_summarize:
             sm_settings = self._context.settings_manager
             reserve_tokens = (
@@ -693,22 +693,31 @@ class Runtime:
             result = await generate_branch_summary(
                 entries_to_summarize,
                 llm,
+                context_window=llm.model.input_limit or 128_000,
                 reserve_tokens=reserve_tokens,
                 custom_instructions=custom_instructions,
                 replace_instructions=replace_instructions,
             )
-            if result.summary and not result.aborted:
-                sm.append_branch_summary(
-                    from_id=old_leaf_id or "",
-                    summary=result.summary,
-                    label=label,
-                    details={
-                        "read_files": result.read_files,
-                        "modified_files": result.modified_files,
-                    },
-                )
+            if result.error:
+                _log.warning("Branch summary failed: %s", result.error)
+                self.notify(f"Branch summary failed: {result.error}")
+            elif result.aborted:
+                _log.info("Branch summary cancelled; navigating without a summary")
+                self.notify("Branch summary cancelled; switched branches without a summary.")
+            elif result.summary:
+                branch_summary_result = result
 
         sm.branch(target_id)
+        if branch_summary_result is not None:
+            sm.append_branch_summary(
+                from_id=old_leaf_id or "",
+                summary=branch_summary_result.summary or "",
+                label=label,
+                details={
+                    "read_files": branch_summary_result.read_files,
+                    "modified_files": branch_summary_result.modified_files,
+                },
+            )
         await self._context.hooks.emit(
             SessionTreeEvent(new_leaf_id=target_id, old_leaf_id=old_leaf_id)
         )

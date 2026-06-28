@@ -323,6 +323,7 @@ class OpenAIResponsesAPI(BaseAPI):
                         input_tokens=_input_tokens,
                         output_tokens=_output_tokens,
                         cache_read_tokens=_cache_read_tokens,
+                        input_tokens_include_cache_read=True,
                     )
 
                 elif etype == "error":

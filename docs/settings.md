@@ -187,9 +187,14 @@ When your conversation grows long, tau automatically summarizes older messages t
 - **`reserve_tokens`**: How many tokens to keep available for the LLM's response (default 16,384 ≈ 4K-5K words)
 - **`keep_recent_tokens`**: How many recent message tokens to preserve word-for-word before summarization kicks in (default 20,000 ≈ 5K-6K words)
 
+The active values are resolved live, so changes made through `/settings` apply
+without restarting Tau. For models with smaller input limits, Tau clamps both
+budgets and reserves additional space for the generated summary. Automatic and
+overflow-triggered compaction are both disabled when `enabled` is `false`.
+
 #### Mid-turn (threshold) compaction
 
-In addition to compaction triggered at the start of a turn, tau can compact **mid-turn** when the context hits the configured limit while the agent is already running. When this happens the engine stops cleanly so you can review the compacted context and continue — no partial output is lost. Tool output lines are truncated before sending to the LLM to help prevent hitting the threshold in the first place.
+In addition to compaction triggered at the start of a turn, tau can compact **mid-turn** when context usage reaches `input_limit - reserve_tokens` while the agent is already running. When this happens the engine stops cleanly so you can review the compacted context and continue — no partial output is lost. Tool output lines are truncated before sending to the LLM to help prevent hitting the threshold in the first place.
 
 Example configurations:
 
@@ -232,8 +237,8 @@ summary of the branch you're leaving.  These settings control that behaviour.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `branch_summary.enabled` | boolean | `true` | Enable branch summarisation entirely. When `false`, the summarisation selector is never shown when switching branches in `/tree` |
-| `branch_summary.skip_prompt` | boolean | `false` | Skip the "Summarize branch?" picker and always navigate without a summary |
-| `branch_summary.reserve_tokens` | integer | `16384` | Token budget reserved when generating the branch summary |
+| `branch_summary.skip_prompt` | boolean | `false` | Skip the "Summarize branch?" picker and navigate without a summary |
+| `branch_summary.reserve_tokens` | integer | `16384` | Output/headroom budget reserved when generating the branch summary; clamped to the active model's input limit |
 
 Disable branch summarization entirely:
 ```json

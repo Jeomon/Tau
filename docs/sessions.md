@@ -148,13 +148,18 @@ Both sessions start in an identical state. Changes in one do not affect the othe
 
 Use `/tree` to open the interactive branch navigator. It shows every message node in the session tree, indented by depth, with the current leaf marked `(current)`. Press Enter on any node to navigate to that branch point.
 
-When you navigate to a different branch, tau generates a **branch summary** of the path you're leaving, so context from the abandoned branch isn't lost. The summary is injected into the new branch's context as a `[Branch Summary]` block.
+When you navigate to a different branch, Tau can generate a **branch summary**
+of the path you're leaving, so context from the abandoned branch isn't lost.
+The TUI asks whether to summarize unless prompting is disabled. When generated,
+the summary is attached to the destination branch and injected into its context
+as a `[Branch Summary]` block.
 
 #### Branch summary behaviour
 
-- Generated automatically on navigation — no manual action needed.
+- Offered during TUI navigation; API callers opt in with `summarize=True`.
 - Captures: goal, progress, key decisions, next steps, and files read/modified.
-- Stored as a `branch_summary` entry in the session file and included in context whenever you return to that branch.
+- Stored as a `branch_summary` entry under the destination node and included in that branch's context.
+- Uses the active model's input limit and a bounded prompt. If summarization fails, navigation still completes without a summary and Tau reports the failure.
 - Extensions can intercept and customise summaries via the `session_before_tree` event (see [Extensions](extensions.md#event-reference)).
 
 ### Resuming a Past Session
@@ -252,16 +257,19 @@ Long sessions eventually fill the model's context window. Tau handles this autom
 
 ### When Compaction Runs
 
-Token usage is estimated from the **last successful response's reported usage** plus a chars/4 estimate of anything after it, so the trigger reflects real provider accounting rather than a pure guess. The threshold is `context_tokens > context_window - reserve_tokens`. Tau checks this at three points so context is trimmed before it can overflow:
+Token usage is estimated from the **last successful response's reported usage** plus a chars/4 estimate of anything after it, so the trigger reflects real provider accounting rather than a pure guess. Provider cache counters are normalized so cached input is not counted twice. Before the first response, and after switching models, the estimate also includes the system prompt and tool schemas.
+
+The threshold is `context_tokens >= context_window - reserve_tokens`. Tau checks this at three points so context is trimmed before it can overflow:
 
 1. **Pre-flight** — before sending a new turn. Catches resumed or already-oversized sessions that would otherwise fail on the very first request.
-2. **Post-turn** — after each agent turn completes, the normal proactive path.
+2. **Post-task** — after the agent finishes the current prompt and becomes idle.
 3. **Overflow recovery (reactive backstop)** — if a request still fails with a provider *context-overflow* error, Tau catches it, drops the failed response, compacts, and **retries the turn once** automatically. This is bounded to a single attempt per turn — if it overflows again, Tau surfaces a message asking you to reduce context or switch to a larger-context model rather than looping.
 
 Two guards keep this stable:
 
 - **Stale-anchor guard** — immediately after a compaction, the kept messages still carry their pre-compaction (large) usage numbers. Tau skips re-triggering when the usage anchor predates the latest compaction, so it won't compact on every subsequent turn.
 - **Circuit breaker** — if automatic compaction fails repeatedly (3×), Tau stops auto-compacting for the session and surfaces a notice instead of failing silently. You can still run `/compact` manually.
+- **Model-switch guard** — usage reported by the previous model is discarded after a model change. Tau falls back to a full heuristic estimate against the new model's context window instead of skipping the check.
 
 ### Manual Compaction
 
@@ -282,6 +290,13 @@ Compaction is controlled by three settings under the `compaction` key in `settin
 | `enabled` | `true` | Enable or disable automatic compaction |
 | `reserve_tokens` | `16384` | Tokens to keep free at the top of the context window; compaction triggers when headroom falls below this |
 | `keep_recent_tokens` | `20000` | Approximate token budget for the recent messages that are kept verbatim after compaction |
+
+At runtime, Tau clamps `reserve_tokens` and `keep_recent_tokens` to the active
+model's input limit. It always leaves room for the generated summary, preventing
+small-context models from retaining more history than they can accept.
+
+Disabling automatic compaction also disables overflow-triggered compaction and
+retry. Provider context-overflow errors are returned directly in that mode.
 
 Example — tighten the trigger and keep more recent history:
 

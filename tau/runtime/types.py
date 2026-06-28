@@ -16,6 +16,7 @@ from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
 from tau.packages.utils import add_site_packages_path
+from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
 from tau.settings.paths import get_config_dir, get_extensions_dir
@@ -215,7 +216,7 @@ class RuntimeContext:
                 from tau.settings.types import ExtensionEntry as _ExtEntry
 
                 pkg_entries = settings_manager.get_all_packages()
-                
+
                 if pkg_entries:
                     for _scope_local in (False, True):
                         _venv_dir = get_packages_venv(cwd if _scope_local else None)
@@ -302,12 +303,22 @@ class RuntimeContext:
         )
 
         # ── Agent config ──────────────────────────────────────────────────────
+        context_window = llm.model.input_limit or 200_000
+        compaction_settings = validated_compaction_settings(
+            CompactionSettings(
+                enabled=settings_manager.is_compaction_enabled(),
+                reserve_tokens=settings_manager.get_compaction_reserve_tokens(),
+                keep_recent_tokens=settings_manager.get_compaction_keep_recent_tokens(),
+            ),
+            context_window,
+        )
         agent_config = AgentConfig(
             cwd=cwd,
             system_prompt=system_prompt,
             model=llm.model,
             # input_limit (not the total window) is the budget compaction/overflow key off.
-            context_window=llm.model.input_limit or 200_000,
+            context_window=context_window,
+            compaction=compaction_settings,
         )
 
         # ── Agent ─────────────────────────────────────────────────────────────

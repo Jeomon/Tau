@@ -1,11 +1,23 @@
 """Tests for tau/session/branch_summarization.py — pure helper functions."""
+
 from __future__ import annotations
 
-from tau.message.types import AssistantMessage, ToolCallContent
+import asyncio
+from types import SimpleNamespace
+
+from tau.inference.types import TextEndEvent
+from tau.message.types import (
+    AssistantMessage,
+    TextContent,
+    ToolCallContent,
+    ToolMessage,
+    ToolResultContent,
+)
 from tau.session.branch_summarization import (
     FileOperations,
     _compute_file_lists,
     _format_file_operations,
+    generate_branch_summary,
     prepare_branch_entries,
 )
 from tau.session.types import MessageEntry
@@ -81,11 +93,27 @@ class TestFormatFileOperations:
 
 
 class TestPrepareBranchEntries:
-    def _make_msg_entry(self, tool_name: str, path: str) -> MessageEntry:
-        """Create a MessageEntry wrapping an AssistantMessage with a tool call."""
+    def _make_tool_entries(
+        self,
+        tool_name: str,
+        path: str,
+        *,
+        is_error: bool = False,
+    ) -> list[MessageEntry]:
         tc = ToolCallContent(id="tc1", name=tool_name, args={"path": path})
-        msg = AssistantMessage(contents=[tc])
-        return MessageEntry(message=msg)
+        result = ToolResultContent(
+            id="tc1",
+            content="failed" if is_error else "ok",
+            is_error=is_error,
+            tool_name=tool_name,
+        )
+        return [
+            MessageEntry(message=AssistantMessage(contents=[tc])),
+            MessageEntry(message=ToolMessage.from_result(result)),
+        ]
+
+    def _make_msg_entry(self, tool_name: str, path: str) -> MessageEntry:
+        return self._make_tool_entries(tool_name, path)[0]
 
     def test_empty_entries(self):
         prep = prepare_branch_entries([])
@@ -93,19 +121,32 @@ class TestPrepareBranchEntries:
         assert prep.total_tokens == 0
 
     def test_collects_file_ops_from_read_tool(self):
-        entry = self._make_msg_entry("read", "/data.py")
-        prep = prepare_branch_entries([entry])
+        prep = prepare_branch_entries(self._make_tool_entries("read", "/data.py"))
         assert "/data.py" in prep.file_ops.read
 
     def test_collects_file_ops_from_write_tool(self):
-        entry = self._make_msg_entry("write", "/out.py")
-        prep = prepare_branch_entries([entry])
+        prep = prepare_branch_entries(self._make_tool_entries("write", "/out.py"))
         assert "/out.py" in prep.file_ops.written
 
     def test_collects_file_ops_from_edit_tool(self):
-        entry = self._make_msg_entry("edit", "/src.py")
-        prep = prepare_branch_entries([entry])
+        prep = prepare_branch_entries(self._make_tool_entries("edit", "/src.py"))
         assert "/src.py" in prep.file_ops.edited
+
+    def test_failed_tool_call_is_not_recorded(self):
+        prep = prepare_branch_entries(self._make_tool_entries("edit", "/failed.py", is_error=True))
+        assert "/failed.py" not in prep.file_ops.edited
+
+    def test_tool_results_are_included_in_summary_messages(self):
+        prep = prepare_branch_entries(self._make_tool_entries("read", "/data.py"))
+        assert any(isinstance(message, ToolMessage) for message in prep.messages)
+
+    def test_file_ops_are_collected_outside_message_budget(self):
+        old_entries = self._make_tool_entries("write", "/old.py")
+        recent_entries = [
+            MessageEntry(message=AssistantMessage.from_text("x" * 1_000)),
+        ]
+        prep = prepare_branch_entries(old_entries + recent_entries, token_budget=1)
+        assert "/old.py" in prep.file_ops.written
 
     def test_messages_collected(self):
         entry = self._make_msg_entry("read", "/x.py")
@@ -123,3 +164,56 @@ class TestPrepareBranchEntries:
         entries = [self._make_msg_entry("read", f"/f{i}.py") for i in range(3)]
         prep = prepare_branch_entries(entries)
         assert prep.total_tokens > 0
+
+
+class TestGenerateBranchSummary:
+    def test_uses_model_aware_bounded_prompt(self):
+        class FakeLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            def __init__(self) -> None:
+                self.prompt = ""
+
+            async def invoke(self, context):
+                self.prompt = context.messages[0].contents[0].content
+                return [TextEndEvent(text=TextContent(content="summary"))]
+
+        llm = FakeLLM()
+        entries = [
+            MessageEntry(message=AssistantMessage.from_text("x" * 10_000)),
+        ]
+
+        result = asyncio.run(
+            generate_branch_summary(
+                entries,
+                llm,  # type: ignore[arg-type]
+                context_window=1_000,
+                reserve_tokens=100,
+            )
+        )
+
+        assert result.error is None
+        assert result.summary is not None
+        assert llm.prompt
+        assert len(llm.prompt) <= (1_000 - 100) * 4
+        assert "middle content omitted" in llm.prompt
+
+    def test_provider_failure_returns_error(self):
+        class FailingLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                raise RuntimeError("provider unavailable")
+
+        entries = [MessageEntry(message=AssistantMessage.from_text("work"))]
+        result = asyncio.run(
+            generate_branch_summary(
+                entries,
+                FailingLLM(),  # type: ignore[arg-type]
+                context_window=1_000,
+                reserve_tokens=100,
+            )
+        )
+
+        assert result.summary is None
+        assert result.error == "provider unavailable"

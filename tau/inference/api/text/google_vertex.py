@@ -330,9 +330,7 @@ class GoogleVertexAPI(BaseAPI):
                     if text_started:
                         yield TextEndEvent(text=TextContent(content=text_buf))  # type: ignore[arg-type]
                     reason_str = (
-                        finish_reason.name
-                        if hasattr(finish_reason, "name")
-                        else str(finish_reason)
+                        finish_reason.name if hasattr(finish_reason, "name") else str(finish_reason)
                     )
                     stop = (
                         StopReason.ToolCalls
@@ -344,6 +342,7 @@ class GoogleVertexAPI(BaseAPI):
                         input_tokens=_input_tokens,
                         output_tokens=_output_tokens,
                         cache_read_tokens=_cache_read_tokens,
+                        input_tokens_include_cache_read=True,
                     )
                     return
 
@@ -365,4 +364,5 @@ class GoogleVertexAPI(BaseAPI):
             input_tokens=_input_tokens,
             output_tokens=_output_tokens,
             cache_read_tokens=_cache_read_tokens,
+            input_tokens_include_cache_read=True,
         )

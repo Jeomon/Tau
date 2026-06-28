@@ -28,6 +28,12 @@ Referenced files are automatically processed based on type:
 
 A response from the LLM. Can include text and tool calls.
 
+Assistant messages also store provider usage metadata: input, output,
+cache-read, and cache-write token counts. The
+`input_tokens_include_cache_read` flag records whether cached tokens are
+already included in the provider's input count, preventing context usage from
+counting the same tokens twice.
+
 ```python
 {
   "type": "assistant",

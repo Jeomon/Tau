@@ -1,9 +1,12 @@
 """Tests for tau/session/compaction.py — token estimation, compaction logic."""
+
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
 
-from tau.inference.types import StopReason
+from tau.inference.types import StopReason, TextEndEvent
 from tau.message.types import (
     AssistantMessage,
     BranchSummaryMessage,
@@ -21,10 +24,13 @@ from tau.message.types import (
 from tau.session.compaction import (
     TOOL_RESULT_MAX_CHARS,
     CompactionSettings,
+    effective_usage_tokens,
     estimate_context_tokens,
     estimate_tokens,
+    generate_summary,
     serialize_conversation,
     should_compact,
+    validated_compaction_settings,
 )
 
 
@@ -106,6 +112,37 @@ class TestEstimateContextTokens:
         assert result.usage_tokens == 150
         assert result.last_usage_index == 1
 
+    def test_does_not_double_count_inclusive_cache_tokens(self):
+        usage = Usage(
+            input_tokens=1_000,
+            output_tokens=100,
+            cache_read_tokens=800,
+            input_tokens_include_cache_read=True,
+        )
+        assert effective_usage_tokens(usage) == 1_100
+
+    def test_adds_exclusive_cache_tokens(self):
+        usage = Usage(
+            input_tokens=200,
+            output_tokens=100,
+            cache_read_tokens=800,
+            cache_write_tokens=50,
+        )
+        assert effective_usage_tokens(usage) == 1_150
+
+    def test_heuristic_includes_request_overhead(self):
+        message = UserMessage.from_text("hello")
+        without_overhead = estimate_context_tokens([message])
+        with_overhead = estimate_context_tokens([message], system_prompt="x" * 400)
+        assert with_overhead.tokens >= without_overhead.tokens + 100
+
+    def test_ignore_usage_uses_heuristic_after_model_change(self):
+        assistant = AssistantMessage.from_text("short")
+        assistant.usage = Usage(input_tokens=100_000)
+        result = estimate_context_tokens([assistant], ignore_usage=True)
+        assert result.last_usage_index is None
+        assert result.tokens < 100_000
+
     def test_skips_aborted_assistant(self):
         u = Usage(input_tokens=1000, output_tokens=0)
         aborted = AssistantMessage(contents=[])
@@ -139,12 +176,45 @@ class TestShouldCompact:
 
     def test_exactly_at_threshold(self):
         settings = CompactionSettings(enabled=True, reserve_tokens=10_000)
-        # 90_000 tokens, window 100_000 → 90_000 > 90_000 is False (not strictly over)
-        assert should_compact(90_000, 100_000, settings) is False
+        assert should_compact(90_000, 100_000, settings) is True
 
     def test_one_over_threshold(self):
         settings = CompactionSettings(enabled=True, reserve_tokens=10_000)
         assert should_compact(90_001, 100_000, settings) is True
+
+    def test_clamps_budgets_to_small_context_window(self):
+        settings = validated_compaction_settings(
+            CompactionSettings(reserve_tokens=8_000, keep_recent_tokens=20_000),
+            context_window=10_000,
+        )
+        assert settings.reserve_tokens < 10_000
+        assert settings.keep_recent_tokens + settings.reserve_tokens < 10_000
+
+
+class TestSummaryBudget:
+    def test_summary_prompt_is_bounded_by_model_input_limit(self):
+        class FakeLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            def __init__(self) -> None:
+                self.prompt = ""
+
+            async def invoke(self, context):
+                self.prompt = context.messages[0].contents[0].content
+                return [TextEndEvent(text=TextContent(content="summary"))]
+
+        llm = FakeLLM()
+        result = asyncio.run(
+            generate_summary(
+                [UserMessage.from_text("x" * 4_000)],
+                llm,  # type: ignore[arg-type]
+                reserve_tokens=100,
+            )
+        )
+
+        assert result == "summary"
+        assert len(llm.prompt) <= (1_000 - 100) * 4 + 1
+        assert "middle content omitted" in llm.prompt
 
 
 class TestSerializeConversation:
@@ -164,9 +234,9 @@ class TestSerializeConversation:
         assert "[Assistant thinking]: my thought" in text
 
     def test_assistant_tool_call(self):
-        msg = AssistantMessage(contents=[
-            ToolCallContent(id="1", name="read_file", args={"path": "/tmp/f"})
-        ])
+        msg = AssistantMessage(
+            contents=[ToolCallContent(id="1", name="read_file", args={"path": "/tmp/f"})]
+        )
         text = serialize_conversation([msg])
         assert "[Assistant tool calls]: read_file" in text
 
@@ -217,20 +287,24 @@ class TestSerializeConversation:
 class TestTruncate:
     def test_short_text_unchanged(self):
         from tau.session.compaction import _truncate
+
         assert _truncate("hello", 10) == "hello"
 
     def test_exact_length_unchanged(self):
         from tau.session.compaction import _truncate
+
         assert _truncate("hello", 5) == "hello"
 
     def test_long_text_truncated(self):
         from tau.session.compaction import _truncate
+
         result = _truncate("a" * 100, 10)
         assert result.startswith("a" * 10)
         assert "truncated" in result
 
     def test_truncation_message_includes_count(self):
         from tau.session.compaction import _truncate
+
         result = _truncate("x" * 20, 5)
         assert "15" in result
 
@@ -239,18 +313,21 @@ class TestIsValidCutPoint:
     def test_user_message_entry_is_valid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import MessageEntry
+
         entry = MessageEntry(message=UserMessage.from_text("hi"))
         assert _is_valid_cut_point(entry) is True
 
     def test_terminal_message_entry_is_valid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import MessageEntry
+
         entry = MessageEntry(message=TerminalExecutionMessage(command="ls"))
         assert _is_valid_cut_point(entry) is True
 
     def test_assistant_with_content_is_valid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import MessageEntry
+
         entry = MessageEntry(message=AssistantMessage.from_text("reply"))
         assert _is_valid_cut_point(entry) is True
 
@@ -258,6 +335,7 @@ class TestIsValidCutPoint:
         from tau.inference.types import StopReason
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import MessageEntry
+
         msg = AssistantMessage(contents=[], stop_reason=StopReason.Abort)
         entry = MessageEntry(message=msg)
         assert _is_valid_cut_point(entry) is False
@@ -265,36 +343,44 @@ class TestIsValidCutPoint:
     def test_custom_message_entry_is_valid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import CustomMessageEntry
+
         entry = CustomMessageEntry(custom_type="info", content=[])
         assert _is_valid_cut_point(entry) is True
 
     def test_branch_summary_entry_is_valid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import BranchSummaryEntry
+
         entry = BranchSummaryEntry(from_id="abc", summary="sum")
         assert _is_valid_cut_point(entry) is True
 
     def test_tool_message_entry_is_invalid(self):
         from tau.session.compaction import _is_valid_cut_point
         from tau.session.types import MessageEntry
-        entry = MessageEntry(message=ToolMessage.from_result(ToolResultContent(id="1", content="ok")))
+
+        entry = MessageEntry(
+            message=ToolMessage.from_result(ToolResultContent(id="1", content="ok"))
+        )
         assert _is_valid_cut_point(entry) is False
 
 
 class TestLatestCompactionTimestamp:
     def test_empty_branch_returns_none(self):
         from tau.session.compaction import latest_compaction_timestamp
+
         assert latest_compaction_timestamp([]) is None
 
     def test_no_compaction_returns_none(self):
         from tau.session.compaction import latest_compaction_timestamp
         from tau.session.types import MessageEntry
+
         entries = [MessageEntry(message=UserMessage.from_text("hi"))]
         assert latest_compaction_timestamp(entries) is None
 
     def test_returns_most_recent_compaction_timestamp(self):
         from tau.session.compaction import latest_compaction_timestamp
         from tau.session.types import CompactionEntry
+
         c1 = CompactionEntry(summary="s1", first_kept_entry_id="x", tokens_before=100)
         c1.timestamp = 1000.0
         c2 = CompactionEntry(summary="s2", first_kept_entry_id="y", tokens_before=200)
@@ -305,11 +391,13 @@ class TestLatestCompactionTimestamp:
 class TestIsSilentOverflow:
     def test_zero_context_window_returns_false(self):
         from tau.session.compaction import is_silent_overflow
+
         msg = AssistantMessage.from_text("ok")
         assert is_silent_overflow(msg, 0) is False
 
     def test_normal_stop_within_window(self):
         from tau.session.compaction import is_silent_overflow
+
         msg = AssistantMessage.from_text("ok")
         msg.usage.input_tokens = 100
         assert is_silent_overflow(msg, 200_000) is False
@@ -317,6 +405,7 @@ class TestIsSilentOverflow:
     def test_stop_with_input_exceeding_window(self):
         from tau.inference.types import StopReason
         from tau.session.compaction import is_silent_overflow
+
         msg = AssistantMessage.from_text("ok")
         msg.stop_reason = StopReason.Stop
         msg.usage.input_tokens = 200_001
@@ -325,6 +414,7 @@ class TestIsSilentOverflow:
     def test_length_stop_zero_output_near_window(self):
         from tau.inference.types import StopReason
         from tau.session.compaction import is_silent_overflow
+
         msg = AssistantMessage(contents=[])
         msg.stop_reason = StopReason.Length
         msg.usage.input_tokens = 199_000
@@ -334,6 +424,7 @@ class TestIsSilentOverflow:
     def test_length_stop_with_output_tokens(self):
         from tau.inference.types import StopReason
         from tau.session.compaction import is_silent_overflow
+
         msg = AssistantMessage.from_text("partial")
         msg.stop_reason = StopReason.Length
         msg.usage.input_tokens = 199_000
@@ -344,19 +435,23 @@ class TestIsSilentOverflow:
 class TestFindCutPoint:
     def _user_entry(self, text: str = "q"):
         from tau.session.types import MessageEntry
+
         return MessageEntry(message=UserMessage.from_text(text))
 
     def _asst_entry(self, text: str = "a"):
         from tau.session.types import MessageEntry
+
         return MessageEntry(message=AssistantMessage.from_text(text))
 
     def test_empty_entries_returns_start(self):
         from tau.session.compaction import find_cut_point
+
         result = find_cut_point([], 0, 0, 1000)
         assert result.first_kept_entry_index == 0
 
     def test_small_conversation_no_split(self):
         from tau.session.compaction import find_cut_point
+
         entries = [self._user_entry(), self._asst_entry()]
         result = find_cut_point(entries, 0, len(entries), keep_recent_tokens=10_000)
         assert result.first_kept_entry_index == 0
@@ -364,6 +459,7 @@ class TestFindCutPoint:
 
     def test_keeps_recent_messages(self):
         from tau.session.compaction import find_cut_point
+
         # Build a long sequence; keep_recent_tokens is tiny so only the last few survive
         entries = [self._user_entry(f"msg{i}") for i in range(10)]
         result = find_cut_point(entries, 0, len(entries), keep_recent_tokens=2)
@@ -373,6 +469,7 @@ class TestFindCutPoint:
     def test_split_turn_detected(self):
         from tau.session.compaction import find_cut_point
         from tau.session.types import MessageEntry
+
         # user + many assistants (long) + user + asst at the end
         # keep_recent tiny so cut falls in the middle of a turn
         big_text = "word " * 1000
@@ -389,19 +486,23 @@ class TestFindCutPoint:
 class TestPrepareCompaction:
     def _user_entry(self, text: str = "q"):
         from tau.session.types import MessageEntry
+
         return MessageEntry(message=UserMessage.from_text(text))
 
     def _asst_entry(self, text: str = "a"):
         from tau.session.types import MessageEntry
+
         return MessageEntry(message=AssistantMessage.from_text(text))
 
     def test_empty_entries_returns_none(self):
         from tau.session.compaction import prepare_compaction
+
         assert prepare_compaction([], CompactionSettings()) is None
 
     def test_last_entry_is_compaction_returns_none(self):
         from tau.session.compaction import prepare_compaction
-        from tau.session.types import CompactionEntry, MessageEntry
+        from tau.session.types import CompactionEntry
+
         entries = [
             self._user_entry(),
             CompactionEntry(summary="prev", first_kept_entry_id="x", tokens_before=100),
@@ -410,12 +511,14 @@ class TestPrepareCompaction:
 
     def test_small_history_within_budget_returns_none(self):
         from tau.session.compaction import prepare_compaction
+
         entries = [self._user_entry(), self._asst_entry()]
         settings = CompactionSettings(keep_recent_tokens=100_000)
         assert prepare_compaction(entries, settings) is None
 
     def test_long_history_produces_preparation(self):
         from tau.session.compaction import prepare_compaction
+
         big_text = "word " * 2000
         # Old turn (to be summarised) followed by a new short turn to keep.
         # With keep_recent_tokens=5, the algorithm keeps only the new short turn

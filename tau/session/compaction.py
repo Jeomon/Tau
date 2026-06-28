@@ -11,6 +11,7 @@ Compaction algorithm:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,7 @@ class ThresholdCompactionStop(Exception):
     continue manually willRetry=false behaviour for threshold
     compaction.
     """
+
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
@@ -47,6 +49,7 @@ DEFAULT_COMPACTION_SETTINGS = CompactionSettings()
 
 TOOL_RESULT_MAX_CHARS = 2_000
 ESTIMATED_IMAGE_CHARS = 4_800
+SUMMARY_SAFETY_TOKENS = 2_048
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +150,38 @@ def estimate_tokens(message: Any) -> int:
     return max(1, chars // 4)
 
 
-def estimate_context_tokens(messages: list) -> ContextUsageEstimate:
+def effective_usage_tokens(usage: Any) -> int:
+    """Return context tokens without double-counting provider cache metrics."""
+    cache_read = 0
+    if not getattr(usage, "input_tokens_include_cache_read", False):
+        cache_read = getattr(usage, "cache_read_tokens", 0) or 0
+    return (
+        (getattr(usage, "input_tokens", 0) or 0)
+        + (getattr(usage, "output_tokens", 0) or 0)
+        + cache_read
+        + (getattr(usage, "cache_write_tokens", 0) or 0)
+    )
+
+
+def _request_overhead_tokens(system_prompt: str, tools: list[Any]) -> int:
+    chars = len(system_prompt)
+    for tool in tools:
+        chars += len(getattr(tool, "name", ""))
+        chars += len(getattr(tool, "description", ""))
+        schema = getattr(tool, "schema", None)
+        if schema is not None:
+            with contextlib.suppress(AttributeError, TypeError, ValueError):
+                chars += len(json.dumps(schema.model_json_schema()))
+    return chars // 4
+
+
+def estimate_context_tokens(
+    messages: list,
+    *,
+    system_prompt: str = "",
+    tools: list[Any] | None = None,
+    ignore_usage: bool = False,
+) -> ContextUsageEstimate:
     """
     Estimate total context tokens.
 
@@ -167,7 +201,7 @@ def estimate_context_tokens(messages: list) -> ContextUsageEstimate:
             StopReason.Error,
         ):
             u = msg.usage
-            total = u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens
+            total = 0 if ignore_usage else effective_usage_tokens(u)
             if total > 0:
                 last_usage = total
                 last_usage_idx = i
@@ -175,6 +209,7 @@ def estimate_context_tokens(messages: list) -> ContextUsageEstimate:
 
     if last_usage is None:
         estimated = sum(estimate_tokens(m) for m in messages)
+        estimated += _request_overhead_tokens(system_prompt, tools or [])
         return ContextUsageEstimate(
             tokens=estimated,
             usage_tokens=0,
@@ -194,7 +229,34 @@ def estimate_context_tokens(messages: list) -> ContextUsageEstimate:
 def should_compact(context_tokens: int, context_window: int, settings: CompactionSettings) -> bool:
     if not settings.enabled or context_window <= 0:
         return False
-    return context_tokens > context_window - settings.reserve_tokens
+    return context_tokens >= context_window - settings.reserve_tokens
+
+
+def validated_compaction_settings(
+    settings: CompactionSettings,
+    context_window: int,
+) -> CompactionSettings:
+    """Clamp compaction budgets so compacted context fits the active model."""
+    if context_window <= 0:
+        return CompactionSettings(
+            enabled=settings.enabled,
+            reserve_tokens=max(1, settings.reserve_tokens),
+            keep_recent_tokens=max(1, settings.keep_recent_tokens),
+        )
+    summary_margin = min(
+        SUMMARY_SAFETY_TOKENS,
+        max(1, context_window // 4),
+    )
+    reserve = min(
+        max(1, settings.reserve_tokens),
+        max(1, context_window - summary_margin),
+    )
+    max_recent = max(1, context_window - reserve - summary_margin)
+    return CompactionSettings(
+        enabled=settings.enabled,
+        reserve_tokens=reserve,
+        keep_recent_tokens=min(max(1, settings.keep_recent_tokens), max_recent),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +401,17 @@ def _truncate(text: str, max_chars: int) -> str:
         return text
     truncated = len(text) - max_chars
     return f"{text[:max_chars]}\n\n[... {truncated} more characters truncated]"
+
+
+def _truncate_middle(text: str, max_chars: int) -> str:
+    """Fit text while retaining both the oldest and newest context."""
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    marker = "\n\n[... middle content omitted for summary budget ...]\n\n"
+    available = max(0, max_chars - len(marker))
+    head = available // 2
+    tail = available - head
+    return f"{text[:head]}{marker}{text[-tail:] if tail else ''}"
 
 
 def serialize_conversation(messages: list) -> str:
@@ -516,7 +589,6 @@ Be concise. Focus on what's needed to understand the kept suffix."""
 async def _call_llm_for_summary(
     prompt_text: str,
     llm: TextLLM,
-    max_chars: int = 0,
 ) -> str:
     from tau.inference.types import LLMContext, TextDeltaEvent, TextEndEvent
     from tau.message.types import UserMessage
@@ -548,18 +620,40 @@ async def generate_summary(
     if custom_instructions:
         base_prompt = f"{base_prompt}\n\nAdditional focus: {custom_instructions}"
 
-    prompt = f"<conversation>\n{conversation_text}\n</conversation>\n\n"
+    suffix = "</conversation>\n\n"
     if previous_summary:
-        prompt += f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
-    prompt += base_prompt
+        suffix += f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
+    suffix += base_prompt
+
+    input_limit = getattr(getattr(llm, "model", None), "input_limit", 0) or 0
+    prompt_chars = 0
+    if input_limit > 0:
+        prompt_chars = max(1, input_limit - reserve_tokens) * 4
+        conversation_budget = max(1, prompt_chars - len("<conversation>\n") - len(suffix))
+        conversation_text = _truncate_middle(conversation_text, conversation_budget)
+    prompt = f"<conversation>\n{conversation_text}\n{suffix}"
+    if input_limit > 0:
+        prompt = _truncate_middle(prompt, prompt_chars)
 
     return await _call_llm_for_summary(prompt, llm)
 
 
-async def _generate_turn_prefix_summary(messages: list, llm: TextLLM) -> str:
+async def _generate_turn_prefix_summary(
+    messages: list,
+    llm: TextLLM,
+    reserve_tokens: int,
+) -> str:
     conversation_text = serialize_conversation(messages)
-    conv_block = f"<conversation>\n{conversation_text}\n</conversation>"
-    prompt = f"{conv_block}\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
+    suffix = f"</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
+    input_limit = getattr(getattr(llm, "model", None), "input_limit", 0) or 0
+    prompt_chars = 0
+    if input_limit > 0:
+        prompt_chars = max(1, input_limit - reserve_tokens) * 4
+        conversation_budget = max(1, prompt_chars - len("<conversation>\n") - len(suffix))
+        conversation_text = _truncate_middle(conversation_text, conversation_budget)
+    prompt = f"<conversation>\n{conversation_text}\n{suffix}"
+    if input_limit > 0:
+        prompt = _truncate_middle(prompt, prompt_chars)
     return await _call_llm_for_summary(prompt, llm)
 
 
@@ -675,7 +769,11 @@ async def compact(
         )
         history_text, prefix_text = await asyncio.gather(
             history_coro,
-            _generate_turn_prefix_summary(preparation.turn_prefix_messages, llm),
+            _generate_turn_prefix_summary(
+                preparation.turn_prefix_messages,
+                llm,
+                settings.reserve_tokens,
+            ),
         )
         summary = f"{history_text}\n\n---\n\n**Turn Context (split turn):**\n\n{prefix_text}"
     else:
@@ -721,7 +819,9 @@ def is_silent_overflow(message: Any, context_window: int) -> bool:
     if context_window <= 0:
         return False
     u = message.usage
-    inp = u.input_tokens + u.cache_read_tokens
+    inp = u.input_tokens
+    if not u.input_tokens_include_cache_read:
+        inp += u.cache_read_tokens
     if message.stop_reason == StopReason.Stop and inp > context_window:
         return True
     return bool(

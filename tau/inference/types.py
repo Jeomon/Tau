@@ -268,6 +268,7 @@ class EndEvent:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     cache_write_1h_tokens: int = 0  # subset of cache_write_tokens at 1h retention (2x input price)
+    input_tokens_include_cache_read: bool = False
 
 
 @dataclass

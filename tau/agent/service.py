@@ -16,14 +16,19 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.message.utils import strip_unusable_trailing_assistant
-from tau.session.compaction import ThresholdCompactionStop as _ThresholdCompactionStop
+from tau.session.compaction import (
+    CompactionSettings,
+)
+from tau.session.compaction import (
+    ThresholdCompactionStop as _ThresholdCompactionStop,
+)
 from tau.session.utils import to_llm_messages as _to_llm_messages
 from tau.tool.types import ToolInvocation, ToolResult
 
 _log = logging.getLogger(__name__)
 
-_TOOL_CAP_BYTES = 50 * 1024   # 50 KB — DEFAULT_MAX_BYTES
-_TOOL_CAP_LINES = 2000         # DEFAULT_MAX_LINES
+_TOOL_CAP_BYTES = 50 * 1024  # 50 KB — DEFAULT_MAX_BYTES
+_TOOL_CAP_LINES = 2000  # DEFAULT_MAX_LINES
 _TOOL_LINE_CAP_BYTES = 2 * 1024  # 2 KB — max bytes for a single line
 
 
@@ -33,6 +38,7 @@ def _fmt_size(n: int) -> str:
     if n < 1024 * 1024:
         return f"{n / 1024:.1f}KB"
     return f"{n / (1024 * 1024):.1f}MB"
+
 
 if TYPE_CHECKING:
     from tau.engine.service import Engine
@@ -68,6 +74,7 @@ class Agent:
         self._phase: AgentPhase = AgentPhase.IDLE
         self._signal: asyncio.Event = asyncio.Event()
         self._compaction_failures: int = 0
+        self._compaction_circuit_notified: bool = False
         self._overflow_recovery_attempted: bool = False
         self._engine.options.before_tool_call = self._before_tool_call
         self._engine.options.after_tool_call = self._after_tool_call
@@ -252,7 +259,9 @@ class Agent:
             return
         match message:
             case AssistantMessage():
-                total = message.usage.input_tokens + message.usage.output_tokens
+                from tau.session.compaction import effective_usage_tokens
+
+                total = effective_usage_tokens(message.usage)
                 if total:
                     self._context_tokens = total
                 self._session_manager.append_message(message)
@@ -283,11 +292,14 @@ class Agent:
         from tau.session.compaction import prepare_compaction
 
         entries = self._session_manager.get_branch()
-        preparation = prepare_compaction(entries, self._config.compaction)
+        preparation = prepare_compaction(entries, self._current_compaction_settings())
         if preparation is None:
             return False
         await self._apply_compaction(
-            preparation, entries, manual=True, custom_instructions=custom_instructions,
+            preparation,
+            entries,
+            manual=True,
+            custom_instructions=custom_instructions,
             reason=_CompactionReason.Manual,
         )
         return True
@@ -305,8 +317,12 @@ class Agent:
 
         will_retry = reason == _CompactionReason.Overflow
         result, from_extension = await self._run_compaction(
-            preparation, entries, manual=manual, custom_instructions=custom_instructions,
-            reason=reason, will_retry=will_retry,
+            preparation,
+            entries,
+            manual=manual,
+            custom_instructions=custom_instructions,
+            reason=reason,
+            will_retry=will_retry,
         )
         self._session_manager.append_compaction(
             summary=result.summary,
@@ -316,10 +332,12 @@ class Agent:
         # Notify user that compaction finished.
         if self._runtime is not None:
             from tau.extensions.context import ExtensionContext
+
             ctx = ExtensionContext.from_runtime(self._runtime)
             if ctx.ui is not None:
                 ctx.ui.notify("Compaction completed.")
         self._compaction_failures = 0
+        self._compaction_circuit_notified = False
         await self.hooks.emit(
             CompactionEndEvent(
                 manual=manual,
@@ -340,6 +358,32 @@ class Agent:
                 return entry.timestamp
         return None
 
+    def _current_compaction_settings(self) -> CompactionSettings:
+        """Resolve live settings and clamp them to the active model window."""
+        from tau.session.compaction import validated_compaction_settings
+
+        settings_manager = self._engine._settings
+        if settings_manager is None:
+            settings = self._config.compaction
+        else:
+            settings = CompactionSettings(
+                enabled=settings_manager.is_compaction_enabled(),
+                reserve_tokens=settings_manager.get_compaction_reserve_tokens(),
+                keep_recent_tokens=settings_manager.get_compaction_keep_recent_tokens(),
+            )
+        return validated_compaction_settings(settings, self._context_window)
+
+    def _record_compaction_failure(self, message: str) -> None:
+        """Increment the circuit breaker and notify once when it opens."""
+        self._compaction_failures += 1
+        _log.exception(message)
+        if self._compaction_failures >= 3 and not self._compaction_circuit_notified:
+            self._compaction_circuit_notified = True
+            self._notify(
+                "Automatic compaction disabled after 3 failures. "
+                "Use /compact to retry manually or inspect the logs."
+            )
+
     async def _check_compaction(self) -> bool:
         """Auto-compact if context usage exceeds the threshold. Circuit-breaks after 3 failures.
 
@@ -357,15 +401,13 @@ class Agent:
         if self._compaction_failures >= 3:
             return False
 
-        settings = self._config.compaction
+        settings = self._current_compaction_settings()
         if not settings.enabled:
             return False
 
         entries = self._session_manager.get_branch()
         session_ctx = self._session_manager.build_session_context()
         llm_messages = _to_llm_messages(session_ctx.messages)
-
-        usage = estimate_context_tokens(llm_messages)
 
         # "Silent" overflow: some providers accept an over-limit prompt and return a
         # successful response (z.ai) or truncate the input and stop with no output
@@ -377,10 +419,21 @@ class Agent:
         # model change, it came from a different model. Treating its usage/overflow data as
         # a signal for the new model is unreliable (context windows differ), so skip.
         model_change_ts = self._latest_model_change_timestamp()
-        if model_change_ts is not None and last is not None and last.timestamp <= model_change_ts:
-            return False
+        usage_is_stale = (
+            model_change_ts is not None and last is not None and last.timestamp <= model_change_ts
+        )
+        usage = estimate_context_tokens(
+            llm_messages,
+            system_prompt=self._system_prompt,
+            tools=self._engine.tools,
+            ignore_usage=usage_is_stale,
+        )
 
-        forced = last is not None and is_silent_overflow(last, self._context_window)
+        forced = (
+            not usage_is_stale
+            and last is not None
+            and is_silent_overflow(last, self._context_window)
+        )
 
         if not forced:
             if not should_compact(usage.tokens, self._context_window, settings):
@@ -400,7 +453,9 @@ class Agent:
 
         try:
             await self._apply_compaction(
-                preparation, entries, manual=False,
+                preparation,
+                entries,
+                manual=False,
                 reason=_CompactionReason.Overflow if forced else _CompactionReason.Threshold,
             )
             # Threshold compaction: caller should stop the turn; user resumes manually.
@@ -408,8 +463,7 @@ class Agent:
             # never got a usable response, so there's nothing for the user to resume from.
             return not forced
         except Exception:
-            self._compaction_failures += 1
-            _log.exception("Auto-compaction failed")
+            self._record_compaction_failure("Auto-compaction failed")
             return False
 
     async def _try_overflow_recovery(self) -> bool:
@@ -421,6 +475,10 @@ class Agent:
         """
         from tau.inference.utils import ErrorKind
         from tau.session.compaction import prepare_compaction
+
+        settings = self._current_compaction_settings()
+        if not settings.enabled:
+            return False
 
         last = self._session_manager.find_last_assistant_message()
         if last is None or last.error_kind != ErrorKind.CONTEXT_OVERFLOW:
@@ -446,7 +504,7 @@ class Agent:
         self._session_manager.remove_last_message()
 
         entries = self._session_manager.get_branch()
-        preparation = prepare_compaction(entries, self._config.compaction)
+        preparation = prepare_compaction(entries, settings)
         if preparation is None:
             return False
         try:
@@ -454,8 +512,7 @@ class Agent:
                 preparation, entries, manual=False, reason=_CompactionReason.Overflow
             )
         except Exception:
-            self._compaction_failures += 1
-            _log.exception("Overflow-triggered compaction failed")
+            self._record_compaction_failure("Overflow-triggered compaction failed")
             return False
         return True
 

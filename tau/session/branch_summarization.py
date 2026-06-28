@@ -109,10 +109,6 @@ def _get_message_from_entry(entry: Any) -> Any | None:
     )
 
     if isinstance(entry, MessageEntry):
-        from tau.message.types import ToolMessage
-
-        if isinstance(entry.message, ToolMessage):
-            return None
         return entry.message
     if isinstance(entry, CustomMessageEntry):
         return CustomMessage.from_session(entry=entry)
@@ -131,23 +127,39 @@ def _get_message_from_entry(entry: Any) -> Any | None:
     return None
 
 
-def _extract_file_ops_from_message(message: Any, file_ops: FileOperations) -> None:
-    from tau.message.types import AssistantMessage, ToolCallContent
+def _collect_file_ops(entries: list[Any], file_ops: FileOperations) -> None:
+    """Collect successful file operations across all entries."""
+    from tau.message.types import (
+        AssistantMessage,
+        ToolCallContent,
+        ToolMessage,
+        ToolResultContent,
+    )
 
-    if not isinstance(message, AssistantMessage):
-        return
-    for c in message.contents:
-        if not isinstance(c, ToolCallContent):
-            continue
-        path = c.args.get("path") if isinstance(c.args, dict) else None
-        if not isinstance(path, str):
-            continue
-        if c.name == "read":
-            file_ops.read.add(path)
-        elif c.name == "write":
-            file_ops.written.add(path)
-        elif c.name == "edit":
-            file_ops.edited.add(path)
+    calls: dict[str, tuple[str, str]] = {}
+    for entry in entries:
+        message = _get_message_from_entry(entry)
+        if isinstance(message, AssistantMessage):
+            for content in message.contents:
+                if not isinstance(content, ToolCallContent):
+                    continue
+                path = content.args.get("path") if isinstance(content.args, dict) else None
+                if isinstance(path, str) and content.name in {"read", "write", "edit"}:
+                    calls[content.id] = (content.name, path)
+        elif isinstance(message, ToolMessage):
+            for content in message.contents:
+                if not isinstance(content, ToolResultContent) or content.is_error:
+                    continue
+                operation = calls.get(content.id)
+                if operation is None:
+                    continue
+                name, path = operation
+                if name == "read":
+                    file_ops.read.add(path)
+                elif name == "write":
+                    file_ops.written.add(path)
+                elif name == "edit":
+                    file_ops.edited.add(path)
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +189,14 @@ def prepare_branch_entries(entries: list[Any], token_budget: int = 0) -> BranchP
                 for f in details.get("modified_files", []):
                     file_ops.edited.add(f)
 
+    _collect_file_ops(entries, file_ops)
+
     # Second pass: walk newest→oldest, collect messages within budget
     for entry in reversed(entries):
         message = _get_message_from_entry(entry)
         if not message:
             continue
 
-        _extract_file_ops_from_message(message, file_ops)
         tokens = estimate_tokens(message)
 
         if token_budget > 0 and total_tokens + tokens > token_budget:
@@ -193,6 +206,11 @@ def prepare_branch_entries(entries: list[Any], token_budget: int = 0) -> BranchP
                 isinstance(entry, (CompactionEntry, BranchSummaryEntry))
                 and total_tokens < token_budget * 0.9
             ):
+                messages.insert(0, message)
+                total_tokens += tokens
+            elif not messages:
+                # Keep the newest oversized message; prompt construction applies
+                # a hard model-aware bound before invoking the provider.
                 messages.insert(0, message)
                 total_tokens += tokens
             break
@@ -280,17 +298,15 @@ async def generate_branch_summary(
     replace_instructions: bool = False,
 ) -> BranchSummaryResult:
     """Generate a summary of abandoned branch entries."""
+    import asyncio
+
     from tau.inference.types import LLMContext, TextDeltaEvent, TextEndEvent
     from tau.message.types import UserMessage
-    from tau.session.compaction import SUMMARIZATION_SYSTEM_PROMPT, serialize_conversation
-
-    token_budget = context_window - reserve_tokens
-    prep = prepare_branch_entries(entries, token_budget)
-
-    if not prep.messages:
-        return BranchSummaryResult(summary="No content to summarize")
-
-    conversation_text = serialize_conversation(prep.messages)
+    from tau.session.compaction import (
+        SUMMARIZATION_SYSTEM_PROMPT,
+        _truncate_middle,
+        serialize_conversation,
+    )
 
     if replace_instructions and custom_instructions:
         instructions = custom_instructions
@@ -299,19 +315,45 @@ async def generate_branch_summary(
     else:
         instructions = BRANCH_SUMMARY_PROMPT
 
-    prompt_text = f"<conversation>\n{conversation_text}\n</conversation>\n\n{instructions}"
+    context_window = max(1, context_window)
+    prompt_overhead_tokens = (
+        len(SUMMARIZATION_SYSTEM_PROMPT) + len(instructions) + len("<conversation></conversation>")
+    ) // 4
+    summary_margin = min(2_048, max(1, context_window // 4))
+    reserve_tokens = min(max(1, reserve_tokens), max(1, context_window - summary_margin))
+    token_budget = max(1, context_window - reserve_tokens - prompt_overhead_tokens)
+    prep = prepare_branch_entries(entries, token_budget)
+
+    if not prep.messages:
+        return BranchSummaryResult(summary="No content to summarize")
+
+    conversation_text = serialize_conversation(prep.messages)
+    prefix = "<conversation>\n"
+    suffix = f"\n</conversation>\n\n{instructions}"
+    prompt_chars = max(1, context_window - reserve_tokens) * 4
+    conversation_budget = max(1, prompt_chars - len(prefix) - len(suffix))
+    conversation_text = _truncate_middle(conversation_text, conversation_budget)
+    prompt_text = _truncate_middle(f"{prefix}{conversation_text}{suffix}", prompt_chars)
 
     context = LLMContext(
         messages=[UserMessage.from_text(prompt_text)],
         system_prompt=SUMMARIZATION_SYSTEM_PROMPT,
     )
-    events = await llm.invoke(context)
+    try:
+        events = await llm.invoke(context)
+    except asyncio.CancelledError:
+        return BranchSummaryResult(aborted=True)
+    except Exception as error:
+        return BranchSummaryResult(error=str(error))
 
     text_end = next((e for e in events if isinstance(e, TextEndEvent)), None)
     if text_end:
         raw = text_end.text.content
     else:
         raw = "".join(e.text.content for e in events if isinstance(e, TextDeltaEvent))
+
+    if not raw.strip():
+        return BranchSummaryResult(error="Provider returned an empty branch summary.")
 
     summary = BRANCH_SUMMARY_PREAMBLE + raw
 

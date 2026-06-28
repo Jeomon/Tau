@@ -221,6 +221,7 @@ class Usage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     cache_write_1h_tokens: int = 0
+    input_tokens_include_cache_read: bool = False
     cost: UsageCost = field(default_factory=UsageCost)
 
 
@@ -461,14 +462,10 @@ class CustomMessage:
 
         contents: list[TextContent | ImageContent | LinesContent]
         if isinstance(raw, list):
-            contents = cast(
-                list[TextContent | ImageContent | LinesContent],
-                raw
-            )
+            contents = cast(list[TextContent | ImageContent | LinesContent], raw)
         elif isinstance(raw, str):
             contents = cast(
-                list[TextContent | ImageContent | LinesContent],
-                [TextContent(content=raw)]
+                list[TextContent | ImageContent | LinesContent], [TextContent(content=raw)]
             )
         else:
             contents = []

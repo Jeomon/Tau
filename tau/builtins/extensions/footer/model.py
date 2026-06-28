@@ -55,14 +55,16 @@ class ModelBadge:
             self.update_context_from_ctx(ctx)
             return
 
-        tokens = sum(
-            getattr(usage, field, 0) or 0
-            for field in (
-                "input_tokens",
-                "output_tokens",
-                "cache_read_tokens",
-                "cache_write_tokens",
-            )
+        cache_read = (
+            0
+            if getattr(usage, "input_tokens_include_cache_read", False)
+            else getattr(usage, "cache_read_tokens", 0) or 0
+        )
+        tokens = (
+            (getattr(usage, "input_tokens", 0) or 0)
+            + (getattr(usage, "output_tokens", 0) or 0)
+            + cache_read
+            + (getattr(usage, "cache_write_tokens", 0) or 0)
         )
         context = getattr(ctx, "get_context_usage", lambda: None)()
         window = (context or {}).get("context_window") or self._context_window

@@ -660,59 +660,60 @@ class Engine:
                     _streaming_text: Any = None
                     _streaming_thinking: Any = None
                     async for event in self._iter_with_abort(stream, signal):
-                            match event:
-                                case ToolCallEndEvent(tool_call=tool_call):
-                                    tool_calls.append(tool_call)
-                                    message.contents.append(tool_call)
-                                    # Surface the tool call to the UI as it streams and
-                                    # mark the turn as having content, so an abort here is
-                                    # treated as mid-stream (not a pre-stream undo).
-                                    await emit(MessageUpdateEvent(message=message))
-                                case TextDeltaEvent(text=text):
-                                    if _streaming_text is None:
-                                        from tau.message.types import TextContent
+                        match event:
+                            case ToolCallEndEvent(tool_call=tool_call):
+                                tool_calls.append(tool_call)
+                                message.contents.append(tool_call)
+                                # Surface the tool call to the UI as it streams and
+                                # mark the turn as having content, so an abort here is
+                                # treated as mid-stream (not a pre-stream undo).
+                                await emit(MessageUpdateEvent(message=message))
+                            case TextDeltaEvent(text=text):
+                                if _streaming_text is None:
+                                    from tau.message.types import TextContent
 
-                                        _streaming_text = TextContent(content=text.content)
-                                        message.contents.append(_streaming_text)
-                                    else:
-                                        _streaming_text.content += text.content
-                                    await emit(MessageUpdateEvent(message=message))
-                                case ThinkingDeltaEvent(thinking=thinking):
-                                    if _streaming_thinking is None:
-                                        from tau.message.types import ThinkingContent
+                                    _streaming_text = TextContent(content=text.content)
+                                    message.contents.append(_streaming_text)
+                                else:
+                                    _streaming_text.content += text.content
+                                await emit(MessageUpdateEvent(message=message))
+                            case ThinkingDeltaEvent(thinking=thinking):
+                                if _streaming_thinking is None:
+                                    from tau.message.types import ThinkingContent
 
-                                        _streaming_thinking = ThinkingContent(
-                                            content=thinking.content
-                                        )
-                                        message.contents.append(_streaming_thinking)
-                                    else:
-                                        _streaming_thinking.content += thinking.content
-                                    await emit(MessageUpdateEvent(message=message))
-                                case TextEndEvent(text=text):
-                                    if _streaming_text is not None:
-                                        _streaming_text.content = text.content
-                                        _streaming_text = None
-                                    else:
-                                        message.contents.append(text)
-                                case ThinkingEndEvent(thinking=thinking):
-                                    if _streaming_thinking is not None:
-                                        _streaming_thinking.content = thinking.content
-                                        _streaming_thinking = None
-                                    else:
-                                        message.contents.append(thinking)
-                                case ErrorEvent(reason=reason, error=error, kind=kind):
-                                    message.stop_reason = reason
-                                    message.error = error
-                                    message.error_kind = kind
-                                case EndEvent() as ev:
-                                    message.stop_reason = ev.reason
-                                    message.usage = Usage(
-                                        input_tokens=ev.input_tokens,
-                                        output_tokens=ev.output_tokens,
-                                        cache_read_tokens=ev.cache_read_tokens,
-                                        cache_write_tokens=ev.cache_write_tokens,
-                                        cache_write_1h_tokens=ev.cache_write_1h_tokens,
-                                    )
+                                    _streaming_thinking = ThinkingContent(content=thinking.content)
+                                    message.contents.append(_streaming_thinking)
+                                else:
+                                    _streaming_thinking.content += thinking.content
+                                await emit(MessageUpdateEvent(message=message))
+                            case TextEndEvent(text=text):
+                                if _streaming_text is not None:
+                                    _streaming_text.content = text.content
+                                    _streaming_text = None
+                                else:
+                                    message.contents.append(text)
+                            case ThinkingEndEvent(thinking=thinking):
+                                if _streaming_thinking is not None:
+                                    _streaming_thinking.content = thinking.content
+                                    _streaming_thinking = None
+                                else:
+                                    message.contents.append(thinking)
+                            case ErrorEvent(reason=reason, error=error, kind=kind):
+                                message.stop_reason = reason
+                                message.error = error
+                                message.error_kind = kind
+                            case EndEvent() as ev:
+                                message.stop_reason = ev.reason
+                                message.usage = Usage(
+                                    input_tokens=ev.input_tokens,
+                                    output_tokens=ev.output_tokens,
+                                    cache_read_tokens=ev.cache_read_tokens,
+                                    cache_write_tokens=ev.cache_write_tokens,
+                                    cache_write_1h_tokens=ev.cache_write_1h_tokens,
+                                    input_tokens_include_cache_read=(
+                                        ev.input_tokens_include_cache_read
+                                    ),
+                                )
 
                     # If we broke out of the stream early due to abort, treat as abort
                     if signal.is_set() and message.stop_reason == StopReason.Stop:
