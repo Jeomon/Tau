@@ -121,6 +121,16 @@ class _Section:
 
 
 class ModelSelector:
+    """Core model selector logic used by both the UI component and the legacy
+    ``ModelSelectorModal`` alias.  The implementation remains unchanged; the
+    alias defined below simply inherits from this class to preserve backward
+    compatibility with older tests and extensions.
+    """
+    """Core model selector logic used by both the UI component and the legacy
+    ``ModelSelectorModal`` alias.  The implementation remains unchanged; the
+    alias defined below simply inherits from this class to preserve backward
+    compatibility with older tests and extensions.
+    """
     """Tabbed model selector — one tab per modality.
 
     Owns the modality tabs (Text / Voice / Speak / Image / Video), and per-tab

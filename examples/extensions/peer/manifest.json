@@ -1,0 +1,31 @@
+{
+  "tau": {
+    "name": "Peer",
+    "author": "jeomon",
+    "settings": {
+      "title": "Peer",
+      "fields": [
+        {
+          "key": "auto_join",
+          "label": "Auto join",
+          "type": "bool",
+          "default": true,
+          "description": "Register this Tau instance when the runtime starts."
+        },
+        {
+          "key": "name",
+          "label": "Peer name",
+          "type": "string",
+          "description": "Optional fixed peer name. Defaults to tau-<pid>."
+        },
+        {
+          "key": "root",
+          "label": "Storage root",
+          "type": "string",
+          "default": "~/.tau/peers",
+          "description": "Directory for registrations, sockets, mailboxes, and receipts."
+        }
+      ]
+    }
+  }
+}
