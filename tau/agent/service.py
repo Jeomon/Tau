@@ -313,6 +313,12 @@ class Agent:
             first_kept_entry_id=result.first_kept_entry_id,
             tokens_before=result.tokens_before,
         )
+        # Notify user that compaction finished.
+        if self._runtime is not None:
+            from tau.extensions.context import ExtensionContext
+            ctx = ExtensionContext.from_runtime(self._runtime)
+            if ctx.ui is not None:
+                ctx.ui.notify("Compaction completed.")
         self._compaction_failures = 0
         await self.hooks.emit(
             CompactionEndEvent(
