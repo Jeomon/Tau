@@ -430,7 +430,7 @@ class SessionManager:
         # Drop history before the most recent compaction
         last_compaction: CompactionEntry | None = None
         id_to_idx: dict[str, int] = {}
-        first_kept_idx: int = 0 
+        first_kept_idx: int = 0 # Default to 0, i.e. keep all entries if no compaction found
 
         # Scan all entries for model/thinking-level changes and find latest compaction entry
         for idx, entry in enumerate(entries):

@@ -178,7 +178,10 @@ def strip_unusable_trailing_assistant(messages: list, session_manager: Any = Non
 
     msgs = list(messages)
     if msgs and isinstance(msgs[-1], AssistantMessage) and msgs[-1].tool_calls():
-        msgs.pop()
         if session_manager is not None:
-            session_manager.remove_last_message(role="assistant")
+            is_removed = session_manager.remove_last_message(role="assistant")
+            if is_removed:
+                msgs.pop()
+        else:
+            msgs.pop()
     return msgs

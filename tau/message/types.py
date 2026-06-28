@@ -461,10 +461,14 @@ class CustomMessage:
 
         contents: list[TextContent | ImageContent | LinesContent]
         if isinstance(raw, list):
-            contents = cast(list[TextContent | ImageContent | LinesContent], raw)
+            contents = cast(
+                list[TextContent | ImageContent | LinesContent],
+                raw
+            )
         elif isinstance(raw, str):
             contents = cast(
-                list[TextContent | ImageContent | LinesContent], [TextContent(content=raw)]
+                list[TextContent | ImageContent | LinesContent],
+                [TextContent(content=raw)]
             )
         else:
             contents = []
