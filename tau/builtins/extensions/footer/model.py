@@ -48,6 +48,29 @@ class ModelBadge:
             window = usage.get("context_window") or 0
             self.set_context(tokens, window)
 
+    def update_context_from_response(self, response: object, ctx: object) -> None:
+        """Apply usage from a completed provider response immediately."""
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            self.update_context_from_ctx(ctx)
+            return
+
+        tokens = sum(
+            getattr(usage, field, 0) or 0
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+            )
+        )
+        context = getattr(ctx, "get_context_usage", lambda: None)()
+        window = (context or {}).get("context_window") or self._context_window
+        if tokens > 0:
+            self.set_context(tokens, window)
+        else:
+            self.update_context_from_ctx(ctx)
+
     def render(self, width: int) -> list[str]:  # noqa: ARG002
         from tau.tui.utils import DIM, RESET
 

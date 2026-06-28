@@ -61,6 +61,13 @@ def register(tau: ExtensionAPI) -> None:
         model_badge.set_thinking_level(getattr(event, "level", None))
         _request_render(ctx)
 
+    @tau.on("after_provider_response")
+    def on_after_provider_response(event: Any, ctx: Any) -> None:
+        if not ctx.has_ui:
+            return
+        model_badge.update_context_from_response(getattr(event, "response", None), ctx)
+        _request_render(ctx)
+
     @tau.on("settled")
     def on_settled(event: Any, ctx: Any) -> None:
         if ctx.has_ui:
