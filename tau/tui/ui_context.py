@@ -798,7 +798,7 @@ class UIContext:
         if layout is None:
             return
         layout.input.set_text(text)
-        layout._tui.request_render()
+        layout.refresh_input_state()
 
     def clear_input(self) -> None:
         """Clear the editor's buffer."""
@@ -806,7 +806,7 @@ class UIContext:
         if layout is None:
             return
         layout.input.clear()
-        layout._tui.request_render()
+        layout.refresh_input_state()
 
     def insert_input_text(self, text: str) -> None:
         """Insert ``text`` at the editor's cursor position and re-render."""
@@ -814,7 +814,7 @@ class UIContext:
         if layout is None:
             return
         layout.input.insert_at_cursor(text)
-        layout._tui.request_render()
+        layout.refresh_input_state()
 
     def backspace_input(self) -> None:
         """Delete the character immediately before the editor cursor and re-render.
@@ -831,7 +831,7 @@ class UIContext:
         if backspace is None:
             return
         backspace()
-        layout._tui.request_render()
+        layout.refresh_input_state()
 
     def set_input_placeholder(self, text: str) -> None:
         """Override the editor placeholder (shown when the input is empty).

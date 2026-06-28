@@ -782,6 +782,11 @@ class Layout(Component):
         # Delegate all autocomplete logic (cmd args + extension triggers) to the manager
         self._autocomplete.sync(text, self.input.cursor, self._all_commands)
 
+    def refresh_input_state(self) -> None:
+        """Resync input-dependent UI after an extension mutates the editor."""
+        self._sync_pickers()
+        self._tui.request_render()
+
     def _find_at_query(self, text: str) -> tuple[int, str] | None:
         """
         Find the rightmost '@' before the cursor whose following text has no spaces.
@@ -1048,12 +1053,12 @@ class Layout(Component):
     def set_editor_text(self, text: str) -> None:
         """Replace the input editor text."""
         self.input.set_text(text)
-        self._tui.request_render()
+        self.refresh_input_state()
 
     def paste_to_editor(self, text: str) -> None:
         """Insert text at the cursor position in the editor."""
         self.input.insert_at_cursor(text)
-        self._tui.request_render()
+        self.refresh_input_state()
 
     def set_custom_input(self, factory: Callable[[Any, Any], Any] | None) -> None:
         """Replace the input widget with a custom implementation."""
