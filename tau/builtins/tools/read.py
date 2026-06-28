@@ -26,7 +26,7 @@ class ReadParams(BaseModel):
     """Parameters for the read tool."""
 
     path: str = Field(
-        description="Absolute path to the file to read.",
+        description="Absolute filesystem path to the file to be read.",
         examples=["/home/user/project/src/main.py", "/home/user/project/README.md"],
     )
     offset: int = Field(
