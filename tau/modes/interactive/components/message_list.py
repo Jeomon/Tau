@@ -88,6 +88,11 @@ class MessageBlock:
     # Public API
     # -------------------------------------------------------------------------
 
+    @property
+    def theme(self) -> MessageTheme:
+        """Return the active message theme."""
+        return self._theme
+
     def invalidate(self) -> None:
         self._cached = None
         self._tool_results_cache = None
@@ -612,6 +617,11 @@ class MessageList(Component):
     # Public API
     # -------------------------------------------------------------------------
 
+    @property
+    def theme(self) -> MessageTheme:
+        """Return the active message-list theme."""
+        return self._theme
+
     def set_height(self, height: int) -> None:
         self._height = max(1, height)
 
@@ -619,6 +629,11 @@ class MessageList(Component):
         self._theme = theme
         for block in self._blocks:
             block.set_theme(theme)
+
+    def set_show_images(self, enabled: bool) -> None:
+        """Update image visibility across existing and future message blocks."""
+        self._theme.show_images = enabled
+        self.set_theme(self._theme)
 
     def set_user_prefix(self, prefix: str) -> None:
         self._user_prefix = prefix

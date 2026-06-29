@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from tau.runtime.service import Runtime
     from tau.modes.interactive.components.layout import Layout
     from tau.modes.interactive.components.message_list import MessageBlock
+    from tau.runtime.service import Runtime
     from tau.tui.tui import TUI
 
 # Flush streamed tokens to the block at most once per frame (~60fps).
@@ -154,7 +154,7 @@ class AgentHookHandler:
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
     async def _on_agent_start(self, _event: object) -> None:
-        self._spinner(self._layout.spinner._theme.label_thinking, running=True)
+        self._spinner(self._layout.spinner.theme.label_thinking, running=True)
 
     async def _on_agent_end(self, _event: object) -> None:
         self._spinner(running=False)
@@ -168,7 +168,7 @@ class AgentHookHandler:
     async def _on_compaction_start(self, _event: object) -> None:
         # Layered reason so compaction can run alongside (and outlive) a turn's
         # spinner without either clobbering the other.
-        self._layout.spinner.push_reason("compaction", self._layout.spinner._theme.label_compacting)
+        self._layout.spinner.push_reason("compaction", self._layout.spinner.theme.label_compacting)
         self._tui.request_render()
 
     async def _on_compaction_end(self, _event: object) -> None:
@@ -181,7 +181,7 @@ class AgentHookHandler:
         msg = getattr(event, "message", None)
         if msg is None:
             return
-        self._layout.spinner.set_label(self._layout.spinner._theme.label_thinking)
+        self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
         block = self._layout.add_message(msg, streaming=False)
         self._current_block = block
         self._current_text_length = _text_length(msg)
@@ -200,9 +200,9 @@ class AgentHookHandler:
             self._mark_turn_content()
             last = contents[-1]
             if isinstance(last, ThinkingContent):
-                self._layout.spinner.set_label(self._layout.spinner._theme.label_thinking)
+                self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
             elif isinstance(last, TextContent) and last.content:
-                self._layout.spinner.set_label(self._layout.spinner._theme.label_streaming)
+                self._layout.spinner.set_label(self._layout.spinner.theme.label_streaming)
 
         # Buffer the latest message; schedule a flush if none pending.
         self._pending_msg = msg
@@ -269,10 +269,10 @@ class AgentHookHandler:
 
     async def _on_tool_start(self, _event: object) -> None:
         self._mark_turn_content()
-        self._spinner(self._layout.spinner._theme.label_tool_calling)
+        self._spinner(self._layout.spinner.theme.label_tool_calling)
 
     async def _on_tool_end(self, _event: object) -> None:
-        self._spinner(self._layout.spinner._theme.label_thinking)
+        self._spinner(self._layout.spinner.theme.label_thinking)
 
     # ── Terminal ──────────────────────────────────────────────────────────
 

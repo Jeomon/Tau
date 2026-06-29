@@ -6,9 +6,9 @@ from collections.abc import Callable
 
 import grapheme
 
-from tau.tui.utils import BOLD, CURSOR_MARKER, DIM, RESET, cursor_block, visible_width
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent
+from tau.tui.utils import BOLD, CURSOR_MARKER, DIM, RESET, cursor_block, visible_width
 
 # Matches any atomic input token at end-of-string (for backspace)
 # or start-of-string (for delete-forward).
@@ -161,6 +161,17 @@ class TextInput(Component):
         return self._history_idx
 
     @property
+    def history(self) -> list[str]:
+        """Return a snapshot of submitted editor history."""
+        return list(self._history)
+
+    def replace_history(self, entries: list[str], *, limit: int = 500) -> None:
+        """Replace submitted editor history without exposing internal storage."""
+        self._history = list(entries[-max(1, limit) :])
+        self._history_idx = -1
+        self._history_draft = ""
+
+    @property
     def on_submit(self) -> Callable[[str], None] | None:
         return self._on_submit
 
@@ -233,7 +244,7 @@ class TextInput(Component):
         indent = " " * prefix_w
 
         # Strip leading chars that the prefix has already represented visually.
-        display_text = self._text[self._visual_strip:] if self._visual_strip else self._text
+        display_text = self._text[self._visual_strip :] if self._visual_strip else self._text
 
         if not display_text:
             empty_cursor = CURSOR_MARKER + self.cursor_cell(" ")
@@ -329,7 +340,7 @@ class TextInput(Component):
         elif event.matches(Key.HOME, Key.ctrl("a")):
             self._cursor = self._line_start()
             self._last_edit = None
-        elif event.matches(Key.END, Key.ctrl("e")):
+        elif event.matches(Key.END) or (self._text and event.matches(Key.ctrl("e"))):
             self._cursor = self._line_end()
             self._last_edit = None
         elif event.matches(Key.ctrl("k")):

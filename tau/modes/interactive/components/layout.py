@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from tau.modes.interactive.components.command_palette import CommandPalette
 from tau.modes.interactive.components.file_picker import FilePicker
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
+from tau.modes.interactive.components.selector_controller import SelectorController
 from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
 from tau.tui.autocomplete import AutocompleteManager
 from tau.tui.component import Component, Container
@@ -18,7 +19,6 @@ from tau.tui.input import (
     InputEvent,
     KeyEvent,
     MouseEvent,
-    PasteEvent,
 )  # MouseEvent kept for type narrowing
 from tau.tui.theme import LayoutTheme
 
@@ -259,7 +259,7 @@ class Layout(Component):
         self._at_pos: int = 0  # char index of '@' in input text when picker opened
 
         # Inline pickers — rendered in the content stream below the input
-        self._active_selector: InlineSelector | None = None
+        self._selectors = SelectorController(tui.request_render)
         self._settings_panel: list[str] | None = None
         self._prompt = TextPrompt()
         self._oauth_status_lines: list[str] | None = None
@@ -284,6 +284,15 @@ class Layout(Component):
         tui.add_child(
             self
         )  # Layout = EditorZone (status_map + dividers + input + pickers + footer)
+
+    @property
+    def _active_selector(self) -> InlineSelector | None:
+        """Compatibility bridge while selector construction remains on Layout."""
+        return self._selectors.active
+
+    @_active_selector.setter
+    def _active_selector(self, selector: InlineSelector | None) -> None:
+        self._selectors.active = selector
 
     # -------------------------------------------------------------------------
     # Attach / detach (for full-screen takeovers and TrustScreen)
@@ -326,7 +335,7 @@ class Layout(Component):
         # The file picker is NOT a modal — like the '/' palette it renders below the
         # input while the editor stays visible and receives the query keystrokes.
         any_modal = (
-            self._active_selector is not None
+            self._selectors.is_active
             or self._settings_panel is not None
             or self._prompt.active
             or self._oauth_status_lines is not None
@@ -347,8 +356,8 @@ class Layout(Component):
 
         if any_modal:
             # Modal replaces the input between the two dividers
-            if self._active_selector is not None:
-                content.extend(self._active_selector.render(width))
+            if self._selectors.is_active:
+                content.extend(self._selectors.render(width))
             elif self._settings_panel is not None:
                 content.extend(self._settings_panel)
             elif self._prompt.active:
@@ -389,210 +398,10 @@ class Layout(Component):
         if isinstance(event, MouseEvent):
             return False
 
-        # Bracketed paste while a modal is open: route the text into the active
-        # selector's search/edit buffer (e.g. pasting an API key into a settings
-        # text field) instead of letting it fall through to the unfocused editor.
-        if isinstance(event, PasteEvent) and self._active_selector is not None:
-            appender = getattr(self._active_selector.selector, "append_search", None)
-            if appender is not None:
-                appender(event.text.replace("\r", ""))
-                self._tui.request_render()
-                return True
+        if self._selectors.handle_input(event):
+            return True
 
         if isinstance(event, KeyEvent):
-            # Generic inline selector (model, theme, effort, resume, tree) — modal
-            if self._active_selector is not None:
-                sel = self._active_selector
-                tree_sel = sel.selector if sel.kind == "tree" else None
-                model_sel = sel.selector if sel.kind == "model" else None
-                effort_sel = sel.selector if sel.kind == "effort" else None
-                theme_sel = sel.selector if sel.kind == "theme" else None
-
-                # Tree label-editing sub-mode: route all keys directly
-                if tree_sel is not None and getattr(tree_sel, "label_editing", False):
-                    tree_sel.label_edit_key(event)
-                    self._tui.request_render()
-                    return True
-
-                # OAuthSelector / ExtensionSelector / ConfigSelector: own callbacks via handle_input
-                oauth_sel = sel.selector if sel.kind == "oauth" else None
-                ext_sel = sel.selector if sel.kind == "extension" else None
-                config_sel = sel.selector if sel.kind == "config" else None
-                if oauth_sel is not None:
-                    oauth_sel.handle_input(event)
-                    self._tui.request_render()
-                    return True
-                if ext_sel is not None:
-                    ext_sel.handle_input(event)
-                    self._tui.request_render()
-                    return True
-                if config_sel is not None:
-                    config_sel.handle_input(event)
-                    self._tui.request_render()
-                    return True
-
-                # ThinkingSelector / ThemeSelector: delegate to Component.handle_input
-                if effort_sel is not None:
-                    effort_sel.handle_input(event)
-                    self._tui.request_render()
-                    return True
-                if theme_sel is not None:
-                    theme_sel.handle_input(event)
-                    self._tui.request_render()
-                    return True
-
-                # Model selector: owns search, scope, navigation
-                if model_sel is not None:
-                    match event.key:
-                        case "up":
-                            model_sel.move_up()
-                        case "down":
-                            model_sel.move_down()
-                        case "left":
-                            model_sel.prev_section()
-                        case "right":
-                            model_sel.next_section()
-                        case "tab":
-                            model_sel.toggle_scope()
-                        case "enter":
-                            val = model_sel.selected_value()
-                            self._active_selector = None
-                            if val is not None and sel.on_commit is not None:
-                                sel.on_commit(val)
-                            elif sel.on_cancel is not None:
-                                sel.on_cancel()
-                        case "escape":
-                            self._active_selector = None
-                            if sel.on_cancel is not None:
-                                sel.on_cancel()
-                        case "backspace":
-                            model_sel.backspace_search()
-                        case ch if len(ch) == 1 and ch.isprintable():
-                            model_sel.append_search(ch)
-                    self._tui.request_render()
-                    return True
-
-                # Settings modal: interactive settings list
-                settings_sel = sel.selector if sel.kind == "settings" else None
-                if settings_sel is not None:
-                    match event.key:
-                        case "up":
-                            settings_sel.move_up()
-                        case "down":
-                            settings_sel.move_down()
-                        case "enter" | " ":
-                            settings_sel.activate()
-                        case "escape":
-                            if settings_sel.in_submenu:
-                                settings_sel.cancel_submenu()
-                            else:
-                                self._active_selector = None
-                                if sel.on_cancel is not None:
-                                    sel.on_cancel()
-                        case "backspace":
-                            settings_sel.backspace_search()
-                        case ch if len(ch) == 1 and ch.isprintable():
-                            # Prefer event.char so shifted keys keep their case
-                            # (e.g. capitals in a case-sensitive API key).
-                            settings_sel.append_search(event.char or ch)
-                    self._tui.request_render()
-                    return True
-
-                # Resume modal: session picker with search/scope/delete
-                resume_sel = sel.selector if sel.kind == "resume" else None
-                if resume_sel is not None:
-                    match event.key:
-                        case "up":
-                            resume_sel.move_up()
-                        case "down":
-                            resume_sel.move_down()
-                        case "tab":
-                            resume_sel.toggle_scope()
-                        case "r" if event.ctrl:
-                            resume_sel.cycle_sort()
-                        case "d" if event.ctrl:
-                            resume_sel.start_delete()
-                        case "enter":
-                            if resume_sel.confirming_delete:
-                                resume_sel.confirm_delete()
-                            else:
-                                path = resume_sel.selected_path()
-                                self._active_selector = None
-                                if path is not None and sel.on_commit is not None:
-                                    sel.on_commit(path)
-                                elif sel.on_cancel is not None:
-                                    sel.on_cancel()
-                        case "escape":
-                            if resume_sel.confirming_delete:
-                                resume_sel.cancel_delete()
-                            else:
-                                self._active_selector = None
-                                if sel.on_cancel is not None:
-                                    sel.on_cancel()
-                        case "backspace":
-                            resume_sel.backspace_search()
-                        case ch if len(ch) == 1 and ch.isprintable():
-                            resume_sel.append_search(ch)
-                    self._tui.request_render()
-                    return True
-
-                match event.key:
-                    case "up":
-                        sel.nav(-1)
-                    case "down":
-                        sel.nav(1)
-                    # Page up/down for tree (page_up/page_down keys, or ctrl+←/→ as alias)
-                    case "page_up" if tree_sel is not None:
-                        tree_sel.page_up()
-                    case "page_down" if tree_sel is not None:
-                        tree_sel.page_down()
-                    case "left" if tree_sel is not None and (event.ctrl or event.alt):
-                        tree_sel.page_up()
-                    case "right" if tree_sel is not None and (event.ctrl or event.alt):
-                        tree_sel.page_down()
-                    # ←/→ (plain) fold/unfold — standard tree behavior; alt+←/→ as alias
-                    case "left" if tree_sel is not None:
-                        tree_sel.fold_or_up()
-                    case "right" if tree_sel is not None:
-                        tree_sel.unfold_or_down()
-                    case "enter" | "tab":
-                        val = sel.selected_value()
-                        self._active_selector = None
-                        if val is not None and sel.on_commit is not None:
-                            sel.on_commit(val)
-                        elif sel.on_cancel is not None:
-                            sel.on_cancel()
-                    case "escape":
-                        self._active_selector = None
-                        if sel.on_cancel is not None:
-                            sel.on_cancel()
-                    # Tree filter shortcuts (Ctrl+D/T/U/L/A)
-                    case "d" if event.ctrl and tree_sel is not None:
-                        tree_sel.set_filter("default")
-                    case "t" if event.ctrl and tree_sel is not None:
-                        tree_sel.toggle_filter("no-tools")
-                    case "u" if event.ctrl and tree_sel is not None:
-                        tree_sel.toggle_filter("user-only")
-                    case "l" if event.ctrl and tree_sel is not None:
-                        tree_sel.toggle_filter("labeled-only")
-                    case "a" if event.ctrl and tree_sel is not None:
-                        tree_sel.toggle_filter("all")
-                    # Cycle filter (ctrl+f = forward, ctrl+o kept for compat)
-                    case "f" if event.ctrl and tree_sel is not None:
-                        tree_sel.cycle_filter()
-                    # Label editing (shift+L)
-                    case "l" if event.shift and tree_sel is not None:
-                        tree_sel.start_label_edit()
-                    # Label timestamp toggle (shift+T)
-                    case "t" if event.shift and tree_sel is not None:
-                        tree_sel.toggle_label_timestamps()
-                    case "backspace" if tree_sel is not None:
-                        tree_sel.backspace_search()
-                    case ch if tree_sel is not None and len(ch) == 1 and ch.isprintable():
-                        tree_sel.append_search(ch)
-                self._tui.request_render()
-                return True
-
             # Settings panel: Esc closes
             if self._settings_panel is not None:
                 if event.key == "escape":

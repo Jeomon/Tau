@@ -103,6 +103,7 @@ def _message_selectable(message: object) -> bool:
 
 def open_tree_selector(ctx: CommandContext) -> None:
     from tau.message.types import TextContent
+    from tau.modes.interactive.components.tree_selector import TreeRow
     from tau.session.types import (
         BranchSummaryEntry,
         CompactionEntry,
@@ -113,7 +114,6 @@ def open_tree_selector(ctx: CommandContext) -> None:
         ModelChangeEntry,
         ThinkingLevelChangeEntry,
     )
-    from tau.modes.interactive.components.tree_selector import TreeRow
 
     sm = ctx.runtime.session_manager
     if sm is None:
@@ -391,7 +391,7 @@ async def _apply_tree_branch(ctx: CommandContext, entry_id: str) -> None:
     finally:
         if summarize:
             # Restore default spinner label
-            ctx.layout.spinner.set_label(ctx.layout.spinner._theme.label_thinking)
+            ctx.layout.spinner.set_label(ctx.layout.spinner.theme.label_thinking)
 
 
 def cmd_clone(ctx: CommandContext) -> None:
@@ -471,6 +471,7 @@ def cmd_session(ctx: CommandContext) -> None:
     lines.append(f"{DIM}{'Total':<{W}}{RESET} {total_messages}")
     lines.append("")
     lines.append(f"{BOLD}Tokens{RESET}")
+
     # Helper to format token counts with K/M/B/T suffixes
     def _human_readable(num: int) -> str:
         """Human‑readable token count using K/M/B/T.
@@ -497,8 +498,12 @@ def cmd_session(ctx: CommandContext) -> None:
     OUTPUT_RATE = 0.0002 / 1_000  # $0.0002 per 1 k output tokens
 
     # Token counts with human‑readable format and inline cost (two decimals)
-    lines.append(f"{DIM}{'Input':<{W}}{RESET} {_human_readable(input_tokens)} (${input_tokens * INPUT_RATE:.2f})")  # noqa: E501
-    lines.append(f"{DIM}{'Output':<{W}}{RESET} {_human_readable(output_tokens)} (${output_tokens * OUTPUT_RATE:.2f})")  # noqa: E501
+    lines.append(
+        f"{DIM}{'Input':<{W}}{RESET} {_human_readable(input_tokens)} (${input_tokens * INPUT_RATE:.2f})"
+    )  # noqa: E501
+    lines.append(
+        f"{DIM}{'Output':<{W}}{RESET} {_human_readable(output_tokens)} (${output_tokens * OUTPUT_RATE:.2f})"
+    )  # noqa: E501
     if cache_read_tokens:
         lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {_human_readable(cache_read_tokens)}")
     if cache_write_tokens:
@@ -510,6 +515,5 @@ def cmd_session(ctx: CommandContext) -> None:
     lines.append(
         f"{DIM}{'Total':<{W}}{RESET} {_human_readable(total_tokens)} (${total_cost_est:.2f})"
     )
-
 
     ctx.notify("\n".join(lines))

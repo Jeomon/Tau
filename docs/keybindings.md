@@ -13,7 +13,7 @@
 | Ctrl+K | Kill to end of line |
 | Ctrl+W | Delete previous word |
 | Ctrl+A / Home | Move to line start |
-| Ctrl+E / End | Move to line end |
+| Ctrl+E / End | Move to line end (Ctrl+E falls through to the app when input is empty) |
 | Delete / Ctrl+D | Delete character at cursor |
 
 ### Message Queue
@@ -31,7 +31,7 @@
 | Ctrl+C | Abort turn; double-press to quit |
 | Ctrl+D | Quit (on empty input) |
 | Ctrl+O | Toggle expand/collapse for tool result blocks |
-| Ctrl+E | Toggle expand/collapse for template and skill blocks |
+| Ctrl+E | Toggle template and skill blocks when the editor is empty |
 
 ### Pickers (model, theme, command palette)
 
@@ -53,12 +53,14 @@
 Pass a `KeyMap` to `App.create()` at startup:
 
 ```python
-from tau.tui.keybindings import KeyMap
+from tau.tui import KeyMap
 
 overrides: KeyMap = {
     "tui.app.quit": ["ctrl+q"],
     "tui.input.submit": ["enter"],
     "app.message.followup": ["alt+enter"],
+    "app.tool_results.toggle": ["ctrl+o"],
+    "app.invocations.toggle": ["ctrl+e"],
 }
 
 app = await App.create(runtime, keybindings=overrides)
@@ -76,6 +78,8 @@ A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that
 | `tui.input.word_back` | `ctrl+w` | Delete previous word |
 | `app.message.followup` | `alt+enter` | Queue as follow-up message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages into editor |
+| `app.tool_results.toggle` | `ctrl+o` | Toggle tool-result previews |
+| `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
 | `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit tau |
 | `tui.app.abort` | `ctrl+c` | Abort the current turn |
 | `tui.select.up` | `up`, `ctrl+p` | Move selection up |

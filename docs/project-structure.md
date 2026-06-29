@@ -234,35 +234,33 @@ Trust and permission system for tool execution.
 - `types.py` - Trust data structures
 - `utils.py` - Trust utilities
 
-### `tui/` - Terminal User Interface
+### `tui/` - Terminal UI Primitives
 
-Complete terminal UI (22 modules, 736 LOC).
+Reusable terminal parsing, differential rendering, components, themes, and
+keybindings.
 
-Core components:
-- `tui.py` - Main TUI event loop
-- `app.py` - TUI application state
-- `terminal.py` - Terminal control and cursor management
-- `renderer.py` - Differential update renderer
+- `tui.py` - Main event loop, focus, overlays, and differential rendering
+- `terminal.py` - Terminal control and capability detection
+- `input.py` - Generic input events, terminal parser, and keybinding registry
+- `component.py` - Component and container primitives
+- `components/` - Editor, text input, selectors, spinner, images, and boxes
+- `autocomplete.py` - Generic autocomplete management
+- `markdown.py` - Markdown-to-ANSI rendering
+- `theme.py` - TUI theme types
+- `ui_context.py` - Extension-facing UI context
 
-Input handling:
-- `input.py` - Text input editor
-- `input_handler.py` - Input event handling
-- `autocomplete.py` - Command/file autocomplete
-- `component.py` - UI component system
+### `modes/interactive/` - Interactive Application
 
-Rendering:
-- `message_renderers.py` - Message and tool result rendering
-- `markdown.py` - Markdown to ANSI rendering
-- `overlay.py` - Overlay UI (dialogs, popups)
+Interactive runtime orchestration and Tau-specific UI composition.
 
-Display:
-- `theme.py` - Theme application
-- `ansi.py` - ANSI code utilities
-- `keybindings.py` - Keybinding definitions
-- `fuzzy.py` - Fuzzy matching for search
-
-Integration:
-- `agent_hooks.py` - TUI event hooks
+- `app.py` - Application lifecycle and global shortcuts
+- `agent_hooks.py` - Agent-event to UI-state projection
+- `input_handler.py` - Runtime-aware submit, queue, media, and history orchestration
+- `commands/` - Interactive slash-command implementations
+- `components/layout.py` - Editor-zone composition
+- `components/message_list.py` - Message and tool-result rendering
+- `components/selector_controller.py` - Inline selector lifecycle and input routing
+- `components/overlays.py` - Interactive dialogs and editors
 - `ui_context.py` - UI state context
 
 ## Key Types and Classes

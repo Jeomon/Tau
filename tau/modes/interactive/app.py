@@ -9,7 +9,14 @@ from tau.extensions import ExtensionContext
 from tau.modes.interactive.agent_hooks import AgentHookHandler
 from tau.modes.interactive.commands.context import CommandContext
 from tau.modes.interactive.components.layout import Layout
-from tau.tui.input import InputEvent, InputHandler, KeyEvent, KeyMap, configure_keybindings
+from tau.modes.interactive.input_handler import InputHandler
+from tau.tui.input import (
+    InputEvent,
+    KeyEvent,
+    KeyMap,
+    configure_keybindings,
+    get_keybindings,
+)
 from tau.tui.theme import LayoutTheme
 from tau.tui.tui import TUI
 
@@ -487,52 +494,58 @@ class App:
             return
 
         if event.matches("escape"):
-            import time
-
-            agent = self._runtime.agent
-            if agent is not None and not agent.is_idle():
-                self._input.escape_abort()
-                self._last_escape = 0.0
-            elif not self._layout.input.text:
-                # Double-escape on empty editor: perform the configured action
-                now = time.monotonic()
-                if now - self._last_escape < 0.5:
-                    self._last_escape = 0.0
-                    self._do_double_escape()
-                else:
-                    self._last_escape = now
-            else:
-                self._last_escape = 0.0
+            self._handle_escape()
             return
 
         if event.matches("ctrl+c"):
-            import time
-
-            agent = self._runtime.agent
-            if agent is not None and not agent.is_idle():
-                agent.abort()
-            else:
-                now = time.monotonic()
-                if now - self._last_ctrl_c < 0.5:
-                    self._tui.stop()
-                else:
-                    self._last_ctrl_c = now
-                    self._layout.input.clear()
-                    self._tui.request_render()
+            self._handle_ctrl_c()
             return
 
-        if event.matches("ctrl+o"):
+        keybindings = get_keybindings()
+        if keybindings.matches(event, "app.tool_results.toggle"):
             self._layout.messages.toggle_tool_results_expanded()
             self._tui.request_render()
             return
 
-        if event.matches("ctrl+e"):
+        if keybindings.matches(event, "app.invocations.toggle"):
             self._layout.messages.toggle_invocations_expanded()
             self._tui.request_render()
             return
 
         if event.matches("ctrl+d"):
             self._tui.stop()
+
+    def _handle_escape(self) -> None:
+        import time
+
+        agent = self._runtime.agent
+        if agent is not None and not agent.is_idle():
+            self._input.escape_abort()
+            self._last_escape = 0.0
+        elif not self._layout.input.text:
+            now = time.monotonic()
+            if now - self._last_escape < 0.5:
+                self._last_escape = 0.0
+                self._do_double_escape()
+            else:
+                self._last_escape = now
+        else:
+            self._last_escape = 0.0
+
+    def _handle_ctrl_c(self) -> None:
+        import time
+
+        agent = self._runtime.agent
+        if agent is not None and not agent.is_idle():
+            agent.abort()
+            return
+        now = time.monotonic()
+        if now - self._last_ctrl_c < 0.5:
+            self._tui.stop()
+            return
+        self._last_ctrl_c = now
+        self._layout.input.clear()
+        self._tui.request_render()
 
     def _do_double_escape(self) -> None:
         """Execute the action configured for double-Escape on an empty editor."""

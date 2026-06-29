@@ -56,8 +56,8 @@ def open_settings_panel(ctx: CommandContext) -> None:
     """Open the interactive settings modal."""
     from tau.engine.types import FollowupMode, SteeringMode
     from tau.inference.types import ThinkingLevel, Transport
-    from tau.themes.registry import AUTO_THEME, DEFAULT_THEME, theme_registry
     from tau.modes.interactive.components.settings_selector import SettingItem, SettingsSelector
+    from tau.themes.registry import AUTO_THEME, DEFAULT_THEME, theme_registry
 
     sm = ctx.runtime.settings_manager
     if sm is None:
@@ -390,9 +390,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
         # Build a path→settings lookup from the live settings manager so the
         # panel always shows the values stored in settings.json, not the
         # potentially stale snapshot captured at extension load time.
-        ext_settings_map = {
-            e.path: (e.settings or {}) for e in sm.get_all_extension_entries()
-        }
+        ext_settings_map = {e.path: (e.settings or {}) for e in sm.get_all_extension_entries()}
 
         for ext in ext_runtime._extensions:
             for reg in ext.settings_registrations:
@@ -405,7 +403,9 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 if reg.summary_key:
                     raw = current_config.get(reg.summary_key)
                     if raw is not None:
-                        reg.summary = "on" if (raw is True or str(raw).lower() in ("true", "on")) else "off"
+                        reg.summary = (
+                            "on" if (raw is True or str(raw).lower() in ("true", "on")) else "off"
+                        )
 
                 row_id = f"_ext_{id(reg)}"
                 items.append(
@@ -427,24 +427,68 @@ def open_settings_panel(ctx: CommandContext) -> None:
         if item is not None:
             item.current_value = new_value
 
+    boolean_setters = {
+        "quiet_startup": sm.set_quiet_startup,
+        "show_thinking": sm.set_show_thinking,
+        "show_tool_calls": sm.set_show_tool_calls,
+        "image_auto_resize": sm.set_image_auto_resize,
+        "image_block": sm.set_image_block_images,
+        "show_hardware_cursor": sm.set_show_hardware_cursor,
+        "branch_summary_skip_prompt": sm.set_branch_summary_skip_prompt,
+    }
+    string_setters = {
+        "project_trust": sm.set_project_trust,
+        "double_escape_action": sm.set_double_escape_action,
+        "tree_filter_mode": sm.set_tree_filter_mode,
+    }
+    optional_string_setters = {
+        "proxy_url": sm.set_proxy_url,
+        "proxy_no_proxy": sm.set_no_proxy,
+        "terminal_shell_path": sm.set_shell_path,
+        "terminal_shell_command_prefix": sm.set_shell_command_prefix,
+    }
+    integer_setters = {
+        "http_idle_timeout_ms": sm.set_http_idle_timeout_ms,
+        "picker_max_visible": sm.set_picker_max_visible,
+        "autocomplete_max_visible": sm.set_autocomplete_max_visible,
+        "editor_padding_x": sm.set_editor_padding_x,
+        "retry_max_retries": sm.set_retry_max_retries,
+        "retry_base_delay_ms": sm.set_retry_base_delay_ms,
+        "compaction_reserve_tokens": sm.set_compaction_reserve_tokens,
+        "compaction_keep_recent_tokens": sm.set_compaction_keep_recent_tokens,
+        "branch_summary_reserve_tokens": sm.set_branch_summary_reserve_tokens,
+    }
+    parent_boolean_setters = {
+        "retry_enabled": (sm.set_retry_enabled, "retry"),
+        "compaction_enabled": (sm.set_compaction_enabled, "compaction"),
+        "branch_summary_enabled": (
+            sm.set_branch_summary_enabled,
+            "branch_summary",
+        ),
+    }
+
     def on_change(item_id: str, value: str) -> None:
-        if item_id == "quiet_startup":
-            sm.set_quiet_startup(value == "true")
-        elif item_id == "show_thinking":
-            sm.set_show_thinking(value == "true")
-        elif item_id == "show_tool_calls":
-            sm.set_show_tool_calls(value == "true")
+        enabled = value == "true"
+        if setter := boolean_setters.get(item_id):
+            setter(enabled)
+        elif setter := string_setters.get(item_id):
+            setter(value)
+        elif setter := optional_string_setters.get(item_id):
+            setter(value or None)
+        elif parent_setter := parent_boolean_setters.get(item_id):
+            setter, parent_id = parent_setter
+            setter(enabled)
+            _update_parent(parent_id, "on" if enabled else "off")
+        elif setter := integer_setters.get(item_id):
+            try:
+                setter(int(value))
+            except ValueError:
+                ctx.notify(f"Invalid number: {value!r}")
         elif item_id == "show_images":
             v = value == "true"
             sm.set_show_images(v)
-            t = ctx.layout.messages._theme
-            t.show_images = v
-            ctx.layout.messages.set_theme(t)
+            ctx.layout.messages.set_show_images(v)
             ctx.tui.request_render()
-        elif item_id == "image_auto_resize":
-            sm.set_image_auto_resize(value == "true")
-        elif item_id == "image_block":
-            sm.set_image_block_images(value == "true")
         elif item_id == "steering_mode":
             sm.set_steering_mode(SteeringMode(value))
         elif item_id == "follow_up_mode":
@@ -459,18 +503,12 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 from tau.themes.registry import theme_registry as _tr
 
                 resolved = (
-                    mode_for_background(ctx.tui.background_color)
-                    if value == AUTO_THEME
-                    else value
+                    mode_for_background(ctx.tui.background_color) if value == AUTO_THEME else value
                 )
                 ctx.layout.set_theme(_tr.get(resolved))
                 sm.set_theme(value)  # persist "auto" verbatim
             except ValueError:
                 pass
-        elif item_id == "proxy_url":
-            sm.set_proxy_url(value or None)
-        elif item_id == "proxy_no_proxy":
-            sm.set_no_proxy(value or None)
         elif item_id == "proxy_headers":
             if not value.strip():
                 sm.set_proxy_headers(None)
@@ -489,63 +527,6 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 except json.JSONDecodeError as e:
                     ctx.notify(f"Invalid JSON: {e.msg}")
                     return
-        elif item_id == "project_trust":
-            sm.set_project_trust(value)
-        elif item_id == "double_escape_action":
-            sm.set_double_escape_action(value)
-        elif item_id == "tree_filter_mode":
-            sm.set_tree_filter_mode(value)
-        elif item_id == "show_hardware_cursor":
-            sm.set_show_hardware_cursor(value == "true")
-        elif item_id == "retry_enabled":
-            sm.set_retry_enabled(value == "true")
-            _update_parent("retry", "on" if value == "true" else "off")
-        elif item_id == "compaction_enabled":
-            sm.set_compaction_enabled(value == "true")
-            _update_parent("compaction", "on" if value == "true" else "off")
-        elif item_id == "branch_summary_enabled":
-            sm.set_branch_summary_enabled(value == "true")
-            _update_parent("branch_summary", "on" if value == "true" else "off")
-        elif item_id == "branch_summary_skip_prompt":
-            sm.set_branch_summary_skip_prompt(value == "true")
-        elif item_id in (
-            "http_idle_timeout_ms",
-            "picker_max_visible",
-            "autocomplete_max_visible",
-            "editor_padding_x",
-            "retry_max_retries",
-            "retry_base_delay_ms",
-            "compaction_reserve_tokens",
-            "compaction_keep_recent_tokens",
-            "branch_summary_reserve_tokens",
-        ):
-            try:
-                n = int(value)
-            except ValueError:
-                ctx.notify(f"Invalid number: {value!r}")
-                return
-            if item_id == "http_idle_timeout_ms":
-                sm.set_http_idle_timeout_ms(n)
-            elif item_id == "picker_max_visible":
-                sm.set_picker_max_visible(n)
-            elif item_id == "autocomplete_max_visible":
-                sm.set_autocomplete_max_visible(n)
-            elif item_id == "editor_padding_x":
-                sm.set_editor_padding_x(n)
-            elif item_id == "retry_max_retries":
-                sm.set_retry_max_retries(n)
-            elif item_id == "retry_base_delay_ms":
-                sm.set_retry_base_delay_ms(n)
-            elif item_id == "compaction_reserve_tokens":
-                sm.set_compaction_reserve_tokens(n)
-            elif item_id == "compaction_keep_recent_tokens":
-                sm.set_compaction_keep_recent_tokens(n)
-            elif item_id == "branch_summary_reserve_tokens":
-                sm.set_branch_summary_reserve_tokens(n)
-        elif item_id == "terminal_shell_path":
-            sm.set_shell_path(value or None)
-        elif item_id == "terminal_shell_command_prefix":
-            sm.set_shell_command_prefix(value or None)
 
     def on_close() -> None:
         sm.save_batch()  # commits the batch and re-merges the live settings view

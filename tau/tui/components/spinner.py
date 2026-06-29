@@ -57,6 +57,11 @@ class Spinner(Component):
     def active(self) -> bool:
         return self._active or bool(self._reasons)
 
+    @property
+    def theme(self) -> SpinnerTheme:
+        """Return the active spinner theme."""
+        return self._theme
+
     def set_label(self, label: str) -> None:
         self._label = label
 
