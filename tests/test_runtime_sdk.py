@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from tau.extensions.api import ExtensionAPI
 from tau.hooks.runtime import RuntimeReadyEvent
 from tau.hooks.service import Hooks
 from tau.message.types import (
@@ -88,7 +89,14 @@ def test_runtime_dependency_factories_are_used(tmp_path: Path) -> None:
     hooks = Hooks()
     registry = ToolRegistry()
     calls: dict[str, Any] = {}
-    counts = {"settings": 0, "llm": 0, "session": 0, "hooks": 0, "registry": 0}
+    counts = {
+        "settings": 0,
+        "llm": 0,
+        "session": 0,
+        "hooks": 0,
+        "registry": 0,
+        "inline": 0,
+    }
 
     class _Options:
         timeout = None
@@ -132,11 +140,16 @@ def test_runtime_dependency_factories_are_used(tmp_path: Path) -> None:
         counts["registry"] += 1
         return registry
 
+    def inline_factory(tau: ExtensionAPI) -> None:
+        counts["inline"] += 1
+        tau.append_prompt("inline")
+
     config = RuntimeConfig(
         cwd=tmp_path,
         config_dir=tmp_path / "config",
         persist_session=False,
         project_trusted=True,
+        extension_factories=[inline_factory],
         dependencies=RuntimeDependencies(
             settings=settings_factory,
             llm=llm_factory,  # type: ignore[arg-type]
@@ -151,6 +164,8 @@ def test_runtime_dependency_factories_are_used(tmp_path: Path) -> None:
     assert context.hooks is hooks
     assert context.tool_registry is registry
     assert context.llm is not None
+    assert context.ext_runtime is not None
+    assert context.ext_runtime.get_prompt_appends()[-1] == "inline"
     assert calls["settings"].cwd == tmp_path
     assert calls["llm"].model_id
     assert calls["session"].persist is False
@@ -172,6 +187,7 @@ def test_runtime_dependency_factories_are_used(tmp_path: Path) -> None:
         "session": 2,
         "hooks": 1,
         "registry": 2,
+        "inline": 1,
     }
 
 

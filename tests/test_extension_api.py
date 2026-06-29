@@ -12,6 +12,10 @@ import pytest
 
 from tau.extensions.api import ExtensionAPI, _RuntimeRef
 from tau.extensions.context import ExtensionContext
+from tau.extensions.loader import load_inline_extensions
+from tau.extensions.runtime import ExtensionRuntime
+from tau.hooks.runtime import RuntimeReadyEvent
+from tau.hooks.service import Hooks
 from tau.inference.api.text.base import BaseLLMAPI
 from tau.inference.api.text.service import TextLLM
 from tau.inference.provider.types import APIProvider, AuthType, OAuthProvider
@@ -28,6 +32,91 @@ def _make_api(runtime_ref: _RuntimeRef | None = None) -> ExtensionAPI:
         cwd=Path("."),
         runtime_ref=runtime_ref,
     )
+
+
+def test_load_inline_extensions_runs_sync_and_async_factories(tmp_path: Path) -> None:
+    runtime_ref = _RuntimeRef()
+
+    def first(tau: ExtensionAPI) -> None:
+        tau.append_prompt("first")
+        tau.provide("value", 42)
+
+    async def second(tau: ExtensionAPI) -> None:
+        tau.append_prompt(f"second:{tau.get_service('value')}")
+
+    result = asyncio.run(
+        load_inline_extensions(
+            [first, second],
+            llm=SimpleNamespace(model=SimpleNamespace(id="x"), provider_id="x"),  # type: ignore[arg-type]
+            settings=SimpleNamespace(),  # type: ignore[arg-type]
+            cwd=tmp_path,
+            runtime_ref=runtime_ref,
+        )
+    )
+
+    assert result.errors == []
+    assert [extension.source for extension in result.extensions] == ["inline", "inline"]
+    assert [extension.prompt_appends for extension in result.extensions] == [
+        ["first"],
+        ["second:42"],
+    ]
+
+
+def test_load_inline_extensions_isolates_factory_errors(tmp_path: Path) -> None:
+    def broken(_tau: ExtensionAPI) -> None:
+        raise RuntimeError("factory failed")
+
+    def healthy(tau: ExtensionAPI) -> None:
+        tau.append_prompt("loaded")
+
+    result = asyncio.run(
+        load_inline_extensions(
+            [broken, healthy],
+            llm=SimpleNamespace(model=SimpleNamespace(id="x"), provider_id="x"),  # type: ignore[arg-type]
+            settings=SimpleNamespace(),  # type: ignore[arg-type]
+            cwd=tmp_path,
+            runtime_ref=_RuntimeRef(),
+        )
+    )
+
+    assert len(result.errors) == 1
+    assert result.errors[0].extension_path == "inline:broken:0"
+    assert result.errors[0].error == "RuntimeError: factory failed"
+    assert [extension.prompt_appends for extension in result.extensions] == [["loaded"]]
+
+
+def test_inline_extension_reload_does_not_duplicate_handlers(tmp_path: Path) -> None:
+    calls = 0
+    hooks = Hooks()
+    runtime_ref = _RuntimeRef()
+
+    def factory(tau: ExtensionAPI) -> None:
+        @tau.on("runtime_ready")
+        def on_ready(_event: object, _context: object) -> None:
+            nonlocal calls
+            calls += 1
+
+    def load() -> ExtensionRuntime:
+        result = asyncio.run(
+            load_inline_extensions(
+                [factory],
+                llm=SimpleNamespace(model=SimpleNamespace(id="x"), provider_id="x"),  # type: ignore[arg-type]
+                settings=SimpleNamespace(),  # type: ignore[arg-type]
+                cwd=tmp_path,
+                runtime_ref=runtime_ref,
+            )
+        )
+        return ExtensionRuntime(result, hooks, runtime_ref)
+
+    first = load()
+    asyncio.run(hooks.emit(RuntimeReadyEvent()))
+    first.unsubscribe()
+
+    second = load()
+    asyncio.run(hooks.emit(RuntimeReadyEvent()))
+    second.unsubscribe()
+
+    assert calls == 2
 
 
 # ── Custom providers ──────────────────────────────────────────────────────────

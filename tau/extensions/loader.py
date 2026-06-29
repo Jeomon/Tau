@@ -15,6 +15,7 @@ from tau.extensions.api import (
     Extension,
     ExtensionAPI,
     ExtensionError,
+    ExtensionFactory,
     LoadExtensionsResult,
     _RuntimeRef,
 )
@@ -28,6 +29,48 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 _ENTRY_POINT = "register"
+
+
+async def load_inline_extensions(
+    factories: list[ExtensionFactory],
+    *,
+    llm: TextLLM,
+    settings: SettingsManager,
+    cwd: Path,
+    runtime_ref: _RuntimeRef,
+) -> LoadExtensionsResult:
+    """Execute in-memory extension factories through the standard extension API."""
+    extensions: list[Extension] = []
+    errors: list[ExtensionError] = []
+
+    for index, factory in enumerate(factories):
+        name = getattr(factory, "__name__", factory.__class__.__name__)
+        path = f"inline:{name}:{index}"
+        extension = Extension(path=path, source="inline")
+        api = ExtensionAPI(
+            extension=extension,
+            llm=llm,
+            settings=settings,
+            cwd=cwd,
+            runtime_ref=runtime_ref,
+        )
+        try:
+            result = factory(api)
+            if inspect.isawaitable(result):
+                await result
+            extensions.append(extension)
+        except Exception:
+            tb = traceback.format_exc()
+            errors.append(
+                ExtensionError(
+                    extension_path=path,
+                    event="load",
+                    error=tb.strip().splitlines()[-1],
+                    stack=tb,
+                )
+            )
+
+    return LoadExtensionsResult(extensions=extensions, errors=errors)
 
 
 def _venv_python_version(venv_dir: Path) -> str | None:

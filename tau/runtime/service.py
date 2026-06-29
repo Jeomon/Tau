@@ -437,6 +437,18 @@ class Runtime:
             runtime_ref=runtime_ref,
         )
         load_result = await loader.load()
+        if self._config.extension_factories:
+            from tau.extensions.loader import load_inline_extensions
+
+            inline_result = await load_inline_extensions(
+                self._config.extension_factories,
+                llm=self._context.llm,
+                settings=sm,
+                cwd=cwd,
+                runtime_ref=runtime_ref,
+            )
+            load_result.extensions.extend(inline_result.extensions)
+            load_result.errors.extend(inline_result.errors)
         new_ext = ExtensionRuntime(load_result, self._context.hooks, runtime_ref)
         new_ext.runtime_ref.runtime = self
         self._context.ext_runtime = new_ext
@@ -512,6 +524,8 @@ class Runtime:
         target = next((e for e in old._extensions if e.path == ext_path), None)
         if target is None:
             # Unknown target — fall back to the all-extensions reload.
+            return await self.reload_extensions()
+        if target.source == "inline":
             return await self.reload_extensions()
 
         cwd = self._context.session_manager.cwd

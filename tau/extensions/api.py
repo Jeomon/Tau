@@ -5,7 +5,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
@@ -84,6 +84,15 @@ class LoadExtensionsResult:
 
     extensions: list[Extension] = field(default_factory=list)
     errors: list[ExtensionError] = field(default_factory=list)
+
+
+@runtime_checkable
+class ExtensionFactory(Protocol):
+    """Callable that registers one in-memory extension."""
+
+    def __call__(self, tau: ExtensionAPI) -> Awaitable[None] | None:
+        """Register extension capabilities through the standard API."""
+        ...
 
 
 # ── Deferred registration types ───────────────────────────────────────────────

@@ -48,6 +48,7 @@ asyncio.run(main())
 | `exclude_tools` | `set[str]` | Tool names disabled after applying the allowlist |
 | `system_prompt` | `str` | Custom system prompt (overrides the default) |
 | `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |
+| `extension_factories` | `list[ExtensionFactory]` | In-memory extensions registered at startup and `/reload` |
 | `dependencies` | `RuntimeDependencies` | Factories for settings, LLM, sessions, hooks, and tool registry |
 | `config_dir` | `Path \| None` | Override config directory (default `~/.tau`) |
 
@@ -60,6 +61,34 @@ runtime = await Runtime.create(config)
 ```
 
 `create()` builds the full dependency graph: settings, LLM, session manager, extensions, tool registry, engine, and agent.
+
+### Inline extensions
+
+Embedding applications can register extensions without creating files:
+
+```python
+from tau.extensions import ExtensionAPI
+
+def configure(tau: ExtensionAPI) -> None:
+    tau.register_tool(MyTool())
+    tau.append_prompt("Follow the host application's conventions.")
+
+    @tau.on("agent_end")
+    async def observe_agent_end(event, context):
+        print(context.session_id)
+
+config = RuntimeConfig(
+    cwd=Path.cwd(),
+    extension_factories=[configure],
+)
+runtime = await Runtime.create(config)
+```
+
+Factories may be synchronous or asynchronous. They run after file-based
+extensions, so their registrations take precedence on name collisions.
+Failures are recorded as normal `ExtensionError` entries and do not prevent
+other factories from loading. `/reload` executes every factory again after
+unsubscribing the old extension runtime.
 
 ### Initial messages and media
 

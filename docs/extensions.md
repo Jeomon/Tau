@@ -89,6 +89,34 @@ def register(tau):
     pass
 ```
 
+### Inline extension factories
+
+Python API users can supply the same registration function directly through
+`RuntimeConfig`, without creating or installing an extension file:
+
+```python
+from tau.extensions import ExtensionAPI
+from tau.runtime.types import RuntimeConfig
+
+def configure(tau: ExtensionAPI) -> None:
+    tau.register_tool(MyTool())
+    tau.append_prompt("Use the embedding application's workflow.")
+
+config = RuntimeConfig(
+    cwd=Path.cwd(),
+    extension_factories=[configure],
+)
+```
+
+Inline factories receive the normal `ExtensionAPI`, can be synchronous or
+asynchronous, and load after file-based extensions. They participate in the
+same tool, command, hook, provider, service, prompt, theme, and UI registration
+systems. Factory failures are isolated and reported as `ExtensionError`.
+
+`/reload` unloads the old inline extensions and executes the factories again,
+preventing duplicate hook subscriptions. Session replacement reuses the active
+extension runtime and does not rerun factories.
+
 `register` may be `async` if setup requires awaiting:
 
 ```python

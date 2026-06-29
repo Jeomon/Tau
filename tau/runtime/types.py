@@ -11,7 +11,7 @@ from tau.agent.service import Agent
 from tau.agent.types import AgentConfig
 from tau.builtins.tools import TOOLS
 from tau.engine.service import Engine
-from tau.extensions.api import _RuntimeRef
+from tau.extensions.api import ExtensionFactory, _RuntimeRef
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
@@ -70,6 +70,7 @@ class RuntimeConfig(BaseModel):
     system_prompt: str = ""
     disable_context_files: bool = False
     resource_loader: ResourceLoader | None = None
+    extension_factories: list[ExtensionFactory] = Field(default_factory=list)
     dependencies: RuntimeDependencies = Field(default_factory=RuntimeDependencies)
 
     # Trust
@@ -272,6 +273,18 @@ class RuntimeContext:
                 runtime_ref=runtime_ref,
             )
             load_result = await el.load()
+            if config.extension_factories:
+                from tau.extensions.loader import load_inline_extensions
+
+                inline_result = await load_inline_extensions(
+                    config.extension_factories,
+                    llm=llm,
+                    settings=settings_manager,
+                    cwd=cwd,
+                    runtime_ref=runtime_ref,
+                )
+                load_result.extensions.extend(inline_result.extensions)
+                load_result.errors.extend(inline_result.errors)
             ext_runtime = ExtensionRuntime(load_result, hooks, runtime_ref)
 
         assert ext_runtime is not None
