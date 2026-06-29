@@ -16,12 +16,7 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.message.utils import strip_unusable_trailing_assistant
-from tau.session.compaction import (
-    CompactionSettings,
-)
-from tau.session.compaction import (
-    ThresholdCompactionStop as _ThresholdCompactionStop,
-)
+from tau.session.compaction import CompactionSettings
 from tau.session.utils import to_llm_messages as _to_llm_messages
 from tau.tool.types import ToolInvocation, ToolResult
 
@@ -276,13 +271,10 @@ class Agent:
         from the current session so the engine always sees up-to-date
         compacted history.
         """
-        threshold_stop = await self._check_compaction()
+        await self._check_compaction()
         session_ctx = self._session_manager.build_session_context()
         llm_messages = _to_llm_messages(session_ctx.messages)
-        result = strip_unusable_trailing_assistant(llm_messages, self._session_manager)
-        if threshold_stop:
-            raise _ThresholdCompactionStop()
-        return result
+        return strip_unusable_trailing_assistant(llm_messages, self._session_manager)
 
     # -------------------------------------------------------------------------
     # Internal helpers
@@ -439,8 +431,7 @@ class Agent:
     async def _check_compaction(self) -> bool:
         """Auto-compact if context usage exceeds the threshold. Circuit-breaks after 3 failures.
 
-        Returns True if threshold compaction ran (caller should stop the current turn),
-        False otherwise (overflow-forced compaction or no compaction needed).
+        Returns True when compaction ran and False otherwise.
         """
         from tau.session.compaction import (
             estimate_context_tokens,
@@ -510,10 +501,7 @@ class Agent:
                 manual=False,
                 reason=_CompactionReason.Overflow if forced else _CompactionReason.Threshold,
             )
-            # Threshold compaction: caller should stop the turn; user resumes manually.
-            # Forced (silent overflow) compaction: caller should continue — the LLM
-            # never got a usable response, so there's nothing for the user to resume from.
-            return not forced
+            return True
         except _CompactionCancelledError:
             return False
         except Exception:

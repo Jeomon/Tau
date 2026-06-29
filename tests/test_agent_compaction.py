@@ -13,6 +13,7 @@ from tau.agent.service import Agent
 from tau.agent.types import AgentPhase
 from tau.hooks.engine import BeforeCompactionResult
 from tau.hooks.service import Hooks
+from tau.message.types import UserMessage
 from tau.session.compaction import CompactionResult, CompactionSettings
 
 
@@ -113,6 +114,23 @@ def test_compaction_events_run_in_explicit_phase() -> None:
 
     assert observed == [("compaction_end", AgentPhase.COMPACTION)]
     assert agent._phase == AgentPhase.IDLE
+
+
+def test_threshold_compaction_resumes_with_rebuilt_context() -> None:
+    async def scenario() -> None:
+        agent: Any = Agent.__new__(Agent)
+        compacted = UserMessage()
+        agent._check_compaction = AsyncMock(return_value=True)
+        agent._session_manager = SimpleNamespace(
+            build_session_context=lambda: SimpleNamespace(messages=[compacted]),
+        )
+
+        result = await agent._transform_context([], None)
+
+        assert result == [compacted]
+        agent._check_compaction.assert_awaited_once()
+
+    asyncio.run(scenario())
 
 
 def test_cancelled_compaction_emits_cancel_event_and_restores_phase() -> None:

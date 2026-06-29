@@ -16,17 +16,6 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-
-class ThresholdCompactionStop(Exception):
-    """Raised by transform_context after threshold compaction to stop the engine loop.
-
-    Threshold compaction means the context hit the configured limit mid-turn.
-    The turn stops cleanly so the user can review the compacted context and
-    continue manually willRetry=false behaviour for threshold
-    compaction.
-    """
-
-
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
 

@@ -603,16 +603,7 @@ class Engine:
                     # Called before every LLM inference so compaction can fire
                     # between tool iterations, not only at invoke() boundaries.
                     if self.options.transform_context is not None:
-                        from tau.session.compaction import ThresholdCompactionStop
-
-                        try:
-                            messages = await self.options.transform_context(messages, signal)
-                        except ThresholdCompactionStop:
-                            # Threshold compaction fired mid-turn. Stop cleanly so the
-                            # user can review the compacted context and continue.
-                            await emit(TurnEndEvent(message=AssistantMessage(), tool_results=[]))
-                            stop = True
-                            break
+                        messages = await self.options.transform_context(messages, signal)
 
                     message = AssistantMessage()
                     tool_calls.clear()
