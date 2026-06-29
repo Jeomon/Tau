@@ -114,7 +114,7 @@ Parallel completion events may arrive in completion order, but result messages
 remain in source order.
 
 For tools using `render_shell="default"`, the TUI owns result collapsing and
-the Ctrl+O hint. Results at or below `tool_result_preview_lines` render in full
+the Ctrl+O hint. Thinking and results at or below `tool_result_preview_lines` render in full
 without a hint. Tools can set `result_preview_lines` to override the global
 threshold or `result_expandable=False` to always show their complete rendered
 output. Custom renderers should return their complete semantic output and must

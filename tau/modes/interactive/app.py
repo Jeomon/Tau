@@ -502,8 +502,8 @@ class App:
             return
 
         keybindings = get_keybindings()
-        if keybindings.matches(event, "app.tool_results.toggle"):
-            self._layout.messages.toggle_tool_results_expanded()
+        if keybindings.matches(event, "app.details.toggle"):
+            self._layout.messages.toggle_details_expanded()
             self._tui.request_render()
             return
 

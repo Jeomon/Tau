@@ -30,7 +30,7 @@
 | Escape | Abort current turn; restore queued messages |
 | Ctrl+C | Abort turn; double-press to quit |
 | Ctrl+D | Quit (on empty input) |
-| Ctrl+O | Toggle expand/collapse for tool result blocks |
+| Ctrl+O | Toggle expand/collapse for thinking and tool-result blocks |
 | Ctrl+E | Toggle template and skill blocks when the editor is empty |
 
 ### Pickers (model, theme, command palette)
@@ -59,7 +59,7 @@ overrides: KeyMap = {
     "tui.app.quit": ["ctrl+q"],
     "tui.input.submit": ["enter"],
     "app.message.followup": ["alt+enter"],
-    "app.tool_results.toggle": ["ctrl+o"],
+    "app.details.toggle": ["ctrl+o"],
     "app.invocations.toggle": ["ctrl+e"],
 }
 
@@ -78,7 +78,7 @@ A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that
 | `tui.input.word_back` | `ctrl+w` | Delete previous word |
 | `app.message.followup` | `alt+enter` | Queue as follow-up message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages into editor |
-| `app.tool_results.toggle` | `ctrl+o` | Toggle tool-result previews |
+| `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result previews |
 | `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
 | `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit tau |
 | `tui.app.abort` | `ctrl+c` | Abort the current turn |

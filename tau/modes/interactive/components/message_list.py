@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 _TOOL_INDENT = "  "
 _RESULT_INDENT = "    "
-_DEFAULT_TOOL_RESULT_PREVIEW_LINES = 5
+_DEFAULT_DETAIL_PREVIEW_LINES = 5
 
 
 def _default_shell_preview(
@@ -67,7 +67,7 @@ class MessageBlock:
         theme: MessageTheme | None = None,
         user_prefix: str = "❯ ",
         tool_lookup: Callable[[str], Tool | None] | None = None,
-        tool_result_preview_lines: int = _DEFAULT_TOOL_RESULT_PREVIEW_LINES,
+        tool_result_preview_lines: int = _DEFAULT_DETAIL_PREVIEW_LINES,
     ) -> None:
         self._message = message
         self._streaming = streaming
@@ -290,15 +290,34 @@ class MessageBlock:
 
         for idx, item in enumerate(msg.contents):
             if isinstance(item, ThinkingContent):
-                if t.show_thinking:
-                    if item.content:
-                        for line in wrap(item.content.rstrip(), inner_width):
-                            lines.append("  " + t.thinking(line))
-                    else:
-                        lines.append("  " + t.thinking(t.thinking_label))
-                    next_item = msg.contents[idx + 1] if idx + 1 < len(msg.contents) else None
-                    if not isinstance(next_item, ThinkingContent):
-                        lines.append("")
+                if not t.show_thinking:
+                    continue
+                if idx > 0 and isinstance(msg.contents[idx - 1], ThinkingContent):
+                    continue
+
+                thinking_lines: list[str] = []
+                thinking_idx = idx
+                while thinking_idx < len(msg.contents):
+                    thinking = msg.contents[thinking_idx]
+                    if not isinstance(thinking, ThinkingContent):
+                        break
+                    if thinking.content:
+                        thinking_lines.extend(
+                            t.thinking(line)
+                            for line in wrap(thinking.content.rstrip(), inner_width)
+                        )
+                    thinking_idx += 1
+                if not thinking_lines:
+                    thinking_lines.append(t.thinking(t.thinking_label))
+                thinking_lines = _default_shell_preview(
+                    thinking_lines,
+                    expanded=self._expanded,
+                    expandable=True,
+                    preview_lines=self._tool_result_preview_lines,
+                    theme=t,
+                )
+                lines.extend("  " + line for line in thinking_lines)
+                lines.append("")
 
             elif isinstance(item, TextContent) and item.content:
                 for line in render_markdown(item.content.rstrip(), inner_width, t.markdown):
@@ -601,7 +620,7 @@ class MessageList(Component):
         height: int = 20,
         theme: MessageTheme | None = None,
         user_prefix: str = "❯ ",
-        tool_result_preview_lines: int = _DEFAULT_TOOL_RESULT_PREVIEW_LINES,
+        tool_result_preview_lines: int = _DEFAULT_DETAIL_PREVIEW_LINES,
     ) -> None:
         self._blocks: list[MessageBlock] = []
         self._height = height
@@ -645,8 +664,8 @@ class MessageList(Component):
         for block in self._blocks:
             block.set_tool_lookup(fn)
 
-    def toggle_tool_results_expanded(self) -> None:
-        """Ctrl+E — toggle expanded/collapsed view for all tool result blocks."""
+    def toggle_details_expanded(self) -> None:
+        """Toggle thinking and tool-result details for assistant/tool blocks."""
         from tau.message.types import AssistantMessage, ToolMessage
 
         targets = [
