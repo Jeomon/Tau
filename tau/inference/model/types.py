@@ -87,10 +87,9 @@ class Model:
         usage.cost.cache_read = (self.cost.cache_read / 1_000_000) * usage.cache_read_tokens
         _1h_tokens = getattr(usage, "cache_write_1h_tokens", 0) or 0
         _5m_tokens = usage.cache_write_tokens - _1h_tokens
-        usage.cost.cache_write = (
-            (self.cost.cache_write / 1_000_000) * _5m_tokens
-            + (self.cost.input * 2 / 1_000_000) * _1h_tokens
-        )
+        usage.cost.cache_write = (self.cost.cache_write / 1_000_000) * _5m_tokens + (
+            self.cost.input * 2 / 1_000_000
+        ) * _1h_tokens
         usage.cost.total = (
             usage.cost.input + usage.cost.output + usage.cost.cache_read + usage.cost.cache_write
         )

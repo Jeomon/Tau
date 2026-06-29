@@ -498,12 +498,12 @@ def cmd_session(ctx: CommandContext) -> None:
     OUTPUT_RATE = 0.0002 / 1_000  # $0.0002 per 1 k output tokens
 
     # Token counts with human‑readable format and inline cost (two decimals)
+    input_cost = input_tokens * INPUT_RATE
+    output_cost = output_tokens * OUTPUT_RATE
+    lines.append(f"{DIM}{'Input':<{W}}{RESET} {_human_readable(input_tokens)} (${input_cost:.2f})")
     lines.append(
-        f"{DIM}{'Input':<{W}}{RESET} {_human_readable(input_tokens)} (${input_tokens * INPUT_RATE:.2f})"
-    )  # noqa: E501
-    lines.append(
-        f"{DIM}{'Output':<{W}}{RESET} {_human_readable(output_tokens)} (${output_tokens * OUTPUT_RATE:.2f})"
-    )  # noqa: E501
+        f"{DIM}{'Output':<{W}}{RESET} {_human_readable(output_tokens)} (${output_cost:.2f})"
+    )
     if cache_read_tokens:
         lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {_human_readable(cache_read_tokens)}")
     if cache_write_tokens:

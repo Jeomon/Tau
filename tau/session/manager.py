@@ -125,15 +125,15 @@ class SessionManager:
                 self._rewrite_file()
                 self.flushed = True
         else:
-            header = next(
+            loaded_header = next(
                 (entry for entry in self.entries if isinstance(entry, SessionHeader)),
                 None,
             )
-            if header is None:
+            if loaded_header is None:
                 raise ValueError(f"No session header found: {session_file}")
-            if header.version > SESSION_VERSION:
+            if loaded_header.version > SESSION_VERSION:
                 raise ValueError(
-                    f"Session version {header.version} is newer than supported "
+                    f"Session version {loaded_header.version} is newer than supported "
                     f"version {SESSION_VERSION}."
                 )
             for entry in self.entries:

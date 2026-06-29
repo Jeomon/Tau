@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tau.tui.component import Component
-from tau.tui.input import InputEvent
-
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
@@ -121,16 +118,6 @@ class _Section:
 
 
 class ModelSelector:
-    """Core model selector logic used by both the UI component and the legacy
-    ``ModelSelectorModal`` alias.  The implementation remains unchanged; the
-    alias defined below simply inherits from this class to preserve backward
-    compatibility with older tests and extensions.
-    """
-    """Core model selector logic used by both the UI component and the legacy
-    ``ModelSelectorModal`` alias.  The implementation remains unchanged; the
-    alias defined below simply inherits from this class to preserve backward
-    compatibility with older tests and extensions.
-    """
     """Tabbed model selector — one tab per modality.
 
     Owns the modality tabs (Text / Voice / Speak / Image / Video), and per-tab
@@ -250,9 +237,7 @@ class ModelSelector:
             if sec.scope == "scoped" and sec.scope_provider:
                 scoped_label = f"scoped ({sec.scope_provider})"
             sc_t = emphasis(scoped_label) if sec.scope == "scoped" else muted(scoped_label)
-            lines.append(
-                f"  {muted('Scope:')} {all_t}{muted(' | ')}{sc_t}  {muted('tab: toggle')}"
-            )
+            lines.append(f"  {muted('Scope:')} {all_t}{muted(' | ')}{sc_t}  {muted('tab: toggle')}")
         else:
             lines.append("  " + muted("↑/↓: navigate  enter: select  esc: cancel"))
 
@@ -291,3 +276,8 @@ class ModelSelector:
         lines.append("  " + muted(f"Model Name: {name}"))
 
         return lines
+
+
+# Backward-compatible public name retained for extensions built before the
+# selector-controller refactor.
+ModelSelectorModal = ModelSelector

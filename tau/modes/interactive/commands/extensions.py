@@ -34,9 +34,7 @@ def open_config_panel(ctx: CommandContext) -> None:
             manifest = (p if p.is_dir() else p.parent) / "manifest.json"
             if not manifest.is_file():
                 return None, None
-            app = json.loads(manifest.read_text(encoding="utf-8")).get(
-                get_app_name().lower(), {}
-            )
+            app = json.loads(manifest.read_text(encoding="utf-8")).get(get_app_name().lower(), {})
             title = app.get("name") or (app.get("settings") or {}).get("title")
             return title, app.get("author")
         except Exception:

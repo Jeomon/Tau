@@ -77,6 +77,10 @@ def get_default_project_session_dir(cwd: str | Path, sessions_dir: Path | None =
     return session_dir
 
 
+# Backward-compatible alias for integrations using the pre-0.4.5 public name.
+get_default_session_dir = get_default_project_session_dir
+
+
 def read_session_file(session_file: Path) -> list[SessionFileEntry]:
     """Load and parse a session file, returning a list of entries."""
     if not session_file.exists():

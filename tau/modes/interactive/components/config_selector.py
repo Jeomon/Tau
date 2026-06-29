@@ -1,9 +1,10 @@
 """Config selector — enable/disable extensions by scope."""
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component
@@ -35,6 +36,7 @@ def _visible_len(s: str) -> int:
 
 ENABLED_SYMBOL = "✔"
 DISABLED_SYMBOL = "✖"
+
 
 class ConfigSelector(Component):
     """Enable/disable extensions across global and project scopes.
@@ -95,7 +97,7 @@ class ConfigSelector(Component):
         start = max(0, min(sel_flat_idx - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted(f"↑ more"))
+            lines.append("  " + t.muted("↑ more"))
 
         for i in range(start, min(start + visible, count)):
             kind, payload = flat[i]
@@ -104,7 +106,9 @@ class ConfigSelector(Component):
             else:
                 assert isinstance(payload, ConfigEntry)
                 is_sel = i == sel_flat_idx
-                checkbox = t.success(ENABLED_SYMBOL) if payload.enabled else t.muted(DISABLED_SYMBOL)
+                checkbox = (
+                    t.success(ENABLED_SYMBOL) if payload.enabled else t.muted(DISABLED_SYMBOL)
+                )
                 name = t.emphasis(payload.name) if is_sel else payload.name
                 label = name
                 if payload.author:
@@ -117,7 +121,7 @@ class ConfigSelector(Component):
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted(f"↓ more"))
+            lines.append("  " + t.muted("↓ more"))
 
         lines.append(divider)
         return lines
@@ -216,7 +220,8 @@ class ConfigSelector(Component):
             self._filtered = list(self._all_entries)
         else:
             self._filtered = [
-                e for e in self._all_entries
+                e
+                for e in self._all_entries
                 if q in e.name.lower()
                 or (e.author and q in e.author.lower())
                 or q in e.path.lower()

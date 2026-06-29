@@ -1,13 +1,14 @@
 """Overlay components — picker overlay, prompt overlay, text overlay, editor overlay."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import TypeVar
 
-from tau.tui.utils import BOLD, DIM, RESET, pad, visible_width
 from tau.tui.component import Component
 from tau.tui.components.select_list import SelectItem, SelectList
-from tau.tui.input import InputEvent, Key, KeyEvent
+from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.utils import BOLD, DIM, RESET, pad, visible_width
 
 T = TypeVar("T")
 

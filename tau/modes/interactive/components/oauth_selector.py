@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component
@@ -56,7 +56,11 @@ class OAuthSelector(Component):
         lines.append(divider)
 
         if not self._providers:
-            msg = "No providers logged in. Use /login first." if self._mode == "logout" else "No providers available"
+            msg = (
+                "No providers logged in. Use /login first."
+                if self._mode == "logout"
+                else "No providers available"
+            )
             lines.append("  " + t.muted(msg))
         else:
             start = max(

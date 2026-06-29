@@ -98,8 +98,9 @@ GetSteeringMessagesCallback = Callable[[], list[LLMMessage]]
 OnEventCallback = Callable[["AgentEvent"], Awaitable[None]]
 ShouldSkipToolCallsCallback = Callable[[ToolCallContent], ToolResultContent]
 ShouldStopAfterTurnCallback = Callable[[AssistantMessage, list[ToolResultContent]], bool]
-TransformContextCallback = Callable[[list[LLMMessage], AbortSignal | None],
-    Awaitable[list[LLMMessage]]]
+TransformContextCallback = Callable[
+    [list[LLMMessage], AbortSignal | None], Awaitable[list[LLMMessage]]
+]
 
 
 @dataclass

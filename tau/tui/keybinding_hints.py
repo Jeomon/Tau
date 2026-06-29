@@ -1,4 +1,5 @@
 """Utilities for formatting keybinding hints in TUI output."""
+
 from __future__ import annotations
 
 import sys

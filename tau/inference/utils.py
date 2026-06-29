@@ -222,6 +222,7 @@ def get_retry_after_delay(error: Exception, fallback_s: float) -> float:
             pass
         try:
             from email.utils import parsedate_to_datetime
+
             delay_s = parsedate_to_datetime(raw).timestamp() - time.time()
             if delay_s > 0:
                 return min(delay_s, _MAX_RETRY_AFTER_S)

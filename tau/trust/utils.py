@@ -31,10 +31,11 @@ def has_project_trust_inputs(cwd: str | Path) -> bool:
 
     Specifically looks for:
     - A ``.tau/`` local config directory
+    - An ``.agents/skills/`` directory containing project-provided instructions
     """
     current = Path(normalize(cwd))
     while True:
-        if (current / CONFIG_DIR_NAME).exists():
+        if (current / CONFIG_DIR_NAME).exists() or (current / ".agents" / "skills").exists():
             return True
         parent = current.parent
         if parent == current:

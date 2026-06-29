@@ -4,11 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from tau.tui.utils import visible_width
 from tau.tui.component import Component
-from tau.tui.utils import fuzzy_filter
-from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.input import get_keybindings
+from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.utils import fuzzy_filter, visible_width
 
 if TYPE_CHECKING:
     from tau.tui.theme import SelectListTheme

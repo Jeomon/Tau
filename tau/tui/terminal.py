@@ -10,7 +10,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-
 # ── Terminal Capabilities ─────────────────────────────────────────────────────
 
 ImageProtocol = Literal["kitty", "iterm2"] | None

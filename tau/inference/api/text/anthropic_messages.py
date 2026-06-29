@@ -228,6 +228,7 @@ class AnthropicMessagesAPI(BaseAPI):
                     raw_stop = getattr(delta, "stop_reason", None) or ""
                     if raw_stop == "refusal":
                         from tau.inference.utils import ErrorKind
+
                         stop_details = getattr(delta, "stop_details", None)
                         explanation = (
                             getattr(stop_details, "explanation", None)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
@@ -31,9 +32,7 @@ class ThemeSelector(Component):
         self._on_cancel = on_cancel
         self._on_preview = on_preview
         self._theme = theme or LT()
-        self._selected = next(
-            (i for i, n in enumerate(self._names) if n == current), 0
-        )
+        self._selected = next((i for i, n in enumerate(self._names) if n == current), 0)
 
     # ── Component ─────────────────────────────────────────────────────────────
 

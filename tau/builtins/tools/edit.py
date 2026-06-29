@@ -25,8 +25,6 @@ def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("edit", args.get("path", ""))
 
 
-
-
 class EditParams(BaseModel):
     """Parameters for the edit tool."""
 

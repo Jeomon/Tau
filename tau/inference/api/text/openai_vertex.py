@@ -134,9 +134,7 @@ class OpenAIVertexAPI(BaseAPI):
             or os.environ.get("GCLOUD_PROJECT")
         )
         self._location = (
-            extra.get("location")
-            or os.environ.get("GOOGLE_CLOUD_LOCATION")
-            or "us-central1"
+            extra.get("location") or os.environ.get("GOOGLE_CLOUD_LOCATION") or "us-central1"
         )
         if not self._project:
             raise ValueError(

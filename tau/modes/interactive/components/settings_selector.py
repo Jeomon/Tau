@@ -1,4 +1,5 @@
 """Settings components — SettingsSelector, SettingItem, ListSelector, and build_manifest_panel."""
+
 from __future__ import annotations
 
 import logging
@@ -514,8 +515,8 @@ def build_manifest_panel(
                 _log.warning("settings_schema: skipping field with no 'key': %r", f)
                 continue
             full = f"{prefix}.{key}" if prefix else key
-            label = f.get("label", key)
-            description = f.get("description", "")
+            label = str(f.get("label") or key)
+            description = str(f.get("description") or "")
             ftype = str(f.get("type") or "string").lower()
 
             # ── Nested group → sub-panel ──────────────────────────────────────
@@ -528,7 +529,7 @@ def build_manifest_panel(
                             label=label,
                             description=description,
                             current_value="→",
-                            submenu_title=f.get("title") or label,
+                            submenu_title=str(f.get("title") or label),
                             submenu_settings=children,
                         )
                     )

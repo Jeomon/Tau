@@ -522,8 +522,8 @@ async def _handle_command(
                 agent = runtime.agent
                 context_usage = None
                 if agent is not None:
-                    engine = getattr(agent, "_engine", None)
-                    usage = getattr(engine, "context_usage", None) if engine else None
+                    stats_engine = getattr(agent, "_engine", None)
+                    usage = getattr(stats_engine, "context_usage", None) if stats_engine else None
                     if usage is not None:
                         tokens = getattr(usage, "tokens", None)
                         window = getattr(usage, "context_window", None) or 0
@@ -668,17 +668,17 @@ async def _handle_command(
                 for entry in sm.get_branch():
                     if not isinstance(entry, MessageEntry):
                         continue
-                    msg = entry.message
-                    role = getattr(msg, "role", None)
+                    entry_message = entry.message
+                    role = getattr(entry_message, "role", None)
                     if role is None:
                         continue
                     role_val = role.value if hasattr(role, "value") else str(role)
-                    parts: list[str] = []
-                    for c in getattr(msg, "contents", []):
+                    message_parts: list[str] = []
+                    for c in getattr(entry_message, "contents", []):
                         content_str = getattr(c, "content", None)
                         if isinstance(content_str, str):
-                            parts.append(content_str)
-                    messages.append({"role": role_val, "text": "".join(parts)})
+                            message_parts.append(content_str)
+                    messages.append({"role": role_val, "text": "".join(message_parts)})
                 _ok({"messages": messages})
 
             # ── Commands ─────────────────────────────────────────────────────

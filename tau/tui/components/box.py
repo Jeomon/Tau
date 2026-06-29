@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.utils import BRIGHT_BLACK, RESET, visible_width
 from tau.tui.component import Component
 from tau.tui.input import InputEvent
+from tau.tui.utils import BRIGHT_BLACK, RESET, visible_width
 
 if TYPE_CHECKING:
     from tau.tui.theme import ColorFn

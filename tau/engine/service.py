@@ -473,12 +473,10 @@ class Engine:
     ) -> list[ToolResultContent]:
         """Dispatch tool calls according to the configured execution mode."""
         match self.options.execution_mode:
-            case ToolExecutionMode.Parallel:
-                return await self._parallel_execute(tool_calls, emit, signal)
-            case ToolExecutionMode.Batch:
-                return await self._batch_execute(tool_calls, emit, signal)
-            case ToolExecutionMode.Sequential | _:
+            case ToolExecutionMode.Sequential:
                 return await self._sequential_execute(tool_calls, emit, signal)
+            case ToolExecutionMode.Parallel | ToolExecutionMode.Batch | None:
+                return await self._batch_execute(tool_calls, emit, signal)
 
     # -------------------------------------------------------------------------
     # Main loop

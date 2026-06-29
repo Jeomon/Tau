@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import difflib
 import re
 import subprocess
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -518,9 +520,6 @@ def fuzzy_filter(items: list, query: str, get_text) -> list:
 
 # ── Diff rendering ─────────────────────────────────────────────────────────────
 
-import difflib
-from collections.abc import Callable as _Callable
-
 # Matches a standard unified diff line: prefix (+/-/ ) followed by optional
 # line number then content.
 _UNIFIED_LINE = re.compile(r"^([+\- ])(\s*\d*)\s?(.*)$")
@@ -534,7 +533,7 @@ def _is_diff(text: str) -> bool:
     return has_marker and has_change
 
 
-def _word_diff(old: str, new: str, inverse: _Callable[[str], str]) -> tuple[str, str]:
+def _word_diff(old: str, new: str, inverse: Callable[[str], str]) -> tuple[str, str]:
     """Highlight changed words with inverse video."""
     old_words = re.split(r"(\s+)", old)
     new_words = re.split(r"(\s+)", new)
@@ -560,11 +559,11 @@ def _word_diff(old: str, new: str, inverse: _Callable[[str], str]) -> tuple[str,
 
 def render_diff(
     diff_text: str,
-    added: _Callable[[str], str],
-    removed: _Callable[[str], str],
-    context: _Callable[[str], str],
-    hunk: _Callable[[str], str],
-    inverse: _Callable[[str], str],
+    added: Callable[[str], str],
+    removed: Callable[[str], str],
+    context: Callable[[str], str],
+    hunk: Callable[[str], str],
+    inverse: Callable[[str], str],
 ) -> list[str]:
     """
     Render a unified diff string with ANSI colors.

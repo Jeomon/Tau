@@ -7,6 +7,15 @@ from typing import Any
 import yaml
 
 from tau.themes.types import LoadThemesResult, ThemeLoadError
+from tau.tui.theme import (
+    ColorFn,
+    InputTheme,
+    LayoutTheme,
+    MarkdownTheme,
+    MessageTheme,
+    SelectListTheme,
+    SpinnerTheme,
+)
 from tau.tui.utils import (
     BLACK,
     BLUE,
@@ -30,15 +39,6 @@ from tau.tui.utils import (
     WHITE,
     YELLOW,
     fg,
-)
-from tau.tui.theme import (
-    ColorFn,
-    InputTheme,
-    LayoutTheme,
-    MarkdownTheme,
-    MessageTheme,
-    SelectListTheme,
-    SpinnerTheme,
 )
 
 # ---------------------------------------------------------------------------
@@ -231,9 +231,7 @@ def load_theme_from_dict(data: dict) -> tuple[LayoutTheme | None, str | None]:
         show_tool_calls=bool(data["show_tool_calls"])
         if "show_tool_calls" in data
         else d.message.show_tool_calls,
-        show_images=bool(data["show_images"])
-        if "show_images" in data
-        else d.message.show_images,
+        show_images=bool(data["show_images"]) if "show_images" in data else d.message.show_images,
         markdown=md,
     )
 

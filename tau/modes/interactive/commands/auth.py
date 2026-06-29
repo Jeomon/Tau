@@ -21,8 +21,12 @@ def open_login_selector(ctx: CommandContext) -> None:
 
     if has_oauth and has_api:
         items = [
-            OAuthProviderItem(id="oauth", name="Subscription", status="OAuth — GitHub Copilot, OpenAI Codex, etc."),
-            OAuthProviderItem(id="api_key", name="API key", status="A static key, $ENV_VAR, or !command"),
+            OAuthProviderItem(
+                id="oauth", name="Subscription", status="OAuth — GitHub Copilot, OpenAI Codex, etc."
+            ),
+            OAuthProviderItem(
+                id="api_key", name="API key", status="A static key, $ENV_VAR, or !command"
+            ),
         ]
 
         def on_type(auth_type: str) -> None:
@@ -31,7 +35,9 @@ def open_login_selector(ctx: CommandContext) -> None:
             else:
                 open_api_key_provider_selector(ctx)
 
-        ctx.layout.open_oauth_selector("login", items, on_type, lambda: ctx.notify("Login cancelled."))
+        ctx.layout.open_oauth_selector(
+            "login", items, on_type, lambda: ctx.notify("Login cancelled.")
+        )
     elif has_oauth:
         open_oauth_provider_selector(ctx)
     else:
@@ -74,6 +80,8 @@ def _all_providers() -> list:
     seen: set[str] = set()
     out: list = []
     for reg in registries:
+        if reg is None:
+            continue
         for p in reg.list():
             if p.id in seen:
                 continue
@@ -300,4 +308,6 @@ def open_logout_selector(ctx: CommandContext) -> None:
         if ctx.on_palette_refresh is not None:
             ctx.on_palette_refresh()
 
-    ctx.layout.open_oauth_selector("logout", items, on_pick, lambda: ctx.notify("Logout cancelled."))
+    ctx.layout.open_oauth_selector(
+        "logout", items, on_pick, lambda: ctx.notify("Logout cancelled.")
+    )

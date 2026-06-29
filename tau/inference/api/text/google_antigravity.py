@@ -120,6 +120,7 @@ _ONBOARD_USER_PATH = "/v1internal:onboardUser"
 _ANTIGRAVITY_VERSION = "1.26.0"
 _FALLBACK_PROJECT_ID = "rising-fact-p41fc"
 
+
 class _HTTPError(Exception):
     """Thin wrapper so classify_error can read the HTTP status code."""
 

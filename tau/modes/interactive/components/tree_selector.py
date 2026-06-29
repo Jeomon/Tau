@@ -5,8 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Literal, TypeVar
 
-from tau.tui.utils import BOLD, RESET, truncate, visible_width
-from tau.tui.utils import fuzzy_filter
+from tau.tui.utils import BOLD, RESET, fuzzy_filter, truncate, visible_width
 
 T = TypeVar("T")
 

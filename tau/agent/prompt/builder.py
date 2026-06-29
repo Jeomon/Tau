@@ -400,5 +400,5 @@ class PromptBuilder:
 
 def build_prompt(options: PromptOptions) -> str:
     """Build a system prompt from the given options."""
-    pb=PromptBuilder(options=options)
+    pb = PromptBuilder(options=options)
     return pb.build()

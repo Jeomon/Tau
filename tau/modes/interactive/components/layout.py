@@ -107,10 +107,10 @@ class TextPrompt:
                 if cb is not None:
                     cb(val)
             case "escape":
-                cb = self._on_cancel
+                cancel_cb = self._on_cancel
                 self._close()
-                if cb is not None:
-                    cb()
+                if cancel_cb is not None:
+                    cancel_cb()
             case "backspace":
                 self._value = self._value[:-1]
             case ch if len(ch) == 1 and ch.isprintable():

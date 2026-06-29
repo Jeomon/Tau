@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
@@ -10,13 +11,13 @@ if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
 _DESCRIPTIONS: dict[str, str] = {
-    "off":     "No reasoning",
+    "off": "No reasoning",
     "minimal": "Very brief reasoning (~1k tokens)",
-    "low":     "Light reasoning (~2k tokens)",
-    "medium":  "Moderate reasoning (~8k tokens)",
-    "high":    "Deep reasoning (~16k tokens)",
-    "xhigh":   "Maximum reasoning (~32k tokens)",
-    "max":     "Uncapped reasoning",
+    "low": "Light reasoning (~2k tokens)",
+    "medium": "Moderate reasoning (~8k tokens)",
+    "high": "Deep reasoning (~16k tokens)",
+    "xhigh": "Maximum reasoning (~32k tokens)",
+    "max": "Uncapped reasoning",
 }
 
 

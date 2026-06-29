@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from tau.modes.interactive.components.layout import Layout
     from tau.settings.manager import SettingsManager
     from tau.tui.component import Component
-    from tau.modes.interactive.components.layout import Layout
     from tau.tui.input import InputEvent
     from tau.tui.theme import LayoutTheme
 
