@@ -11,27 +11,19 @@ from tau.agent.types import AgentConfig
 from tau.builtins.tools import TOOLS
 from tau.engine.service import Engine
 from tau.extensions.api import _RuntimeRef
-from tau.extensions.loader import ExtensionLoader
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
-from tau.packages.manager import PackageManager
-from tau.packages.utils import add_site_packages_path
+from tau.resources.loader import ResourceLoader
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
-from tau.settings.paths import get_config_dir, get_extensions_dir, get_packages_venv
+from tau.settings.paths import get_config_dir
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_PROVIDER = "anthropic"
-
-
-def _is_project_package(settings_manager: SettingsManager, name: str) -> bool:
-    """Return True if the package is project-scoped (in project settings)."""
-    project_pkgs = settings_manager.get_packages(local=True)
-    return any(p.name == name for p in project_pkgs)
 
 
 class RuntimeConfig(BaseModel):
@@ -84,6 +76,7 @@ class RuntimeContext:
         hooks: Hooks | None = None,
         ext_runtime: ExtensionRuntime | None = None,
         tool_registry: ToolRegistry | None = None,
+        resource_loader: ResourceLoader | None = None,
     ) -> None:
         self.agent = agent
         self.llm = llm
@@ -93,6 +86,7 @@ class RuntimeContext:
         self.hooks: Hooks = hooks or agent.hooks
         self.ext_runtime: ExtensionRuntime | None = ext_runtime
         self.tool_registry: ToolRegistry = tool_registry or ToolRegistry()
+        self.resource_loader = resource_loader
 
     @classmethod
     async def create(
@@ -182,90 +176,22 @@ class RuntimeContext:
         # Only load on first session; on session switch the caller passes ext_runtime.
         base_tools: list[Tool] = list(TOOLS) + list(config.tools)
 
+        from tau.hooks.runtime import RuntimeStartEvent
+
         if ext_runtime is None:
-            from tau.hooks.runtime import RuntimeStartEvent
-            from tau.settings.paths import get_builtins_dir
-
-            builtins_ext_dir = get_builtins_dir() / "extensions"
-            runtime_ref = _RuntimeRef()
-
-            # Earliest lifecycle signal — hooks bus exists, nothing loaded yet.
-            # Reaches core/manual subscribers only (no extensions registered yet);
-            # opens the runtime_start → runtime_ready → runtime_stop bracket.
+            # Earliest lifecycle signal — core/manual subscribers only.
             await hooks.emit(RuntimeStartEvent())
 
-            if settings_manager.is_extensions_enabled():
-                global_ext_dir = get_extensions_dir()
-                project_ext_dir = get_extensions_dir(cwd)
+        resource_loader = ResourceLoader(cwd=cwd, settings=settings_manager, hooks=hooks)
+        resources = await resource_loader.discover()
 
-                disabled_stems = set()
-                entry_configs = {}
-                extra_entries = []
-
-                entries = settings_manager.get_all_extension_entries()
-
-                for e in entries:
-                    stem = Path(e.path).stem
-                    if not e.enabled:
-                        disabled_stems.add(stem)
-                    else:
-                        entry_configs[stem] = e.settings or {}
-                        extra_entries.append(e)
-
-                extra_sources: dict[str, str] = {}
-
-                # Discover extension files contributed by installed packages
-                from tau.settings.types import ExtensionEntry as _ExtEntry
-
-                pkg_entries = settings_manager.get_all_packages()
-
-                if pkg_entries:
-                    for _scope_local in (False, True):
-                        _venv_dir = get_packages_venv(cwd if _scope_local else None)
-                        _pkg_mgr = PackageManager(_venv_dir)
-                        add_site_packages_path(_pkg_mgr.site_packages())
-
-                    for pkg in pkg_entries:
-                        if not pkg.enabled:
-                            continue
-                        _venv_dir = get_packages_venv(
-                            cwd if _is_project_package(settings_manager, pkg.name) else None
-                        )
-                        _pkg_mgr = PackageManager(_venv_dir)
-
-                        extension_files = _pkg_mgr.find_resource_paths(
-                            pkg.name, "extensions", pkg.installed_path, pkg.extensions
-                        )
-                        if not extension_files and pkg.extensions is None:
-                            extension_files = _pkg_mgr.find_extension_files(
-                                pkg.name, pkg.installed_path
-                            )
-                        for ext_file in extension_files:
-                            extra_entries.append(_ExtEntry(path=str(ext_file), name=pkg.name))
-                            extra_sources[str(ext_file)] = "package"
-
-                el = ExtensionLoader(
-                    builtins_dir=builtins_ext_dir,
-                    project_dir=project_ext_dir,
-                    global_dir=global_ext_dir,
-                    extra_entries=extra_entries,
-                    extra_sources=extra_sources,
-                    disabled_stems=disabled_stems,
-                    entry_configs=entry_configs,
-                    llm=llm,
-                    settings=settings_manager,
-                    cwd=cwd,
-                    runtime_ref=runtime_ref,
-                )
-            else:
-                # Extensions disabled — load builtins only.
-                el = ExtensionLoader(
-                    builtins_dir=builtins_ext_dir,
-                    llm=llm,
-                    settings=settings_manager,
-                    cwd=cwd,
-                    runtime_ref=runtime_ref,
-                )
+        if ext_runtime is None:
+            runtime_ref = _RuntimeRef()
+            el = resource_loader.create_extension_loader(
+                resources,
+                llm=llm,
+                runtime_ref=runtime_ref,
+            )
             load_result = await el.load()
             ext_runtime = ExtensionRuntime(load_result, hooks, runtime_ref)
 
@@ -293,47 +219,11 @@ class RuntimeContext:
             settings=settings_manager,
         )
 
-        # ── Skills ────────────────────────────────────────────────────────────
+        # ── Skills, prompts, and themes ──────────────────────────────────────
         from tau.skills.registry import skill_registry
 
-        package_skill_paths: list[str] = []
-        for pkg in settings_manager.get_all_packages():
-            if not pkg.enabled:
-                continue
-            manager = PackageManager(
-                get_packages_venv(cwd if _is_project_package(settings_manager, pkg.name) else None)
-            )
-            package_skill_paths.extend(
-                str(path)
-                for path in manager.find_resource_paths(
-                    pkg.name, "skills", pkg.installed_path, pkg.skills
-                )
-            )
-        skill_registry.reload(cwd=cwd, extra_paths=package_skill_paths)
+        resource_loader.apply_registries(resources)
         skills = skill_registry.list()
-
-        from tau.prompts.registry import prompt_registry
-        from tau.themes.registry import theme_registry
-
-        package_prompt_paths: list[str] = []
-        package_theme_paths: list[Path] = []
-        for pkg in settings_manager.get_all_packages():
-            if not pkg.enabled:
-                continue
-            manager = PackageManager(
-                get_packages_venv(cwd if _is_project_package(settings_manager, pkg.name) else None)
-            )
-            package_prompt_paths.extend(
-                str(path)
-                for path in manager.find_resource_paths(
-                    pkg.name, "prompts", pkg.installed_path, pkg.prompts
-                )
-            )
-            package_theme_paths.extend(
-                manager.find_resource_paths(pkg.name, "themes", pkg.installed_path, pkg.themes)
-            )
-        prompt_registry.reload(cwd=cwd, extra_paths=package_prompt_paths)
-        theme_registry.load_paths(package_theme_paths, source="package")
 
         # ── System prompt ─────────────────────────────────────────────────────
         system_prompt = config.system_prompt or build_prompt(
@@ -383,4 +273,5 @@ class RuntimeContext:
             hooks=hooks,
             ext_runtime=ext_runtime,
             tool_registry=tool_registry,
+            resource_loader=resource_loader,
         )

@@ -340,15 +340,11 @@ class Runtime:
         Applies all changes to the live engine and rebuilds the system prompt
         immediately — no new session required.
         """
-        from pathlib import Path
-
         from tau.agent.prompt.builder import build_prompt
         from tau.agent.prompt.types import PromptOptions
         from tau.extensions.api import LoadExtensionsResult, _RuntimeRef
-        from tau.extensions.loader import ExtensionLoader
         from tau.extensions.runtime import ExtensionRuntime
-        from tau.prompts.registry import prompt_registry
-        from tau.settings.paths import get_extensions_dir
+        from tau.resources.loader import ResourceLoader
         from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
@@ -365,38 +361,10 @@ class Runtime:
 
         cwd = self._context.session_manager.cwd
 
-        # ── Resource discovery hook ──────────────────────────────────────────
-        from tau.hooks.runtime import ResourcesDiscoverResult
-        from tau.hooks.types import ResourcesDiscoverEvent
-
-        discover_results = await self._context.hooks.emit(ResourcesDiscoverEvent(cwd=str(cwd)))
-        extra_skill_paths: list[str] = []
-        extra_prompt_paths: list[str] = []
-        extra_theme_paths: list[str] = []
-        for r in discover_results:
-            if isinstance(r, ResourcesDiscoverResult):
-                extra_skill_paths.extend(r.skill_paths)
-                extra_prompt_paths.extend(r.prompt_paths)
-                extra_theme_paths.extend(r.theme_paths)
-
-        # ── Skills ───────────────────────────────────────────────────────────
-        skill_registry.reload(cwd=cwd, extra_paths=extra_skill_paths or None)  # type: ignore[arg-type]
-
-        # ── Prompts ──────────────────────────────────────────────────────────
-        prompt_registry.reload(cwd=cwd, extra_paths=extra_prompt_paths or None)  # type: ignore[arg-type]
-
-        # extra_theme_paths: load each directory into the theme registry
-        if extra_theme_paths:
-            from tau.themes.registry import theme_registry
-
-            for tp in extra_theme_paths:
-                try:
-                    from pathlib import Path as _Path
-
-                    for _err in theme_registry.load_external(cwd=_Path(tp)):
-                        _log.warning("theme load error in %r: %s: %s", tp, _err.path, _err.error)
-                except Exception as _e:
-                    _log.warning("resources_discover: failed to load theme path %r: %s", tp, _e)
+        resource_loader = ResourceLoader(cwd=cwd, settings=sm, hooks=self._context.hooks)
+        resources = await resource_loader.discover()
+        resource_loader.apply_registries(resources)
+        self._context.resource_loader = resource_loader
 
         old = self._context.ext_runtime
         if old is not None:
@@ -404,23 +372,13 @@ class Runtime:
                 await self._emit_to_extension(ext, "extension_unload")
             old.unsubscribe()
 
-        entries = sm.get_all_extension_entries()
-        disabled_stems = {Path(e.path).stem for e in entries if not e.enabled}
-        entry_configs = {Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled}
-        extra_entries = [e for e in entries if e.enabled]
         runtime_ref = old.runtime_ref if old is not None else _RuntimeRef()
         runtime_ref.services.clear()
         runtime_ref.service_owners.clear()
 
-        loader = ExtensionLoader(
-            project_dir=get_extensions_dir(cwd),
-            global_dir=get_extensions_dir(),
-            extra_entries=extra_entries,
-            disabled_stems=disabled_stems,
-            entry_configs=entry_configs,
+        loader = resource_loader.create_extension_loader(
+            resources,
             llm=self._context.llm,
-            settings=sm,
-            cwd=cwd,
             runtime_ref=runtime_ref,
         )
         load_result = await loader.load()

@@ -97,6 +97,21 @@ class ThemeRegistry:
                 self._add(name, lambda t=theme: t, source)
         return errors
 
+    def reload_external(
+        self,
+        cwd: Path | None = None,
+        extra_paths: list[Path] | None = None,
+    ) -> list[ThemeLoadError]:
+        """Reload file-backed themes while retaining builtins and runtime registrations."""
+        removable = {"global", "project", "package", "discovered"}
+        for name in [key for key, source in self._source.items() if source in removable]:
+            self._registry.pop(name, None)
+            self._source.pop(name, None)
+
+        errors = self.load_external(cwd)
+        errors.extend(self.load_paths(extra_paths or [], source="discovered"))
+        return errors
+
     def get(self, name: str) -> LayoutTheme:
         """Retrieve and instantiate a theme by name (case-insensitive)."""
         self._ensure_builtins()

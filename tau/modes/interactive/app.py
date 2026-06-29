@@ -118,14 +118,6 @@ class App:
         """Build the TUI around an already-constructed Runtime."""
         from tau.themes.registry import DEFAULT_THEME, theme_registry
 
-        cwd = runtime.session_manager.cwd if runtime.session_manager is not None else None
-        for err in theme_registry.load_external(cwd=cwd):
-            _log.warning("theme load error: %s: %s", err.path, err.error)
-
-        from tau.prompts.registry import prompt_registry
-
-        prompt_registry.load_external(cwd=cwd)
-
         resolved_theme: LayoutTheme | None
         theme_name = DEFAULT_THEME
         auto_theme = False

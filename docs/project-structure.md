@@ -1,11 +1,11 @@
 # Project Structure
 
-Tau consists of 205 Python modules organized into 22 main packages. This page documents the codebase organization and provides module-by-module reference for contributors and agents.
+Tau consists of 230 Python modules organized into 25 main packages. This page documents the codebase organization and provides module-by-module reference for contributors and agents.
 
 ## Directory Structure
 
 ```
-tau/                                # Main package (205 modules)
+tau/                                # Main package (230 modules)
 ├── __init__.py
 ├── content_registry.py             # Content registry abstractions
 ├── agent/                          # Agent execution service
@@ -31,6 +31,7 @@ tau/                                # Main package (205 modules)
 ├── message/                        # Message types and utilities
 ├── packages/                       # Package/dependency management
 ├── prompts/                        # Prompt template system
+├── resources/                      # Unified runtime resource discovery
 ├── rpc/                            # JSON-RPC protocol for IDE integration
 ├── runtime/                        # Agent runtime service
 ├── session/                        # Session management and persistence
@@ -154,11 +155,19 @@ Message data structures and utilities.
 
 ### `packages/` - Package Management
 
-Package/dependency resolution (reserved for future use).
+Installed package and dependency management.
 
 - `manager.py` - Package management
 - `types.py` - Package types
 - `utils.py` - Package utilities
+
+### `resources/` - Resource Discovery
+
+Builds one immutable snapshot from built-in, global, project, installed-package,
+and hook-provided resources. Runtime startup and `/reload` both consume it.
+
+- `loader.py` - Discovers resources and constructs the extension loader
+- `types.py` - Immutable `ResourceSnapshot`
 
 ### `prompts/` - Prompt Template System
 
@@ -400,7 +409,7 @@ See [Extensions Guide](extensions.md) for detailed examples.
 ## Code Statistics
 
 - **Total modules**: 205 Python files
-- **Main package**: tau/ (22 subpackages)
+- **Main package**: tau/ (25 subpackages)
 - **Test coverage**: tests/ directory
 - **Lines of code**: ~8,000 LOC (excluding tests and docs)
 - **Type hints**: Full type coverage with mypy/pyright

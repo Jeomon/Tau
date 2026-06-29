@@ -70,6 +70,7 @@ User input flows through these stages:
 |--------|---------|
 | `session/` | Session JSONL persistence, compaction, branching |
 | `settings/` | Configuration from JSON files |
+| `resources/` | Unified discovery of extensions, skills, prompts, and themes |
 | `auth/` | Credential storage and resolution |
 | `message/` | Message type definitions |
 | `trust/` | Trust and permission checks |
@@ -97,7 +98,7 @@ User input flows through these stages:
 
 | Module | Purpose |
 |--------|---------|
-| `packages/` | Package/dependency management (reserved) |
+| `packages/` | Installed package and dependency management |
 | `rpc/` | JSON-RPC protocol for IDE integration |
 
 ## Agent Execution State Machine
@@ -216,6 +217,10 @@ Built-in tools (bash, read, write, edit, glob, grep, ls) are always available. C
 ## Extension Points
 
 Tau is designed to be extended without modifying core code. Key extension points via the `tau` parameter in `register()`:
+
+Resource discovery is centralized in `ResourceLoader`. Startup and `/reload`
+both consume one `ResourceSnapshot`, keeping package, global, project, and
+hook-contributed extensions, skills, prompts, and themes consistent.
 
 ### Tools
 
