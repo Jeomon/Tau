@@ -250,11 +250,13 @@ class App:
                 name="theme",
                 description="Change the UI theme (interactive picker).",
                 call=lambda _r, _a: cmd_appearance.open_theme_selector(self._ctx()),
+                requires_idle=False,
             ),
             CommandInfo(
                 name="settings",
                 description="Show current settings.",
                 call=lambda _r, _a: cmd_appearance.open_settings_panel(self._ctx()),
+                requires_idle=False,
             ),
             CommandInfo(
                 name="extensions",
@@ -280,6 +282,7 @@ class App:
                 name="session",
                 description="Show session info and stats.",
                 call=lambda _r, _a: cmd_session.cmd_session(self._ctx()),
+                requires_idle=False,
             ),
             CommandInfo(
                 name="login",
@@ -295,12 +298,14 @@ class App:
                 name="copy",
                 description="Copy the last assistant message to the clipboard.",
                 call=lambda _r, _a: cmd_misc.cmd_copy(self._ctx()),
+                requires_idle=False,
             ),
             CommandInfo(
                 name="help",
                 description="List all commands and keyboard shortcuts.",
                 call=lambda _r, _a: cmd_misc.show_help(self._ctx()),
                 aliases=["?"],
+                requires_idle=False,
             ),
             CommandInfo(
                 name="quit",

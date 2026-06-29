@@ -180,3 +180,4 @@ class TestCommandInfo:
         assert cmd.aliases == []
         assert cmd.required_arg_names == []
         assert cmd.argument_hint is None
+        assert cmd.requires_idle is True

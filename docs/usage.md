@@ -21,6 +21,12 @@ Run `tau` to open the terminal UI. The interface has three areas:
 
 ## Slash Commands
 
+Commands that change agent, session, model, tool, or extension state wait until
+the active turn finishes. UI-only and read-only commands such as `/theme`,
+`/settings`, `/session`, `/copy`, and `/help` can run while the agent is busy.
+This command dispatch is separate from Enter steering and Alt+Enter follow-up
+messages.
+
 Type `/` to open the command palette. Commands are fuzzy-searchable — type a few characters to filter.
 
 ### Session

@@ -406,6 +406,7 @@ class ExtensionAPI:
         aliases: list[str] | None = None,
         get_argument_completions: Callable[[str], list[Any]] | None = None,
         argument_hint: str | None = None,
+        requires_idle: bool = True,
     ) -> None:
         """Register a slash command.
 
@@ -418,6 +419,10 @@ class ExtensionAPI:
         ``argument_hint`` is shown as inline ghost text in the input after the
         command name, e.g. ``"<file> <description>"``.  Each ``<token>``
         disappears as the user fills in that positional argument.
+
+        ``requires_idle=False`` allows UI-only or read-only commands to run
+        while an agent turn is active. Such commands must not mutate turn,
+        model, tool, session, or extension state.
         """
         from tau.commands.types import CommandInfo
 
@@ -440,6 +445,7 @@ class ExtensionAPI:
             aliases=aliases or [],
             get_argument_completions=get_argument_completions,
             argument_hint=argument_hint,
+            requires_idle=requires_idle,
         )
 
     # ── Keyboard shortcuts ────────────────────────────────────────────────────

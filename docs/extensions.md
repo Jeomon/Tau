@@ -814,7 +814,7 @@ def register(tau):
 | Method | Description |
 |--------|-------------|
 | `tau.register_tool(tool)` | Add a tool the agent can call |
-| `tau.register_command(name, desc, handler, aliases=[], get_argument_completions=None)` | Add a `/name` slash command with optional argument tab-completion |
+| `tau.register_command(name, desc, handler, aliases=[], get_argument_completions=None, argument_hint=None, requires_idle=True)` | Add a `/name` slash command; set `requires_idle=False` only for UI-only or read-only handlers safe during an active turn |
 | `tau.on(event, handler)` / `@tau.on(event)` | Subscribe to a lifecycle event |
 | `tau.register_shortcut(key, desc, handler)` | Bind a keyboard shortcut |
 | `tau.append_prompt(text)` | Append text to the system prompt |

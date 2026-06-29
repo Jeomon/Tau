@@ -20,6 +20,12 @@ class CommandInfo:
     argument_hint: str | None = None
     get_argument_completions: Callable[[str], list[AutocompleteItem]] | None = None
     required_arg_names: list[str] = field(default_factory=list)
+    requires_idle: bool = True
+    """Whether interactive dispatch must wait until the agent is idle.
+
+    Set this to ``False`` only for commands that do not mutate agent-turn state,
+    such as opening a UI panel or displaying read-only information.
+    """
     """Names of the leading positional args that must be present, in order.
 
     Any args beyond these are treated as optional. Declare required args

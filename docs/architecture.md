@@ -142,6 +142,11 @@ TUI overlays participate in focus lifecycle. Hiding or closing a capturing
 overlay restores the next visible overlay or its previous focus target.
 Components exposing `dispose()` are disposed when their overlay closes.
 
+Slash commands declare whether they require an idle agent. Idle-only commands
+are deferred until the current turn settles; UI-only and read-only commands may
+opt into immediate dispatch during a turn. Normal Enter input remains steering,
+and Alt+Enter remains a post-turn follow-up message.
+
 ## Message Types and Context
 
 Messages in sessions are typed:

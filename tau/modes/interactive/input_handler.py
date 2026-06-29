@@ -40,11 +40,9 @@ class InputHandler:
         self._turn_has_content: bool = False
         self._last_user_text: str = ""
 
-        # Raw /command and !terminal inputs entered while the agent was busy.
-        # Running them mid-turn corrupts the tool_use/tool_result pairing (and
-        # !bash would execute immediately, racing the in-flight turn), so they
-        # are held here and replayed verbatim once the turn settles (drained by
-        # ``on_settled``, fired from the agent's ``settled`` event).
+        # Inputs that require an idle agent are held here and replayed once the
+        # turn settles. Commands explicitly marked as safe while busy bypass
+        # this queue.
         self._deferred_inputs: list[str] = []
         self._draining_deferred: bool = False
 
@@ -122,9 +120,7 @@ class InputHandler:
             self._extract_clipboard_video(text)
             self._pasted_texts.clear()
             self._paste_counter = 0
-            # While the agent is mid-turn, defer commands/terminal input until it
-            # goes idle instead of firing them now and corrupting the turn.
-            if agent is not None and not agent.is_idle():
+            if agent is not None and not agent.is_idle() and self._input_requires_idle(text):
                 self._defer_input(text)
                 return
             if text.startswith("/"):
@@ -193,10 +189,20 @@ class InputHandler:
             )
         )
 
-    # ── Deferred /command + !terminal ─────────────────────────────────────────
+    # ── Deferred idle-only input ───────────────────────────────────────────────
+
+    def _input_requires_idle(self, text: str) -> bool:
+        """Return whether command or terminal input must wait for agent idle."""
+        if not text.startswith("/"):
+            return True
+        parts = text[1:].strip().split(None, 1)
+        if not parts:
+            return True
+        command = self._runtime.commands.get(parts[0].lower())
+        return command is None or command.requires_idle
 
     def _defer_input(self, text: str) -> None:
-        """Hold a /command or !terminal input until the turn settles, then replay it.
+        """Hold idle-only input until the turn settles, then replay it.
 
         No wakeup is scheduled here: the busy agent is in a turn that will emit
         ``settled`` when it finishes, which drives ``on_settled`` to drain this.
