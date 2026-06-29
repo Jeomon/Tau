@@ -20,15 +20,12 @@ from tau.tool.types import (
 
 _DEFAULT_TIMEOUT = 30
 
-
 def _render_terminal_call(args: dict, _streaming: bool = False) -> list[str]:
-    return call_line("terminal", args.get("command", ""))
-
+    return call_line("terminal", args.get("cmd", ""))
 
 _PREVIEW_LINES = 5
 _MAX_OUTPUT_BYTES = 50 * 1024
 _MAX_OUTPUT_LINES = 2_000
-
 
 def _render_terminal_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RED, RESET
@@ -60,11 +57,10 @@ def _render_terminal_result(content: str, opts: Any) -> list[str]:
 
     return result
 
-
 class TerminalParams(BaseModel):
     """Parameters for terminal command execution."""
 
-    command: str = Field(
+    cmd: str = Field(
         description="Shell command to execute.",
         examples=["python -m pytest tests/", "ruff check src/", "git status"],
     )
@@ -75,7 +71,6 @@ class TerminalParams(BaseModel):
         description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}, max 600).",
         examples=[30, 120, 300],
     )
-
 
 class TerminalTool(Tool):
     """Tool for executing shell commands."""
@@ -100,7 +95,7 @@ class TerminalTool(Tool):
 
     def get_display_name(self, args: dict[str, Any]) -> str:
         """Get a short display name for the command."""
-        cmd = args.get("command", "")
+        cmd = args.get("cmd", "")
         return cmd[:60] + ("…" if len(cmd) > 60 else "")
 
     async def execute(
@@ -118,7 +113,7 @@ class TerminalTool(Tool):
         shell_path = sm.get_shell_path() if sm is not None else None
         shell_prefix = sm.get_shell_command_prefix() if sm is not None else None
 
-        command = params.command
+        command = params.cmd
         if shell_prefix:
             command = f"{shell_prefix}\n{command}"
 
@@ -153,7 +148,6 @@ class TerminalTool(Tool):
             while True:
                 if signal is not None and signal.is_set():
                     break
-                # Use read(8192) to avoid LimitOverrunError on very long lines.
                 data = await proc.stdout.read(8192)
                 if not data:
                     break
@@ -165,15 +159,15 @@ class TerminalTool(Tool):
                 )
                 output_truncated = output_truncated or truncated
                 if tool_execution_update_callback is not None:
-                    await tool_execution_update_callback(ToolResult.ok(invocation.id, output_tail))
+                    await tool_execution_update_callback(
+                        ToolResult.ok(invocation.id, output_tail)
+                    )
 
         try:
             await asyncio.wait_for(_read_loop(), timeout=params.timeout)
         except TimeoutError:
             timed_out = True
         finally:
-            # Always kill and drain so the OS pipe buffer is flushed and no
-            # zombie process is left behind, regardless of timeout or abort.
             if proc.returncode is None:
                 proc.kill()
             if proc.stdout is not None:
@@ -190,13 +184,12 @@ class TerminalTool(Tool):
             await proc.wait()
 
         if timed_out:
-            partial_output = output_tail
             return ToolResult(
                 id=invocation.id,
-                content=partial_output or "(no output before timeout)",
+                content=output_tail or "(no output before timeout)",
                 is_error=True,
                 metadata={
-                    "command": params.command,
+                    "command": params.cmd,
                     "exit_code": -1,
                     "timed_out": True,
                     "output_length": total_output_bytes,
@@ -207,7 +200,7 @@ class TerminalTool(Tool):
         output = output_tail
         rc = proc.returncode or 0
         metadata = {
-            "command": params.command,
+            "command": params.cmd,
             "exit_code": rc,
             "timed_out": False,
             "output_length": total_output_bytes,
