@@ -32,6 +32,10 @@ The subdirectory name is derived from the absolute path of the working directory
 
 Files are in JSONL format (one JSON object per line), allowing efficient appending and compression.
 
+When a branch is extracted into a new session, label entries are recreated at
+the end of the extracted path. Retained entries are re-chained so removing a
+label from between conversation entries cannot leave orphaned parent IDs.
+
 ## Resume Sessions
 
 ### Continue Last Session

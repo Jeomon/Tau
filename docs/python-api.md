@@ -123,8 +123,8 @@ unsub()  # remove the handler
 |-------|------|
 | `message_end` | Model response fully received |
 | `tool_execution_end` | A tool call finished |
-| `agent_end` | Agent turn is complete |
-| `settled` | Agent is fully idle (follow-up queue drained) |
+| `agent_end` | The current low-level engine loop ended; post-run processing may remain |
+| `settled` | The invocation completed post-run processing with no messages currently queued |
 
 ## Custom Tools at Runtime
 
@@ -186,8 +186,15 @@ agent = runtime.agent
 # Check state
 agent.is_idle()
 agent.phase             # AgentPhase.IDLE, TURN, COMPACTION, or BRANCH_SUMMARY
+agent.streaming_message
+agent.pending_tool_call_ids
+agent.error_message
+agent.queued_messages
 agent.get_context_usage()   # ContextUsage(tokens, context_window, percent)
 agent.get_system_prompt()
+
+# Wait through save-point handlers and post-run compaction
+await agent.wait_for_idle()
 
 # Abort
 agent.abort()

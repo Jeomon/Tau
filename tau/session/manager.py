@@ -59,7 +59,9 @@ class SessionManager:
         self.cwd = Path(cwd).resolve()
         self.persist = persist
         self.session_dir = (
-            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(self.cwd)
+            Path(session_dir).resolve()
+            if session_dir
+            else get_default_project_session_dir(self.cwd)
         )
         self.session_file = session_file
         self.by_id: dict[str, SessionEntry] = {}
@@ -90,6 +92,7 @@ class SessionManager:
         # Materialise the session file path that new_session() skipped earlier.
         if self.session_file is None and self.session_id is not None:
             from datetime import datetime
+
             file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
             self.session_file = (
                 self.session_dir / f"{file_timestamp}_{self.session_id}.jsonl"
@@ -179,7 +182,7 @@ class SessionManager:
             if isinstance(entry, SessionHeader):
                 continue
             self.by_id[entry.id] = entry
-            
+
             if isinstance(entry, LeafEntry):
                 # LeafEntry records a navigation point — target_id is the new leaf.
                 self.leaf_id = entry.target_id
@@ -430,7 +433,7 @@ class SessionManager:
         # Drop history before the most recent compaction
         last_compaction: CompactionEntry | None = None
         id_to_idx: dict[str, int] = {}
-        first_kept_idx: int = 0 # Default to 0, i.e. keep all entries if no compaction found
+        first_kept_idx: int = 0  # Default to 0, i.e. keep all entries if no compaction found
 
         # Scan all entries for model/thinking-level changes and find latest compaction entry
         for idx, entry in enumerate(entries):
@@ -446,10 +449,7 @@ class SessionManager:
 
         # Drop history before the most recent compaction
         if last_compaction is not None:
-            first_kept_idx = id_to_idx.get(
-                last_compaction.first_kept_entry_id,
-                len(entries)
-            )
+            first_kept_idx = id_to_idx.get(last_compaction.first_kept_entry_id, len(entries))
 
         kept_entries = entries[first_kept_idx:]
 
@@ -555,7 +555,14 @@ class SessionManager:
         if not path:
             raise ValueError(f"Entry {leaf_id} not found.")
 
-        path_without_labels = [entry for entry in path if not isinstance(entry, LabelEntry)]
+        path_without_labels: list[SessionEntry] = []
+        path_parent_id: str | None = None
+        for entry in path:
+            if isinstance(entry, LabelEntry):
+                continue
+            copied_entry = entry.model_copy(update={"parent_id": path_parent_id})
+            path_without_labels.append(copied_entry)
+            path_parent_id = copied_entry.id
 
         session_id = create_session_id()
         file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
@@ -615,7 +622,9 @@ class SessionManager:
     def create(cls, cwd: Path | str, session_dir: Path | str | None = None) -> SessionManager:
         """Create a new SessionManager with a fresh session."""
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        session_dir = (
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        )
         return SessionManager(cwd, session_dir)
 
     @staticmethod
@@ -638,7 +647,9 @@ class SessionManager:
     def continue_recent(cwd: Path | str, session_dir: Path | str | None = None) -> SessionManager:
         """Load the most recent session, or create a new one if none exist."""
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        session_dir = (
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        )
         most_recent = find_most_recent_session(session_dir)
         if most_recent:
             return SessionManager(cwd, session_dir, most_recent)
@@ -667,7 +678,9 @@ class SessionManager:
             raise ValueError(f"Cannot fork: source session has no header: {source}")
 
         session_dir = (
-            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(target_cwd)
+            Path(session_dir).resolve()
+            if session_dir
+            else get_default_project_session_dir(target_cwd)
         )
         session_dir.mkdir(parents=True, exist_ok=True)
 
@@ -698,7 +711,9 @@ class SessionManager:
         on_progress: Callable[[int, int], None] | None = None,
     ) -> list[SessionInfo]:
         cwd = Path(cwd).resolve()
-        session_dir = Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        session_dir = (
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        )
         sessions = list_sessions_from_dir(session_dir, on_progress=on_progress)
         sessions.sort(key=lambda s: s.modified.timestamp(), reverse=True)
         return sessions

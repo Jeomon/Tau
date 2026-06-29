@@ -215,6 +215,10 @@ def register(tau):
 | Property | Type | Description |
 |----------|------|-------------|
 | `ctx.phase` | `AgentPhase` | Current lifecycle phase: `idle`, `turn`, `compaction`, or `branch_summary` |
+| `ctx.streaming_message` | `AssistantMessage \| None` | Current partial assistant response |
+| `ctx.pending_tool_call_ids` | `frozenset[str]` | Snapshot of tool calls that have started but not finished |
+| `ctx.error_message` | `str \| None` | Most recent engine error |
+| `ctx.queued_messages` | `dict[str, list[LLMMessage]]` | Snapshots of the steering and follow-up queues |
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -262,7 +266,7 @@ These methods are `async` and are available in both event handlers and command h
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `await ctx.wait_for_idle()` | — | Suspend until the agent finishes its current turn |
+| `await ctx.wait_for_idle()` | — | Suspend until the active invocation and its post-run save/compaction processing finish |
 | `await ctx.new_session()` | `{"cancelled": bool}` | Start a fresh session |
 | `await ctx.fork(entry_id)` | `{"cancelled": bool}` | Fork from a specific session entry |
 | `await ctx.navigate_tree(target_id, summarize=False, custom_instructions=None)` | `{"cancelled": bool}` | Jump to another branch in the session tree |
@@ -405,7 +409,7 @@ def register(tau):
 | `agent_error` | `error` | — | Engine terminated with an unrecoverable error |
 | `turn_start` | `turn_index`, `timestamp` | — | New LLM inference turn begins |
 | `turn_end` | `turn_index`, `message`, `tool_results` | — | Turn completes with assistant message and tool results |
-| `settled` | — | — | Agent finishes a `prompt()` call with no more queued turns — the agent is fully idle |
+| `settled` | — | — | The invocation completed queued turns and post-run compaction with no messages currently queued; this is an observation, not a lock against concurrent submissions |
 
 **Input**
 

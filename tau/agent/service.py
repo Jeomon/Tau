@@ -77,6 +77,8 @@ class Agent:
         self.hooks = hooks or Hooks()
 
         self._phase: AgentPhase = AgentPhase.IDLE
+        self._idle_event: asyncio.Event = asyncio.Event()
+        self._idle_event.set()
         self._signal: asyncio.Event = asyncio.Event()
         self._compaction_failures: int = 0
         self._compaction_circuit_notified: bool = False
@@ -104,9 +106,33 @@ class Agent:
         """Return the current observable agent phase."""
         return self._phase
 
+    @property
+    def streaming_message(self) -> AssistantMessage | None:
+        """Return the partial assistant message currently being streamed."""
+        return self._engine.state.streaming_message
+
+    @property
+    def pending_tool_call_ids(self) -> frozenset[str]:
+        """Return a snapshot of tool calls that have not finished."""
+        return frozenset(self._engine.state.pending_tool_calls)
+
+    @property
+    def error_message(self) -> str | None:
+        """Return the most recent engine error message."""
+        return self._engine.state.error_message
+
+    @property
+    def queued_messages(self) -> dict[str, list[LLMMessage]]:
+        """Return snapshots of the steering and follow-up queues."""
+        state = self._engine.state
+        return {
+            "steering": state.steering_queue.snapshot() if state.steering_queue else [],
+            "followup": state.follow_up_queue.snapshot() if state.follow_up_queue else [],
+        }
+
     def is_idle(self) -> bool:
-        """Check if the agent is idle (not processing)."""
-        return self._engine.is_idle
+        """Return whether the complete agent invocation lifecycle is idle."""
+        return self._phase is AgentPhase.IDLE
 
     def has_pending_messages(self) -> bool:
         """Check if there are pending messages in the queue."""
@@ -146,8 +172,8 @@ class Agent:
         return self._system_prompt
 
     async def wait_for_idle(self) -> None:
-        """Wait until the agent becomes idle."""
-        await self._engine.wait_for_idle()
+        """Wait for the active invocation, including post-run processing, to finish."""
+        await self._idle_event.wait()
 
     async def new_session(self) -> None:
         """Create a new session."""
@@ -628,6 +654,7 @@ class Agent:
                 f"Agent is busy (phase={self._phase!r}). Wait for the current operation to finish."
             )
 
+        self._idle_event.clear()
         opts = options or PromptOptions()
 
         user_message = UserMessage.with_media(
@@ -639,39 +666,41 @@ class Agent:
         self._session_manager.append_message(user_message, meta=opts.meta)
 
         self._overflow_recovery_attempted = False
-        self._phase = AgentPhase.TURN
         try:
-            while True:
-                ctx = self._build_turn_context()
-                self._signal = asyncio.Event()
-                self._engine.llm.api.options.signal = self._signal
-                try:
-                    await self._run(ctx)
-                    break
-                except RuntimeError:
-                    # On a context-overflow error, compact and retry the turn once.
-                    if await self._try_overflow_recovery():
-                        continue
-                    raise
+            self._phase = AgentPhase.TURN
+            try:
+                while True:
+                    ctx = self._build_turn_context()
+                    self._signal = asyncio.Event()
+                    self._engine.llm.api.options.signal = self._signal
+                    try:
+                        await self._run(ctx)
+                        break
+                    except RuntimeError:
+                        # On a context-overflow error, compact and retry the turn once.
+                        if await self._try_overflow_recovery():
+                            continue
+                        raise
 
-            # A steering / follow-up message can land *after* the engine loop has
-            # already decided to stop: the submit→steer hop runs as a separate
-            # task, so it may enqueue just past the turn's final queue check.
-            # Drain any such leftovers with continuation turns so a mid-flight
-            # message is never silently stranded in the queue.
-            while self._engine.has_pending_messages():
-                self._signal = asyncio.Event()
-                self._engine.llm.api.options.signal = self._signal
-                await self._run_continue()
+                # A steering / follow-up message can land *after* the engine loop has
+                # already decided to stop: the submit→steer hop runs as a separate
+                # task, so it may enqueue just past the turn's final queue check.
+                # Drain any such leftovers with continuation turns so a mid-flight
+                # message is never silently stranded in the queue.
+                while self._engine.has_pending_messages():
+                    self._signal = asyncio.Event()
+                    self._engine.llm.api.options.signal = self._signal
+                    await self._run_continue()
+
+                await self.hooks.emit(SavePointEvent())
+                await self._check_compaction()
+
+                if not self._engine.has_pending_messages():
+                    await self.hooks.emit(SettledEvent())
+            finally:
+                self._phase = AgentPhase.IDLE
         finally:
-            self._phase = AgentPhase.IDLE
-
-        await self.hooks.emit(SavePointEvent())
-
-        await self._check_compaction()
-
-        if not self._engine.has_pending_messages():
-            await self.hooks.emit(SettledEvent())
+            self._idle_event.set()
 
     def _build_turn_context(self) -> AgentContext:
         """Build the LLM context for a turn from the current (possibly compacted) session."""

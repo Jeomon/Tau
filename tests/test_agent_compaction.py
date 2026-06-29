@@ -134,3 +134,69 @@ def test_cancelled_compaction_emits_cancel_event_and_restores_phase() -> None:
     assert "compaction_cancelled" in events
     assert "compaction_failure" not in events
     assert agent._phase == AgentPhase.IDLE
+
+
+def test_wait_for_idle_includes_post_run_processing() -> None:
+    async def scenario() -> None:
+        agent: Any = Agent.__new__(Agent)
+        agent._phase = AgentPhase.IDLE
+        agent._idle_event = asyncio.Event()
+        agent._idle_event.set()
+        agent._signal = asyncio.Event()
+        agent._overflow_recovery_attempted = False
+        agent._session_manager = SimpleNamespace(append_message=lambda *args, **kwargs: "entry")
+        agent._engine = SimpleNamespace(
+            llm=SimpleNamespace(api=SimpleNamespace(options=SimpleNamespace(signal=None))),
+            has_pending_messages=lambda: False,
+        )
+        agent.hooks = Hooks()
+        agent._build_turn_context = lambda: SimpleNamespace()
+        agent._run = AsyncMock()
+        post_run_started = asyncio.Event()
+        release_post_run = asyncio.Event()
+
+        async def check_compaction() -> None:
+            post_run_started.set()
+            await release_post_run.wait()
+
+        agent._check_compaction = check_compaction
+
+        invoke_task = asyncio.create_task(agent.invoke("hello"))
+        await post_run_started.wait()
+        wait_task = asyncio.create_task(agent.wait_for_idle())
+        await asyncio.sleep(0)
+
+        assert agent.phase is AgentPhase.TURN
+        assert not wait_task.done()
+
+        release_post_run.set()
+        await invoke_task
+        await wait_task
+
+        assert agent.phase is AgentPhase.IDLE
+
+    asyncio.run(scenario())
+
+
+def test_public_live_state_is_exposed_as_snapshots() -> None:
+    streaming = SimpleNamespace()
+    steering = SimpleNamespace(snapshot=lambda: ["steer"])
+    followup = SimpleNamespace(snapshot=lambda: ["followup"])
+    agent: Any = Agent.__new__(Agent)
+    agent._engine = SimpleNamespace(
+        state=SimpleNamespace(
+            streaming_message=streaming,
+            pending_tool_calls={"a", "b"},
+            error_message="failed",
+            steering_queue=steering,
+            follow_up_queue=followup,
+        )
+    )
+
+    assert agent.streaming_message is streaming
+    assert agent.pending_tool_call_ids == frozenset({"a", "b"})
+    assert agent.error_message == "failed"
+    assert agent.queued_messages == {
+        "steering": ["steer"],
+        "followup": ["followup"],
+    }

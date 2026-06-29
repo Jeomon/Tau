@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from tau.agent.types import AgentPhase
 
 if TYPE_CHECKING:
+    from tau.message.types import AssistantMessage, LLMMessage
     from tau.runtime.service import Runtime
     from tau.session.manager import SessionManager
     from tau.session.types import SessionEntry
@@ -229,6 +230,38 @@ class ExtensionContext:
         """Return True when the agent has no active lifecycle phase."""
         return self.phase is AgentPhase.IDLE
 
+    @property
+    def streaming_message(self) -> AssistantMessage | None:
+        """Return the partial assistant message currently being streamed."""
+        if self._runtime is None:
+            return None
+        agent = self._runtime.agent
+        return agent.streaming_message if agent is not None else None
+
+    @property
+    def pending_tool_call_ids(self) -> frozenset[str]:
+        """Return a snapshot of tool calls that have not finished."""
+        if self._runtime is None:
+            return frozenset()
+        agent = self._runtime.agent
+        return agent.pending_tool_call_ids if agent is not None else frozenset()
+
+    @property
+    def error_message(self) -> str | None:
+        """Return the most recent engine error message."""
+        if self._runtime is None:
+            return None
+        agent = self._runtime.agent
+        return agent.error_message if agent is not None else None
+
+    @property
+    def queued_messages(self) -> dict[str, list[LLMMessage]]:
+        """Return snapshots of the steering and follow-up queues."""
+        if self._runtime is None:
+            return {"steering": [], "followup": []}
+        agent = self._runtime.agent
+        return agent.queued_messages if agent is not None else {"steering": [], "followup": []}
+
     def abort(self) -> None:
         """Abort the current agent operation (no-op if idle)."""
         if self._runtime is None:
@@ -298,13 +331,13 @@ class ExtensionContext:
     # ── Session control (command context) ─────────────────────────────────────
 
     async def wait_for_idle(self) -> None:
-        """Suspend until the agent finishes its current turn."""
+        """Suspend until the complete active invocation lifecycle finishes."""
         if self._runtime is None:
             return
         agent = self._runtime.agent
         if agent is None:
             return
-        await agent._engine.state.idle_event.wait()
+        await agent.wait_for_idle()
 
     async def new_session(self, options: NewSessionOptions | None = None) -> dict:
         """Start a new session.  Returns ``{"cancelled": bool}``.
