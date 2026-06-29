@@ -157,6 +157,8 @@ class Tool(ABC):
     render_call: Callable[[dict, bool], list[str]] | None
     render_result: Callable[[str, ToolRenderOptions], list[str]] | None
     render_shell: str
+    result_expandable: bool
+    result_preview_lines: int | None
 
     def __init__(
         self,
@@ -169,6 +171,8 @@ class Tool(ABC):
         render_call: Callable[[dict, bool], list[str]] | None = None,
         render_result: Callable[[str, ToolRenderOptions], list[str]] | None = None,
         render_shell: str = "self",
+        result_expandable: bool = True,
+        result_preview_lines: int | None = None,
         prompt_snippet: str | None = None,
         prompt_guidelines: str | None = None,
         prepare_arguments: Callable[[dict], dict] | None = None,
@@ -178,7 +182,10 @@ class Tool(ABC):
         render_shell controls how the result block is framed in the TUI:
           "self"    (default) — renderer output is used as-is, no extra framing.
           "default" — the standard ``└ first_line`` shell is applied to the
-                      renderer output so it matches the built-in tool style.
+                      renderer output and centrally handles preview/collapse hints.
+
+        result_expandable disables central collapsing when False.
+        result_preview_lines overrides the global default-shell preview threshold.
         """
         self.name = name
         self.description = description
@@ -188,6 +195,8 @@ class Tool(ABC):
         self.render_call = render_call
         self.render_result = render_result
         self.render_shell = render_shell
+        self.result_expandable = result_expandable
+        self.result_preview_lines = result_preview_lines
         self.prompt_snippet = prompt_snippet
         self.prompt_guidelines = prompt_guidelines
         self.prepare_arguments = prepare_arguments

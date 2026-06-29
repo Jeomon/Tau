@@ -30,7 +30,8 @@
 | Escape | Abort current turn; restore queued messages |
 | Ctrl+C | Abort turn; double-press to quit |
 | Ctrl+D | Quit (on empty input) |
-| Ctrl+O | Toggle expand/collapse for template blocks |
+| Ctrl+O | Toggle expand/collapse for tool result blocks |
+| Ctrl+E | Toggle expand/collapse for template and skill blocks |
 
 ### Pickers (model, theme, command palette)
 

@@ -20,15 +20,17 @@ from tau.tool.types import (
 
 _DEFAULT_TIMEOUT = 30
 
+
 def _render_terminal_call(args: dict, _streaming: bool = False) -> list[str]:
     return call_line("terminal", args.get("cmd", ""))
 
-_PREVIEW_LINES = 5
+
 _MAX_OUTPUT_BYTES = 50 * 1024
 _MAX_OUTPUT_LINES = 2_000
 
+
 def _render_terminal_result(content: str, opts: Any) -> list[str]:
-    from tau.tui.utils import DIM, RED, RESET
+    from tau.tui.utils import RED, RESET
 
     metadata = opts.metadata or {}
     exit_code = metadata.get("exit_code", 0)
@@ -45,17 +47,12 @@ def _render_terminal_result(content: str, opts: Any) -> list[str]:
     def fmt(line: str) -> str:
         return f"{RED}{line}{RESET}" if failed else line
 
-    show = lines if opts.expanded else lines[:_PREVIEW_LINES]
-    result = [fmt(show[0])]
-    for line in show[1:]:
+    result = [fmt(lines[0])]
+    for line in lines[1:]:
         result.append(fmt(line))
 
-    if opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
-
     return result
+
 
 class TerminalParams(BaseModel):
     """Parameters for terminal command execution."""
@@ -71,6 +68,7 @@ class TerminalParams(BaseModel):
         description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}, max 600).",
         examples=[30, 120, 300],
     )
+
 
 class TerminalTool(Tool):
     """Tool for executing shell commands."""
@@ -159,9 +157,7 @@ class TerminalTool(Tool):
                 )
                 output_truncated = output_truncated or truncated
                 if tool_execution_update_callback is not None:
-                    await tool_execution_update_callback(
-                        ToolResult.ok(invocation.id, output_tail)
-                    )
+                    await tool_execution_update_callback(ToolResult.ok(invocation.id, output_tail))
 
         try:
             await asyncio.wait_for(_read_loop(), timeout=params.timeout)

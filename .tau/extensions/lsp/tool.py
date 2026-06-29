@@ -35,10 +35,16 @@ _INDEX_OPS = frozenset({"findReferences", "incomingCalls", "outgoingCalls", "wor
 # Ops that resolve a symbol at line/character — an empty result usually means the
 # position isn't on a symbol name, so we return positioning guidance instead of a
 # bare "No results".
-_POSITION_OPS = frozenset({
-    "goToDefinition", "goToImplementation", "findReferences",
-    "incomingCalls", "outgoingCalls", "hover",
-})
+_POSITION_OPS = frozenset(
+    {
+        "goToDefinition",
+        "goToImplementation",
+        "findReferences",
+        "incomingCalls",
+        "outgoingCalls",
+        "hover",
+    }
+)
 
 # Call-hierarchy ops: most servers resolve these on a call site / symbol reference,
 # not the symbol's own declaration — worth saying so explicitly.
@@ -48,18 +54,23 @@ _CALL_HIERARCHY_OPS = frozenset({"incomingCalls", "outgoingCalls"})
 _NAV_OPS = frozenset({"goToDefinition", "goToImplementation"})
 
 # Reference ops get single-line snippets (show the usage line only)
-_SNIPPET_OPS = frozenset({
-    "findReferences", "incomingCalls", "outgoingCalls", "workspaceSymbol",
-})
+_SNIPPET_OPS = frozenset(
+    {
+        "findReferences",
+        "incomingCalls",
+        "outgoingCalls",
+        "workspaceSymbol",
+    }
+)
 
 
 def _render_lsp_call(args: dict, _streaming: bool) -> list[str]:
-    op        = args.get("operation", "")
+    op = args.get("operation", "")
     file_path = args.get("file_path", "")
-    line      = args.get("line", "")
-    query     = args.get("query", "")
-    new_name  = args.get("new_name", "")
-    filename  = Path(file_path).name if file_path else ""
+    line = args.get("line", "")
+    query = args.get("query", "")
+    new_name = args.get("new_name", "")
+    filename = Path(file_path).name if file_path else ""
 
     if op == "workspaceSymbol":
         return call_line("lsp", op, query)
@@ -74,10 +85,10 @@ def _render_lsp_call(args: dict, _streaming: bool) -> list[str]:
 
 def _fmt_loc(loc: dict) -> str:
     # loc is already normalized: 'path' key (relative), 1-based line numbers
-    path  = loc.get("path", "")
-    name  = Path(path).name if path else "?"
+    path = loc.get("path", "")
+    name = Path(path).name if path else "?"
     start = loc.get("range", {}).get("start", {})
-    line  = start.get("line", 1)
+    line = start.get("line", 1)
     return f"{name}:{line}"
 
 
@@ -121,7 +132,7 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
         lines = content.strip().splitlines() or ["(error)"]
         return [f"{RED}{line}{RESET}" for line in lines]
 
-    metadata  = opts.metadata or {}
+    metadata = opts.metadata or {}
     operation = metadata.get("operation", "")
 
     try:
@@ -137,56 +148,45 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
             if not locs:
                 return ["No location found"]
             summary = f"→ {_fmt_loc(locs[0])}" if len(locs) == 1 else f"{len(locs)} locations"
-            if not opts.expanded or len(locs) == 1:
-                return [summary]
             out = [summary]
             out.extend(_fmt_loc(loc) for loc in locs)
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "findReferences":
             refs = data if isinstance(data, list) else []
             word = "reference" if len(refs) == 1 else "references"
             summary = f"{len(refs)} {word}"
-            if not refs or not opts.expanded:
-                hint = [] if not refs else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             out.extend(_fmt_loc(ref) for ref in refs)
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "incomingCalls" | "outgoingCalls":
             calls = data if isinstance(data, list) else []
             label = "caller" if operation == "incomingCalls" else "callee"
-            word  = label if len(calls) == 1 else f"{label}s"
+            word = label if len(calls) == 1 else f"{label}s"
             summary = f"{len(calls)} {word}"
-            if not calls or not opts.expanded:
-                hint = [] if not calls else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for c in calls:
-                item = c.get("from", c.get("from_", {})) if operation == "incomingCalls" else c.get("to", {})
+                item = (
+                    c.get("from", c.get("from_", {}))
+                    if operation == "incomingCalls"
+                    else c.get("to", {})
+                )
                 name = item.get("name", "?")
                 path = Path(item.get("path", "")).name if item.get("path") else "?"
                 out.append(f"{name}  {DIM}{path}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "supertypes" | "subtypes":
             items = data if isinstance(data, list) else []
             label = "supertype" if operation == "supertypes" else "subtype"
-            word  = label if len(items) == 1 else f"{label}s"
+            word = label if len(items) == 1 else f"{label}s"
             summary = f"{len(items)} {word}"
-            if not items or not opts.expanded:
-                hint = [] if not items else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for item in items:
                 name = item.get("name", "?")
                 path = Path(item.get("path", "")).name if item.get("path") else "?"
                 out.append(f"{name}  {DIM}{path}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "hover":
@@ -196,62 +196,50 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
             if not lines:
                 return ["No hover info"]
             first = lines[0][:80] + ("…" if len(lines[0]) > 80 else "")
-            if not opts.expanded or len(lines) == 1:
-                return [first]
-            out = [first, *lines[1:], f"{DIM}(ctrl+o to collapse){RESET}"]
-            return out
+            return [first, *lines[1:]]
 
         case "signatureHelp":
-            sigs   = data.get("signatures", []) if isinstance(data, dict) else []
+            sigs = data.get("signatures", []) if isinstance(data, dict) else []
             active = data.get("activeSignature", 0) if isinstance(data, dict) else 0
             if not sigs:
                 return ["No signature info"]
-            sig   = sigs[active] if active < len(sigs) else sigs[0]
+            sig = sigs[active] if active < len(sigs) else sigs[0]
             label = sig.get("label", "")
             first = label[:80] + ("…" if len(label) > 80 else "")
-            if not opts.expanded or len(sigs) == 1:
-                return [first]
             out = [first]
             for i, s in enumerate(sigs):
                 if i != active:
                     out.append(f"{DIM}{s.get('label', '')}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "documentSymbol":
             symbols = data if isinstance(data, list) else []
-            word    = "symbol" if len(symbols) == 1 else "symbols"
+            word = "symbol" if len(symbols) == 1 else "symbols"
             summary = f"{len(symbols)} {word}"
-            if not symbols or not opts.expanded:
-                hint = [] if not symbols else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out: list[str] = [summary]
+
             def _flatten(syms: list, depth: int = 0) -> None:
                 for s in syms:
-                    name   = s.get("name", "?")
+                    name = s.get("name", "?")
                     detail = s.get("detail", "")
-                    tail   = f"  {DIM}{detail}{RESET}" if detail else ""
+                    tail = f"  {DIM}{detail}{RESET}" if detail else ""
                     out.append(f"{'  ' * depth}{name}{tail}")
                     _flatten(s.get("children", []), depth + 1)
+
             _flatten(symbols)
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "workspaceSymbol":
             symbols = data if isinstance(data, list) else []
-            word    = "symbol" if len(symbols) == 1 else "symbols"
+            word = "symbol" if len(symbols) == 1 else "symbols"
             summary = f"{len(symbols)} {word}"
-            if not symbols or not opts.expanded:
-                hint = [] if not symbols else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for s in symbols:
-                name  = s.get("name", "?")
-                loc   = s.get("location", {})
-                path  = Path(loc.get("path", "")).name if loc.get("path") else "?"
-                line  = loc.get("range", {}).get("start", {}).get("line", 1)
+                name = s.get("name", "?")
+                loc = s.get("location", {})
+                path = Path(loc.get("path", "")).name if loc.get("path") else "?"
+                line = loc.get("range", {}).get("start", {}).get("line", 1)
                 out.append(f"{name}  {DIM}{path}:{line}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "rename":
@@ -271,15 +259,12 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 return ["No actions available"]
             word = "action" if len(actions) == 1 else "actions"
             summary = f"{len(actions)} {word}"
-            if not opts.expanded:
-                return [summary, f"{DIM}···  (ctrl+o to expand){RESET}"]
             out = [summary]
             for a in actions:
                 title = a.get("title", "?")
-                kind  = a.get("kind", "")
-                tail  = f"  {DIM}{kind}{RESET}" if kind else ""
+                kind = a.get("kind", "")
+                tail = f"  {DIM}{kind}{RESET}" if kind else ""
                 out.append(f"{title}{tail}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "formatting" | "rangeFormatting":
@@ -291,84 +276,76 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
 
         case "inlayHint":
             hints = data if isinstance(data, list) else []
-            word  = "hint" if len(hints) == 1 else "hints"
+            word = "hint" if len(hints) == 1 else "hints"
             summary = f"{len(hints)} {word}"
-            if not hints or not opts.expanded:
-                hint_str = [] if not hints else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint_str
             out = [summary]
             for h in hints:
-                pos   = h.get("position", {})
-                ln    = pos.get("line", 1)
-                ch    = pos.get("character", 1)
+                pos = h.get("position", {})
+                ln = pos.get("line", 1)
+                ch = pos.get("character", 1)
                 label = h.get("label", "")
                 if isinstance(label, list):
                     label = "".join(
                         p.get("value", "") if isinstance(p, dict) else str(p) for p in label
                     )
-                kind     = h.get("kind", 0)
+                kind = h.get("kind", 0)
                 kind_tag = "type" if kind == 1 else "param" if kind == 2 else ""
-                tag      = f"  {DIM}[{kind_tag}]{RESET}" if kind_tag else ""
+                tag = f"  {DIM}[{kind_tag}]{RESET}" if kind_tag else ""
                 out.append(f"{ln}:{ch}  {label}{tag}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "codeLens":
             lenses = data if isinstance(data, list) else []
-            word   = "lens" if len(lenses) == 1 else "lenses"
+            word = "lens" if len(lenses) == 1 else "lenses"
             summary = f"{len(lenses)} {word}"
-            if not lenses or not opts.expanded:
-                hint_str = [] if not lenses else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint_str
             out = [summary]
             for lens in lenses:
-                start   = lens.get("range", {}).get("start", {})
-                ln      = start.get("line", 1)
+                start = lens.get("range", {}).get("start", {})
+                ln = start.get("line", 1)
                 command = lens.get("command", {})
-                title   = command.get("title", "?") if isinstance(command, dict) else "?"
+                title = command.get("title", "?") if isinstance(command, dict) else "?"
                 snippet = lens.get("snippet", "")
-                ctx     = f"  {DIM}{snippet[:50]}{RESET}" if snippet else ""
+                ctx = f"  {DIM}{snippet[:50]}{RESET}" if snippet else ""
                 out.append(f"{ln}:  {title}{ctx}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "diagnostics":
-            diags    = data if isinstance(data, list) else []
+            diags = data if isinstance(data, list) else []
             if not diags:
                 return ["No diagnostics"]
-            errors   = sum(1 for d in diags if d.get("severity") == 1)
+            errors = sum(1 for d in diags if d.get("severity") == 1)
             warnings = sum(1 for d in diags if d.get("severity") == 2)
             parts: list[str] = []
             if errors:
                 parts.append(f"{RED}{errors} {'error' if errors == 1 else 'errors'}{RESET}")
             if warnings:
-                parts.append(f"{YELLOW}{warnings} {'warning' if warnings == 1 else 'warnings'}{RESET}")
+                parts.append(
+                    f"{YELLOW}{warnings} {'warning' if warnings == 1 else 'warnings'}{RESET}"
+                )
             if not parts:
                 parts = [f"{len(diags)} diagnostics"]
             summary = ", ".join(parts)
-            if not opts.expanded:
-                return [summary, f"{DIM}···  (ctrl+o to expand){RESET}"]
             out = [summary]
             for d in diags:
-                sev   = d.get("severity", 1)
+                sev = d.get("severity", 1)
                 start = d.get("range", {}).get("start", {})
-                ln    = start.get("line", 1)
-                ch    = start.get("character", 1)
-                msg   = d.get("message", "")
-                src   = d.get("source", "")
+                ln = start.get("line", 1)
+                ch = start.get("character", 1)
+                msg = d.get("message", "")
+                src = d.get("source", "")
                 color = RED if sev == 1 else YELLOW if sev == 2 else DIM
-                tag   = f"  {DIM}[{src}]{RESET}" if src else ""
+                tag = f"  {DIM}[{src}]{RESET}" if src else ""
                 out.append(f"{color}{ln}:{ch}{RESET}  {msg}{tag}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "completion":
-            items = data if isinstance(data, list) else (data.get("items", []) if isinstance(data, dict) else [])
+            items = (
+                data
+                if isinstance(data, list)
+                else (data.get("items", []) if isinstance(data, dict) else [])
+            )
             word = "completion" if len(items) == 1 else "completions"
             summary = f"{len(items)} {word}"
-            if not items or not opts.expanded:
-                hint = [] if not items else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for item in items[:20]:
                 label = item.get("label", "?")
@@ -377,16 +354,12 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 out.append(f"{label}{tail}")
             if len(items) > 20:
                 out.append(f"{DIM}··· {len(items) - 20} more{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "documentHighlight":
             highlights = data if isinstance(data, list) else []
             word = "highlight" if len(highlights) == 1 else "highlights"
             summary = f"{len(highlights)} {word}"
-            if not highlights or not opts.expanded:
-                hint = [] if not highlights else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for h in highlights:
                 start = h.get("range", {}).get("start", {})
@@ -396,16 +369,13 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 snippet = h.get("snippet", "")
                 ctx = f"  {DIM}{snippet.strip()[:50]}{RESET}" if snippet else ""
                 out.append(f"{ln}  [{kind_tag}]{ctx}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "selectionRange":
             ranges = data if isinstance(data, list) else []
             summary = f"{len(ranges)} selection range(s)"
-            if not ranges or not opts.expanded:
-                hint = [] if not ranges else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
+
             def _show_selection(r: dict, depth: int = 0) -> None:
                 if not r:
                     return
@@ -414,18 +384,15 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 sl, el = s.get("line", 1), e.get("line", 1)
                 out.append(f"{'  ' * depth}{sl}–{el}")
                 _show_selection(r.get("parent") or {}, depth + 1)
+
             for r in ranges:
                 _show_selection(r)
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "foldingRange":
             ranges = data if isinstance(data, list) else []
             word = "range" if len(ranges) == 1 else "ranges"
             summary = f"{len(ranges)} folding {word}"
-            if not ranges or not opts.expanded:
-                hint = [] if not ranges else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for r in ranges:
                 sl = r.get("startLine", 0) + 1
@@ -433,16 +400,12 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 kind = r.get("kind", "")
                 tail = f"  {DIM}[{kind}]{RESET}" if kind else ""
                 out.append(f"{sl}–{el}{tail}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "documentLink":
             links = data if isinstance(data, list) else []
             word = "link" if len(links) == 1 else "links"
             summary = f"{len(links)} document {word}"
-            if not links or not opts.expanded:
-                hint = [] if not links else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for link in links:
                 start = link.get("range", {}).get("start", {})
@@ -450,7 +413,6 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 target = link.get("target", "")
                 short = (target[:60] + "…") if len(target) > 60 else target
                 out.append(f"{ln}  {DIM}{short}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "semanticTokens":
@@ -465,16 +427,12 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
             values = data if isinstance(data, list) else []
             word = "value" if len(values) == 1 else "values"
             summary = f"{len(values)} inline {word}"
-            if not values or not opts.expanded:
-                hint = [] if not values else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for v in values:
                 start = v.get("range", {}).get("start", {})
                 ln = start.get("line", 1)
                 text = v.get("text") or v.get("expression") or v.get("variableName") or "?"
                 out.append(f"{ln}  {text}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "moniker":
@@ -482,8 +440,6 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
             if not monikers:
                 return ["No moniker"]
             summary = f"{len(monikers)} moniker(s)"
-            if not opts.expanded:
-                return [summary, f"{DIM}···  (ctrl+o to expand){RESET}"]
             out = [summary]
             for m in monikers:
                 identifier = m.get("identifier", "?")
@@ -492,7 +448,6 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 tags = "  ".join(filter(None, [scheme, kind]))
                 tail = f"  {DIM}[{tags}]{RESET}" if tags else ""
                 out.append(f"{identifier}{tail}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case "linkedEditingRange":
@@ -501,18 +456,16 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
             ranges = data.get("ranges", [])
             word = "range" if len(ranges) == 1 else "ranges"
             summary = f"{len(ranges)} linked {word}"
-            if not ranges or not opts.expanded:
-                hint = [] if not ranges else [f"{DIM}···  (ctrl+o to expand){RESET}"]
-                return [summary] + hint
             out = [summary]
             for r in ranges:
                 s = r.get("start", {})
                 e = r.get("end", {})
-                out.append(f"{s.get('line', 1)}:{s.get('character', 1)} – {e.get('line', 1)}:{e.get('character', 1)}")
+                out.append(
+                    f"{s.get('line', 1)}:{s.get('character', 1)} – {e.get('line', 1)}:{e.get('character', 1)}"
+                )
             word_pattern = data.get("wordPattern", "")
             if word_pattern:
                 out.append(f"{DIM}pattern: {word_pattern}{RESET}")
-            out.append(f"{DIM}(ctrl+o to collapse){RESET}")
             return out
 
         case _:
@@ -531,22 +484,26 @@ class LSPParams(BaseModel):
         examples=["/home/user/project/src/main.py", "/home/user/project/src/utils.ts"],
     )
     line: int = Field(
-        default=1, ge=1,
+        default=1,
+        ge=1,
         description="1-based line number (required for position-based ops).",
         examples=[42, 100],
     )
     character: int = Field(
-        default=1, ge=1,
+        default=1,
+        ge=1,
         description="1-based character offset (required for position-based ops).",
         examples=[15, 8],
     )
     end_line: int = Field(
-        default=1, ge=1,
+        default=1,
+        ge=1,
         description="1-based end line (required for codeAction).",
         examples=[42, 105],
     )
     end_character: int = Field(
-        default=1, ge=1,
+        default=1,
+        ge=1,
         description="1-based end character (required for codeAction).",
         examples=[30, 20],
     )
@@ -599,24 +556,32 @@ def _empty_result_message(params: LSPParams) -> str:
         return "No diagnostics reported — the file has no errors or warnings."
 
     if op == "documentSymbol":
-        return (base + " The file may be empty, have no top-level definitions, "
-                "contain syntax errors, or not be indexed yet by the language server.")
+        return (
+            base + " The file may be empty, have no top-level definitions, "
+            "contain syntax errors, or not be indexed yet by the language server."
+        )
 
     if op == "workspaceSymbol":
         q = params.query or "(empty)"
-        return (base + f" No symbol matches query {q!r}. workspaceSymbol does prefix/substring "
-                "matching — try a shorter or differently-cased name; an empty query lists all symbols.")
+        return (
+            base + f" No symbol matches query {q!r}. workspaceSymbol does prefix/substring "
+            "matching — try a shorter or differently-cased name; an empty query lists all symbols."
+        )
 
     if op in _POSITION_OPS:
-        msg = (base + f" The position {params.line}:{params.character} may not be on the symbol "
-               "name (line/character are 1-based and must point at the identifier). "
-               "Locate it first with documentSymbol or workspaceSymbol, then retry at that position.")
+        msg = (
+            base + f" The position {params.line}:{params.character} may not be on the symbol "
+            "name (line/character are 1-based and must point at the identifier). "
+            "Locate it first with documentSymbol or workspaceSymbol, then retry at that position."
+        )
         if op in _CALL_HIERARCHY_OPS:
             msg += " For call hierarchy, anchor on a call site or a symbol reference rather than its declaration."
         if op == "goToImplementation":
-            msg += (" goToImplementation resolves concrete implementations of an interface, trait, "
-                    "abstract method, or protocol; it returns nothing for an already-concrete symbol "
-                    "— use goToDefinition for those.")
+            msg += (
+                " goToImplementation resolves concrete implementations of an interface, trait, "
+                "abstract method, or protocol; it returns nothing for an already-concrete symbol "
+                "— use goToDefinition for those."
+            )
         return msg
 
     return base
@@ -671,11 +636,12 @@ class LSPTool(Tool):
         if params.operation in NEEDS_NAME and not params.new_name:
             return ToolResult.error(invocation.id, f"'{params.operation}' requires new_name.")
         if params.operation in NEEDS_RANGE and (
-            params.end_line < params.line or (
-                params.end_line == params.line and params.end_character < params.character
-            )
+            params.end_line < params.line
+            or (params.end_line == params.line and params.end_character < params.character)
         ):
-                return ToolResult.error(invocation.id, "end_line/end_character must be >= line/character.")
+            return ToolResult.error(
+                invocation.id, "end_line/end_character must be >= line/character."
+            )
 
         # Normalize to an absolute path anchored at the runtime cwd. The model
         # often passes project-relative paths; get_clients (root resolution,
@@ -701,8 +667,12 @@ class LSPTool(Tool):
             if not Path(file).exists():
                 return ToolResult.error(invocation.id, f"File not found: {params.file_path}")
             if not await self._service.has_clients(file):
-                return ToolResult.error(invocation.id, "No LSP server available for this file type.")
-            await self._service.touch_file(file, wait_for_diagnostics=(params.operation == "diagnostics" or needs_index))
+                return ToolResult.error(
+                    invocation.id, "No LSP server available for this file type."
+                )
+            await self._service.touch_file(
+                file, wait_for_diagnostics=(params.operation == "diagnostics" or needs_index)
+            )
 
         # Convert to 0-based (LSP protocol)
         line = params.line - 1
@@ -727,7 +697,11 @@ class LSPTool(Tool):
 
         # Post-process raw LSP output: convert file:// URIs to relative paths,
         # shift line/character to 1-based, and attach code snippets.
-        if params.operation not in _EDIT_OPS and params.operation not in _RAW_OPS and isinstance(result, (list, dict)):
+        if (
+            params.operation not in _EDIT_OPS
+            and params.operation not in _RAW_OPS
+            and isinstance(result, (list, dict))
+        ):
             cwd = self._service._cwd
             result = _normalize(result, cwd)
             if params.operation in _NAV_OPS:
@@ -817,7 +791,9 @@ class LSPTool(Tool):
                 if files:
                     summary = f"Applied '{match.get('title', '')}' in {len(files)} file(s) ({total} edit(s)): {', '.join(files)}"
                 else:
-                    summary = f"Executed '{match.get('title', '')}' command (edits applied server-side)."
+                    summary = (
+                        f"Executed '{match.get('title', '')}' command (edits applied server-side)."
+                    )
                 return {
                     "applied": True,
                     "action": match.get("title", ""),
@@ -829,7 +805,10 @@ class LSPTool(Tool):
             case "formatting":
                 applied = await svc.formatting(file)
                 if not applied:
-                    return {"applied": False, "reason": "No formatting edits returned (file may already be formatted)."}
+                    return {
+                        "applied": False,
+                        "reason": "No formatting edits returned (file may already be formatted).",
+                    }
                 total = sum(applied.values())
                 return {
                     "applied": True,

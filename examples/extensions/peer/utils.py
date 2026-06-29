@@ -20,6 +20,7 @@ MAX_MESSAGE_BYTES = 32 * 1024
 MAX_SOCKET_LINE_BYTES = 64 * 1024
 PEER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
+
 # ----------------------------------------------------------------------
 # Low‑level helpers – pure functions, no state
 # ----------------------------------------------------------------------
@@ -75,6 +76,7 @@ def _read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"Expected a JSON object in {path}")
     return value
 
+
 # ----------------------------------------------------------------------
 # UI‑related helpers (used by the tool implementation)
 # ----------------------------------------------------------------------
@@ -121,10 +123,7 @@ def _format_command_result(action: str, result: Any) -> str:
     if action == "send" and isinstance(result, dict):
         delivery = "notified" if result.get("notified") else "queued for later delivery"
         mid = str(result.get("id", ""))[:8]
-        return (
-            f"Message sent to {result.get('recipient', '?')} ({delivery}).\n"
-            f"Message ID: {mid}"
-        )
+        return f"Message sent to {result.get('recipient', '?')} ({delivery}).\nMessage ID: {mid}"
     if action == "inbox" and isinstance(result, list):
         if not result:
             return "No delivered peer messages."
@@ -149,15 +148,7 @@ def _format_command_result(action: str, result: Any) -> str:
 
 
 def _render_peer_result(content: str, opts: Any) -> list[str]:
-    """Render peer tool output with a collapsible one‑line summary.
-
-    The tool returns a JSON payload; we format it into a human‑readable string
-    using ``_format_command_result``.  The first line of that formatted string
-    becomes the concise summary shown when the entry is collapsed.  When the
-    entry is expanded we show the full formatted output plus a hint for the
-    user to collapse again.  This mirrors the behaviour of the built‑in web
-    tools.
-    """
+    """Render the complete peer result; the default TUI shell handles previews."""
     import json
 
     # Determine which action was performed – stored in the metadata by the tool.
@@ -173,18 +164,7 @@ def _render_peer_result(content: str, opts: Any) -> list[str]:
     if not lines:
         return []
 
-    # Use the theme's muted style if available, otherwise identity.
-    _id = lambda s: s  # noqa: E731
-    muted = getattr(opts.theme, "muted", _id)
-
-    summary = lines[0]
-    if not getattr(opts, "expanded", False):
-        return [summary, muted("···  (ctrl+o to expand)")]
-
-    # Expanded view: full output plus a collapse hint.
-    out = lines
-    out.append(muted("(ctrl+o to collapse)"))
-    return out
+    return lines
 
 
 def _argument_completions(peer: "Peer", text: str) -> list[Any]:
@@ -204,7 +184,11 @@ def _argument_completions(peer: "Peer", text: str) -> list[Any]:
         return [AutocompleteItem(label=a, description=d) for a, d in actions.items()]
     if len(parts) == 1 and not text.endswith(" "):
         prefix = parts[0]
-        return [AutocompleteItem(label=a, description=d) for a, d in actions.items() if a.startswith(prefix)]
+        return [
+            AutocompleteItem(label=a, description=d)
+            for a, d in actions.items()
+            if a.startswith(prefix)
+        ]
     if parts[0] == "send" and (len(parts) == 1 or len(parts) == 2):
         prefix = parts[1] if len(parts) == 2 and not text.endswith(" ") else ""
         return [

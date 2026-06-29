@@ -33,6 +33,7 @@ Optional settings.json config:
     }
   }
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -81,7 +82,7 @@ async def _expand_file_line_refs(text: str, service: LSP, cwd: Path) -> str | No
         if not file.is_file():
             continue
 
-        start_line = int(start_str)   # 1-based
+        start_line = int(start_str)  # 1-based
         end_line = int(end_str) if end_str else None
 
         # ── Explicit range: just read directly ──────────────────────────────
@@ -141,10 +142,10 @@ async def _expand_file_line_refs(text: str, service: LSP, cwd: Path) -> str | No
             # Only use LSP span if it covers more than one line; a 1-line span
             # usually means we only got the declaration, not the body.
             if best_span is not None and (best_span[1] - best_span[0]) >= 1:
-                sym_start = best_span[0] + 1   # back to 1-based
-                sym_end   = best_span[1] + 1
+                sym_start = best_span[0] + 1  # back to 1-based
+                sym_end = best_span[1] + 1
         except Exception:
-            pass   # fall back to ±25-line window around the pinned line
+            pass  # fall back to ±25-line window around the pinned line
 
         file_lines = file.read_text(errors="replace").splitlines()
         sym_end = min(sym_end, len(file_lines))
@@ -167,15 +168,15 @@ async def _expand_file_line_refs(text: str, service: LSP, cwd: Path) -> str | No
 
 
 _SEVERITY = {1: "ERROR", 2: "WARN", 3: "INFO", 4: "HINT"}
-_RED      = "\033[31m"
-_YELLOW   = "\033[33m"
-_DIM      = "\033[2m"
-_RESET    = "\033[0m"
+_RED = "\033[31m"
+_YELLOW = "\033[33m"
+_DIM = "\033[2m"
+_RESET = "\033[0m"
 
 
 def _build_diag_block(diagnostics: list[dict]) -> dict:
-    """Build an _extra_blocks entry with collapsed/expanded diagnostic lines."""
-    errors   = sum(1 for d in diagnostics if d.get("severity") == 1)
+    """Build an _extra_blocks entry containing complete diagnostic output."""
+    errors = sum(1 for d in diagnostics if d.get("severity") == 1)
     warnings = sum(1 for d in diagnostics if d.get("severity") == 2)
     parts = []
     if errors:
@@ -187,21 +188,18 @@ def _build_diag_block(diagnostics: list[dict]) -> dict:
     detail: list[str] = []
     for d in diagnostics[:_MAX_ERRORS_PER_FILE]:
         start = d.get("range", {}).get("start", {})
-        line  = start.get("line", 0) + 1
-        sev   = d.get("severity", 1)
-        msg   = d.get("message", "").replace("\n", " ")
-        src   = d.get("source", "")
-        icon  = "✘" if sev == 1 else "★" if sev == 2 else "·"
-        col   = _RED if sev == 1 else _YELLOW if sev == 2 else _DIM
+        line = start.get("line", 0) + 1
+        sev = d.get("severity", 1)
+        msg = d.get("message", "").replace("\n", " ")
+        src = d.get("source", "")
+        icon = "✘" if sev == 1 else "★" if sev == 2 else "·"
+        col = _RED if sev == 1 else _YELLOW if sev == 2 else _DIM
         src_tag = f"  {_DIM}[{src}]{_RESET}" if src else ""
         detail.append(f"{col}{icon}  {line}  {msg}{src_tag}{_RESET}")
     if len(diagnostics) > _MAX_ERRORS_PER_FILE:
         detail.append(f"{_DIM}··· {len(diagnostics) - _MAX_ERRORS_PER_FILE} more{_RESET}")
 
-    return {
-        "collapsed": [summary, f"{_DIM}  ···  (ctrl+o to expand){_RESET}"],
-        "expanded":  [summary, *detail, f"{_DIM}  (ctrl+o to collapse){_RESET}"],
-    }
+    return {"lines": [summary, *detail]}
 
 
 def _diag_lines(diagnostics: list[dict]) -> list[str]:
@@ -250,7 +248,9 @@ def register(tau) -> None:
     async def _warmup_now() -> None:
         if not lsp_enabled:
             return
-        eager_ids: list[str] | None = tau.config.get("eager") or None  # absent/[] → None = auto-detect
+        eager_ids: list[str] | None = (
+            tau.config.get("eager") or None
+        )  # absent/[] → None = auto-detect
         await service.eager(eager_ids)
 
     @tau.on("runtime_ready")

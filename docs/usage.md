@@ -197,7 +197,8 @@ Type `@` in the editor to fuzzy-search for a file and insert a reference. The fi
 | Ctrl+C | Abort turn (double-press to quit) |
 | Ctrl+D | Quit (on empty input) |
 | Escape | Abort turn / dismiss picker |
-| Ctrl+O | Toggle expand/collapse for template blocks |
+| Ctrl+O | Toggle expand/collapse for tool result blocks |
+| Ctrl+E | Toggle expand/collapse for template and skill blocks |
 
 See [Keybindings](keybindings.md) for how to customise shortcuts.
 

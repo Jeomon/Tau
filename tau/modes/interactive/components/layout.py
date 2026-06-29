@@ -188,6 +188,7 @@ class Layout(Component):
         picker_max_visible: int = 8,
         autocomplete_max_visible: int = 5,
         editor_padding_x: int = 0,
+        tool_result_preview_lines: int = 5,
     ) -> None:
         """Initialize layout with TUI instance and default theme."""
         self._tui = tui
@@ -197,6 +198,7 @@ class Layout(Component):
         self.messages = MessageList(
             theme=self._theme.message,
             user_prefix=self._theme.input.prefix,
+            tool_result_preview_lines=tool_result_preview_lines,
         )
         self.spinner = Spinner(tui, theme=self._theme.spinner)
         self.footer: Container = Container()

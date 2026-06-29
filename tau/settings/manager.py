@@ -197,9 +197,7 @@ class SettingsManager:
                 # Legacy flat "model": "<id>" (+ sibling "provider"): fold into
                 # model.text so old config files load instead of crashing. The
                 # nested object is written back on the next save.
-                kwargs[key] = ModelSettings(
-                    text=ModelRef(id=value, provider=data.get("provider"))
-                )
+                kwargs[key] = ModelSettings(text=ModelRef(id=value, provider=data.get("provider")))
             elif key == "extensions" and not isinstance(value, dict):
                 pass  # ignore corrupt/non-dict extensions values
             elif key == "extensions" and isinstance(value, dict):
@@ -504,6 +502,17 @@ class SettingsManager:
         """Set the maximum number of visible picker items and persist to global settings."""
         self.global_settings.picker_max_visible = max(1, value)
         self._mark_modified("picker_max_visible")
+        self._save()
+
+    def get_tool_result_preview_lines(self) -> int:
+        """Return default-shell tool result preview lines (default: 5)."""
+        value = self.settings.tool_result_preview_lines
+        return max(1, value) if value is not None else 5
+
+    def set_tool_result_preview_lines(self, value: int) -> None:
+        """Set default-shell tool result preview lines."""
+        self.global_settings.tool_result_preview_lines = max(1, value)
+        self._mark_modified("tool_result_preview_lines")
         self._save()
 
     def get_show_thinking(self) -> bool:

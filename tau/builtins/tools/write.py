@@ -35,9 +35,6 @@ class WriteParams(BaseModel):
     )
 
 
-_PREVIEW_LINES = 5
-
-
 def _render_write_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, GREEN, RESET
 
@@ -53,14 +50,8 @@ def _render_write_result(content: str, opts: Any) -> list[str]:
     if not lines:
         return result
 
-    show = lines if opts.expanded else lines[:_PREVIEW_LINES]
-    for i, text in enumerate(show, 1):
+    for i, text in enumerate(lines, 1):
         result.append(f"{DIM}{i}{RESET}  {text}")
-
-    if opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
 
     return result
 

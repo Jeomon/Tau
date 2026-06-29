@@ -44,15 +44,11 @@ class ReadParams(BaseModel):
     )
 
 
-_PREVIEW_LINES = 5
-
-
 def _render_read_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
     metadata = opts.metadata or {}
     lines_returned = metadata.get("lines_returned", 0)
-    truncated = metadata.get("truncated", False)
 
     line_word = "line" if lines_returned == 1 else "lines"
     result = [f"Read {lines_returned} {line_word}"]
@@ -66,14 +62,8 @@ def _render_read_result(content: str, opts: Any) -> list[str]:
     if not parsed:
         return result
 
-    show = parsed if opts.expanded else parsed[:_PREVIEW_LINES]
-    for num, text in show:
+    for num, text in parsed:
         result.append(f"{DIM}{num}{RESET}  {text}")
-
-    if opts.expanded and (len(parsed) > _PREVIEW_LINES or truncated):
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and (len(parsed) > _PREVIEW_LINES or truncated):
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
 
     return result
 

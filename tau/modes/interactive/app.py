@@ -146,10 +146,12 @@ class App:
         sm = runtime.settings_manager
         picker_max_visible = 8
         autocomplete_max_visible = 5
+        tool_result_preview_lines = 5
         cls._apply_message_flags(resolved_theme, sm)
         if sm is not None:
             picker_max_visible = sm.get_picker_max_visible()
             autocomplete_max_visible = sm.get_autocomplete_max_visible()
+            tool_result_preview_lines = sm.get_tool_result_preview_lines()
 
         if keybindings:
             configure_keybindings(keybindings)
@@ -167,6 +169,7 @@ class App:
             picker_max_visible=picker_max_visible,
             autocomplete_max_visible=autocomplete_max_visible,
             editor_padding_x=editor_padding_x,
+            tool_result_preview_lines=tool_result_preview_lines,
         )
         tui.set_focus(layout)
         app = cls(runtime, tui, layout)

@@ -24,7 +24,6 @@ def _render_glob_call(args: dict, _streaming: bool) -> list[str]:
 
 
 _MAX_RESULTS = 1000
-_PREVIEW_LINES = 5
 
 
 def _render_glob_result(content: str, opts: Any) -> list[str]:
@@ -45,14 +44,8 @@ def _render_glob_result(content: str, opts: Any) -> list[str]:
     lines = [line for line in content.splitlines() if line and not line.startswith("[")]
     result = [summary]
 
-    show = lines if opts.expanded else lines[:_PREVIEW_LINES]
-    for path in show:
+    for path in lines:
         result.append(path)
-
-    if opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
 
     return result
 

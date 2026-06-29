@@ -3,18 +3,35 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.utils import BOLD, RESET, cursor_block, visible_width, wrap
 from tau.tui.component import Component
-from tau.tui.utils import _is_diff
 from tau.tui.input import InputEvent, Key, KeyEvent
 from tau.tui.markdown import render_markdown
 from tau.tui.theme import MessageTheme
+from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
 
 if TYPE_CHECKING:
     from tau.tool.types import Tool
 
 _TOOL_INDENT = "  "
 _RESULT_INDENT = "    "
+_DEFAULT_TOOL_RESULT_PREVIEW_LINES = 5
+
+
+def _default_shell_preview(
+    lines: list[str],
+    *,
+    expanded: bool,
+    expandable: bool,
+    preview_lines: int,
+    theme: Any,
+) -> list[str]:
+    """Apply centralized default-shell collapsing and hints."""
+    threshold = max(1, preview_lines)
+    if not expandable or len(lines) <= threshold:
+        return lines
+    if expanded:
+        return [*lines, theme.dim("(ctrl+o to collapse)")]
+    return [*lines[:threshold], theme.dim("···  (ctrl+o to expand)")]
 
 
 def apply_render_shell(lines: list[str], theme: Any, color_fn: Any = None) -> list[str]:
@@ -50,6 +67,7 @@ class MessageBlock:
         theme: MessageTheme | None = None,
         user_prefix: str = "❯ ",
         tool_lookup: Callable[[str], Tool | None] | None = None,
+        tool_result_preview_lines: int = _DEFAULT_TOOL_RESULT_PREVIEW_LINES,
     ) -> None:
         self._message = message
         self._streaming = streaming
@@ -57,6 +75,7 @@ class MessageBlock:
         self._theme = theme or MessageTheme()
         self._user_prefix = user_prefix
         self._tool_lookup = tool_lookup
+        self._tool_result_preview_lines = max(1, tool_result_preview_lines)
         self._cached: list[str] | None = None
         self._cached_width = 0
         # Keyed by (content_idx, image_idx) — persisted so Kitty image IDs stay stable
@@ -449,7 +468,7 @@ class MessageBlock:
 
             opts = ToolRenderOptions(
                 is_error=item.is_error,
-                expanded=self._expanded,
+                expanded=self._expanded if tool.render_shell != "default" else False,
                 is_partial=self._streaming,
                 metadata=item.metadata,
                 theme=self._theme,
@@ -465,12 +484,32 @@ class MessageBlock:
                 if tool.render_shell == "default":
                     t = self._theme
                     color_fn = t.tool_result_err if item.is_error else t.tool_result_ok
-                    framed = list(custom)
+                    threshold = (
+                        tool.result_preview_lines
+                        if tool.result_preview_lines is not None
+                        else self._tool_result_preview_lines
+                    )
+                    framed = _default_shell_preview(
+                        list(custom),
+                        expanded=self._expanded,
+                        expandable=tool.result_expandable,
+                        preview_lines=threshold,
+                        theme=t,
+                    )
+                    if not framed:
+                        return []
                     framed[0] = color_fn(framed[0])
                     lines = apply_render_shell(framed, t)
                 else:
                     lines = list(custom)
-                lines.extend(_render_extra_blocks(item.metadata, self._expanded, self._theme))
+                lines.extend(
+                    _render_extra_blocks(
+                        item.metadata,
+                        self._expanded,
+                        self._tool_result_preview_lines,
+                        self._theme,
+                    )
+                )
                 return lines
 
         t = self._theme
@@ -490,31 +529,56 @@ class MessageBlock:
                 hunk=t.diff_hunk,
                 inverse=t.diff_inverse,
             )
-            if self._expanded or len(diff_lines) <= 3:
-                rendered = diff_lines or [color_fn("(empty diff)")]
-            else:
-                rendered = diff_lines[:3] + [t.dim(f"({len(diff_lines)} lines — ctrl+o to expand)")]
-        elif self._expanded or len(all_lines) == 1:
-            rendered = [color_fn(all_lines[0])] + [t.dim(line) for line in all_lines[1:]]
+            rendered = diff_lines or [color_fn("(empty diff)")]
         else:
-            rendered = [color_fn(all_lines[0]), t.dim(f"({len(all_lines)} lines)")]
+            rendered = [color_fn(all_lines[0])] + [t.dim(line) for line in all_lines[1:]]
+        rendered = _default_shell_preview(
+            rendered,
+            expanded=self._expanded,
+            expandable=tool.result_expandable if tool is not None else True,
+            preview_lines=(
+                tool.result_preview_lines
+                if tool is not None and tool.result_preview_lines is not None
+                else self._tool_result_preview_lines
+            ),
+            theme=t,
+        )
         lines = apply_render_shell(rendered, t)
-        lines.extend(_render_extra_blocks(item.metadata, self._expanded, self._theme))
+        lines.extend(
+            _render_extra_blocks(
+                item.metadata,
+                self._expanded,
+                self._tool_result_preview_lines,
+                self._theme,
+            )
+        )
         return lines
 
 
-def _render_extra_blocks(metadata: dict, expanded: bool, theme: Any) -> list[str]:
+def _render_extra_blocks(
+    metadata: dict,
+    expanded: bool,
+    preview_lines: int,
+    theme: Any,
+) -> list[str]:
     """Render generic extension blocks appended below any tool result."""
     blocks = (metadata or {}).get("_extra_blocks")
     if not blocks:
         return []
     lines: list[str] = []
     for block in blocks:
-        block_lines: list[str] = block.get("expanded" if expanded else "collapsed") or []
+        block_lines: list[str] = block.get("lines") or []
         if not block_lines:
             continue
-        lines.append(f"{_RESULT_INDENT}{theme.dim('└')} {block_lines[0]}")
-        lines.extend(f"{_RESULT_INDENT}  {line}" for line in block_lines[1:])
+        rendered = _default_shell_preview(
+            block_lines,
+            expanded=expanded,
+            expandable=True,
+            preview_lines=preview_lines,
+            theme=theme,
+        )
+        lines.append(f"{_RESULT_INDENT}{theme.dim('└')} {rendered[0]}")
+        lines.extend(f"{_RESULT_INDENT}  {line}" for line in rendered[1:])
     return lines
 
 
@@ -532,6 +596,7 @@ class MessageList(Component):
         height: int = 20,
         theme: MessageTheme | None = None,
         user_prefix: str = "❯ ",
+        tool_result_preview_lines: int = _DEFAULT_TOOL_RESULT_PREVIEW_LINES,
     ) -> None:
         self._blocks: list[MessageBlock] = []
         self._height = height
@@ -541,6 +606,7 @@ class MessageList(Component):
         self._theme = theme or MessageTheme()
         self._user_prefix = user_prefix
         self._tool_lookup: Callable[[str], Tool | None] | None = None
+        self._tool_result_preview_lines = max(1, tool_result_preview_lines)
 
     # -------------------------------------------------------------------------
     # Public API
@@ -638,6 +704,7 @@ class MessageList(Component):
             theme=self._theme,
             user_prefix=self._user_prefix,
             tool_lookup=self._tool_lookup,
+            tool_result_preview_lines=self._tool_result_preview_lines,
         )
         self.add_block(block)
         return block

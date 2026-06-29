@@ -23,9 +23,6 @@ def _render_ls_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("ls", args.get("path", ""))
 
 
-_PREVIEW_LINES = 5
-
-
 class LsParams(BaseModel):
     """Parameters for the ls tool."""
 
@@ -56,8 +53,7 @@ def _render_ls_result(content: str, opts: Any) -> list[str]:
     if not entries:
         return result
 
-    show = entries if opts.expanded else entries[:_PREVIEW_LINES]
-    for entry in show:
+    for entry in entries:
         name = entry["name"]
         is_dir = entry["is_dir"]
         size_str = entry.get("size_str", "")
@@ -66,11 +62,6 @@ def _render_ls_result(content: str, opts: Any) -> list[str]:
         else:
             tail = f"  {DIM}{size_str}{RESET}" if size_str else ""
             result.append(f"{name}{tail}")
-
-    if opts.expanded and len(entries) > _PREVIEW_LINES:
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and len(entries) > _PREVIEW_LINES:
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
 
     return result
 

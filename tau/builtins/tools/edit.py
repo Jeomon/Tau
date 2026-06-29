@@ -25,7 +25,6 @@ def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("edit", args.get("path", ""))
 
 
-_CONTEXT_LINES = 2
 
 
 class EditParams(BaseModel):
@@ -115,7 +114,7 @@ def _render_hunk_line(char: str, old_line: int, new_line: int, text: str) -> str
 
 
 def _render_edit_result(content: str, opts: Any) -> list[str]:
-    from tau.tui.utils import DIM, GREEN, RED, RESET
+    from tau.tui.utils import GREEN, RED, RESET
 
     metadata = opts.metadata or {}
     added = metadata.get("lines_added", 0)
@@ -136,56 +135,14 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     if not hunks:
         return result
 
-    has_gaps = False
-
-    if opts.expanded:
-        for hunk in hunks:
-            for char, ol, nl, text in hunk:
-                if char == "+":
-                    result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
-                elif char == "-":
-                    result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
-                else:
-                    result.append(_render_hunk_line(char, ol, nl, text))
-    else:
-        prev_new_end: int | None = None
-        for hunk in hunks:
-            new_start = hunk[0][2]
-            if prev_new_end is not None:
-                gap = new_start - prev_new_end
-                if gap > 0:
-                    result.append(f"{DIM}  ···  {gap} line{'s' if gap != 1 else ''}{RESET}")
-                    has_gaps = True
-
-            changed = {i for i, (c, *_) in enumerate(hunk) if c != " "}
-            show = {
-                j
-                for ci in changed
-                for j in range(max(0, ci - _CONTEXT_LINES), min(len(hunk), ci + _CONTEXT_LINES + 1))
-            }
-
-            prev_i: int | None = None
-            for i, (char, ol, nl, text) in enumerate(hunk):
-                if i not in show:
-                    continue
-                if prev_i is not None and i > prev_i + 1:
-                    gap = i - prev_i - 1
-                    result.append(f"{DIM}  ···  {gap} line{'s' if gap != 1 else ''}{RESET}")
-                    has_gaps = True
-                if char == "+":
-                    result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
-                elif char == "-":
-                    result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
-                else:
-                    result.append(_render_hunk_line(char, ol, nl, text))
-                prev_i = i
-
-            last = hunk[-1]
-            prev_new_end = last[2] + (1 if last[0] != "-" else 0)
-
-    if has_gaps or opts.expanded:
-        hint = "(ctrl+o to collapse)" if opts.expanded else "···  (ctrl+o to expand)"
-        result.append(f"{DIM}  {hint}{RESET}")
+    for hunk in hunks:
+        for char, ol, nl, text in hunk:
+            if char == "+":
+                result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
+            elif char == "-":
+                result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
+            else:
+                result.append(_render_hunk_line(char, ol, nl, text))
 
     return result
 

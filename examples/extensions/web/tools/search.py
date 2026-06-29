@@ -4,7 +4,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.tool.types import Tool, ToolContext, ToolExecutionMode, ToolInvocation, ToolKind, ToolResult
+from tau.tool.types import (
+    Tool,
+    ToolContext,
+    ToolExecutionMode,
+    ToolInvocation,
+    ToolKind,
+    ToolResult,
+)
 from tau.tool.render import call_line
 
 from engines import SearchMode as _SearchMode, BaseSearchEngine
@@ -48,7 +55,7 @@ def _result_lines(r: dict, mode: _SearchMode) -> tuple[str, str]:
     title = r.get("title", "")
     match mode:
         case _SearchMode.news:
-            src  = r.get("source", "")
+            src = r.get("source", "")
             date = r.get("date", "")
             title += (f"  [{src}]" if src else "") + (f"  {date}" if date else "")
         case _SearchMode.videos:
@@ -67,20 +74,17 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
     muted = getattr(opts.theme, "muted", _id)
 
     metadata = opts.metadata or {}
-    query        = metadata.get("query", "")
-    mode         = metadata.get("mode", "text")
+    query = metadata.get("query", "")
+    mode = metadata.get("mode", "text")
     result_count = metadata.get("result_count", 0)
-    results      = metadata.get("results", [])
+    results = metadata.get("results", [])
 
-    mode_tag    = f"  {muted(mode)}" if mode != "text" else ""
+    mode_tag = f"  {muted(mode)}" if mode != "text" else ""
     result_word = "result" if result_count == 1 else "results"
     summary = f"Found {result_count} {result_word}{mode_tag}"
 
     if not results:
         return [summary]
-
-    if not opts.expanded:
-        return [summary, muted("···  (ctrl+o to expand)")]
 
     out = [summary]
     for i, r in enumerate(results, 1):
@@ -88,7 +92,6 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
         out.append(f"{i}  {title}")
         if url:
             out.append(f"   {muted(url)}")
-    out.append(muted("(ctrl+o to collapse)"))
     return out
 
 
@@ -170,4 +173,6 @@ class WebSearchTool(Tool):
         if not results:
             return ToolResult.ok(invocation.id, f"No results found for: {query}", metadata=metadata)
 
-        return ToolResult.ok(invocation.id, _format_results(mode, query, results), metadata=metadata)
+        return ToolResult.ok(
+            invocation.id, _format_results(mode, query, results), metadata=metadata
+        )

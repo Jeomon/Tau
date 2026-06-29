@@ -26,7 +26,6 @@ def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
 
 
 _MAX_MATCHES = 500
-_PREVIEW_LINES = 5
 
 
 def _render_grep_result(content: str, opts: Any) -> list[str]:
@@ -49,16 +48,10 @@ def _render_grep_result(content: str, opts: Any) -> list[str]:
     lines = [line for line in content.splitlines() if ":" in line]
     result = [summary]
 
-    show = lines if opts.expanded else lines[:_PREVIEW_LINES]
-    for line in show:
+    for line in lines:
         file_part, _, rest = line.partition(":")
         lineno, _, text = rest.partition(": ")
         result.append(f"{DIM}{file_part}:{lineno.strip()}{RESET}  {text}")
-
-    if opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  (ctrl+o to collapse){RESET}")
-    elif not opts.expanded and len(lines) > _PREVIEW_LINES:
-        result.append(f"{DIM}  ···  (ctrl+o to expand){RESET}")
 
     return result
 

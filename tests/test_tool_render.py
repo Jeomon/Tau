@@ -1,8 +1,11 @@
 """Tests for tau/tool/render.py and tau/tool/types.py — tool display utilities."""
+
 from __future__ import annotations
 
+from tau.modes.interactive.components.message_list import _default_shell_preview
 from tau.tool.render import call_line, display_name
 from tau.tool.types import ToolKind, ToolResult
+from tau.tui.theme import MessageTheme
 from tau.tui.utils import strip_ansi
 
 
@@ -89,3 +92,37 @@ class TestToolKind:
         assert ToolKind.Write
         assert ToolKind.Execute
         assert ToolKind.Web
+
+
+class TestDefaultToolResultShell:
+    def test_short_output_has_no_expand_hint(self):
+        rendered = _default_shell_preview(
+            ["one", "two"],
+            expanded=False,
+            expandable=True,
+            preview_lines=5,
+            theme=MessageTheme(),
+        )
+        assert rendered == ["one", "two"]
+
+    def test_long_output_is_collapsed_and_expandable(self):
+        rendered = _default_shell_preview(
+            [str(index) for index in range(7)],
+            expanded=False,
+            expandable=True,
+            preview_lines=5,
+            theme=MessageTheme(),
+        )
+        assert rendered[:5] == ["0", "1", "2", "3", "4"]
+        assert "ctrl+o to expand" in strip_ansi(rendered[-1])
+
+    def test_opt_out_always_shows_complete_output(self):
+        lines = [str(index) for index in range(7)]
+        rendered = _default_shell_preview(
+            lines,
+            expanded=False,
+            expandable=False,
+            preview_lines=2,
+            theme=MessageTheme(),
+        )
+        assert rendered == lines

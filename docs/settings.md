@@ -120,6 +120,7 @@ Toggle during a session with `/effort` or the effort picker.
 | `show_tool_calls` | boolean | `true` | Show tool call / result blocks in the message list |
 | `picker_max_visible` | integer | `8` | Max visible rows in the model / theme picker |
 | `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown |
+| `tool_result_preview_lines` | integer | `5` | Lines shown before default-shell tool results collapse; values below 1 are clamped |
 | `show_hardware_cursor` | boolean | `false` | Keep the terminal cursor visible while it is repositioned (aids IME input) |
 | `editor_padding_x` | integer | `0` | Horizontal padding (spaces) added inside the input editor |
 | `double_escape_action` | string | `"fork"` | What happens when Escape is pressed twice on an empty editor: `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
