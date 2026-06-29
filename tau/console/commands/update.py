@@ -3,18 +3,26 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from tau.packages.manager import PackageManager
+    from tau.settings.manager import SettingsManager
 
 
 @click.command("update")
 @click.argument("name", required=False, default=None)
+@click.option("--all", "update_all", is_flag=True, help="Update Tau and all extension packages.")
 @click.option(
     "--local", is_flag=True, default=False, help="Update in project scope instead of global."
 )
-def update(name: str | None, local: bool) -> None:
+def update(name: str | None, update_all: bool, local: bool) -> None:
     """Update tau itself, or update an extension package by NAME."""
-    if name is None:
+    if update_all and name is not None:
+        raise click.ClickException("NAME cannot be combined with --all.")
+    if name is None and not update_all:
         _update_tau()
         return
 
@@ -28,22 +36,47 @@ def update(name: str | None, local: bool) -> None:
     settings = SettingsManager.create(cwd)
 
     packages = settings.get_packages(local=local)
+    if update_all:
+        packages = settings.get_all_packages()
+        _update_tau()
+        if not packages:
+            return
+        for pkg in packages:
+            scope_local = any(p.name == pkg.name for p in settings.get_packages(local=True))
+            manager = PackageManager(get_packages_venv(cwd if scope_local else None))
+            _update_package(manager, settings, pkg.name, scope_local)
+        asyncio.run(settings.flush())
+        return
+
     targets = [p for p in packages if p.name == name]
 
     if not targets:
         raise click.ClickException(f"Package '{name}' not found.")
 
     for pkg in targets:
-        click.echo(f"Updating {pkg.name}…")
-        try:
-            new_version = pkg_manager.update(pkg.name)
-            settings.update_package_version(pkg.name, new_version, local=local)
-            arrow = f" → {new_version}" if new_version else ""
-            click.echo(click.style(f"✓ Updated {pkg.name}{arrow}", fg="green"))
-        except Exception as e:
-            click.echo(click.style(f"✗ {pkg.name}: {e}", fg="red"))
+        _update_package(pkg_manager, settings, pkg.name, local)
 
     asyncio.run(settings.flush())
+
+
+def _update_package(
+    manager: PackageManager, settings: SettingsManager, name: str, local: bool
+) -> None:
+    """Update one package and report its result."""
+    click.echo(f"Updating {name}…")
+    try:
+        entries = settings.get_packages(local=local)
+        entry = next((package for package in entries if package.name == name), None)
+        new_version = manager.update(
+            name,
+            index_url=entry.index_url if entry else None,
+            extra_index_urls=entry.extra_index_urls if entry else None,
+        )
+        settings.update_package_version(name, new_version, local=local)
+        arrow = f" → {new_version}" if new_version else ""
+        click.echo(click.style(f"✓ Updated {name}{arrow}", fg="green"))
+    except Exception as exc:
+        click.echo(click.style(f"✗ {name}: {exc}", fg="red"))
 
 
 def _update_tau() -> None:

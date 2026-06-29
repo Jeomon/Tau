@@ -15,11 +15,12 @@ from tau.extensions.loader import ExtensionLoader
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
+from tau.packages.manager import PackageManager
 from tau.packages.utils import add_site_packages_path
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
-from tau.settings.paths import get_config_dir, get_extensions_dir
+from tau.settings.paths import get_config_dir, get_extensions_dir, get_packages_venv
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
@@ -47,6 +48,7 @@ class RuntimeConfig(BaseModel):
 
     # Session
     session_file: Path | None = None
+    session_dir: Path | None = None
     persist_session: bool = True
     resume: bool = False
 
@@ -162,11 +164,13 @@ class RuntimeContext:
         # is pending (policy="ask", no prior decision) the TrustScreen will call
         # session_manager.enable_persist() after the user approves.
         _persist = config.persist_session and not _trust_pending
+        session_dir = config.session_dir or settings_manager.get_session_dir()
         if config.resume and not config.session_file and _persist:
-            session_manager = SessionManager.continue_recent(cwd)
+            session_manager = SessionManager.continue_recent(cwd, session_dir=session_dir)
         else:
             session_manager = SessionManager(
                 cwd=cwd,
+                session_dir=session_dir,
                 session_file=config.session_file,
                 persist=_persist,
             )
@@ -211,8 +215,6 @@ class RuntimeContext:
                 extra_sources: dict[str, str] = {}
 
                 # Discover extension files contributed by installed packages
-                from tau.packages.manager import PackageManager
-                from tau.settings.paths import get_packages_venv
                 from tau.settings.types import ExtensionEntry as _ExtEntry
 
                 pkg_entries = settings_manager.get_all_packages()
@@ -231,7 +233,14 @@ class RuntimeContext:
                         )
                         _pkg_mgr = PackageManager(_venv_dir)
 
-                        for ext_file in _pkg_mgr.find_extension_files(pkg.name, pkg.installed_path):
+                        extension_files = _pkg_mgr.find_resource_paths(
+                            pkg.name, "extensions", pkg.installed_path, pkg.extensions
+                        )
+                        if not extension_files and pkg.extensions is None:
+                            extension_files = _pkg_mgr.find_extension_files(
+                                pkg.name, pkg.installed_path
+                            )
+                        for ext_file in extension_files:
                             extra_entries.append(_ExtEntry(path=str(ext_file), name=pkg.name))
                             extra_sources[str(ext_file)] = "package"
 
@@ -287,8 +296,44 @@ class RuntimeContext:
         # ── Skills ────────────────────────────────────────────────────────────
         from tau.skills.registry import skill_registry
 
-        skill_registry.load_external(cwd=cwd)
+        package_skill_paths: list[str] = []
+        for pkg in settings_manager.get_all_packages():
+            if not pkg.enabled:
+                continue
+            manager = PackageManager(
+                get_packages_venv(cwd if _is_project_package(settings_manager, pkg.name) else None)
+            )
+            package_skill_paths.extend(
+                str(path)
+                for path in manager.find_resource_paths(
+                    pkg.name, "skills", pkg.installed_path, pkg.skills
+                )
+            )
+        skill_registry.reload(cwd=cwd, extra_paths=package_skill_paths)
         skills = skill_registry.list()
+
+        from tau.prompts.registry import prompt_registry
+        from tau.themes.registry import theme_registry
+
+        package_prompt_paths: list[str] = []
+        package_theme_paths: list[Path] = []
+        for pkg in settings_manager.get_all_packages():
+            if not pkg.enabled:
+                continue
+            manager = PackageManager(
+                get_packages_venv(cwd if _is_project_package(settings_manager, pkg.name) else None)
+            )
+            package_prompt_paths.extend(
+                str(path)
+                for path in manager.find_resource_paths(
+                    pkg.name, "prompts", pkg.installed_path, pkg.prompts
+                )
+            )
+            package_theme_paths.extend(
+                manager.find_resource_paths(pkg.name, "themes", pkg.installed_path, pkg.themes)
+            )
+        prompt_registry.reload(cwd=cwd, extra_paths=package_prompt_paths)
+        theme_registry.load_paths(package_theme_paths, source="package")
 
         # ── System prompt ─────────────────────────────────────────────────────
         system_prompt = config.system_prompt or build_prompt(

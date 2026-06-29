@@ -79,7 +79,19 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     "-r",
     default=None,
     metavar="[ID]",
-    help="Resume a session. Omit an ID to resume the most recent; pass an ID for a specific session.",
+    help=(
+        "Resume a session. Omit an ID to resume the most recent; pass an ID for a specific session."
+    ),
+)
+@click.option("--fork", "fork_session", default=None, metavar="ID", help="Fork a session by ID.")
+@click.option("--session-dir", default=None, metavar="PATH", help="Session storage directory.")
+@click.option("--name", "session_name", default=None, metavar="NAME", help="Session display name.")
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    hidden=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
 )
 @click.option(
     "--system",
@@ -134,6 +146,10 @@ def cli(
     model: str | None,
     theme: str | None,
     resume: str | None,
+    fork_session: str | None,
+    session_dir: str | None,
+    session_name: str | None,
+    files: tuple[Path, ...],
     system: str | None,
     ephemeral: bool,
     print_flag: bool,
@@ -159,6 +175,10 @@ def cli(
     ctx.obj["model"] = model
     ctx.obj["theme"] = theme
     ctx.obj["resume"] = resume
+    ctx.obj["fork_session"] = fork_session
+    ctx.obj["session_dir"] = session_dir
+    ctx.obj["session_name"] = session_name
+    ctx.obj["files"] = files
     ctx.obj["system"] = system or ""
     ctx.obj["ephemeral"] = ephemeral
     ctx.obj["quiet"] = quiet
@@ -174,11 +194,12 @@ def cli(
 _RESUME_LATEST = "__LATEST__"
 
 
-def _resolve_session_file(resume_id: str) -> Path:
+def _resolve_session_file(resume_id: str, session_dir: Path | None = None) -> Path:
     """Find a session file by its ID, searching all project session directories."""
     from tau.settings.paths import get_sessions_dir
 
-    matches = list(get_sessions_dir().rglob(f"*{resume_id}*.jsonl"))
+    root = session_dir or get_sessions_dir()
+    matches = list(root.rglob(f"*{resume_id}*.jsonl"))
     if not matches:
         raise click.ClickException(f"No session found with ID: {resume_id}")
     if len(matches) > 1:
@@ -190,14 +211,25 @@ async def _start(opts: dict) -> None:
     """Start the runtime with the given options and run in the specified mode."""
     from tau.runtime.service import Runtime
     from tau.runtime.types import RuntimeConfig
+    from tau.session.manager import SessionManager
 
     resolved_provider, resolved_model = resolve_model(opts["model"], opts["provider"])
 
     resume_value: str | None = opts.get("resume")
+    fork_value: str | None = opts.get("fork_session")
+    custom_session_dir = (
+        Path(opts["session_dir"]).expanduser().resolve() if opts.get("session_dir") else None
+    )
+    if resume_value and fork_value:
+        raise click.ClickException("--resume and --fork cannot be used together.")
     resume_latest = resume_value == _RESUME_LATEST
     session_file: Path | None = None
     if resume_value and not resume_latest:
-        session_file = _resolve_session_file(resume_value)
+        session_file = _resolve_session_file(resume_value, custom_session_dir)
+    if fork_value:
+        source = _resolve_session_file(fork_value, custom_session_dir)
+        forked = SessionManager.fork_from(source, Path.cwd(), session_dir=custom_session_dir)
+        session_file = forked.session_file
 
     # Determine project trust from flags
     project_trusted = None
@@ -212,6 +244,7 @@ async def _start(opts: dict) -> None:
         provider=resolved_provider,
         resume=resume_latest,
         session_file=session_file,
+        session_dir=custom_session_dir,
         persist_session=not opts["ephemeral"],
         mode=opts["mode"],
         system_prompt=opts.get("system", ""),
@@ -220,15 +253,19 @@ async def _start(opts: dict) -> None:
     )
 
     runtime = await Runtime.create(config)
+    if opts.get("session_name"):
+        runtime.session_manager.append_session_info(opts["session_name"])
 
     try:
         match opts["mode"]:
             case "interactive":
                 await _run_interactive(runtime, opts["theme"])
             case "print":
-                await _run_print(runtime, opts["prompt"], quiet=opts.get("quiet", False))
+                message = _build_initial_message(opts.get("prompt"), opts.get("files", ()))
+                await _run_print(runtime, message, quiet=opts.get("quiet", False))
             case "json":
-                await _run_json(runtime, opts["prompt"], quiet=opts.get("quiet", False))
+                message = _build_initial_message(opts.get("prompt"), opts.get("files", ()))
+                await _run_json(runtime, message, quiet=opts.get("quiet", False))
             case "rpc":
                 from tau.modes.rpc.mode import run_rpc_mode
 
@@ -245,6 +282,21 @@ async def _run_interactive(runtime: Runtime, theme: str | None) -> None:
 
     app = await App.create(runtime, theme=theme)
     await app.run()
+
+
+def _build_initial_message(message: str | None, files: tuple[Path, ...]) -> str | None:
+    """Combine piped stdin, file arguments, and the explicit prompt."""
+    parts: list[str] = []
+    if not sys.stdin.isatty():
+        piped = sys.stdin.read()
+        if piped:
+            parts.append(piped)
+    for path in files:
+        content = path.read_text(encoding="utf-8", errors="replace")
+        parts.append(f'<file path="{path}">\n{content}\n</file>')
+    if message:
+        parts.append(message)
+    return "\n\n".join(parts) or None
 
 
 async def _run_print(runtime: Runtime, message: str | None, quiet: bool = False) -> None:
@@ -342,19 +394,23 @@ cli.add_command(update)
 cli.add_command(list_packages, name="list")
 
 
-def _rewrite_resume_arg(argv: list[str]) -> list[str]:
-    """Make --resume [ID] work as an optional-value option.
+def _rewrite_args(argv: list[str]) -> list[str]:
+    """Normalize optional resume values and Pi-style ``@file`` arguments.
 
     click only supports required or absent values for options, so we pre-process
     sys.argv before click sees it:
       --resume         → --resume __LATEST__   (resume most recent)
       --resume <id>    → --resume <id>          (resume specific session)
+      @README.md       → --file README.md
     """
     out: list[str] = []
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg in ("--resume", "-r"):
+        if arg.startswith("@") and len(arg) > 1:
+            out.extend(["--file", arg[1:]])
+            i += 1
+        elif arg in ("--resume", "-r"):
             out.append("--resume")
             if i + 1 < len(argv) and not argv[i + 1].startswith("-"):
                 out.append(argv[i + 1])
@@ -372,5 +428,5 @@ def main() -> None:
     """Entry point for the CLI."""
     import sys
 
-    sys.argv[1:] = _rewrite_resume_arg(sys.argv[1:])
+    sys.argv[1:] = _rewrite_args(sys.argv[1:])
     cli()

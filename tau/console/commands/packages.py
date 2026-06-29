@@ -14,14 +14,19 @@ import click
     default=False,
     help="Install to project scope (.tau/venv/) instead of global (~/.tau/venv/).",
 )
-def install(source: str, local: bool) -> None:
+@click.option("--index-url", default=None, help="Base URL of a private Python package index.")
+@click.option("--extra-index-url", multiple=True, help="Additional Python package index URL.")
+def install(
+    source: str, local: bool, index_url: str | None, extra_index_url: tuple[str, ...]
+) -> None:
     """Install a package as a tau extension source.
 
     SOURCE formats:
       pypi:name           install latest from PyPI
-      pypi:name@1.2.3     install pinned version
+      pypi:name==1.2.3    install pinned version
       git+https://...     install from a git URL
-      ./path  or  /path   install from a local directory
+      ./path  or  /path   install from a local directory, wheel, or source archive
+      https://...whl      install a wheel or source archive URL
     """
     from tau.packages.manager import PackageManager
     from tau.settings.manager import SettingsManager
@@ -33,7 +38,11 @@ def install(source: str, local: bool) -> None:
 
     click.echo(f"Installing {source}…")
     try:
-        entry = pkg_manager.install(source)
+        entry = pkg_manager.install(
+            source,
+            index_url=index_url,
+            extra_index_urls=list(extra_index_url) or None,
+        )
     except Exception as e:
         raise click.ClickException(str(e)) from e
 

@@ -41,7 +41,7 @@ class TestParseSource:
         assert r.install_spec == "requests"
 
     def test_pypi_prefix_with_version(self):
-        r = parse_source("pypi:requests@2.31.0")
+        r = parse_source("pypi:requests==2.31.0")
         assert r.source == SourceType.PYPI
         assert r.name == "requests"
         assert r.version == "2.31.0"
@@ -53,10 +53,15 @@ class TestParseSource:
         assert r.name == "requests"
 
     def test_bare_name_with_version(self):
-        r = parse_source("requests@2.0.0")
+        r = parse_source("requests==2.0.0")
         assert r.source == SourceType.PYPI
         assert r.version == "2.0.0"
         assert r.install_spec == "requests==2.0.0"
+
+    @pytest.mark.parametrize("source", ["pypi:requests@2.0.0", "requests@2.0.0"])
+    def test_at_version_is_rejected(self, source):
+        with pytest.raises(ValueError, match="Cannot parse package source"):
+            parse_source(source)
 
     # ── Git ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +80,29 @@ class TestParseSource:
         r = parse_source("git+https://github.com/user/myrepo.git")
         assert r.name == "myrepo"
 
+    def test_git_ssh_source(self):
+        r = parse_source("git+ssh://git@github.com/user/myrepo.git@v1")
+        assert r.source == SourceType.GIT
+        assert r.name == "myrepo"
+
+    # ── Direct distributions ────────────────────────────────────────────────────
+
+    def test_wheel_url(self):
+        r = parse_source("https://example.com/demo_pkg-1.2.3-py3-none-any.whl")
+        assert r.source == SourceType.URL
+        assert r.name == "demo-pkg"
+        assert r.version == "1.2.3"
+
+    def test_sdist_url(self):
+        r = parse_source("https://example.com/demo_pkg-1.2.3.tar.gz")
+        assert r.source == SourceType.URL
+        assert r.name == "demo-pkg"
+        assert r.version == "1.2.3"
+
+    def test_non_distribution_url_is_rejected(self):
+        with pytest.raises(ValueError, match="does not identify"):
+            parse_source("https://example.com/download")
+
     # ── Local ────────────────────────────────────────────────────────────────────
 
     def test_absolute_path(self, tmp_path):
@@ -83,6 +111,13 @@ class TestParseSource:
         r = parse_source(str(pkg_dir))
         assert r.source == SourceType.LOCAL
         assert r.name == "mypkg"
+
+    def test_local_wheel_extracts_distribution_name(self, tmp_path):
+        wheel = tmp_path / "demo_pkg-2.0.0-py3-none-any.whl"
+        wheel.touch()
+        r = parse_source(str(wheel))
+        assert r.name == "demo-pkg"
+        assert r.version == "2.0.0"
 
     def test_relative_path(self):
         r = parse_source("./my-package")
@@ -97,7 +132,7 @@ class TestParseSource:
     # ── Raw field preserved ──────────────────────────────────────────────────────
 
     def test_raw_field_preserved(self):
-        source_str = "pypi:requests@1.0.0"
+        source_str = "pypi:requests==1.0.0"
         r = parse_source(source_str)
         assert r.raw == source_str
 
@@ -128,8 +163,8 @@ class TestExtensionsFromPyproject:
         assert result == []
 
     def test_returns_existing_extension_paths(self, tmp_path):
-        from tau.settings.paths import get_app_name
         from tau.packages.utils import extensions_from_pyproject
+        from tau.settings.paths import get_app_name
         ext = tmp_path / "my_ext.py"
         ext.write_text("# extension", encoding="utf-8")
         app_name = get_app_name().lower()
@@ -143,8 +178,8 @@ class TestExtensionsFromPyproject:
         assert result[0].name == "my_ext.py"
 
     def test_skips_nonexistent_extension_files(self, tmp_path):
-        from tau.settings.paths import get_app_name
         from tau.packages.utils import extensions_from_pyproject
+        from tau.settings.paths import get_app_name
         app_name = get_app_name().lower()
         f = tmp_path / "pyproject.toml"
         f.write_text(

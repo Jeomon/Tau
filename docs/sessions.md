@@ -14,6 +14,10 @@ A session is a conversation between you and the agent. Each session includes:
 
 Sessions are saved to `~/.tau/sessions/` in a per-project subdirectory so sessions from different projects never mix.
 
+Set `session_dir` in settings, or pass `--session-dir PATH`, to override this
+location. `tau --resume ID` resumes a matching session, `tau --fork ID` creates
+a new session from it, and `--name NAME` assigns a display name at startup.
+
 ## Session Files
 
 Sessions are stored per-project. The working directory is encoded into a safe subdirectory name:

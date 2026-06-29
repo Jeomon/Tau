@@ -8,6 +8,7 @@ class SourceType(StrEnum):
     PYPI = "pypi"
     GIT = "git"
     LOCAL = "local"
+    URL = "url"
 
 
 @dataclass

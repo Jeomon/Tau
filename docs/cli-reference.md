@@ -6,17 +6,21 @@
 tau [OPTIONS] [MESSAGE]
 ```
 
-`MESSAGE` is an optional positional argument. When provided with `--print` or `--mode print`, it is the prompt to run.
+Use `--prompt TEXT` for a non-interactive prompt. Piped stdin can supply or
+augment it.
 
 ## Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--provider` | `-p` | Provider to use, e.g. `anthropic`, `openai`, `groq` |
-| `--model` | `-m` | Model ID, or `provider/model` shorthand (e.g. `groq/llama-3.3-70b-versatile`) |
+| `--prompt` | `-p` | Run a non-interactive prompt |
+| `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
+| `--model` | | Model ID, or `provider/model` shorthand (e.g. `groq/llama-3.3-70b-versatile`) |
 | `--theme` | `-t` | UI theme: `default`, `dracula`, `nord`, `gruvbox`, `catppuccin`, `ayu-dark`, `everforest`, `horizon`, `kanagawa`, `material-ocean`, `monokai`, `night-owl`, `one-dark`, `rose-pine`, `solarized-dark`, `tokyo-night`, or a custom name |
-| `--resume` | `-r` | Resume the most recent session |
-| `--session` | `-s` | Resume a specific session by ID or file path |
+| `--resume [ID]` | `-r` | Resume the most recent or a specified session |
+| `--fork ID` | | Fork a specified session at startup |
+| `--session-dir PATH` | | Override session storage |
+| `--name NAME` | | Set the session display name at startup |
 | `--ephemeral` | `-e` | Don't save this session to disk |
 | `--approve` | `-a` | Trust project-local files (extensions, settings, context files) for this run |
 | `--no-approve` | `-na` | Don't trust project-local files for this run |
@@ -42,9 +46,13 @@ tau --model claude-sonnet-4-6
 Run a single prompt, print the response, and exit:
 
 ```bash
-tau --print "Summarize this repo"
-tau -p anthropic --print "What is this file?" 
+tau --prompt "Summarize this repo"
+cat README.md | tau --print --prompt "Summarize this text"
+tau --prompt "Compare these files" @src/old.py @src/new.py
 ```
+
+Piped text, attached file contents, and the explicit prompt are combined in
+that order.
 
 ### JSON mode
 

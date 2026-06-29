@@ -87,6 +87,16 @@ class ThemeRegistry:
 
         return errors
 
+    def load_paths(self, paths: list[Path], *, source: str = "runtime") -> list[ThemeLoadError]:
+        """Load theme files or directories from package/runtime resource paths."""
+        errors: list[ThemeLoadError] = []
+        for path in paths:
+            result = load_themes_from_dir(path if path.is_dir() else path.parent)
+            errors.extend(result.errors)
+            for name, theme in result.themes.items():
+                self._add(name, lambda t=theme: t, source)
+        return errors
+
     def get(self, name: str) -> LayoutTheme:
         """Retrieve and instantiate a theme by name (case-insensitive)."""
         self._ensure_builtins()

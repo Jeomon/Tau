@@ -3,6 +3,14 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+from packaging.utils import (
+    InvalidSdistFilename,
+    InvalidWheelFilename,
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
 
 from tau.packages.types import ParsedSource, SourceType
 from tau.settings.paths import get_app_name
@@ -22,9 +30,10 @@ def parse_source(source: str) -> ParsedSource:
 
     Supported formats:
       pypi:package-name
-      pypi:package-name@1.0.0
+      pypi:package-name==1.0.0
       git+https://github.com/user/repo
       git+https://github.com/user/repo@v1
+      https://example.com/package-1.0.0-py3-none-any.whl
       /absolute/path  or  ./relative/path  or  ~/path
       bare-name  (treated as pypi)
     """
@@ -32,11 +41,13 @@ def parse_source(source: str) -> ParsedSource:
 
     if s.startswith("pypi:"):
         rest = s[5:]
-        if "@" in rest:
-            name, _, version = rest.partition("@")
+        if "==" in rest:
+            name, _, version = rest.partition("==")
         else:
             name, version = rest, None
         name = name.strip()
+        if not re.fullmatch(r"[a-zA-Z0-9_.-]+", name):
+            raise ValueError(f"Cannot parse package source: {source!r}")
         spec = f"{name}=={version}" if version else name
         return ParsedSource(
             source=SourceType.PYPI, raw=source, name=name, version=version, install_spec=spec
@@ -48,14 +59,30 @@ def parse_source(source: str) -> ParsedSource:
         name = re.sub(r"\.git$", "", base).rstrip("/").split("/")[-1]
         return ParsedSource(source=SourceType.GIT, raw=source, name=name, install_spec=source)
 
+    if s.startswith(("https://", "http://")):
+        filename = Path(unquote(urlparse(s).path)).name
+        name, version = _distribution_name_and_version(filename)
+        return ParsedSource(
+            source=SourceType.URL,
+            raw=source,
+            name=name,
+            version=version,
+            install_spec=s,
+        )
+
     if s.startswith(("/", ".", "~")):
         path = Path(s).expanduser().resolve()
+        name, version = _distribution_name_and_version(path.name, fallback=path.name)
         return ParsedSource(
-            source=SourceType.LOCAL, raw=source, name=path.name, install_spec=str(path)
+            source=SourceType.LOCAL,
+            raw=source,
+            name=name,
+            version=version,
+            install_spec=str(path),
         )
 
     # Bare name — treat as pypi
-    m = re.match(r"^([a-zA-Z0-9_.-]+)(?:@(.+))?$", s)
+    m = re.match(r"^([a-zA-Z0-9_.-]+)(?:==(.+))?$", s)
     if m:
         name, version = m.group(1), m.group(2)
         spec = f"{name}=={version}" if version else name
@@ -64,6 +91,24 @@ def parse_source(source: str) -> ParsedSource:
         )
 
     raise ValueError(f"Cannot parse package source: {source!r}")
+
+
+def _distribution_name_and_version(
+    filename: str, *, fallback: str | None = None
+) -> tuple[str, str | None]:
+    """Extract normalized distribution metadata from a wheel or sdist filename."""
+    try:
+        name, version, _build, _tags = parse_wheel_filename(filename)
+        return str(name), str(version)
+    except InvalidWheelFilename:
+        pass
+    try:
+        name, version = parse_sdist_filename(filename)
+        return str(name), str(version)
+    except InvalidSdistFilename:
+        if fallback is not None:
+            return fallback, None
+        raise ValueError(f"URL does not identify a wheel or source archive: {filename!r}") from None
 
 
 def extensions_from_pyproject(pyproject: Path, base: Path) -> list[Path]:

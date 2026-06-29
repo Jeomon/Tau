@@ -122,11 +122,17 @@ class ExtensionsSettings:
 class PackageEntry:
     """A package installed via pip/uv/poetry into the tau-managed venv."""
 
-    source: str  # "pypi:name@1.0", "git+https://...", "/local/path"
+    source: str  # "pypi:name==1.0", "git+https://...", "/local/path"
     name: str  # package name (normalised)
     version: str | None = None  # installed version, if known
     installed_path: str | None = None  # path to package dir inside the venv
     enabled: bool = True
+    extensions: list[str] | None = None
+    skills: list[str] | None = None
+    prompts: list[str] | None = None
+    themes: list[str] | None = None
+    index_url: str | None = None
+    extra_index_urls: list[str] | None = None
 
 
 @dataclass

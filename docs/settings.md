@@ -84,6 +84,7 @@ All field names use `snake_case`.
 | `thinking_level` | string | Extended thinking budget level (see below) |
 | `transport` | string | Transport layer override (`"streaming"` or `"polling"`) |
 | `enabled_models` | list[string] | Restrict the model picker to these model IDs |
+| `session_dir` | string | Override the directory used to store and discover sessions |
 
 ```json
 {

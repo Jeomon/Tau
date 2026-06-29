@@ -42,6 +42,41 @@ dependencies with incompatible versions. The install only runs once — a hash o
 the dependency list is cached, so unchanged manifests are a no-op on subsequent
 launches.
 
+## Installable resource packages
+
+`tau install` accepts PyPI names, pip-compatible Git URLs, local distributions,
+and direct wheel or source-archive URLs:
+
+```bash
+tau install pypi:tau-tools==1.2.3
+tau install git+ssh://git@github.com/example/tau-tools.git@v1
+tau install ./dist/tau_tools-1.2.3-py3-none-any.whl
+tau install https://packages.example.com/tau_tools-1.2.3-py3-none-any.whl
+tau install tau-tools==1.2.3 --index-url https://packages.example.com/simple
+```
+
+Repeat `--extra-index-url URL` to resolve dependencies from additional indexes.
+Index configuration is retained for future updates.
+
+Packages can bundle extensions, skills, prompts, and themes:
+
+```json
+{
+  "tau": {
+    "extensions": ["extensions/main.py"],
+    "skills": ["skills"],
+    "prompts": ["prompts"],
+    "themes": ["themes"]
+  }
+}
+```
+
+Conventional resource directories are discovered when a manifest field is
+omitted. Package entries in `settings.json` support an `enabled` switch and
+optional `extensions`, `skills`, `prompts`, and `themes` path filters. An empty
+filter disables that resource type. Use `tau update --all` to update Tau and
+all installed packages.
+
 ## Entry point
 
 Every extension must export a `register(tau)` function:

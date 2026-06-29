@@ -69,7 +69,13 @@ class PackageManager:
 
     # ── Package operations ────────────────────────────────────────────────────
 
-    def install(self, source: str) -> PackageEntry:
+    def install(
+        self,
+        source: str,
+        *,
+        index_url: str | None = None,
+        extra_index_urls: list[str] | None = None,
+    ) -> PackageEntry:
         """Install a package and return a PackageEntry with metadata."""
         parsed = parse_source(source)
         self.ensure_venv()
@@ -78,6 +84,10 @@ class PackageManager:
             cmd = ["uv", "pip", "install", "--python", str(self._python), parsed.install_spec or ""]
         else:
             cmd = [str(self._pip_exe), "install", parsed.install_spec or ""]
+        if index_url:
+            cmd.extend(["--index-url", index_url])
+        for url in extra_index_urls or []:
+            cmd.extend(["--extra-index-url", url])
         subprocess.run(cmd, check=True)
 
         installed_path = self._find_package_dir(parsed.name)
@@ -88,6 +98,8 @@ class PackageManager:
             name=parsed.name,
             version=version,
             installed_path=str(installed_path) if installed_path else None,
+            index_url=index_url,
+            extra_index_urls=extra_index_urls,
         )
 
     def remove(self, name: str) -> None:
@@ -109,12 +121,22 @@ class PackageManager:
             cmd = [str(self._pip_exe), "install", *dependencies]
         subprocess.run(cmd, check=True, capture_output=True)
 
-    def update(self, name: str) -> str | None:
+    def update(
+        self,
+        name: str,
+        *,
+        index_url: str | None = None,
+        extra_index_urls: list[str] | None = None,
+    ) -> str | None:
         """Upgrade a package to the latest version and return the new version string."""
         if self._has_uv():
             cmd = ["uv", "pip", "install", "--python", str(self._python), "--upgrade", name]
         else:
             cmd = [str(self._pip_exe), "install", "--upgrade", name]
+        if index_url:
+            cmd.extend(["--index-url", index_url])
+        for url in extra_index_urls or []:
+            cmd.extend(["--extra-index-url", url])
         subprocess.run(cmd, check=True)
         return self._get_installed_version(name)
 
@@ -163,6 +185,46 @@ class PackageManager:
 
         return []
 
+    def find_resource_paths(
+        self,
+        name: str,
+        resource: str,
+        installed_path: str | None = None,
+        include: list[str] | None = None,
+    ) -> list[Path]:
+        """Return declared package resource paths after applying an optional filter."""
+        if resource not in {"extensions", "skills", "prompts", "themes"}:
+            raise ValueError(f"Unsupported package resource: {resource}")
+        pkg_dir = Path(installed_path) if installed_path else self._find_package_dir(name)
+        if not pkg_dir or not pkg_dir.is_dir() or include == []:
+            return []
+
+        declared: list[str] = []
+        manifest = pkg_dir / "manifest.json"
+        if manifest.is_file():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                declared = data.get(get_app_name().lower(), {}).get(resource, [])
+            except (json.JSONDecodeError, OSError):
+                _log.warning("failed to parse package manifest %s", manifest, exc_info=True)
+
+        if not declared:
+            conventional = pkg_dir / resource
+            if conventional.exists():
+                declared = [f"./{resource}"]
+
+        paths = [(pkg_dir / value).resolve() for value in declared]
+        paths = [path for path in paths if path.exists()]
+        if include is None:
+            return paths
+
+        selected: list[Path] = []
+        for path in paths:
+            relative = str(path.relative_to(pkg_dir))
+            if relative in include or path.name in include or f"./{relative}" in include:
+                selected.append(path)
+        return selected
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _get_installed_version(self, name: str) -> str | None:
@@ -188,7 +250,8 @@ class PackageManager:
         site_pkgs = self.site_packages()
         if not site_pkgs or not site_pkgs.is_dir():
             return None
-        for candidate in [name, name.replace("-", "_"), name.replace("-", "_").lower(),name.replace("-", "_").upper()]:
+        normalized = name.replace("-", "_")
+        for candidate in [name, normalized, normalized.lower(), normalized.upper()]:
             p = site_pkgs / candidate
             if p.is_dir():
                 return p
