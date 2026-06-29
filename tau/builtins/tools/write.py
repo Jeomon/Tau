@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -98,12 +99,14 @@ class WriteTool(Tool):
         """Execute the file write operation."""
         params = WriteParams.model_validate(invocation.params)
         path = Path(params.path)
+        async with serialize_file_mutation(path):
+            return self._write(invocation, params, path)
 
+    def _write(self, invocation: ToolInvocation, params: WriteParams, path: Path) -> ToolResult:
         created = not path.exists()
 
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(params.content, encoding="utf-8")
+            atomic_write_text(path, params.content)
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot write file: {e}")
 

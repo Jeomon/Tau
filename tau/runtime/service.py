@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -57,6 +58,7 @@ class Runtime:
         self._config = config
         self.commands = CommandRegistry(runtime=self)
         self._layout: Layout | None = None
+        self._extension_ui_refresh: Callable[[], None] | None = None
         self._stopped: bool = False
         self.version_check_task: asyncio.Task[str | None] | None = None
         if context.agent is not None:
@@ -67,7 +69,7 @@ class Runtime:
         # Register extension commands into the command registry
         if context.ext_runtime is not None:
             for cmd in context.ext_runtime.get_commands():
-                self.commands.register(cmd)
+                self.commands.register(cmd, source="extension")
 
     # -------------------------------------------------------------------------
     # Factory
@@ -131,6 +133,10 @@ class Runtime:
     def set_layout(self, layout: Layout) -> None:
         """Set the TUI layout, making it available to internal services."""
         self._layout = layout
+
+    def set_extension_ui_refresh(self, callback: Callable[[], None]) -> None:
+        """Register the interactive-mode extension UI refresh callback."""
+        self._extension_ui_refresh = callback
 
     def notify(self, message: str) -> None:
         """Post a system status note to the active TUI, if attached."""
@@ -396,11 +402,6 @@ class Runtime:
         if old is not None:
             for ext in old._extensions:
                 await self._emit_to_extension(ext, "extension_unload")
-                # Drop the outgoing extension's commands; the new set is
-                # re-registered below. Without this, a now-disabled extension's
-                # commands would linger in the registry until restart.
-                for name in ext.commands:
-                    self.commands.unregister(name)
             old.unsubscribe()
 
         entries = sm.get_all_extension_entries()
@@ -408,6 +409,8 @@ class Runtime:
         entry_configs = {Path(e.path).stem: (e.settings or {}) for e in entries if e.enabled}
         extra_entries = [e for e in entries if e.enabled]
         runtime_ref = old.runtime_ref if old is not None else _RuntimeRef()
+        runtime_ref.services.clear()
+        runtime_ref.service_owners.clear()
 
         loader = ExtensionLoader(
             project_dir=get_extensions_dir(cwd),
@@ -425,8 +428,7 @@ class Runtime:
         new_ext.runtime_ref.runtime = self
         self._context.ext_runtime = new_ext
 
-        for cmd in new_ext.get_commands():
-            self.commands.register(cmd)
+        self.commands.replace_source("extension", new_ext.get_commands())
 
         # ── Sync tools via registry then push to engine ───────────────────────
         engine = self._context.engine
@@ -452,6 +454,8 @@ class Runtime:
 
         for ext in new_ext._extensions:
             await self._emit_to_extension(ext, "extension_reloaded")
+        if self._extension_ui_refresh is not None:
+            self._extension_ui_refresh()
 
         return load_result
 
@@ -497,6 +501,12 @@ class Runtime:
         config = entry_configs.get(stem, {})
 
         runtime_ref = old.runtime_ref
+        stale_services = [
+            name for name, owner in runtime_ref.service_owners.items() if owner == target.path
+        ]
+        for name in stale_services:
+            runtime_ref.services.pop(name, None)
+            runtime_ref.service_owners.pop(name, None)
         loader = ExtensionLoader(
             project_dir=get_extensions_dir(cwd),
             global_dir=get_extensions_dir(),
@@ -528,11 +538,7 @@ class Runtime:
         new_runtime.runtime_ref.runtime = self
         self._context.ext_runtime = new_runtime
 
-        # ── Commands: drop the target's old commands, register its new set ────
-        for name in target.commands:
-            self.commands.unregister(name)
-        for cmd in new_ext.commands.values():
-            self.commands.register(cmd)
+        self.commands.replace_source("extension", new_runtime.get_commands())
 
         # ── Tools + prompt ────────────────────────────────────────────────────
         engine = self._context.engine
@@ -558,6 +564,8 @@ class Runtime:
         # (e.g. warm up language servers) now that the runtime is already wired —
         # `runtime_ready` only fires once at startup, not on reload.
         await self._emit_to_extension(new_ext, "extension_reloaded")
+        if self._extension_ui_refresh is not None:
+            self._extension_ui_refresh()
 
         return LoadExtensionsResult(extensions=new_list, errors=errs)
 

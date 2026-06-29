@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import run_bounded_lines
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -128,7 +127,7 @@ class GrepTool(Tool):
         if not target.exists():
             return ToolResult.error(invocation.id, f"Path not found: {target}")
 
-        result = await self._rg(params, target)
+        result = await self._rg(params, target, signal)
         if result.get("error"):
             return ToolResult.error(invocation.id, result["output"])
         if result["matches"]:
@@ -139,7 +138,7 @@ class GrepTool(Tool):
             metadata=result["metadata"],
         )
 
-    async def _rg(self, params: GrepParams, target: Path) -> dict:
+    async def _rg(self, params: GrepParams, target: Path, signal: AbortSignal | None) -> dict:
         cmd = ["rg", "--line-number", "--no-heading", "--with-filename"]
         if not params.case_sensitive:
             cmd.append("--ignore-case")
@@ -147,8 +146,8 @@ class GrepTool(Tool):
             cmd += ["--glob", params.include]
         cmd += [params.pattern, str(target)]
         try:
-            proc = await asyncio.to_thread(
-                subprocess.run, cmd, capture_output=True, text=True, errors="replace"
+            returncode, lines, cancelled = await run_bounded_lines(
+                cmd, max_lines=_MAX_MATCHES, signal=signal
             )
         except FileNotFoundError:
             return {
@@ -157,15 +156,16 @@ class GrepTool(Tool):
                 "metadata": {},
                 "error": True,
             }
-        if proc.returncode not in (0, 1):
-            error = proc.stderr.strip() or f"ripgrep exited with status {proc.returncode}."
+        if cancelled:
+            return {"matches": [], "output": "Search cancelled.", "metadata": {}, "error": True}
+        if returncode not in (0, 1) and len(lines) <= _MAX_MATCHES:
+            error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             return {
                 "matches": [],
                 "output": error,
                 "metadata": {},
                 "error": True,
             }
-        lines = [ln for ln in proc.stdout.splitlines() if ln]
         truncated = len(lines) > _MAX_MATCHES
         lines = lines[:_MAX_MATCHES]
         files_with_matches = len({ln.split(":")[0] for ln in lines})

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 class _Entry:
     tool: Tool
     source: str
+    order: int
 
 
 class ToolRegistry:
@@ -41,18 +42,27 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty tool registry."""
-        # Ordered dict preserves registration order within each source.
         self._entries: dict[str, _Entry] = {}
+        self._layers: dict[str, dict[str, _Entry]] = {}
+        self._next_order = 0
 
     # ── Registration ──────────────────────────────────────────────────────────
 
     def register(self, tool: Tool, source: str = "builtin") -> None:
-        """Add or replace a tool. Last registration wins on name collision."""
-        self._entries[tool.name] = _Entry(tool=tool, source=source)
+        """Add or replace one source layer. The most recent layer is active."""
+        self._next_order += 1
+        entry = _Entry(tool=tool, source=source, order=self._next_order)
+        self._layers.setdefault(tool.name, {})[source] = entry
+        self._entries[tool.name] = max(
+            self._layers[tool.name].values(), key=lambda item: item.order
+        )
 
     def unregister(self, name: str) -> bool:
-        """Remove a tool by name. Returns True if it existed."""
-        return self._entries.pop(name, None) is not None
+        """Remove every source layer for a tool name."""
+        existed = name in self._layers
+        self._layers.pop(name, None)
+        self._entries.pop(name, None)
+        return existed
 
     def replace_source(self, source: str, tools: list[Tool]) -> None:
         """Atomically replace all tools from *source* with *tools*.
@@ -60,14 +70,16 @@ class ToolRegistry:
         Tools from other sources are untouched. Tools removed from the source
         are dropped; new ones are added; existing ones are updated in place.
         """
-        old_names = {n for n, e in self._entries.items() if e.source == source}
-        new_names = {t.name for t in tools}
-
-        for name in old_names - new_names:
-            del self._entries[name]
-
+        for name, layers in list(self._layers.items()):
+            layers.pop(source, None)
+            if not layers:
+                self._layers.pop(name)
         for tool in tools:
-            self._entries[tool.name] = _Entry(tool=tool, source=source)
+            self.register(tool, source=source)
+        self._entries = {
+            name: max(layers.values(), key=lambda item: item.order)
+            for name, layers in self._layers.items()
+        }
 
     # ── Query ─────────────────────────────────────────────────────────────────
 
@@ -80,17 +92,17 @@ class ToolRegistry:
         """Return all registered tools, optionally filtered by source."""
         if source is None:
             return [e.tool for e in self._entries.values()]
-        return [e.tool for e in self._entries.values() if e.source == source]
+        return [layers[source].tool for layers in self._layers.values() if source in layers]
 
     def names(self, source: str | None = None) -> set[str]:
         """Return the set of registered tool names, optionally filtered by source."""
         if source is None:
             return set(self._entries)
-        return {n for n, e in self._entries.items() if e.source == source}
+        return {name for name, layers in self._layers.items() if source in layers}
 
     def sources(self) -> set[str]:
         """Return all source labels that have at least one registered tool."""
-        return {e.source for e in self._entries.values()}
+        return {source for layers in self._layers.values() for source in layers}
 
     def __len__(self) -> int:
         """Return the number of registered tools."""

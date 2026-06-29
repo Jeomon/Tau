@@ -3,6 +3,12 @@
 Extensions are plain Python files that hook into tau's lifecycle. Each one exports
 a single `register(tau)` function — everything is wired up there.
 
+Extension tools and commands may shadow built-ins while loaded. Tau retains the
+shadowed source layer, so disabling or reloading the extension restores the
+previous implementation. Reload also replaces extension message renderers,
+autocomplete providers, shortcuts, and published services; do not retain
+service objects across reload.
+
 ## File locations
 
 tau loads extensions from three sources, in this order:

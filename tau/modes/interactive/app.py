@@ -9,9 +9,7 @@ from tau.extensions import ExtensionContext
 from tau.modes.interactive.agent_hooks import AgentHookHandler
 from tau.modes.interactive.commands.context import CommandContext
 from tau.modes.interactive.components.layout import Layout
-from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.input import InputHandler
-from tau.tui.input import KeyMap, configure_keybindings
+from tau.tui.input import InputEvent, InputHandler, KeyEvent, KeyMap, configure_keybindings
 from tau.tui.theme import LayoutTheme
 from tau.tui.tui import TUI
 
@@ -52,9 +50,14 @@ class App:
             on_settled=self._input.on_settled,
         )
         self._unsubs: list[Callable[[], None]] = []
+        self._extension_shortcut_unsubs: list[Callable[[], None]] = []
         self._pending_tasks: set[asyncio.Task] = set()
         self._last_ctrl_c: float = 0.0
         self._last_escape: float = 0.0
+        self._saved_log_handlers: list[logging.Handler] | None = None
+        self._saved_log_level: int | None = None
+        self._saved_last_resort: logging.Handler | None = None
+        self._tui_log_handler: logging.Handler | None = None
 
         # Auto light/dark: when the theme setting is "auto", the active theme is
         # refined from the terminal background colour once it's known at runtime.
@@ -175,19 +178,13 @@ class App:
         layout.set_busy_check(lambda: (a := runtime.agent) is not None and not a.is_idle())
 
         runtime.set_layout(layout)
+        runtime.set_extension_ui_refresh(app._refresh_extension_ui)
 
         tool_registry = getattr(getattr(runtime, "_context", None), "tool_registry", None)
         if tool_registry is not None:
             layout.messages.set_tool_lookup(tool_registry.get)
 
-        ext = runtime.extension_runtime
-        if ext is not None:
-            from tau.tui.markdown import message_renderer_registry
-
-            for ctype, fn in ext.get_message_renderers().items():
-                message_renderer_registry.register(ctype, fn)
-            for provider in ext.get_autocomplete_providers():
-                layout.register_autocomplete_provider(provider)
+        app._refresh_extension_ui()
         return app
 
     @classmethod
@@ -335,6 +332,10 @@ class App:
         from tau.settings.paths import get_logs_dir
 
         root = logging.getLogger()
+        if self._saved_log_handlers is None:
+            self._saved_log_handlers = list(root.handlers)
+            self._saved_log_level = root.level
+            self._saved_last_resort = logging.lastResort
         # Drop any handler that writes to the live terminal (e.g. --debug's
         # basicConfig stderr handler) — it would corrupt the renderer.
         for h in list(root.handlers):
@@ -355,6 +356,7 @@ class App:
             fh = logging.FileHandler(logs_dir / f"{log_id}.log")
             fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
             root.addHandler(fh)
+            self._tui_log_handler = fh
             if root.level == logging.NOTSET or root.level > logging.WARNING:
                 root.setLevel(logging.WARNING)
         except OSError:
@@ -552,6 +554,9 @@ class App:
 
     def _register_extension_shortcuts(self) -> None:
         runtime = self._runtime
+        for unsub in self._extension_shortcut_unsubs:
+            unsub()
+        self._extension_shortcut_unsubs.clear()
         for shortcut in runtime.extension_shortcuts:
             key = shortcut.key
             handler = shortcut.handler
@@ -567,7 +572,20 @@ class App:
 
                 return on_input
 
-            self._unsubs.append(self._tui.on_input(_make_handler(key, handler)))
+            self._extension_shortcut_unsubs.append(self._tui.on_input(_make_handler(key, handler)))
+
+    def _refresh_extension_ui(self) -> None:
+        """Replace extension renderers, completions, and shortcuts after reload."""
+        from tau.tui.markdown import message_renderer_registry
+
+        ext = self._runtime.extension_runtime
+        renderers = ext.get_message_renderers() if ext is not None else {}
+        providers = ext.get_autocomplete_providers() if ext is not None else []
+        message_renderer_registry.replace(renderers)
+        self._layout.replace_autocomplete_providers(providers)
+        if self._tui._running:
+            self._register_extension_shortcuts()
+        self._tui.request_render()
 
     # -------------------------------------------------------------------------
     # Startup helpers
@@ -637,9 +655,9 @@ class App:
         latest = await task
         if latest is None:
             return
-        from tau.tui.utils import BOLD, RESET
         from tau.tui.component import Column, StaticComponent
         from tau.tui.components.box import DynamicBorder
+        from tau.tui.utils import BOLD, RESET
 
         theme = self._layout.theme
         banner = Column(
@@ -663,13 +681,36 @@ class App:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        for unsub in self._extension_shortcut_unsubs:
+            unsub()
+        self._extension_shortcut_unsubs.clear()
         for task in self._pending_tasks:
             task.cancel()
+        if self._pending_tasks:
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
         self._pending_tasks.clear()
         sm = self._runtime.settings_manager
         if sm is not None:
             await sm.flush()
+        self._restore_logging()
         self._print_resume_hint()
+
+    def _restore_logging(self) -> None:
+        """Restore process-global logging configuration changed for TUI rendering."""
+        if self._saved_log_handlers is None:
+            return
+        root = logging.getLogger()
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            if handler is self._tui_log_handler:
+                handler.close()
+        for handler in self._saved_log_handlers:
+            root.addHandler(handler)
+        if self._saved_log_level is not None:
+            root.setLevel(self._saved_log_level)
+        logging.lastResort = self._saved_last_resort
+        self._saved_log_handlers = None
+        self._tui_log_handler = None
 
     def _print_resume_hint(self) -> None:
         session_mgr = self._runtime.session_manager

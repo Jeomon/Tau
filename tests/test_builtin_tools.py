@@ -9,8 +9,9 @@ from pathlib import Path
 from tau.builtins.tools.edit import EditTool, _render_edit_result
 from tau.builtins.tools.glob import GlobTool
 from tau.builtins.tools.grep import GrepTool
-from tau.builtins.tools.ls import LsTool, _human_size
+from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
+from tau.builtins.tools.utils import human_size
 from tau.builtins.tools.write import WriteTool
 from tau.tool.types import ToolInvocation, ToolRenderOptions
 
@@ -374,14 +375,12 @@ class TestGrepTool:
         assert result.metadata["match_count"] == 1
 
     def test_errors_when_rg_is_absent(self, tmp_path, monkeypatch):
-        import subprocess as sp
-
-        def fake_run(cmd, **kwargs):
+        async def fake_exec(*cmd, **kwargs):
             if cmd[0] == "rg":
                 raise FileNotFoundError
             raise AssertionError(f"Unexpected command: {cmd}")
 
-        monkeypatch.setattr(sp, "run", fake_run)
+        monkeypatch.setattr("asyncio.create_subprocess_exec", fake_exec)
 
         f = tmp_path / "f.py"
         f.write_text("TARGET_TOKEN = 1\n")
@@ -436,21 +435,21 @@ class TestLsTool:
 
 class TestHumanSize:
     def test_bytes(self):
-        assert _human_size(0) == "0B"
-        assert _human_size(500) == "500B"
+        assert human_size(0) == "0B"
+        assert human_size(500) == "500B"
 
     def test_kilobytes(self):
-        assert _human_size(1024) == "1.0KB"
-        assert _human_size(2048) == "2.0KB"
+        assert human_size(1024) == "1.0KB"
+        assert human_size(2048) == "2.0KB"
 
     def test_megabytes(self):
-        assert _human_size(1024 * 1024) == "1.0MB"
+        assert human_size(1024 * 1024) == "1.0MB"
 
     def test_gigabytes(self):
-        assert _human_size(1024**3) == "1.0GB"
+        assert human_size(1024**3) == "1.0GB"
 
     def test_terabytes(self):
-        assert _human_size(1024**4) == "1.0TB"
+        assert human_size(1024**4) == "1.0TB"
 
 
 # ---------------------------------------------------------------------------
@@ -503,14 +502,12 @@ class TestGlobTool:
         assert "x.py" in result.content
 
     def test_errors_when_rg_is_absent(self, tmp_path, monkeypatch):
-        import subprocess as sp
-
-        def fake_run(cmd, **kwargs):
+        async def fake_exec(*cmd, **kwargs):
             if cmd[0] == "rg":
                 raise FileNotFoundError
             raise AssertionError(f"Unexpected command: {cmd}")
 
-        monkeypatch.setattr(sp, "run", fake_run)
+        monkeypatch.setattr("asyncio.create_subprocess_exec", fake_exec)
 
         (tmp_path / "a.py").write_text("")
         (tmp_path / "b.py").write_text("")

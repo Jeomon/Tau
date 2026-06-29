@@ -4,16 +4,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.component import Component, Container
-from tau.tui.autocomplete import AutocompleteManager
 from tau.modes.interactive.components.command_palette import CommandPalette
-from tau.tui.components.editor import EditorComponent, EditorExtras
 from tau.modes.interactive.components.file_picker import FilePicker
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
+from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
+from tau.tui.autocomplete import AutocompleteManager
+from tau.tui.component import Component, Container
+from tau.tui.components.editor import EditorComponent, EditorExtras
 from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
 from tau.tui.components.spinner import Spinner
 from tau.tui.components.text_input import TextInput
-from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
 from tau.tui.input import (
     InputEvent,
     KeyEvent,
@@ -25,8 +25,7 @@ from tau.tui.theme import LayoutTheme
 if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
     from tau.tui.autocomplete import AutocompleteRegistration
-    from tau.tui.tui import CustomOptions, OverlayHandle
-    from tau.tui.tui import TUI
+    from tau.tui.tui import TUI, CustomOptions, OverlayHandle
 
 
 def _has_editor_extras(editor: object) -> bool:
@@ -942,6 +941,10 @@ class Layout(Component):
     def register_autocomplete_provider(self, registration: AutocompleteRegistration) -> None:
         """Wire an extension autocomplete provider into the layout."""
         self._autocomplete.register_provider(registration)
+
+    def replace_autocomplete_providers(self, registrations: list[AutocompleteRegistration]) -> None:
+        """Replace all extension autocomplete providers after reload."""
+        self._autocomplete.replace_providers(registrations)
 
     def set_header(self, component_or_factory: Component | Callable[[], Component] | None) -> None:
         """

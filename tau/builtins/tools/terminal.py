@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import bounded_text_tail
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -25,6 +26,8 @@ def _render_terminal_call(args: dict, _streaming: bool = False) -> list[str]:
 
 
 _PREVIEW_LINES = 5
+_MAX_OUTPUT_BYTES = 50 * 1024
+_MAX_OUTPUT_LINES = 2_000
 
 
 def _render_terminal_result(content: str, opts: Any) -> list[str]:
@@ -139,10 +142,13 @@ class TerminalTool(Tool):
         except OSError as e:
             return ToolResult.error(invocation.id, f"Failed to start command: {e}")
 
-        chunks: list[str] = []
+        output_tail = ""
+        output_truncated = False
+        total_output_bytes = 0
         timed_out = False
 
         async def _read_loop() -> None:
+            nonlocal output_tail, output_truncated, total_output_bytes
             assert proc.stdout is not None
             while True:
                 if signal is not None and signal.is_set():
@@ -151,11 +157,15 @@ class TerminalTool(Tool):
                 data = await proc.stdout.read(8192)
                 if not data:
                     break
-                chunks.append(data.decode("utf-8", errors="replace"))
+                total_output_bytes += len(data)
+                output_tail, truncated = bounded_text_tail(
+                    output_tail + data.decode("utf-8", errors="replace"),
+                    max_bytes=_MAX_OUTPUT_BYTES,
+                    max_lines=_MAX_OUTPUT_LINES,
+                )
+                output_truncated = output_truncated or truncated
                 if tool_execution_update_callback is not None:
-                    await tool_execution_update_callback(
-                        ToolResult.ok(invocation.id, "".join(chunks))
-                    )
+                    await tool_execution_update_callback(ToolResult.ok(invocation.id, output_tail))
 
         try:
             await asyncio.wait_for(_read_loop(), timeout=params.timeout)
@@ -169,12 +179,18 @@ class TerminalTool(Tool):
             if proc.stdout is not None:
                 with contextlib.suppress(Exception):
                     remaining = await asyncio.wait_for(proc.stdout.read(), timeout=5)
-                    if remaining and tool_execution_update_callback is not None:
-                        chunks.append(remaining.decode("utf-8", errors="replace"))
+                    if remaining:
+                        total_output_bytes += len(remaining)
+                        output_tail, truncated = bounded_text_tail(
+                            output_tail + remaining.decode("utf-8", errors="replace"),
+                            max_bytes=_MAX_OUTPUT_BYTES,
+                            max_lines=_MAX_OUTPUT_LINES,
+                        )
+                        output_truncated = output_truncated or truncated
             await proc.wait()
 
         if timed_out:
-            partial_output = "".join(chunks)
+            partial_output = output_tail
             return ToolResult(
                 id=invocation.id,
                 content=partial_output or "(no output before timeout)",
@@ -183,17 +199,19 @@ class TerminalTool(Tool):
                     "command": params.command,
                     "exit_code": -1,
                     "timed_out": True,
-                    "output_length": len(partial_output),
+                    "output_length": total_output_bytes,
+                    "truncated": output_truncated,
                 },
             )
 
-        output = "".join(chunks)
+        output = output_tail
         rc = proc.returncode or 0
         metadata = {
             "command": params.command,
             "exit_code": rc,
             "timed_out": False,
-            "output_length": len(output),
+            "output_length": total_output_bytes,
+            "truncated": output_truncated,
         }
 
         if rc != 0:

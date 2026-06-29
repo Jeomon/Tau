@@ -121,6 +121,11 @@ Extensions can register new tools. See [Extensions](extensions.md) for how to cr
 
 The `ToolRegistry` tracks all registered tools by source (`"builtin"`, `"extension"`, `"runtime"`). After `/reload`, extension tools are synced to the live engine immediately without restarting the session.
 
+Terminal output is bounded to a 50 KiB / 2,000-line display tail. Grep and glob
+stream bounded ripgrep results and terminate the subprocess when cancelled or
+when their result cap is reached. Writes and edits are serialized per resolved
+path and committed with an atomic replacement.
+
 ---
 
 ## Tool Constraints

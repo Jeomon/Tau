@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import human_size
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -126,7 +127,7 @@ class LsTool(Tool):
             else:
                 file_count += 1
             try:
-                size_str = _human_size(entry.stat().st_size) if entry.is_file() else ""
+                size_str = human_size(entry.stat().st_size) if entry.is_file() else ""
             except OSError:
                 size_str = ""
             entries.append({"name": entry.name, "is_dir": is_dir, "size_str": size_str})
@@ -140,12 +141,3 @@ class LsTool(Tool):
             "entries": entries,
         }
         return ToolResult.ok(invocation.id, "\n".join(lines), metadata=metadata)
-
-
-def _human_size(n: int) -> str:
-    """Convert byte count to human-readable format (B, KB, MB, GB, TB)."""
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n}{unit}" if unit == "B" else f"{n:.1f}{unit}"
-        n //= 1024
-    return f"{n:.1f}TB"

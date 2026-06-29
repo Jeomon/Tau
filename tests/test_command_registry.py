@@ -1,4 +1,5 @@
 """Tests for tau/commands/registry.py — CommandRegistry."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +8,9 @@ from tau.commands.registry import CommandRegistry
 from tau.commands.types import CommandInfo, ParsedCommand
 
 
-def _cmd(name: str, aliases: list[str] | None = None, required: list[str] | None = None) -> CommandInfo:
+def _cmd(
+    name: str, aliases: list[str] | None = None, required: list[str] | None = None
+) -> CommandInfo:
     calls = []
 
     def _handler(registry, args):
@@ -28,6 +31,7 @@ def _registry(*cmds: CommandInfo) -> CommandRegistry:
     r = CommandRegistry(runtime=None)
     # Clear builtins so tests are isolated
     r._commands.clear()
+    r._source_commands.clear()
     for c in cmds:
         r.register(c)
     return r
@@ -58,6 +62,17 @@ class TestCommandRegistryRegister:
         r.register(cmd1)
         r.register(cmd2)
         assert r.get("foo") is cmd2
+
+    def test_replacing_extension_restores_shadowed_builtin(self):
+        r = _registry()
+        builtin = _cmd("help")
+        extension = _cmd("help")
+        r.register(builtin, source="builtin")
+        r.register(extension, source="extension")
+
+        r.replace_source("extension", [])
+
+        assert r.get("help") is builtin
 
 
 class TestCommandRegistryUnregister:

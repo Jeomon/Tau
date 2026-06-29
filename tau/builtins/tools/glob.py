@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import run_bounded_lines
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -109,7 +108,7 @@ class GlobTool(Tool):
             return ToolResult.error(invocation.id, f"Base path is not a directory: {base}")
 
         try:
-            matches = await self._rg_files(params.pattern, base)
+            matches = await self._rg_files(params.pattern, base, signal)
         except FileNotFoundError:
             return ToolResult.error(
                 invocation.id,
@@ -138,10 +137,14 @@ class GlobTool(Tool):
 
         return ToolResult.ok(invocation.id, result, metadata=metadata)
 
-    async def _rg_files(self, pattern: str, base: Path) -> list[str]:
+    async def _rg_files(self, pattern: str, base: Path, signal: AbortSignal | None) -> list[str]:
         cmd = ["rg", "--files", "--glob", pattern, str(base)]
-        proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True)
-        if proc.returncode not in (0, 1):
-            error = proc.stderr.strip() or f"ripgrep exited with status {proc.returncode}."
+        returncode, lines, cancelled = await run_bounded_lines(
+            cmd, max_lines=_MAX_RESULTS, signal=signal
+        )
+        if cancelled:
+            raise RuntimeError("File search cancelled.")
+        if returncode not in (0, 1) and len(lines) <= _MAX_RESULTS:
+            error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             raise RuntimeError(error)
-        return [line for line in proc.stdout.splitlines() if line]
+        return [line for line in lines if line]

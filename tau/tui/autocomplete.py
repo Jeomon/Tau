@@ -8,9 +8,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
-from tau.tui.utils import fuzzy_filter
 from tau.tui.input import InputEvent, Key, KeyEvent
-from tau.tui.utils import visible_width
+from tau.tui.utils import fuzzy_filter, visible_width
 
 if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
@@ -135,8 +134,6 @@ class AutocompletePicker(Component):
         if not self.active:
             return []
 
-        from tau.tui.utils import RESET
-
         count = len(self._items)
         visible = min(self._max_visible, count)
         start = max(0, min(self._selected - visible + 1, count - visible))
@@ -257,6 +254,11 @@ class AutocompleteManager:
 
     def register_provider(self, reg: AutocompleteRegistration) -> None:
         self._ac_providers.append(reg)
+
+    def replace_providers(self, registrations: list[AutocompleteRegistration]) -> None:
+        """Replace extension providers and cancel stale in-flight completions."""
+        self.clear()
+        self._ac_providers = list(registrations)
 
     def clear(self) -> None:
         """Dismiss both pickers — called when another picker takes over."""

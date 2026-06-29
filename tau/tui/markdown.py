@@ -303,9 +303,11 @@ class _Renderer:
         def _row(cells: list[str]) -> list[str]:
             wrapped = [wrap(cell, col_widths[ci]) or [cell] for ci, cell in enumerate(cells)]
             height = max(len(w) for w in wrapped)
-            blank = self.theme.hr("│") + self.theme.hr("│").join(
-                " " * (col_widths[ci] + 4) for ci in range(ncols)
-            ) + self.theme.hr("│")
+            blank = (
+                self.theme.hr("│")
+                + self.theme.hr("│").join(" " * (col_widths[ci] + 4) for ci in range(ncols))
+                + self.theme.hr("│")
+            )
             out = [blank]
             for li in range(height):
                 padded = []
@@ -384,8 +386,8 @@ class _Renderer:
 # Message renderer registry
 # ---------------------------------------------------------------------------
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+from collections.abc import Callable  # noqa: E402
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
 if _TYPE_CHECKING:
     from tau.message.types import CustomMessage
@@ -401,10 +403,14 @@ class MessageRendererRegistry:
     def register(self, custom_type: str, fn: RendererFn) -> None:
         self._registry[custom_type] = fn
 
+    def replace(self, renderers: dict[str, RendererFn]) -> None:
+        """Replace extension-provided renderers atomically."""
+        self._registry = dict(renderers)
+
     def render(
         self,
-        message: "CustomMessage",
-        theme: "MessageTheme",
+        message: CustomMessage,
+        theme: MessageTheme,
         width: int,
     ) -> list[str] | None:
         fn = self._registry.get(message.custom_type)

@@ -27,11 +27,12 @@ class _RuntimeRef:
     another can resolve it via ``tau.get_service(name)``.
     """
 
-    __slots__ = ("runtime", "services")
+    __slots__ = ("runtime", "service_owners", "services")
 
     def __init__(self) -> None:
         self.runtime: Any = None
         self.services: dict[str, Any] = {}
+        self.service_owners: dict[str, str] = {}
 
 
 # ── Per-extension state ────────────────────────────────────────────────────────
@@ -365,6 +366,7 @@ class ExtensionAPI:
         if self._runtime_ref is None:
             return
         self._runtime_ref.services[name] = service
+        self._runtime_ref.service_owners[name] = self._extension.path
 
     def get_service(self, name: str) -> Any | None:
         """Resolve a service published by another extension via ``provide``.

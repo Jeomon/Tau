@@ -8,11 +8,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from tau.tui.utils import set_window_focused
 from tau.tui.component import Component, Container, Focusable
 from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent
 from tau.tui.terminal import Terminal
-from tau.tui.utils import project_name
+from tau.tui.utils import project_name, set_window_focused
 
 _log = logging.getLogger(__name__)
 
@@ -838,6 +837,7 @@ class TUI(Container):
 
             self._terminal.enable_kitty_keyboard()
             loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
+
             # Query terminal background colour for theme hints, then notify any
             # listener (e.g. auto light/dark theme selection).
             async def _query_bg() -> None:
@@ -1008,11 +1008,34 @@ class TUI(Container):
                 else:
                     self._focused_overlay = None
                     self.set_focus(entry.pre_focus)
+            dispose = getattr(entry.component, "dispose", None)
+            if callable(dispose):
+                dispose()
             self._renderer.reset()
             self._request_render()
 
         def _set_hidden(hidden: bool) -> None:
+            if entry.hidden == hidden:
+                return
             entry.hidden = hidden
+            if hidden and self._focused_overlay is entry:
+                capturing = [
+                    overlay
+                    for overlay in self._overlays
+                    if overlay is not entry
+                    and not overlay.hidden
+                    and not overlay.options.non_capturing
+                ]
+                self._focused_overlay = capturing[-1] if capturing else None
+                self.set_focus(
+                    self._focused_overlay.component
+                    if self._focused_overlay is not None
+                    else entry.pre_focus
+                )
+            elif not hidden and not entry.options.non_capturing:
+                entry.pre_focus = self._focused
+                self._focused_overlay = entry
+                self.set_focus(entry.component)
             self._request_render()
 
         def _focus() -> None:

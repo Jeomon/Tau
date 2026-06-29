@@ -137,6 +137,10 @@ Each agent turn follows this sequence:
 11. Fire the settled hook
 ```
 
+TUI overlays participate in focus lifecycle. Hiding or closing a capturing
+overlay restores the next visible overlay or its previous focus target.
+Components exposing `dispose()` are disposed when their overlay closes.
+
 ## Message Types and Context
 
 Messages in sessions are typed:

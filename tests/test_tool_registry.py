@@ -1,4 +1,5 @@
 """Tests for tau/tool/registry.py — ToolRegistry."""
+
 from __future__ import annotations
 
 from tau.builtins.tools.edit import EditTool
@@ -143,6 +144,17 @@ class TestToolRegistryReplaceSource:
         r.replace_source("mcp", [])
         assert r.get("read") is None
         assert len(r) == 0
+
+    def test_removing_override_restores_shadowed_builtin(self):
+        r = ToolRegistry()
+        builtin = ReadTool()
+        override = ReadTool()
+        r.register(builtin, source="builtin")
+        r.register(override, source="extension")
+
+        r.replace_source("extension", [])
+
+        assert r.get("read") is builtin
 
 
 class TestToolRegistryContainerProtocol:

@@ -19,25 +19,48 @@ class CommandRegistry:
         """Initialize the command registry with optional runtime context."""
         self.runtime = runtime
         self._commands: dict[str, CommandInfo] = {}
+        self._source_commands: dict[str, dict[str, tuple[int, CommandInfo]]] = {}
+        self._next_order = 0
         from tau.builtins.commands import get_builtin_commands
 
         for cmd in get_builtin_commands():
-            self.register(cmd)
+            self.register(cmd, source="builtin")
 
-    def register(self, command: CommandInfo) -> None:
-        """Register a command with its name and aliases."""
-        self._commands[command.name] = command
-        for alias in command.aliases:
-            self._commands[alias] = command
+    def register(self, command: CommandInfo, source: str = "runtime") -> None:
+        """Register one command source layer and rebuild active names."""
+        self._next_order += 1
+        self._source_commands.setdefault(source, {})[command.name] = (
+            self._next_order,
+            command,
+        )
+        self._rebuild()
 
     def unregister(self, name: str) -> None:
-        """Remove a command and all its aliases."""
+        """Remove all source layers for the visible command and its aliases."""
         cmd = self._commands.get(name)
         if cmd is None:
             return
-        keys = [k for k, v in self._commands.items() if v is cmd]
-        for k in keys:
-            del self._commands[k]
+        for commands in self._source_commands.values():
+            commands.pop(cmd.name, None)
+        self._rebuild()
+
+    def replace_source(self, source: str, commands: list[CommandInfo]) -> None:
+        """Atomically replace commands from one source, revealing shadowed layers."""
+        self._source_commands[source] = {}
+        for command in commands:
+            self._next_order += 1
+            self._source_commands[source][command.name] = (self._next_order, command)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        active: dict[str, tuple[int, CommandInfo]] = {}
+        for commands in self._source_commands.values():
+            for order, command in commands.values():
+                for key in (command.name, *command.aliases):
+                    current = active.get(key)
+                    if current is None or order > current[0]:
+                        active[key] = (order, command)
+        self._commands = {key: command for key, (_, command) in active.items()}
 
     def get(self, name: str) -> CommandInfo | None:
         """Retrieve a command by name or alias."""

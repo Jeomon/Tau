@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -222,7 +223,10 @@ class EditTool(Tool):
     ) -> ToolResult:
         params = EditParams.model_validate(invocation.params)
         path = Path(params.path)
+        async with serialize_file_mutation(path):
+            return self._edit(invocation, params, path)
 
+    def _edit(self, invocation: ToolInvocation, params: EditParams, path: Path) -> ToolResult:
         if not path.exists():
             return ToolResult.error(invocation.id, f"File not found: {params.path}")
         if not path.is_file():
@@ -260,7 +264,7 @@ class EditTool(Tool):
         replacements = end_index - start_index + 1
 
         try:
-            path.write_text(updated, encoding="utf-8")
+            atomic_write_text(path, updated)
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot write file: {e}")
 
