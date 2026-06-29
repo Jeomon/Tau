@@ -451,33 +451,19 @@ class Engine:
         emit: EmitEvent,
         signal: AbortSignal | None,
     ) -> list[ToolResultContent]:
-        """Split tool calls by each tool's own execution_mode, run parallel group
-        concurrently and sequential group one-at-a-time, then merge results."""
-        results: list[ToolResultContent] = []
-        parallel_calls: list[ToolCallContent] = []
-        sequential_calls: list[ToolCallContent] = []
-        for tc in tool_calls:
-            tool = self._tools.get(tc.name)
-            if tool is None:
-                results.append(
-                    ToolResultContent(
-                        id=tc.id,
-                        is_error=True,
-                        content=f"Tool '{tc.name}' not found.",
-                        metadata={},
-                    )
-                )
-                continue
-            match tool.execution_mode:
-                case ToolExecutionMode.Parallel:
-                    parallel_calls.append(tc)
-                case ToolExecutionMode.Sequential | _:
-                    sequential_calls.append(tc)
-        if parallel_calls:
-            results.extend(await self._parallel_execute(parallel_calls, emit, signal))
-        if sequential_calls:
-            results.extend(await self._sequential_execute(sequential_calls, emit, signal))
-        return results
+        """Run a safe mixed batch while preserving assistant source order.
+
+        A sequential tool is an ordering barrier for the entire batch. Running
+        parallel tools around it could reorder observable side effects.
+        """
+        has_sequential = any(
+            (tool := self._tools.get(tool_call.name)) is None
+            or tool.execution_mode is not ToolExecutionMode.Parallel
+            for tool_call in tool_calls
+        )
+        if has_sequential:
+            return await self._sequential_execute(tool_calls, emit, signal)
+        return await self._parallel_execute(tool_calls, emit, signal)
 
     async def _execute_tool_calls(
         self,
@@ -830,6 +816,9 @@ class Engine:
     async def run(self, ctx: AgentContext, signal: AbortSignal | None = None) -> None:
         """Apply context and start a fresh loop. Uses the provided signal or creates one."""
         self._signal = signal or asyncio.Event()
+        self.state.error_message = None
+        self.state.streaming_message = None
+        self.state.pending_tool_calls.clear()
         self.state.is_streaming = True
         self.state.idle_event.clear()
         self.state.system_prompt = ctx.system_prompt
@@ -937,6 +926,9 @@ class Engine:
         (used when last message is a tool result).
         """
         self._signal = asyncio.Event()  # standalone re-entry gets its own fresh signal
+        self.state.error_message = None
+        self.state.streaming_message = None
+        self.state.pending_tool_calls.clear()
         self.state.is_streaming = True
         self.state.idle_event.clear()
         try:

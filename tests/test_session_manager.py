@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from tau.message.types import UserMessage
 from tau.session.manager import SessionManager
 from tau.session.types import CustomInfoEntry
@@ -56,3 +58,40 @@ def test_get_tree_handles_deep_trees_iteratively(tmp_path) -> None:
         node = node.children[0]
         depth += 1
     assert depth == 2_000
+
+
+def test_opening_invalid_existing_session_does_not_overwrite_it(tmp_path) -> None:
+    session_file = tmp_path / "broken.jsonl"
+    original = "not-json\n"
+    session_file.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid or empty session"):
+        SessionManager(
+            cwd=tmp_path,
+            session_dir=tmp_path / "sessions",
+            session_file=session_file,
+            persist=True,
+        )
+
+    assert session_file.read_text(encoding="utf-8") == original
+
+
+def test_persistence_errors_propagate(tmp_path) -> None:
+    manager = _manager(tmp_path)
+    manager.persist = True
+    manager.session_file = tmp_path
+
+    with pytest.raises(OSError):
+        manager._rewrite_file()
+
+
+def test_get_branch_rejects_parent_cycles(tmp_path) -> None:
+    manager = _manager(tmp_path)
+    first = CustomInfoEntry(id="first", custom_type="test", parent_id="second")
+    second = CustomInfoEntry(id="second", custom_type="test", parent_id="first")
+    manager.entries.extend([first, second])
+    manager.by_id.update({"first": first, "second": second})
+    manager.leaf_id = "second"
+
+    with pytest.raises(ValueError, match="Cycle detected"):
+        manager.get_branch()

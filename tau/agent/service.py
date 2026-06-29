@@ -682,21 +682,21 @@ class Agent:
                             continue
                         raise
 
-                # A steering / follow-up message can land *after* the engine loop has
-                # already decided to stop: the submit→steer hop runs as a separate
-                # task, so it may enqueue just past the turn's final queue check.
-                # Drain any such leftovers with continuation turns so a mid-flight
-                # message is never silently stranded in the queue.
-                while self._engine.has_pending_messages():
-                    self._signal = asyncio.Event()
-                    self._engine.llm.api.options.signal = self._signal
-                    await self._run_continue()
+                while True:
+                    # Messages may arrive after the engine's last queue poll, or
+                    # from save-point/compaction handlers. Keep processing until
+                    # the complete post-run lifecycle leaves both queues empty.
+                    while self._engine.has_pending_messages():
+                        self._signal = asyncio.Event()
+                        self._engine.llm.api.options.signal = self._signal
+                        await self._run_continue()
 
-                await self.hooks.emit(SavePointEvent())
-                await self._check_compaction()
+                    await self.hooks.emit(SavePointEvent())
+                    await self._check_compaction()
+                    if not self._engine.has_pending_messages():
+                        break
 
-                if not self._engine.has_pending_messages():
-                    await self.hooks.emit(SettledEvent())
+                await self.hooks.emit(SettledEvent())
             finally:
                 self._phase = AgentPhase.IDLE
         finally:

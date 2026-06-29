@@ -14,6 +14,7 @@ from tau.message.types import (
     CustomMessage,
 )
 from tau.session.types import (
+    SESSION_VERSION,
     BranchSummaryEntry,
     CompactionEntry,
     CustomInfoEntry,
@@ -104,9 +105,11 @@ class SessionManager:
         self.session_file = session_file
         if session_file.exists():
             self.entries = read_session_file(session_file)
+            if not self.entries:
+                raise ValueError(f"Invalid or empty session file: {session_file}")
 
         if not self.entries:
-            # File missing or invalid — start fresh in that file location
+            # A missing explicit path may be initialized as a new session.
             session_id = create_session_id()
             header = SessionHeader(
                 id=session_id,
@@ -122,6 +125,17 @@ class SessionManager:
                 self._rewrite_file()
                 self.flushed = True
         else:
+            header = next(
+                (entry for entry in self.entries if isinstance(entry, SessionHeader)),
+                None,
+            )
+            if header is None:
+                raise ValueError(f"No session header found: {session_file}")
+            if header.version > SESSION_VERSION:
+                raise ValueError(
+                    f"Session version {header.version} is newer than supported "
+                    f"version {SESSION_VERSION}."
+                )
             for entry in self.entries:
                 if isinstance(entry, SessionHeader):
                     self.session_id = entry.id
@@ -159,10 +173,7 @@ class SessionManager:
         if not self.persist or not self.session_file:
             return None
         lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
-        try:
-            self.session_file.write_text("\n".join(lines), encoding="utf-8")
-        except OSError:
-            _log.error("failed to rewrite session file %s", self.session_file, exc_info=True)
+        self.session_file.write_text("\n".join(lines), encoding="utf-8")
 
     def _clear_index(self):
         """Clear the session indices."""
@@ -211,16 +222,13 @@ class SessionManager:
             self.flushed = False
             return
 
-        try:
-            with self.session_file.open("a", encoding="utf-8") as f:
-                if not self.flushed:
-                    lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
-                    f.writelines(lines)
-                    self.flushed = True
-                else:
-                    f.write(entry.model_dump_json(exclude_none=True) + "\n")
-        except OSError:
-            _log.error("failed to persist session entry to %s", self.session_file, exc_info=True)
+        with self.session_file.open("a", encoding="utf-8") as f:
+            if not self.flushed:
+                lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
+                f.writelines(lines)
+                self.flushed = True
+            else:
+                f.write(entry.model_dump_json(exclude_none=True) + "\n")
 
     def _append_entry(self, entry: SessionEntry) -> str:
         """Add an entry to the session and persist it."""
@@ -403,7 +411,11 @@ class SessionManager:
         """Return entries from root to the given id (or leaf_id), in root→leaf order."""
         path: list[SessionEntry] = []
         cursor = from_id or self.leaf_id
+        visited: set[str] = set()
         while cursor:
+            if cursor in visited:
+                raise ValueError(f"Cycle detected in session branch at entry {cursor}.")
+            visited.add(cursor)
             current_entry = self.by_id.get(cursor)
             if not current_entry:
                 break

@@ -104,9 +104,14 @@ Each tool has a `kind` that signals its semantic category and an `execution_mode
 **Kinds**: `read`, `edit`, `write`, `execute`, `web`
 
 **Execution modes**:
-- `sequential` — run one at a time (default)
-- `parallel` — run concurrently with other parallel tools
-- `batch` — grouped with other batch tools, then run together
+- `sequential` — an ordering barrier; if any call in a model-produced batch is
+  sequential, the complete batch runs one at a time in source order
+- `parallel` — runs concurrently only when every call in the batch is parallel
+- `batch` — engine-level safe mixed scheduling; equivalent to the default
+
+Tau preserves the model's tool-call order in the resulting tool message.
+Parallel completion events may arrive in completion order, but result messages
+remain in source order.
 
 ---
 

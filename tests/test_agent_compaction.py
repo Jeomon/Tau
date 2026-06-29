@@ -200,3 +200,47 @@ def test_public_live_state_is_exposed_as_snapshots() -> None:
         "steering": ["steer"],
         "followup": ["followup"],
     }
+
+
+def test_messages_queued_by_save_point_handler_are_continued() -> None:
+    async def scenario() -> None:
+        pending = False
+        continuation_count = 0
+        agent: Any = Agent.__new__(Agent)
+        agent._phase = AgentPhase.IDLE
+        agent._idle_event = asyncio.Event()
+        agent._idle_event.set()
+        agent._signal = asyncio.Event()
+        agent._overflow_recovery_attempted = False
+        agent._session_manager = SimpleNamespace(append_message=lambda *args, **kwargs: "entry")
+        agent._engine = SimpleNamespace(
+            llm=SimpleNamespace(api=SimpleNamespace(options=SimpleNamespace(signal=None))),
+            has_pending_messages=lambda: pending,
+        )
+        agent.hooks = Hooks()
+        agent._build_turn_context = lambda: SimpleNamespace()
+        agent._run = AsyncMock()
+        agent._check_compaction = AsyncMock(return_value=False)
+
+        async def continue_turn() -> None:
+            nonlocal continuation_count, pending
+            continuation_count += 1
+            pending = False
+
+        save_points = 0
+
+        async def queue_once(event) -> None:
+            nonlocal pending, save_points
+            save_points += 1
+            if save_points == 1:
+                pending = True
+
+        agent._run_continue = continue_turn
+        agent.hooks.register("save_point", queue_once)
+
+        await agent.invoke("hello")
+
+        assert continuation_count == 1
+        assert save_points == 2
+
+    asyncio.run(scenario())

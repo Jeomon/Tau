@@ -128,12 +128,13 @@ Each agent turn follows this sequence:
 2. Add message to session
 3. Call inference (LLM API)
 4. Collect tool calls from response
-5. Execute tools (in parallel if possible)
+5. Execute tools concurrently only when every call in the batch is marked parallel
 6. Add tool results to context
 7. Call inference again (only if tools were called)
 8. Render all messages and results (TUI)
 9. Save session to disk
-10. Fire completion hooks
+10. Run post-turn compaction and drain messages queued by lifecycle handlers
+11. Fire the settled hook
 ```
 
 ## Message Types and Context

@@ -32,6 +32,11 @@ The subdirectory name is derived from the absolute path of the working directory
 
 Files are in JSONL format (one JSON object per line), allowing efficient appending and compression.
 
+Opening an existing empty, invalid, or unsupported future-version session
+fails without modifying the file. Persistence errors are reported to the
+caller instead of allowing in-memory state to appear saved when the disk write
+failed.
+
 When a branch is extracted into a new session, label entries are recreated at
 the end of the extracted path. Retained entries are re-chained so removing a
 label from between conversation entries cannot leave orphaned parent IDs.
@@ -115,6 +120,10 @@ Useful for one-off queries where you don't need the conversation history.
 ## Session Tree
 
 Every session is a **tree**, not a flat list. When you branch with `/fork` or navigate to a different point in history, tau records a `leaf` entry that points to the new active node. The full conversation history — including all branches — lives in a single JSONL file.
+
+Parent traversal rejects cycles in malformed session data. Tree rendering
+treats missing-parent entries as separate roots so recoverable orphaned history
+remains visible.
 
 ```text
 root

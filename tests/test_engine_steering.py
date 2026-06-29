@@ -11,6 +11,7 @@ Covers the two bugs fixed in tau/engine/service.py:
    when the turn ends with a plain text answer is injected and drives another turn
    instead of being stranded in the queue and never sent to the model.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -158,6 +159,15 @@ class TestSteeringAtStop:
         # which drives the TUI to clear the pending hint.
         drains = [e for e in _queue_updates(events, "steering") if not e.messages]
         assert drains, "expected a steering queue_update with empty snapshot after dequeue"
+
+    def test_successful_run_clears_error_from_previous_run(self):
+        history: list[LLMMessage] = [UserMessage.from_text("hi")]
+        engine, _, _ = _make_engine([_text_turn()])
+        engine.state.error_message = "stale failure"
+
+        run(engine.run(AgentContext(system_prompt="", messages=history)))
+
+        assert engine.state.error_message is None
 
 
 class TestSteeringAtToolCalls:
