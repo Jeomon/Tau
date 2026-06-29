@@ -47,6 +47,8 @@ asyncio.run(main())
 | `tool_allowlist` | `set[str] \| None` | Enable only these built-in, runtime, or extension tool names |
 | `exclude_tools` | `set[str]` | Tool names disabled after applying the allowlist |
 | `system_prompt` | `str` | Custom system prompt (overrides the default) |
+| `disable_context_files` | `bool` | Skip AGENTS.md / CLAUDE.md discovery and loading |
+| `project_trusted` | `bool \| None` | Override project trust detection (`None` uses trust-store and policy defaults) |
 | `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |
 | `extension_factories` | `list[ExtensionFactory]` | In-memory extensions registered at startup and `/reload` |
 | `dependencies` | `RuntimeDependencies` | Factories for settings, LLM, sessions, hooks, and tool registry |
