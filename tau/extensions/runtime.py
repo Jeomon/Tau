@@ -89,6 +89,10 @@ class ExtensionRuntime:
 
             runtime = self.runtime_ref.runtime
             ctx = ExtensionContext.from_runtime(runtime) if runtime is not None else None
+            begin = getattr(runtime, "_begin_extension_callback", None)
+            end = getattr(runtime, "_end_extension_callback", None)
+            if callable(begin):
+                begin()
             try:
                 result = handler(event, ctx)
                 if inspect.isawaitable(result):
@@ -111,6 +115,9 @@ class ExtensionRuntime:
                     )
                 )
                 return None
+            finally:
+                if callable(end):
+                    end()
 
         return wrapped
 
@@ -133,6 +140,10 @@ class ExtensionRuntime:
 
         for ext in self._extensions:
             for handler in ext.handlers.get(event_type, []):
+                begin = getattr(runtime, "_begin_extension_callback", None)
+                end = getattr(runtime, "_end_extension_callback", None)
+                if callable(begin):
+                    begin()
                 try:
                     result = handler(event, ctx)
                     if inspect.isawaitable(result):
@@ -153,6 +164,9 @@ class ExtensionRuntime:
                             stack=tb,
                         )
                     )
+                finally:
+                    if callable(end):
+                        end()
 
     def unsubscribe(self) -> None:
         """Detach from the hooks bus (called before hot-reload replaces this runtime)."""

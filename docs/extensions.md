@@ -1451,6 +1451,18 @@ async def on_start(event, ctx):
 `/reload` re-discovers and hot-reloads all extensions, skills, prompts, and
 settings without restarting the session.
 
+Reload requests are serialized. A request made from an extension callback or
+while the agent is processing is queued until the callback pipeline and complete
+agent lifecycle settle. Multiple queued requests are coalesced. Consequently,
+`await ctx.reload()` acknowledges a request but does not guarantee that a
+deferred reload has already completed.
+
+Contexts are generation-bound. An `ExtensionContext` captured before `/reload`,
+`/new`, `/resume`, `/clone`, or runtime shutdown raises
+`StaleExtensionContextError` when reused. Do not retain contexts in long-lived
+background tasks; capture immutable values or acquire a fresh context from a
+new callback.
+
 **What gets picked up:**
 - New or modified extension files
 - New or modified skill and prompt template files
@@ -1460,10 +1472,16 @@ settings without restarting the session.
 **What persists across reload:**
 - The current session (messages, branching state)
 - Auth credentials
-- Any runtime state your extension stored outside its module (e.g. in a global variable — module globals are re-created on reload)
+- Normally imported third-party Python modules, which remain cached in `sys.modules`
+- External state not explicitly released by the extension
 
 **What resets:**
 - All registered tools, commands, shortcuts, and event handlers — re-registered from scratch
 - The system prompt — rebuilt from SYSTEM.md and all `append_prompt` calls
+- Extension entry-module globals and inline factory state
+
+Tau emits `extension_unload` before replacing an extension runtime and
+`runtime_stop` before shutdown. Use those events to release subprocesses,
+background tasks, sockets, and registrations outside Tau.
 
 After reload, new tools are available to the model immediately in the next turn.

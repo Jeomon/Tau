@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -11,13 +12,13 @@ from tau.agent.service import Agent
 from tau.agent.types import AgentConfig
 from tau.builtins.tools import TOOLS
 from tau.engine.service import Engine
-from tau.extensions.api import ExtensionFactory, _RuntimeRef
+from tau.extensions.api import ExtensionError, ExtensionFactory, _RuntimeRef
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
 from tau.message.types import AgentMessage, UserMessage
 from tau.resources.loader import DefaultResourceLoader, ResourceLoader
-from tau.resources.types import ResourceContext, ResourceSnapshot
+from tau.resources.types import ResourceContext, ResourceDiagnostic, ResourceSnapshot
 from tau.runtime.dependencies import (
     LLMFactoryContext,
     RuntimeDependencies,
@@ -31,8 +32,30 @@ from tau.settings.paths import get_config_dir
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
+if TYPE_CHECKING:
+    from tau.runtime.service import Runtime
+
 _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_PROVIDER = "anthropic"
+
+
+@dataclass(frozen=True)
+class RuntimeStartupResult:
+    """Structured outcome of creating a runtime."""
+
+    runtime: Runtime
+    resource_diagnostics: tuple[ResourceDiagnostic, ...]
+    extension_errors: tuple[ExtensionError, ...]
+    requested_model_id: str
+    requested_provider_id: str | None
+    selected_model_id: str
+    selected_provider_id: str
+    model_fallback_reason: str | None = None
+
+    @property
+    def has_issues(self) -> bool:
+        """Return whether startup produced any resource or extension issue."""
+        return bool(self.resource_diagnostics or self.extension_errors)
 
 
 class RuntimeConfig(BaseModel):
@@ -100,6 +123,8 @@ class RuntimeContext:
         resource_loader: ResourceLoader | None = None,
         resource_snapshot: ResourceSnapshot | None = None,
         project_trusted: bool = False,
+        requested_model_id: str = "",
+        requested_provider_id: str | None = None,
     ) -> None:
         self.agent = agent
         self.llm = llm
@@ -112,6 +137,8 @@ class RuntimeContext:
         self.resource_loader = resource_loader
         self.resource_snapshot = resource_snapshot
         self.project_trusted = project_trusted
+        self.requested_model_id = requested_model_id
+        self.requested_provider_id = requested_provider_id
 
     @classmethod
     async def create(
@@ -379,6 +406,8 @@ class RuntimeContext:
             resource_loader=resource_loader,
             resource_snapshot=resources,
             project_trusted=project_trusted,
+            requested_model_id=model_id,
+            requested_provider_id=provider,
         )
 
 

@@ -8,7 +8,7 @@ from tau.extensions.api import (
     LoadExtensionsResult,
     ShortcutRegistration,
 )
-from tau.extensions.context import ExtensionContext
+from tau.extensions.context import ExtensionContext, StaleExtensionContextError
 from tau.extensions.loader import ExtensionLoader, load_inline_extensions
 from tau.extensions.runtime import ExtensionRuntime
 from tau.extensions.settings import ExtensionSettings, ExtensionSettingsError
@@ -21,6 +21,7 @@ __all__ = [
     "ExtensionFactory",
     "LoadExtensionsResult",
     "ExtensionContext",
+    "StaleExtensionContextError",
     "ExtensionRuntime",
     "ExtensionLoader",
     "load_inline_extensions",

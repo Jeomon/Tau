@@ -221,6 +221,17 @@ Programmatic runtimes can replace constructed services through
 session storage, hooks, and the tool registry. Session-bound factories run
 again when the active session is replaced.
 
+`Runtime.create_with_result()` returns the initialized runtime together with
+resource diagnostics, extension errors, and requested-versus-selected
+model/provider resolution. `Runtime.create()` remains the convenience API when
+the caller does not need startup details.
+
+Extension reloads pass through a serialized coordinator. Callback-triggered or
+mid-turn requests wait until extension dispatch and the agent lifecycle settle.
+Runtime generations invalidate contexts captured before reload, session
+replacement, or shutdown, and shutdown detaches the extension runtime from its
+hook bus.
+
 ## Extension Points
 
 Tau is designed to be extended without modifying core code. Key extension points via the `tau` parameter in `register()`:

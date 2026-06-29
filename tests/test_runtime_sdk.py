@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from tau.extensions.api import ExtensionAPI
+from tau.extensions.api import ExtensionAPI, ExtensionError
 from tau.hooks.runtime import RuntimeReadyEvent
 from tau.hooks.service import Hooks
 from tau.message.types import (
@@ -17,9 +17,15 @@ from tau.message.types import (
     UserMessage,
     VideoContent,
 )
+from tau.resources.types import ResourceDiagnostic, ResourceSnapshot
 from tau.runtime.dependencies import RuntimeDependencies
 from tau.runtime.service import Runtime
-from tau.runtime.types import RuntimeConfig, RuntimeContext, _seed_initial_messages
+from tau.runtime.types import (
+    RuntimeConfig,
+    RuntimeContext,
+    RuntimeStartupResult,
+    _seed_initial_messages,
+)
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
 from tau.tool.registry import ToolRegistry
@@ -231,3 +237,50 @@ def test_runtime_config_allows_media_without_text(tmp_path: Path) -> None:
     assert isinstance(message.contents[0], TextContent)
     assert message.contents[0].content == ""
     assert isinstance(message.contents[1], ImageContent)
+
+
+def test_create_with_result_collects_startup_outcome(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    runtime = object.__new__(Runtime)
+    diagnostic = ResourceDiagnostic(
+        severity="warning",
+        message="missing skill",
+        path=tmp_path / "skill",
+    )
+    extension_error = ExtensionError(
+        extension_path="inline:broken:0",
+        event="load",
+        error="failed",
+    )
+    runtime._context = SimpleNamespace(
+        llm=SimpleNamespace(
+            model=SimpleNamespace(id="selected-model"),
+            provider_id="selected-provider",
+            fallback_reason="requested provider unavailable",
+        ),
+        requested_model_id="requested-model",
+        requested_provider_id="requested-provider",
+        resource_snapshot=ResourceSnapshot(
+            builtins_extension_dir=tmp_path,
+            diagnostics=(diagnostic,),
+        ),
+        ext_runtime=SimpleNamespace(errors=[extension_error]),
+    )
+
+    async def fake_create(cls, _config):
+        return runtime
+
+    monkeypatch.setattr(Runtime, "create", classmethod(fake_create))
+    result = asyncio.run(Runtime.create_with_result(RuntimeConfig(cwd=tmp_path)))
+
+    assert isinstance(result, RuntimeStartupResult)
+    assert result.runtime is runtime
+    assert result.resource_diagnostics == (diagnostic,)
+    assert result.extension_errors == (extension_error,)
+    assert result.requested_model_id == "requested-model"
+    assert result.selected_model_id == "selected-model"
+    assert result.selected_provider_id == "selected-provider"
+    assert result.model_fallback_reason == "requested provider unavailable"
+    assert result.has_issues

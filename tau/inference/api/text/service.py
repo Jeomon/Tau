@@ -80,6 +80,10 @@ class TextLLM:
             ValueError: If model_id or provider not found in registries.
             RuntimeError: If OAuth provider requires credentials that are unavailable.
         """
+        self.requested_model_id = model_id
+        self.requested_provider_id = provider
+        self.fallback_reason: str | None = None
+
         _models = models if models is not None else type(self)._builtin_models()
         _providers = providers if providers is not None else type(self)._builtin_providers()
         _apis = apis if apis is not None else type(self)._builtin_apis()
@@ -107,13 +111,18 @@ class TextLLM:
 
         model = None
         resolved_provider = None
+        skipped_providers: list[str] = []
         for candidate in candidates:
             cand_provider = _providers.get(candidate.provider)  # type: ignore[union-attr]
             if cand_provider is None:
+                skipped_providers.append(
+                    f"provider '{candidate.provider}' is not registered"  # type: ignore[union-attr]
+                )
                 continue
             if isinstance(cand_provider, OAuthProvider) and not isinstance(
                 self._auth_manager.get(cand_provider.id), OAuthCredential
             ):
+                skipped_providers.append(f"provider '{cand_provider.id}' has no OAuth credentials")
                 continue  # no credentials — try next variant
             model = candidate
             resolved_provider = cand_provider
@@ -127,6 +136,11 @@ class TextLLM:
             )
 
         self.model = model
+        if skipped_providers:
+            self.fallback_reason = (
+                "; ".join(skipped_providers)
+                + f"; selected provider '{resolved_provider.id}' for the same model"
+            )
 
         # Keep the API reference unresolved (a "module:Class" string stays a
         # string) so the provider SDK is not imported until the first request.

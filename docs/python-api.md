@@ -62,6 +62,38 @@ runtime = await Runtime.create(config)
 
 `create()` builds the full dependency graph: settings, LLM, session manager, extensions, tool registry, engine, and agent.
 
+For startup diagnostics and model-resolution details, use:
+
+```python
+result = await Runtime.create_with_result(config)
+runtime = result.runtime
+
+for diagnostic in result.resource_diagnostics:
+    print(diagnostic.severity, diagnostic.message, diagnostic.path)
+
+for error in result.extension_errors:
+    print(error.extension_path, error.error)
+
+if result.model_fallback_reason:
+    print(result.model_fallback_reason)
+```
+
+`RuntimeStartupResult` contains:
+
+| Field | Description |
+|-------|-------------|
+| `runtime` | Fully initialized `Runtime` |
+| `resource_diagnostics` | Resource discovery warnings and errors |
+| `extension_errors` | File and inline extension load/startup errors |
+| `requested_model_id` / `requested_provider_id` | Effective model request after settings/default resolution |
+| `selected_model_id` / `selected_provider_id` | Model and provider actually constructed |
+| `model_fallback_reason` | Why resolution selected a different model/provider, otherwise `None` |
+| `has_issues` | Whether resource or extension issues were reported |
+
+Tau does not automatically fall back to a different model ID. The built-in
+`TextLLM` can skip unavailable provider variants of the same model, and custom
+LLM factories can expose their own `fallback_reason`.
+
 ### Inline extensions
 
 Embedding applications can register extensions without creating files:
@@ -186,6 +218,8 @@ await runtime.reload_extensions()
 ```
 
 Re-discovers all extensions, skills, and prompts; syncs tools and rebuilds the system prompt without creating a new session.
+Calls made during an extension callback or active agent lifecycle are deferred
+and coalesced until a safe boundary.
 
 ### Events and queued messages
 

@@ -194,7 +194,7 @@ factories for programmatic embedding.
 
 - `dependencies.py` - Typed dependency factories and creation contexts
 - `service.py` - Main runtime orchestration
-- `types.py` - Runtime state types
+- `types.py` - Runtime state, configuration, and structured startup result types
 
 ### `session/` - Session Management
 

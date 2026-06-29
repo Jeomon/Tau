@@ -33,7 +33,7 @@ from tau.hooks.session import (
     TreePreparation,
 )
 from tau.resources.types import ResourceDiagnostic
-from tau.runtime.types import RuntimeConfig, RuntimeContext
+from tau.runtime.types import RuntimeConfig, RuntimeContext, RuntimeStartupResult
 
 if TYPE_CHECKING:
     from tau.modes.interactive.components.layout import Layout
@@ -62,6 +62,13 @@ class Runtime:
         self._layout: Layout | None = None
         self._extension_ui_refresh: Callable[[], None] | None = None
         self._stopped: bool = False
+        self._extension_generation: int = 0
+        self._extension_callback_depth: int = 0
+        self._extension_callbacks_idle = asyncio.Event()
+        self._extension_callbacks_idle.set()
+        self._reload_lock = asyncio.Lock()
+        self._reload_pending: bool = False
+        self._reload_task: asyncio.Task[None] | None = None
         self.version_check_task: asyncio.Task[str | None] | None = None
         if context.agent is not None:
             context.agent._runtime = self
@@ -99,6 +106,43 @@ class Runtime:
         await context.hooks.emit(RuntimeReadyEvent())
         return runtime
 
+    @classmethod
+    async def create_with_result(cls, config: RuntimeConfig) -> RuntimeStartupResult:
+        """Create a runtime and return its structured startup outcome."""
+        runtime = await cls.create(config)
+        context = runtime._context
+        llm = context.llm
+        selected_model_id = str(getattr(llm.model, "id", context.requested_model_id))
+        selected_provider_id = str(getattr(llm, "provider_id", context.requested_provider_id or ""))
+        fallback_reason = getattr(llm, "fallback_reason", None)
+        if fallback_reason is None and selected_model_id != context.requested_model_id:
+            fallback_reason = (
+                f"Requested model '{context.requested_model_id}' resolved to '{selected_model_id}'"
+            )
+        elif (
+            fallback_reason is None
+            and context.requested_provider_id is not None
+            and selected_provider_id != context.requested_provider_id
+        ):
+            fallback_reason = (
+                f"Requested provider '{context.requested_provider_id}' resolved to "
+                f"'{selected_provider_id}'"
+            )
+
+        extension_errors = (
+            tuple(context.ext_runtime.errors) if context.ext_runtime is not None else ()
+        )
+        return RuntimeStartupResult(
+            runtime=runtime,
+            resource_diagnostics=runtime.resource_diagnostics,
+            extension_errors=extension_errors,
+            requested_model_id=context.requested_model_id,
+            requested_provider_id=context.requested_provider_id,
+            selected_model_id=selected_model_id,
+            selected_provider_id=selected_provider_id,
+            model_fallback_reason=fallback_reason,
+        )
+
     def _start_version_check(self) -> None:
         from tau.settings.paths import get_app_version
         from tau.utils.version_check import check_for_new_version
@@ -133,6 +177,22 @@ class Runtime:
     def extension_runtime(self):
         """Get the extension runtime."""
         return self._context.ext_runtime
+
+    @property
+    def extension_generation(self) -> int:
+        """Generation used to reject contexts captured before lifecycle replacement."""
+        return self._extension_generation
+
+    def _begin_extension_callback(self) -> None:
+        """Mark entry into an extension callback."""
+        self._extension_callback_depth += 1
+        self._extension_callbacks_idle.clear()
+
+    def _end_extension_callback(self) -> None:
+        """Mark exit from an extension callback."""
+        self._extension_callback_depth = max(0, self._extension_callback_depth - 1)
+        if self._extension_callback_depth == 0:
+            self._extension_callbacks_idle.set()
 
     @property
     def resource_diagnostics(self) -> tuple[ResourceDiagnostic, ...]:
@@ -380,6 +440,46 @@ class Runtime:
         await self._context.agent.invoke(text, options)
 
     async def reload_extensions(self):
+        """Reload now when safe, otherwise queue one reload for the next safe boundary."""
+        from tau.extensions.api import LoadExtensionsResult
+
+        if self._stopped:
+            return LoadExtensionsResult()
+        agent = self._context.agent
+        if self._extension_callback_depth > 0 or (agent is not None and not agent.is_idle()):
+            self._reload_pending = True
+            self._ensure_deferred_reload()
+            return LoadExtensionsResult()
+        async with self._reload_lock:
+            return await self._reload_extensions_now()
+
+    def _ensure_deferred_reload(self) -> None:
+        """Start the single task that drains queued reload requests."""
+        if self._reload_task is None or self._reload_task.done():
+            self._reload_task = asyncio.create_task(self._drain_deferred_reloads())
+
+    async def _drain_deferred_reloads(self) -> None:
+        """Run coalesced extension reloads only after callbacks and agent work settle."""
+        try:
+            while self._reload_pending and not self._stopped:
+                self._reload_pending = False
+                await self._extension_callbacks_idle.wait()
+                agent = self._context.agent
+                if agent is not None and not agent.is_idle():
+                    await agent.wait_for_idle()
+                if self._extension_callback_depth > 0:
+                    self._reload_pending = True
+                    continue
+                async with self._reload_lock:
+                    await self._reload_extensions_now()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _log.exception("deferred extension reload failed")
+        finally:
+            self._reload_task = None
+
+    async def _reload_extensions_now(self):
         """Re-discover and reload extensions, skills, prompts, and settings.
 
         Applies all changes to the live engine and rebuilds the system prompt
@@ -421,6 +521,7 @@ class Runtime:
         self._context.resource_snapshot = resources
 
         old = self._context.ext_runtime
+        self._extension_generation += 1
         if old is not None:
             for ext in old._extensions:
                 await self._emit_to_extension(ext, "extension_unload")
@@ -493,6 +594,20 @@ class Runtime:
         return load_result
 
     async def reload_extension(self, ext_path: str):
+        """Reload one extension now when safe, otherwise queue a full reload."""
+        from tau.extensions.api import LoadExtensionsResult
+
+        if self._stopped:
+            return LoadExtensionsResult()
+        agent = self._context.agent
+        if self._extension_callback_depth > 0 or (agent is not None and not agent.is_idle()):
+            self._reload_pending = True
+            self._ensure_deferred_reload()
+            return LoadExtensionsResult()
+        async with self._reload_lock:
+            return await self._reload_extension_now(ext_path)
+
+    async def _reload_extension_now(self, ext_path: str):
         """Reload a single extension by its loaded module path, applying live.
 
         Re-reads settings, re-runs only this extension's ``register`` with fresh
@@ -520,13 +635,13 @@ class Runtime:
 
         old = self._context.ext_runtime
         if old is None:
-            return await self.reload_extensions()
+            return await self._reload_extensions_now()
         target = next((e for e in old._extensions if e.path == ext_path), None)
         if target is None:
             # Unknown target — fall back to the all-extensions reload.
-            return await self.reload_extensions()
+            return await self._reload_extensions_now()
         if target.source == "inline":
-            return await self.reload_extensions()
+            return await self._reload_extensions_now()
 
         cwd = self._context.session_manager.cwd
         entries = sm.get_all_extension_entries()
@@ -561,6 +676,7 @@ class Runtime:
         # Let the outgoing extension release any resources it holds (subprocesses,
         # background tasks, sockets) before it is replaced — reload does not do
         # this automatically, so stateful extensions must handle `extension_unload`.
+        self._extension_generation += 1
         await self._emit_to_extension(target, "extension_unload")
 
         new_list = [new_ext if e is target else e for e in old._extensions]
@@ -638,6 +754,7 @@ class Runtime:
         ctx = ExtensionContext.from_runtime(self)
         event = SimpleNamespace(type=event_type)
         for handler in handlers:
+            self._begin_extension_callback()
             try:
                 result = handler(event, ctx)
                 if inspect.isawaitable(result):
@@ -647,6 +764,8 @@ class Runtime:
                 # silently — a botched dispose (e.g. servers not reaped) must be
                 # visible rather than leaking resources unnoticed.
                 _log.exception("extension %s handler for %r raised", ext.path, event_type)
+            finally:
+                self._end_extension_callback()
 
     # -------------------------------------------------------------------------
     # Session lifecycle
@@ -655,6 +774,7 @@ class Runtime:
     async def new_session(self, *, with_session=None) -> None:
         """Shut down the current session and start a fresh one."""
         await self._emit_session_shutdown(SessionShutdownReason.New)
+        self._extension_generation += 1
         self._config = self._config.model_copy(update={"session_file": None})
         self._context = await RuntimeContext.create(
             self._config,
@@ -680,6 +800,7 @@ class Runtime:
                 return
 
         await self._emit_session_shutdown(SessionShutdownReason.Resume)
+        self._extension_generation += 1
         self._config = self._config.model_copy(update={"session_file": session_file})
         self._context = await RuntimeContext.create(
             self._config,
@@ -891,6 +1012,7 @@ class Runtime:
             raise ValueError("No active leaf to clone from.")
 
         await self._emit_session_shutdown(SessionShutdownReason.Clone)
+        self._extension_generation += 1
         sm.create_branched_session(leaf_id)
         self._reinit_after_context_create()
         await self._emit_session_start(SessionStartReason.Clone)
@@ -935,11 +1057,19 @@ class Runtime:
         if self._stopped:
             return
         self._stopped = True
+        self._extension_generation += 1
+        if self._reload_task is not None and not self._reload_task.done():
+            self._reload_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._reload_task
+        self._reload_pending = False
         if self.version_check_task is not None and not self.version_check_task.done():
             self.version_check_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.version_check_task
         await self._context.hooks.emit(RuntimeStopEvent())
+        if self._context.ext_runtime is not None:
+            self._context.ext_runtime.unsubscribe()
 
     # -------------------------------------------------------------------------
     # Event helpers

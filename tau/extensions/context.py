@@ -57,6 +57,10 @@ class SwitchSessionOptions:
     with_session: Callable[[ExtensionContext], Awaitable[None] | None] | None = None
 
 
+class StaleExtensionContextError(RuntimeError):
+    """Raised when an extension context outlives its runtime generation."""
+
+
 class ExtensionContext:
     """
     Runtime context passed to extension command handlers and event handlers.
@@ -87,9 +91,34 @@ class ExtensionContext:
         self._provider_id = provider_id
         self._session_manager = session_manager
         self._layout = layout
-        self._runtime = runtime
+        self._runtime_instance = runtime
+        self._generation = getattr(runtime, "extension_generation", 0)
         self._model_thinking = model_thinking
         self._llm = llm
+
+    @property
+    def _runtime(self) -> Runtime | None:
+        """Return the runtime after verifying this context is still current."""
+        self._assert_active()
+        return self._runtime_instance
+
+    @_runtime.setter
+    def _runtime(self, runtime: Runtime | None) -> None:
+        """Bind a runtime and capture its current generation."""
+        self._runtime_instance = runtime
+        self._generation = getattr(runtime, "extension_generation", 0)
+
+    def _assert_active(self) -> None:
+        """Reject contexts captured before reload, replacement, or shutdown."""
+        runtime = self._runtime_instance
+        if runtime is None:
+            return
+        current = getattr(runtime, "extension_generation", self._generation)
+        if current != self._generation:
+            raise StaleExtensionContextError(
+                "This extension context is stale after session replacement, "
+                "extension reload, or runtime shutdown."
+            )
 
     @classmethod
     def from_runtime(cls, runtime: Runtime) -> ExtensionContext:
@@ -112,26 +141,31 @@ class ExtensionContext:
     @property
     def cwd(self) -> Path:
         """Current working directory."""
+        self._assert_active()
         return self._cwd
 
     @property
     def settings(self) -> SettingsManager | None:
         """Settings manager, or None if not available."""
+        self._assert_active()
         return self._settings
 
     @property
     def model_id(self) -> str:
         """Active model identifier."""
+        self._assert_active()
         return self._model_id
 
     @property
     def provider_id(self) -> str:
         """Active provider identifier."""
+        self._assert_active()
         return self._provider_id
 
     @property
     def model_thinking(self) -> bool:
         """Whether the active model supports extended thinking."""
+        self._assert_active()
         return self._model_thinking
 
     async def set_model(self, model_id: str, provider: str | None = None) -> bool:
@@ -162,6 +196,7 @@ class ExtensionContext:
         ``before_compaction`` handler that summarises with a different prompt or model.
         Has an async ``invoke(LLMContext) -> list[LLMEvent]`` method.
         """
+        self._assert_active()
         return self._llm
 
     @property
@@ -169,6 +204,7 @@ class ExtensionContext:
         """Execution mode: ``'tui'`` when running inside an interactive TUI session,
         ``'headless'`` otherwise.
         """
+        self._assert_active()
         return "tui" if self._layout is not None else "headless"
 
     @property
@@ -179,6 +215,7 @@ class ExtensionContext:
         which branch the user is currently on.  Most extensions should prefer
         ``branch_entries`` instead.
         """
+        self._assert_active()
         if self._session_manager is None:
             return []
         return self._session_manager.get_entries()
@@ -198,6 +235,7 @@ class ExtensionContext:
                     restore(entry.data)
                     break
         """
+        self._assert_active()
         if self._session_manager is None:
             return []
         return self._session_manager.get_branch()
@@ -205,6 +243,7 @@ class ExtensionContext:
     @property
     def ui(self) -> UIContext | None:
         """TUI customization API. None when running outside a TUI session."""
+        self._assert_active()
         if self._layout is None:
             return None
         from tau.tui.ui_context import UIContext
@@ -214,6 +253,7 @@ class ExtensionContext:
     @property
     def has_ui(self) -> bool:
         """True when dialog-capable UI is available (TUI mode)."""
+        self._assert_active()
         return self._layout is not None
 
     # ── Agent state ───────────────────────────────────────────────────────────
@@ -493,7 +533,11 @@ class ExtensionContext:
                 trust_store.set(str(cwd), trusted)
 
     async def reload(self) -> None:
-        """Reload extensions, skills, prompts, and settings."""
+        """Request an extension/resource reload.
+
+        Requests made from an extension callback or while the agent is active
+        are deferred until both the callback pipeline and agent lifecycle settle.
+        """
         if self._runtime is None:
             return
         await self._runtime.reload_extensions()

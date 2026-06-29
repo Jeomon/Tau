@@ -978,9 +978,9 @@ class ExtensionAPI:
         new session needed. Schedules asynchronously and returns immediately, so it
         is safe to call from a synchronous handler such as a settings ``on_change``.
 
-        Note: extensions that hold external resources (subprocesses, background
-        tasks, sockets) should release them on a shutdown/unsubscribe hook, since
-        reload re-runs ``register`` without disposing prior resources automatically.
+        Requests made while an extension callback or agent turn is active are
+        deferred to the next safe boundary. Extensions that hold external
+        resources should release them from ``extension_unload`` or ``runtime_stop``.
         """
         import asyncio
 
