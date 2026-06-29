@@ -12,6 +12,7 @@ from tau.agent.types import AgentPhase, PromptOptions
 from tau.commands.registry import CommandRegistry
 from tau.commands.types import ParsedCommand
 from tau.hooks.runtime import InputEvent, InputEventResult, RuntimeReadyEvent, RuntimeStopEvent
+from tau.hooks.service import Handler, Unsubscribe
 from tau.hooks.session import (
     BranchSummaryCancelledEvent,
     BranchSummaryEndEvent,
@@ -31,6 +32,7 @@ from tau.hooks.session import (
     SessionTreeEvent,
     TreePreparation,
 )
+from tau.resources.types import ResourceDiagnostic
 from tau.runtime.types import RuntimeConfig, RuntimeContext
 
 if TYPE_CHECKING:
@@ -122,6 +124,28 @@ class Runtime:
     def extension_runtime(self):
         """Get the extension runtime."""
         return self._context.ext_runtime
+
+    @property
+    def resource_diagnostics(self) -> tuple[ResourceDiagnostic, ...]:
+        """Return diagnostics produced by the latest resource discovery."""
+        snapshot = self._context.resource_snapshot
+        return snapshot.diagnostics if snapshot is not None else ()
+
+    def subscribe(self, listener: Handler) -> Unsubscribe:
+        """Subscribe to every runtime event and return an unsubscribe callback."""
+        return self._context.hooks.subscribe(listener)
+
+    async def steer(self, message: str) -> None:
+        """Queue a steering message for the active agent turn."""
+        from tau.message.types import UserMessage
+
+        await self._context.engine.steer(UserMessage.from_text(message))
+
+    async def follow_up(self, message: str) -> None:
+        """Queue a message to run after the active agent turn finishes."""
+        from tau.message.types import UserMessage
+
+        await self._context.engine.follow_up(UserMessage.from_text(message))
 
     @property
     def extension_shortcuts(self):
@@ -368,9 +392,12 @@ class Runtime:
             cwd=cwd,
             settings=sm,
             hooks=self._context.hooks,
+            load_context_files=not self._config.disable_context_files
+            and self._context.project_trusted,
         )
         resources = await resource_loader.discover(resource_context)
         resource_loader.apply_registries(resources, context=resource_context)
+        self._context.resource_snapshot = resources
 
         old = self._context.ext_runtime
         if old is not None:
@@ -400,20 +427,28 @@ class Runtime:
         agent = self._context.agent
         if engine is not None:
             registry = self._context.tool_registry
-            registry.replace_source("extension", new_ext.get_tools())
+            registry.replace_source(
+                "extension",
+                [tool for tool in new_ext.get_tools() if self._tool_enabled(tool.name)],
+            )
             registry.sync_to_engine(engine, layout=getattr(self, "_layout", None))
 
             if agent is not None:
                 extra_appends = new_ext.get_prompt_appends()
                 skills = skill_registry.list()
-                agent._system_prompt = build_prompt(
-                    PromptOptions(
-                        cwd=cwd,
-                        tools=registry.list(),
-                        extra_appends=extra_appends,
-                        skills=skills,
-                        disable_context_files=self._config.disable_context_files,
-                        project_trusted=self._config.project_trusted,
+                agent._system_prompt = (
+                    self._config.system_prompt
+                    or resources.system_prompt
+                    or build_prompt(
+                        PromptOptions(
+                            cwd=cwd,
+                            tools=registry.list(),
+                            extra_appends=extra_appends,
+                            skills=skills,
+                            disable_context_files=self._config.disable_context_files,
+                            project_trusted=self._context.project_trusted,
+                            context_files=resources.context_files,
+                        )
                     )
                 )
 
@@ -510,18 +545,29 @@ class Runtime:
         agent = self._context.agent
         if engine is not None:
             registry = self._context.tool_registry
-            registry.replace_source("extension", new_runtime.get_tools())
+            registry.replace_source(
+                "extension",
+                [tool for tool in new_runtime.get_tools() if self._tool_enabled(tool.name)],
+            )
             registry.sync_to_engine(engine, layout=getattr(self, "_layout", None))
 
             if agent is not None:
-                agent._system_prompt = build_prompt(
-                    PromptOptions(
-                        cwd=cwd,
-                        tools=registry.list(),
-                        extra_appends=new_runtime.get_prompt_appends(),
-                        skills=skill_registry.list(),
-                        disable_context_files=self._config.disable_context_files,
-                        project_trusted=self._config.project_trusted,
+                snapshot = self._context.resource_snapshot
+                agent._system_prompt = (
+                    self._config.system_prompt
+                    or (snapshot.system_prompt if snapshot is not None else None)
+                    or build_prompt(
+                        PromptOptions(
+                            cwd=cwd,
+                            tools=registry.list(),
+                            extra_appends=new_runtime.get_prompt_appends(),
+                            skills=skill_registry.list(),
+                            disable_context_files=self._config.disable_context_files,
+                            project_trusted=self._context.project_trusted,
+                            context_files=(
+                                snapshot.context_files if snapshot is not None else None
+                            ),
+                        )
                     )
                 )
 
@@ -533,6 +579,11 @@ class Runtime:
             self._extension_ui_refresh()
 
         return LoadExtensionsResult(extensions=new_list, errors=errs)
+
+    def _tool_enabled(self, name: str) -> bool:
+        """Return whether a tool name passes runtime allow/exclude filters."""
+        allowlist = self._config.tool_allowlist
+        return (allowlist is None or name in allowlist) and name not in self._config.exclude_tools
 
     async def _emit_to_extension(self, ext, event_type: str) -> None:
         """Dispatch a lifecycle event directly to a single extension's handlers.

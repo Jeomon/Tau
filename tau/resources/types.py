@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from tau.hooks.service import Hooks
@@ -17,6 +17,25 @@ class ResourceContext:
     cwd: Path
     settings: SettingsManager
     hooks: Hooks
+    load_context_files: bool = True
+
+
+@dataclass(frozen=True)
+class ContextFile:
+    """Context instructions loaded from a project file."""
+
+    path: Path
+    content: str
+
+
+@dataclass(frozen=True)
+class ResourceDiagnostic:
+    """Structured warning or error produced while loading resources."""
+
+    severity: Literal["warning", "error"]
+    message: str
+    source: str = "resource-loader"
+    path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -33,3 +52,6 @@ class ResourceSnapshot:
     skill_paths: tuple[Path, ...] = ()
     prompt_paths: tuple[Path, ...] = ()
     theme_paths: tuple[Path, ...] = ()
+    context_files: tuple[ContextFile, ...] = ()
+    system_prompt: str | None = None
+    diagnostics: tuple[ResourceDiagnostic, ...] = ()

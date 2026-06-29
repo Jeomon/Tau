@@ -15,7 +15,7 @@ from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
 from tau.resources.loader import DefaultResourceLoader, ResourceLoader
-from tau.resources.types import ResourceContext
+from tau.resources.types import ResourceContext, ResourceSnapshot
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
@@ -50,6 +50,8 @@ class RuntimeConfig(BaseModel):
 
     # Tools & prompt
     tools: list[Tool] = Field(default_factory=list)
+    tool_allowlist: set[str] | None = None
+    exclude_tools: set[str] = Field(default_factory=set)
     system_prompt: str = ""
     disable_context_files: bool = False
     resource_loader: ResourceLoader | None = None
@@ -79,6 +81,8 @@ class RuntimeContext:
         ext_runtime: ExtensionRuntime | None = None,
         tool_registry: ToolRegistry | None = None,
         resource_loader: ResourceLoader | None = None,
+        resource_snapshot: ResourceSnapshot | None = None,
+        project_trusted: bool = False,
     ) -> None:
         self.agent = agent
         self.llm = llm
@@ -89,6 +93,8 @@ class RuntimeContext:
         self.ext_runtime: ExtensionRuntime | None = ext_runtime
         self.tool_registry: ToolRegistry = tool_registry or ToolRegistry()
         self.resource_loader = resource_loader
+        self.resource_snapshot = resource_snapshot
+        self.project_trusted = project_trusted
 
     @classmethod
     async def create(
@@ -176,7 +182,12 @@ class RuntimeContext:
 
         # ── Extensions ────────────────────────────────────────────────────────
         # Only load on first session; on session switch the caller passes ext_runtime.
-        base_tools: list[Tool] = list(TOOLS) + list(config.tools)
+        def tool_enabled(tool: Tool) -> bool:
+            return (
+                config.tool_allowlist is None or tool.name in config.tool_allowlist
+            ) and tool.name not in config.exclude_tools
+
+        base_tools = [tool for tool in [*TOOLS, *config.tools] if tool_enabled(tool)]
 
         from tau.hooks.runtime import RuntimeStartEvent
 
@@ -185,7 +196,12 @@ class RuntimeContext:
             await hooks.emit(RuntimeStartEvent())
 
         resource_loader = config.resource_loader or DefaultResourceLoader()
-        resource_context = ResourceContext(cwd=cwd, settings=settings_manager, hooks=hooks)
+        resource_context = ResourceContext(
+            cwd=cwd,
+            settings=settings_manager,
+            hooks=hooks,
+            load_context_files=not config.disable_context_files and project_trusted,
+        )
         resources = await resource_loader.discover(resource_context)
 
         if ext_runtime is None:
@@ -210,6 +226,8 @@ class RuntimeContext:
             tool_registry.register(tool, source=source)
 
         for tool in ext_runtime.get_tools():
+            if not tool_enabled(tool):
+                continue
             tool_registry.register(tool, source="extension")
 
         all_tools: list[Tool] = tool_registry.list()
@@ -230,14 +248,19 @@ class RuntimeContext:
         skills = skill_registry.list()
 
         # ── System prompt ─────────────────────────────────────────────────────
-        system_prompt = config.system_prompt or build_prompt(
-            PromptOptions(
-                cwd=cwd,
-                tools=all_tools,
-                extra_appends=extra_appends,
-                skills=skills,
-                disable_context_files=config.disable_context_files,
-                project_trusted=project_trusted,
+        system_prompt = (
+            config.system_prompt
+            or resources.system_prompt
+            or build_prompt(
+                PromptOptions(
+                    cwd=cwd,
+                    tools=all_tools,
+                    extra_appends=extra_appends,
+                    skills=skills,
+                    disable_context_files=config.disable_context_files,
+                    project_trusted=project_trusted,
+                    context_files=resources.context_files,
+                )
             )
         )
 
@@ -278,4 +301,6 @@ class RuntimeContext:
             ext_runtime=ext_runtime,
             tool_registry=tool_registry,
             resource_loader=resource_loader,
+            resource_snapshot=resources,
+            project_trusted=project_trusted,
         )

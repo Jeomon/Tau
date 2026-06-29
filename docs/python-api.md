@@ -39,6 +39,8 @@ asyncio.run(main())
 | `resume` | `bool` | Resume the most recent session for `cwd` (default `False`) |
 | `mode` | `str` | `"interactive"`, `"print"`, `"json"`, or `"rpc"` |
 | `tools` | `list[Tool]` | Extra tools registered as `"runtime"` source |
+| `tool_allowlist` | `set[str] \| None` | Enable only these built-in, runtime, or extension tool names |
+| `exclude_tools` | `set[str]` | Tool names disabled after applying the allowlist |
 | `system_prompt` | `str` | Custom system prompt (overrides the default) |
 | `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |
 | `config_dir` | `Path \| None` | Override config directory (default `~/.tau`) |
@@ -77,6 +79,20 @@ await runtime.reload_extensions()
 
 Re-discovers all extensions, skills, and prompts; syncs tools and rebuilds the system prompt without creating a new session.
 
+### Events and queued messages
+
+```python
+unsubscribe = runtime.subscribe(lambda event: print(event.type))
+
+await runtime.steer("Use the database implementation instead")
+await runtime.follow_up("Run the integration tests afterward")
+
+unsubscribe()
+```
+
+`steer()` queues a message for the active turn after its current tool round.
+`follow_up()` queues a message for delivery after the active turn finishes.
+
 ## Custom Resource Loaders
 
 `RuntimeConfig.resource_loader` accepts any object implementing the
@@ -111,6 +127,25 @@ runtime = await Runtime.create(config)
 A loader may instead implement all three protocol methods directly:
 `discover()`, `create_extension_loader()`, and `apply_registries()`. The same
 loader instance is retained for `/reload`.
+
+`DefaultResourceLoader` also supports focused overrides without subclassing:
+
+```python
+loader = DefaultResourceLoader(
+    skills_override=lambda current: (*current, Path("shared-skills")),
+    context_files_override=lambda current: current,
+    system_prompt_override=lambda: "Use the project engineering standards.",
+)
+```
+
+Available callbacks are `extensions_override`, `skills_override`,
+`prompts_override`, `themes_override`, `context_files_override`, and
+`system_prompt_override`.
+
+Context files are represented by `ContextFile` objects and included in the
+`ResourceSnapshot` alongside structured diagnostics. Inspect the latest
+diagnostics through `runtime.resource_diagnostics`. Custom loaders can return
+`ResourceDiagnostic` entries with `"warning"` or `"error"` severity.
 
 ### Model switching
 

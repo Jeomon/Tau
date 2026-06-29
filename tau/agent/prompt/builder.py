@@ -296,7 +296,11 @@ class PromptBuilder:
             return ""
         if self._opts.project_trusted is False:
             return ""
-        files = load_project_context_files(self._opts.cwd)
+        files = (
+            [(item.content, item.path) for item in self._opts.context_files]
+            if self._opts.context_files is not None
+            else load_project_context_files(self._opts.cwd)
+        )
         if not files:
             return ""
         blocks = "".join(

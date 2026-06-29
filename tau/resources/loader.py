@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -7,7 +8,7 @@ from tau.hooks.runtime import ResourcesDiscoverResult
 from tau.hooks.types import ResourcesDiscoverEvent
 from tau.packages.manager import PackageManager
 from tau.packages.utils import add_site_packages_path
-from tau.resources.types import ResourceContext, ResourceSnapshot
+from tau.resources.types import ContextFile, ResourceContext, ResourceSnapshot
 from tau.settings.paths import (
     get_builtins_dir,
     get_extensions_dir,
@@ -52,6 +53,25 @@ class ResourceLoader(Protocol):
 
 class DefaultResourceLoader:
     """Default discovery for local, package, and hook-provided resources."""
+
+    def __init__(
+        self,
+        *,
+        extensions_override: Callable[[tuple[ExtensionEntry, ...]], tuple[ExtensionEntry, ...]]
+        | None = None,
+        skills_override: Callable[[tuple[Path, ...]], tuple[Path, ...]] | None = None,
+        prompts_override: Callable[[tuple[Path, ...]], tuple[Path, ...]] | None = None,
+        themes_override: Callable[[tuple[Path, ...]], tuple[Path, ...]] | None = None,
+        context_files_override: Callable[[tuple[ContextFile, ...]], tuple[ContextFile, ...]]
+        | None = None,
+        system_prompt_override: Callable[[], str | None] | None = None,
+    ) -> None:
+        self.extensions_override = extensions_override
+        self.skills_override = skills_override
+        self.prompts_override = prompts_override
+        self.themes_override = themes_override
+        self.context_files_override = context_files_override
+        self.system_prompt_override = system_prompt_override
 
     async def discover(self, context: ResourceContext) -> ResourceSnapshot:
         """Return a deduplicated snapshot of local, package, and hook resources."""
@@ -124,19 +144,47 @@ class DefaultResourceLoader:
             theme_paths.extend(Path(path).expanduser().resolve() for path in result.theme_paths)
 
         extensions_enabled = settings.is_extensions_enabled()
+        context_files: tuple[ContextFile, ...] = ()
+        if context.load_context_files:
+            from tau.agent.prompt.builder import load_project_context_files
+
+            context_files = tuple(
+                ContextFile(path=path, content=content)
+                for content, path in load_project_context_files(cwd)
+            )
+
+        discovered_extensions = tuple(extension_entries) if extensions_enabled else ()
+        discovered_skills = tuple(dict.fromkeys(skill_paths))
+        discovered_prompts = tuple(dict.fromkeys(prompt_paths))
+        discovered_themes = tuple(dict.fromkeys(theme_paths))
+        if self.extensions_override is not None:
+            discovered_extensions = self.extensions_override(discovered_extensions)
+        if self.skills_override is not None:
+            discovered_skills = self.skills_override(discovered_skills)
+        if self.prompts_override is not None:
+            discovered_prompts = self.prompts_override(discovered_prompts)
+        if self.themes_override is not None:
+            discovered_themes = self.themes_override(discovered_themes)
+        if self.context_files_override is not None:
+            context_files = self.context_files_override(context_files)
+
         return ResourceSnapshot(
             builtins_extension_dir=get_builtins_dir() / "extensions",
             project_extension_dir=get_extensions_dir(cwd) if extensions_enabled else None,
             global_extension_dir=get_extensions_dir() if extensions_enabled else None,
-            extension_entries=tuple(extension_entries) if extensions_enabled else (),
+            extension_entries=discovered_extensions,
             extension_sources=extension_sources if extensions_enabled else {},
             disabled_extension_stems=frozenset(disabled_stems)
             if extensions_enabled
             else frozenset(),
             extension_configs=extension_configs if extensions_enabled else {},
-            skill_paths=tuple(dict.fromkeys(skill_paths)),
-            prompt_paths=tuple(dict.fromkeys(prompt_paths)),
-            theme_paths=tuple(dict.fromkeys(theme_paths)),
+            skill_paths=discovered_skills,
+            prompt_paths=discovered_prompts,
+            theme_paths=discovered_themes,
+            context_files=context_files,
+            system_prompt=self.system_prompt_override()
+            if self.system_prompt_override is not None
+            else None,
         )
 
     def create_extension_loader(

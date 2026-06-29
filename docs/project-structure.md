@@ -163,11 +163,13 @@ Installed package and dependency management.
 
 ### `resources/` - Resource Discovery
 
-Builds one immutable snapshot from built-in, global, project, installed-package,
-and hook-provided resources. Runtime startup and `/reload` both consume it.
+The replaceable loader builds one immutable snapshot from built-in, global,
+project, installed-package, hook-provided, and context-file resources. It
+supports focused overrides and structured diagnostics. Runtime startup and
+`/reload` both consume it.
 
-- `loader.py` - Discovers resources and constructs the extension loader
-- `types.py` - Immutable `ResourceSnapshot`
+- `loader.py` - Resource loader protocol, default discovery, and registry application
+- `types.py` - `ResourceContext`, immutable `ResourceSnapshot`, context files, and diagnostics
 
 ### `prompts/` - Prompt Template System
 

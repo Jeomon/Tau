@@ -7,7 +7,7 @@ from pathlib import Path
 from tau.hooks.runtime import ResourcesDiscoverResult
 from tau.hooks.service import Hooks
 from tau.resources.loader import DefaultResourceLoader
-from tau.resources.types import ResourceContext
+from tau.resources.types import ContextFile, ResourceContext
 from tau.runtime.types import RuntimeConfig
 from tau.settings.types import ExtensionEntry, PackageEntry
 
@@ -144,3 +144,47 @@ def test_runtime_config_accepts_replaceable_resource_loader(tmp_path: Path) -> N
     config = RuntimeConfig(cwd=tmp_path, resource_loader=loader)
 
     assert config.resource_loader is loader
+
+
+def test_default_loader_supports_fine_grained_overrides(tmp_path: Path) -> None:
+    context_path = tmp_path / "virtual" / "AGENTS.md"
+    loader = DefaultResourceLoader(
+        skills_override=lambda paths: (*paths, tmp_path / "extra-skills"),
+        context_files_override=lambda _files: (
+            ContextFile(path=context_path, content="Virtual instructions"),
+        ),
+        system_prompt_override=lambda: "Custom identity",
+    )
+
+    snapshot = asyncio.run(
+        loader.discover(
+            ResourceContext(
+                cwd=tmp_path,
+                settings=_Settings(),  # type: ignore[arg-type]
+                hooks=Hooks(),
+            )
+        )
+    )
+
+    assert snapshot.skill_paths == (tmp_path / "extra-skills",)
+    assert snapshot.context_files == (
+        ContextFile(path=context_path, content="Virtual instructions"),
+    )
+    assert snapshot.system_prompt == "Custom identity"
+
+
+def test_default_loader_discovers_context_files(tmp_path: Path) -> None:
+    context_path = tmp_path / "AGENTS.md"
+    context_path.write_text("# Project rules")
+
+    snapshot = asyncio.run(
+        DefaultResourceLoader().discover(
+            ResourceContext(
+                cwd=tmp_path,
+                settings=_Settings(),  # type: ignore[arg-type]
+                hooks=Hooks(),
+            )
+        )
+    )
+
+    assert snapshot.context_files == (ContextFile(path=context_path, content="# Project rules"),)

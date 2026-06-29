@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.resources.types import ContextFile
 from tau.tool.types import Tool
 
 
@@ -34,3 +35,6 @@ class PromptOptions(BaseModel):
     # Whether the project directory is trusted (for loading extensions, settings, context files).
     # None = auto-detect from trust store.
     project_trusted: bool | None = Field(default=None)
+
+    # Preloaded context files. None keeps direct PromptBuilder auto-discovery.
+    context_files: tuple[ContextFile, ...] | None = None

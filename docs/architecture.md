@@ -212,15 +212,18 @@ Tools are executed in a sandboxed environment:
 6. Result is serialized and added to context
 ```
 
-Built-in tools (bash, read, write, edit, glob, grep, ls) are always available. Custom tools are registered via extensions.
+Built-in tools (bash, read, write, edit, glob, grep, ls) are enabled by default.
+`RuntimeConfig` can allow or exclude tools by name. Custom tools are registered
+via extensions or passed directly to the runtime.
 
 ## Extension Points
 
 Tau is designed to be extended without modifying core code. Key extension points via the `tau` parameter in `register()`:
 
-Resource discovery is centralized in `ResourceLoader`. Startup and `/reload`
-both consume one `ResourceSnapshot`, keeping package, global, project, and
-hook-contributed extensions, skills, prompts, and themes consistent.
+Resource discovery is centralized behind the replaceable `ResourceLoader`
+protocol. `DefaultResourceLoader` supports per-resource overrides. Startup and
+`/reload` consume one `ResourceSnapshot`, keeping extensions, skills, prompts,
+themes, context files, and structured diagnostics consistent.
 
 ### Tools
 
