@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -46,7 +47,11 @@ def _find_git_root(cwd: Path) -> Path | None:
         current = parent
 
 
-def load_project_context_files(cwd: Path) -> list[tuple[str, Path]]:
+def load_project_context_files(
+    cwd: Path,
+    *,
+    on_error: Callable[[Path, OSError], None] | None = None,
+) -> list[tuple[str, Path]]:
     """Walk from git root (or cwd if not in a repo) down to cwd, collecting context files.
 
     Returns (content, path) tuples ordered root-first so cwd instructions appear
@@ -55,14 +60,26 @@ def load_project_context_files(cwd: Path) -> list[tuple[str, Path]]:
     candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
 
     def _load(directory: Path) -> tuple[str, Path] | None:
+        seen_files: set[tuple[int, int]] = set()
         for filename in candidates:
             path = directory / filename
             if path.is_file():
                 try:
+                    stat = path.stat()
+                except OSError as exc:
+                    if on_error is not None:
+                        on_error(path, exc)
+                    continue
+                identity = (stat.st_dev, stat.st_ino)
+                if identity in seen_files:
+                    continue
+                seen_files.add(identity)
+                try:
                     content = path.read_text(encoding="utf-8").strip()
                     return (content, path) if content else None
-                except OSError:
-                    pass
+                except OSError as exc:
+                    if on_error is not None:
+                        on_error(path, exc)
         return None
 
     resolved = cwd.resolve()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,8 +15,15 @@ from tau.extensions.api import _RuntimeRef
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
+from tau.message.types import AgentMessage, UserMessage
 from tau.resources.loader import DefaultResourceLoader, ResourceLoader
 from tau.resources.types import ResourceContext, ResourceSnapshot
+from tau.runtime.dependencies import (
+    LLMFactoryContext,
+    RuntimeDependencies,
+    SessionManagerFactoryContext,
+    SettingsFactoryContext,
+)
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
@@ -45,6 +53,13 @@ class RuntimeConfig(BaseModel):
     persist_session: bool = True
     resume: bool = False
 
+    # Startup conversation seed
+    initial_messages: list[AgentMessage] = Field(default_factory=list)
+    initial_prompt: str | None = None
+    initial_images: list[Any] = Field(default_factory=list)
+    initial_audio: list[str | bytes] = Field(default_factory=list)
+    initial_video: list[str | bytes] = Field(default_factory=list)
+
     # Run mode
     mode: str = "interactive"
 
@@ -55,6 +70,7 @@ class RuntimeConfig(BaseModel):
     system_prompt: str = ""
     disable_context_files: bool = False
     resource_loader: ResourceLoader | None = None
+    dependencies: RuntimeDependencies = Field(default_factory=RuntimeDependencies)
 
     # Trust
     project_trusted: bool | None = None  # None = auto-detect from trust store
@@ -124,8 +140,19 @@ class RuntimeContext:
                 project_trusted = config.project_trusted
             else:
                 # Load global settings first to read project_trust policy
-                _global_sm = SettingsManager.create(
-                    cwd=cwd, config_dir=config_dir, project_trusted=False
+                settings_context = SettingsFactoryContext(
+                    cwd=cwd,
+                    config_dir=config_dir,
+                    project_trusted=False,
+                )
+                _global_sm = (
+                    config.dependencies.settings(settings_context)
+                    if config.dependencies.settings is not None
+                    else SettingsManager.create(
+                        cwd=cwd,
+                        config_dir=config_dir,
+                        project_trusted=False,
+                    )
                 )
                 policy = _global_sm.get_project_trust()
                 match policy:
@@ -137,15 +164,35 @@ class RuntimeContext:
                         stored = trust_store.get(cwd)
                         project_trusted = stored if stored is not None else False
                         _trust_pending = stored is None  # no prior decision → TrustScreen will show
-            settings_manager = SettingsManager.create(
-                cwd, config_dir=config_dir, project_trusted=project_trusted
+            settings_context = SettingsFactoryContext(
+                cwd=cwd,
+                config_dir=config_dir,
+                project_trusted=project_trusted,
+            )
+            settings_manager = (
+                config.dependencies.settings(settings_context)
+                if config.dependencies.settings is not None
+                else SettingsManager.create(
+                    cwd,
+                    config_dir=config_dir,
+                    project_trusted=project_trusted,
+                )
             )
 
         # ── LLM ───────────────────────────────────────────────────────────────
         text_ref = settings_manager.get_model_ref("text")
         model_id = config.model_id or (text_ref.id if text_ref else None) or _DEFAULT_MODEL
         provider = config.provider or (text_ref.provider if text_ref else None) or _DEFAULT_PROVIDER
-        llm = LLM(model_id=model_id, provider=provider)
+        llm_context = LLMFactoryContext(
+            model_id=model_id,
+            provider=provider,
+            settings=settings_manager,
+        )
+        llm = (
+            config.dependencies.llm(llm_context)
+            if config.dependencies.llm is not None
+            else LLM(model_id=model_id, provider=provider)
+        )
         from datetime import timedelta
 
         llm.api.options.timeout = timedelta(
@@ -167,7 +214,16 @@ class RuntimeContext:
         # session_manager.enable_persist() after the user approves.
         _persist = config.persist_session and not _trust_pending
         session_dir = config.session_dir or settings_manager.get_session_dir()
-        if config.resume and not config.session_file and _persist:
+        session_context = SessionManagerFactoryContext(
+            cwd=cwd,
+            session_dir=session_dir,
+            session_file=config.session_file,
+            persist=_persist,
+            resume=config.resume,
+        )
+        if config.dependencies.session_manager is not None:
+            session_manager = config.dependencies.session_manager(session_context)
+        elif config.resume and not config.session_file and _persist:
             session_manager = SessionManager.continue_recent(cwd, session_dir=session_dir)
         else:
             session_manager = SessionManager(
@@ -176,9 +232,12 @@ class RuntimeContext:
                 session_file=config.session_file,
                 persist=_persist,
             )
+        _seed_initial_messages(session_manager, config)
 
         # ── Shared hook bus ───────────────────────────────────────────────────
-        hooks = hooks or Hooks()
+        hooks = hooks or (
+            config.dependencies.hooks() if config.dependencies.hooks is not None else Hooks()
+        )
 
         # ── Extensions ────────────────────────────────────────────────────────
         # Only load on first session; on session switch the caller passes ext_runtime.
@@ -220,7 +279,11 @@ class RuntimeContext:
         extra_appends = ext_runtime.get_prompt_appends()
 
         # ── Tool registry ─────────────────────────────────────────────────────
-        tool_registry = ToolRegistry()
+        tool_registry = (
+            config.dependencies.tool_registry()
+            if config.dependencies.tool_registry is not None
+            else ToolRegistry()
+        )
         for tool in base_tools:
             source = "builtin" if tool in list(TOOLS) else "runtime"
             tool_registry.register(tool, source=source)
@@ -303,4 +366,28 @@ class RuntimeContext:
             resource_loader=resource_loader,
             resource_snapshot=resources,
             project_trusted=project_trusted,
+        )
+
+
+def _seed_initial_messages(
+    session_manager: SessionManager,
+    config: RuntimeConfig,
+) -> None:
+    """Append configured startup history and media to the active session."""
+    for message in config.initial_messages:
+        session_manager.append_message(message)
+
+    if (
+        config.initial_prompt is not None
+        or config.initial_images
+        or config.initial_audio
+        or config.initial_video
+    ):
+        session_manager.append_message(
+            UserMessage.with_media(
+                config.initial_prompt or "",
+                images=config.initial_images,
+                audio=config.initial_audio,
+                video=config.initial_video,
+            )
         )

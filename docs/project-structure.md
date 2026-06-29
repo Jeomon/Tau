@@ -189,8 +189,10 @@ JSON-RPC server for IDE integration.
 
 ### `runtime/` - Agent Runtime
 
-Wires together agent, session, engine, and extensions.
+Wires together agent, session, engine, and extensions with replaceable service
+factories for programmatic embedding.
 
+- `dependencies.py` - Typed dependency factories and creation contexts
 - `service.py` - Main runtime orchestration
 - `types.py` - Runtime state types
 

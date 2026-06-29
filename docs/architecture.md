@@ -216,6 +216,11 @@ Built-in tools (bash, read, write, edit, glob, grep, ls) are enabled by default.
 `RuntimeConfig` can allow or exclude tools by name. Custom tools are registered
 via extensions or passed directly to the runtime.
 
+Programmatic runtimes can replace constructed services through
+`RuntimeDependencies`. Typed factories cover settings, LLM/model/auth wiring,
+session storage, hooks, and the tool registry. Session-bound factories run
+again when the active session is replaced.
+
 ## Extension Points
 
 Tau is designed to be extended without modifying core code. Key extension points via the `tau` parameter in `register()`:
@@ -223,7 +228,9 @@ Tau is designed to be extended without modifying core code. Key extension points
 Resource discovery is centralized behind the replaceable `ResourceLoader`
 protocol. `DefaultResourceLoader` supports per-resource overrides. Startup and
 `/reload` consume one `ResourceSnapshot`, keeping extensions, skills, prompts,
-themes, context files, and structured diagnostics consistent.
+themes, context files, and structured diagnostics consistent. Diagnostics
+identify invalid configured paths, package manifests/resources, hook paths, and
+context read failures without preventing valid resources from loading.
 
 ### Tools
 

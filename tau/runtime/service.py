@@ -81,7 +81,16 @@ class Runtime:
     async def create(cls, config: RuntimeConfig) -> Runtime:
         """Create a fully initialised Runtime from config and fire the session_start event."""
         context = await RuntimeContext.create(config=config)
-        runtime = cls(context=context, config=config)
+        runtime_config = config.model_copy(
+            update={
+                "initial_messages": [],
+                "initial_prompt": None,
+                "initial_images": [],
+                "initial_audio": [],
+                "initial_video": [],
+            }
+        )
+        runtime = cls(context=context, config=runtime_config)
         runtime._start_version_check()
         await runtime._emit_session_start(SessionStartReason.Startup)
         # Runtime is now fully wired (engine, agent, tools, extensions) and the
@@ -233,13 +242,25 @@ class Runtime:
         """
         from tau.hooks.tui import ModelSelectEvent
         from tau.inference.api.text.service import TextLLM
+        from tau.runtime.dependencies import LLMFactoryContext
 
         agent = self._context.agent
         if agent is None:
             return False
         old_model = agent._engine.llm.model
         try:
-            new_llm = TextLLM(model_id=model_id, provider=provider)
+            llm_factory = self._config.dependencies.llm
+            new_llm = (
+                llm_factory(
+                    LLMFactoryContext(
+                        model_id=model_id,
+                        provider=provider,
+                        settings=self._context.settings_manager,
+                    )
+                )
+                if llm_factory is not None and self._context.settings_manager is not None
+                else TextLLM(model_id=model_id, provider=provider)
+            )
         except Exception:
             return False
         if new_llm.model.thinking:

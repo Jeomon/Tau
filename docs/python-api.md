@@ -37,12 +37,18 @@ asyncio.run(main())
 | `session_file` | `Path \| None` | Resume from an existing session file |
 | `persist_session` | `bool` | Save session to disk (default `True`) |
 | `resume` | `bool` | Resume the most recent session for `cwd` (default `False`) |
+| `initial_messages` | `list[AgentMessage]` | Existing conversation messages appended at startup |
+| `initial_prompt` | `str \| None` | Optional startup user-message text |
+| `initial_images` | `list[Any]` | Images attached to the startup user message |
+| `initial_audio` | `list[str \| bytes]` | Audio attached to the startup user message |
+| `initial_video` | `list[str \| bytes]` | Video attached to the startup user message |
 | `mode` | `str` | `"interactive"`, `"print"`, `"json"`, or `"rpc"` |
 | `tools` | `list[Tool]` | Extra tools registered as `"runtime"` source |
 | `tool_allowlist` | `set[str] \| None` | Enable only these built-in, runtime, or extension tool names |
 | `exclude_tools` | `set[str]` | Tool names disabled after applying the allowlist |
 | `system_prompt` | `str` | Custom system prompt (overrides the default) |
 | `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |
+| `dependencies` | `RuntimeDependencies` | Factories for settings, LLM, sessions, hooks, and tool registry |
 | `config_dir` | `Path \| None` | Override config directory (default `~/.tau`) |
 
 ## `Runtime`
@@ -54,6 +60,79 @@ runtime = await Runtime.create(config)
 ```
 
 `create()` builds the full dependency graph: settings, LLM, session manager, extensions, tool registry, engine, and agent.
+
+### Initial messages and media
+
+Seed an existing conversation and an optional media-bearing user message:
+
+```python
+from tau.message.types import AssistantMessage, UserMessage
+
+config = RuntimeConfig(
+    cwd=Path.cwd(),
+    initial_messages=[
+        UserMessage.from_text("We are reviewing the API."),
+        AssistantMessage.from_text("Understood."),
+    ],
+    initial_prompt="Review this screenshot",
+    initial_images=[Path("screen.png").read_bytes()],
+)
+runtime = await Runtime.create(config)
+```
+
+Initial messages are appended to the session before the runtime emits
+`session_start`. Supplying any initial media creates a user message even when
+`initial_prompt` is omitted. Runtime creation does not automatically invoke the
+model; call `runtime.invoke()` when a response is required.
+
+The startup seed is consumed once by `Runtime.create()` and is not repeated when
+that runtime creates or resumes another session. Calling `RuntimeContext.create()`
+directly applies the seed on every call.
+
+### Dependency injection
+
+Use `RuntimeDependencies` to replace services constructed by the runtime:
+
+```python
+from tau.hooks.service import Hooks
+from tau.inference.api.text.service import TextLLM
+from tau.runtime.dependencies import RuntimeDependencies
+
+shared_hooks = Hooks()
+
+def create_llm(context):
+    return TextLLM(
+        model_id=context.model_id,
+        provider=context.provider,
+        models=my_model_registry,
+        providers=my_provider_registry,
+        apis=my_api_registry,
+        auth_manager=my_auth_manager,
+    )
+
+config = RuntimeConfig(
+    cwd=Path.cwd(),
+    dependencies=RuntimeDependencies(
+        llm=create_llm,
+        hooks=lambda: shared_hooks,
+    ),
+)
+runtime = await Runtime.create(config)
+```
+
+Available factories:
+
+| Factory | Context | Purpose |
+|---------|---------|---------|
+| `settings` | `SettingsFactoryContext` | Construct project/global settings access |
+| `llm` | `LLMFactoryContext` | Construct the text LLM, including custom model, provider, API, or auth registries |
+| `session_manager` | `SessionManagerFactoryContext` | Select persistent, in-memory, or custom session storage |
+| `hooks` | None | Provide the shared lifecycle event bus |
+| `tool_registry` | None | Provide the tool registry |
+
+LLM, session-manager, and tool-registry factories run again when Tau replaces
+the active session. The existing settings manager and hook bus are preserved
+across those replacements. The LLM factory is also used by `set_model()`.
 
 ### Invoking the agent
 
@@ -144,8 +223,20 @@ Available callbacks are `extensions_override`, `skills_override`,
 
 Context files are represented by `ContextFile` objects and included in the
 `ResourceSnapshot` alongside structured diagnostics. Inspect the latest
-diagnostics through `runtime.resource_diagnostics`. Custom loaders can return
-`ResourceDiagnostic` entries with `"warning"` or `"error"` severity.
+diagnostics through `runtime.resource_diagnostics`.
+
+`DefaultResourceLoader` reports:
+
+- Missing or invalid configured extension paths
+- Missing installed-package directories
+- Malformed package manifests and missing declared package resources
+- Package resource selectors that match nothing
+- Missing hook-contributed or override paths
+- Context files that could not be read
+
+Each `ResourceDiagnostic` includes `"warning"` or `"error"` severity, a source,
+message, and optional path. Diagnostics do not stop startup; extension loading
+continues with valid resources.
 
 ### Model switching
 

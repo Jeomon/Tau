@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from tau.hooks.runtime import ResourcesDiscoverResult
 from tau.hooks.types import ResourcesDiscoverEvent
 from tau.packages.manager import PackageManager
 from tau.packages.utils import add_site_packages_path
-from tau.resources.types import ContextFile, ResourceContext, ResourceSnapshot
+from tau.resources.types import (
+    ContextFile,
+    ResourceContext,
+    ResourceDiagnostic,
+    ResourceSnapshot,
+)
 from tau.settings.paths import (
     get_builtins_dir,
     get_extensions_dir,
@@ -81,12 +87,21 @@ class DefaultResourceLoader:
         extension_sources: dict[str, str] = {}
         disabled_stems: set[str] = set()
         extension_configs: dict[str, dict] = {}
+        diagnostics: list[ResourceDiagnostic] = []
 
         for entry in settings.get_all_extension_entries():
-            stem = Path(entry.path).stem
+            path = Path(entry.path).expanduser().resolve()
+            stem = path.stem
             if entry.enabled:
                 extension_entries.append(entry)
                 extension_configs[stem] = entry.settings or {}
+                self._diagnose_resource_path(
+                    diagnostics,
+                    path,
+                    resource="extension",
+                    source="settings",
+                    severity="error",
+                )
             else:
                 disabled_stems.add(stem)
 
@@ -107,6 +122,25 @@ class DefaultResourceLoader:
             if not package.enabled:
                 continue
             manager = PackageManager(get_packages_venv(cwd if local else None))
+            package_source = f"package:{package.name}"
+            package_dir = Path(package.installed_path).resolve() if package.installed_path else None
+            if package_dir is not None and not package_dir.is_dir():
+                diagnostics.append(
+                    ResourceDiagnostic(
+                        severity="error",
+                        message=f"Installed package directory for '{package.name}' does not exist",
+                        source=package_source,
+                        path=package_dir,
+                    )
+                )
+                continue
+            if package_dir is not None:
+                manifest_valid = self._diagnose_package_manifest(
+                    diagnostics, package.name, package_dir
+                )
+                if not manifest_valid:
+                    continue
+
             extension_files = manager.find_resource_paths(
                 package.name,
                 "extensions",
@@ -115,48 +149,91 @@ class DefaultResourceLoader:
             )
             if not extension_files and package.extensions is None:
                 extension_files = manager.find_extension_files(package.name, package.installed_path)
+            self._diagnose_package_selection(
+                diagnostics,
+                package.name,
+                "extensions",
+                package.extensions,
+                extension_files,
+                package_dir,
+            )
             for path in extension_files:
                 extension_entries.append(ExtensionEntry(path=str(path), name=package.name))
                 extension_sources[str(path.resolve())] = "package"
 
-            skill_paths.extend(
-                manager.find_resource_paths(
-                    package.name, "skills", package.installed_path, package.skills
-                )
+            package_skills = manager.find_resource_paths(
+                package.name, "skills", package.installed_path, package.skills
             )
-            prompt_paths.extend(
-                manager.find_resource_paths(
-                    package.name, "prompts", package.installed_path, package.prompts
-                )
+            package_prompts = manager.find_resource_paths(
+                package.name, "prompts", package.installed_path, package.prompts
             )
-            theme_paths.extend(
-                manager.find_resource_paths(
-                    package.name, "themes", package.installed_path, package.themes
-                )
+            package_themes = manager.find_resource_paths(
+                package.name, "themes", package.installed_path, package.themes
             )
+            for resource, selected, found in (
+                ("skills", package.skills, package_skills),
+                ("prompts", package.prompts, package_prompts),
+                ("themes", package.themes, package_themes),
+            ):
+                self._diagnose_package_selection(
+                    diagnostics,
+                    package.name,
+                    resource,
+                    selected,
+                    found,
+                    package_dir,
+                )
+            skill_paths.extend(package_skills)
+            prompt_paths.extend(package_prompts)
+            theme_paths.extend(package_themes)
 
         results = await context.hooks.emit(ResourcesDiscoverEvent(cwd=str(cwd)))
         for result in results:
             if not isinstance(result, ResourcesDiscoverResult):
                 continue
-            skill_paths.extend(Path(path).expanduser().resolve() for path in result.skill_paths)
-            prompt_paths.extend(Path(path).expanduser().resolve() for path in result.prompt_paths)
-            theme_paths.extend(Path(path).expanduser().resolve() for path in result.theme_paths)
+            for resource, values, destination in (
+                ("skill", result.skill_paths, skill_paths),
+                ("prompt", result.prompt_paths, prompt_paths),
+                ("theme", result.theme_paths, theme_paths),
+            ):
+                for value in values:
+                    path = Path(value).expanduser().resolve()
+                    destination.append(path)
+                    self._diagnose_resource_path(
+                        diagnostics,
+                        path,
+                        resource=resource,
+                        source="hook:resources_discover",
+                    )
 
         extensions_enabled = settings.is_extensions_enabled()
         context_files: tuple[ContextFile, ...] = ()
         if context.load_context_files:
             from tau.agent.prompt.builder import load_project_context_files
 
+            def context_error(path: Path, exc: OSError) -> None:
+                diagnostics.append(
+                    ResourceDiagnostic(
+                        severity="warning",
+                        message=f"Could not read context file: {exc}",
+                        source="context-file",
+                        path=path,
+                    )
+                )
+
             context_files = tuple(
                 ContextFile(path=path, content=content)
-                for content, path in load_project_context_files(cwd)
+                for content, path in load_project_context_files(cwd, on_error=context_error)
             )
 
         discovered_extensions = tuple(extension_entries) if extensions_enabled else ()
         discovered_skills = tuple(dict.fromkeys(skill_paths))
         discovered_prompts = tuple(dict.fromkeys(prompt_paths))
         discovered_themes = tuple(dict.fromkeys(theme_paths))
+        original_extensions = discovered_extensions
+        original_skills = discovered_skills
+        original_prompts = discovered_prompts
+        original_themes = discovered_themes
         if self.extensions_override is not None:
             discovered_extensions = self.extensions_override(discovered_extensions)
         if self.skills_override is not None:
@@ -167,6 +244,30 @@ class DefaultResourceLoader:
             discovered_themes = self.themes_override(discovered_themes)
         if self.context_files_override is not None:
             context_files = self.context_files_override(context_files)
+
+        for entry in discovered_extensions:
+            if entry not in original_extensions:
+                self._diagnose_resource_path(
+                    diagnostics,
+                    Path(entry.path).expanduser().resolve(),
+                    resource="extension",
+                    source="resource-override",
+                    severity="error",
+                )
+        for resource, paths, originals in (
+            ("skill", discovered_skills, original_skills),
+            ("prompt", discovered_prompts, original_prompts),
+            ("theme", discovered_themes, original_themes),
+        ):
+            for path in paths:
+                if path in originals:
+                    continue
+                self._diagnose_resource_path(
+                    diagnostics,
+                    path,
+                    resource=resource,
+                    source="resource-override",
+                )
 
         return ResourceSnapshot(
             builtins_extension_dir=get_builtins_dir() / "extensions",
@@ -185,7 +286,149 @@ class DefaultResourceLoader:
             system_prompt=self.system_prompt_override()
             if self.system_prompt_override is not None
             else None,
+            diagnostics=self._deduplicate_diagnostics(diagnostics),
         )
+
+    @staticmethod
+    def _diagnose_resource_path(
+        diagnostics: list[ResourceDiagnostic],
+        path: Path,
+        *,
+        resource: str,
+        source: str,
+        severity: Literal["warning", "error"] = "warning",
+    ) -> None:
+        """Record missing or invalid discovered resource paths."""
+        if not path.exists():
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity=severity,
+                    message=f"Configured {resource} path does not exist",
+                    source=source,
+                    path=path,
+                )
+            )
+        elif resource == "extension" and path.is_file() and path.suffix != ".py":
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity="error",
+                    message="Extension entry file must use the .py suffix",
+                    source=source,
+                    path=path,
+                )
+            )
+
+    @staticmethod
+    def _diagnose_package_manifest(
+        diagnostics: list[ResourceDiagnostic],
+        package_name: str,
+        package_dir: Path,
+    ) -> bool:
+        """Record malformed manifests and paths declared by them."""
+        from tau.settings.paths import get_app_name
+
+        manifest = package_dir / "manifest.json"
+        if not manifest.is_file():
+            return True
+        source = f"package:{package_name}"
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity="error",
+                    message=f"Could not parse package manifest: {exc}",
+                    source=source,
+                    path=manifest,
+                )
+            )
+            return False
+        if not isinstance(data, dict):
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity="error",
+                    message="Package manifest root must be an object",
+                    source=source,
+                    path=manifest,
+                )
+            )
+            return False
+        app_data = data.get(get_app_name().lower(), {})
+        if not isinstance(app_data, dict):
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity="error",
+                    message="Package manifest resource section must be an object",
+                    source=source,
+                    path=manifest,
+                )
+            )
+            return False
+        valid = True
+        for resource in ("extensions", "skills", "prompts", "themes"):
+            values = app_data.get(resource, [])
+            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                diagnostics.append(
+                    ResourceDiagnostic(
+                        severity="error",
+                        message=f"Package manifest '{resource}' must be a list of paths",
+                        source=source,
+                        path=manifest,
+                    )
+                )
+                valid = False
+                continue
+            for value in values:
+                path = (package_dir / value).resolve()
+                if not path.exists():
+                    diagnostics.append(
+                        ResourceDiagnostic(
+                            severity="error",
+                            message=f"Package manifest declares a missing {resource} resource",
+                            source=source,
+                            path=path,
+                        )
+                    )
+        return valid
+
+    @staticmethod
+    def _diagnose_package_selection(
+        diagnostics: list[ResourceDiagnostic],
+        package_name: str,
+        resource: str,
+        selected: list[str] | None,
+        found: list[Path],
+        package_dir: Path | None,
+    ) -> None:
+        """Record configured package selectors that matched no resource."""
+        if not selected:
+            return
+        matched = {path.name for path in found}
+        if package_dir is not None:
+            matched.update(
+                str(path.relative_to(package_dir))
+                for path in found
+                if path.is_relative_to(package_dir)
+            )
+        for value in selected:
+            normalized = value.removeprefix("./")
+            if value in matched or normalized in matched or Path(normalized).name in matched:
+                continue
+            diagnostics.append(
+                ResourceDiagnostic(
+                    severity="warning",
+                    message=f"Configured package {resource} resource '{value}' was not found",
+                    source=f"package:{package_name}",
+                    path=(package_dir / normalized).resolve() if package_dir is not None else None,
+                )
+            )
+
+    @staticmethod
+    def _deduplicate_diagnostics(
+        diagnostics: list[ResourceDiagnostic],
+    ) -> tuple[ResourceDiagnostic, ...]:
+        """Preserve diagnostic order while removing duplicates."""
+        return tuple(dict.fromkeys(diagnostics))
 
     def create_extension_loader(
         self,
