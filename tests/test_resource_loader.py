@@ -6,7 +6,9 @@ from pathlib import Path
 
 from tau.hooks.runtime import ResourcesDiscoverResult
 from tau.hooks.service import Hooks
-from tau.resources.loader import ResourceLoader
+from tau.resources.loader import DefaultResourceLoader
+from tau.resources.types import ResourceContext
+from tau.runtime.types import RuntimeConfig
 from tau.settings.types import ExtensionEntry, PackageEntry
 
 
@@ -78,7 +80,9 @@ def test_discover_combines_explicit_package_and_hook_resources(tmp_path: Path) -
     settings = _Settings(extensions=[explicit, disabled], global_packages=[package])
 
     snapshot = asyncio.run(
-        ResourceLoader(cwd=tmp_path, settings=settings, hooks=hooks).discover()  # type: ignore[arg-type]
+        DefaultResourceLoader().discover(
+            ResourceContext(cwd=tmp_path, settings=settings, hooks=hooks)  # type: ignore[arg-type]
+        )
     )
 
     extension_paths = {Path(entry.path) for entry in snapshot.extension_entries}
@@ -97,11 +101,13 @@ def test_extensions_toggle_keeps_non_extension_resources(tmp_path: Path) -> None
     settings = _Settings(global_packages=[package], extensions_enabled=False)
 
     snapshot = asyncio.run(
-        ResourceLoader(
-            cwd=tmp_path,
-            settings=settings,  # type: ignore[arg-type]
-            hooks=Hooks(),
-        ).discover()
+        DefaultResourceLoader().discover(
+            ResourceContext(
+                cwd=tmp_path,
+                settings=settings,  # type: ignore[arg-type]
+                hooks=Hooks(),
+            )
+        )
     )
 
     assert snapshot.project_extension_dir is None
@@ -120,11 +126,21 @@ def test_discovery_deduplicates_hook_paths(tmp_path: Path) -> None:
 
     hooks.register("resources_discover", contribute)
     snapshot = asyncio.run(
-        ResourceLoader(
-            cwd=tmp_path,
-            settings=_Settings(),  # type: ignore[arg-type]
-            hooks=hooks,
-        ).discover()
+        DefaultResourceLoader().discover(
+            ResourceContext(
+                cwd=tmp_path,
+                settings=_Settings(),  # type: ignore[arg-type]
+                hooks=hooks,
+            )
+        )
     )
 
     assert snapshot.skill_paths == (tmp_path.resolve(),)
+
+
+def test_runtime_config_accepts_replaceable_resource_loader(tmp_path: Path) -> None:
+    loader = DefaultResourceLoader()
+
+    config = RuntimeConfig(cwd=tmp_path, resource_loader=loader)
+
+    assert config.resource_loader is loader

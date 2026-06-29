@@ -344,7 +344,7 @@ class Runtime:
         from tau.agent.prompt.types import PromptOptions
         from tau.extensions.api import LoadExtensionsResult, _RuntimeRef
         from tau.extensions.runtime import ExtensionRuntime
-        from tau.resources.loader import ResourceLoader
+        from tau.resources.types import ResourceContext
         from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
@@ -361,10 +361,16 @@ class Runtime:
 
         cwd = self._context.session_manager.cwd
 
-        resource_loader = ResourceLoader(cwd=cwd, settings=sm, hooks=self._context.hooks)
-        resources = await resource_loader.discover()
-        resource_loader.apply_registries(resources)
-        self._context.resource_loader = resource_loader
+        resource_loader = self._context.resource_loader
+        if resource_loader is None:
+            return LoadExtensionsResult()
+        resource_context = ResourceContext(
+            cwd=cwd,
+            settings=sm,
+            hooks=self._context.hooks,
+        )
+        resources = await resource_loader.discover(resource_context)
+        resource_loader.apply_registries(resources, context=resource_context)
 
         old = self._context.ext_runtime
         if old is not None:
@@ -378,6 +384,7 @@ class Runtime:
 
         loader = resource_loader.create_extension_loader(
             resources,
+            context=resource_context,
             llm=self._context.llm,
             runtime_ref=runtime_ref,
         )

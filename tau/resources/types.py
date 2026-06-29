@@ -5,7 +5,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from tau.hooks.service import Hooks
+    from tau.settings.manager import SettingsManager
     from tau.settings.types import ExtensionEntry
+
+
+@dataclass(frozen=True)
+class ResourceContext:
+    """Runtime services available while discovering and applying resources."""
+
+    cwd: Path
+    settings: SettingsManager
+    hooks: Hooks
 
 
 @dataclass(frozen=True)

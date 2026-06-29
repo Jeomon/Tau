@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from tau.hooks.runtime import ResourcesDiscoverResult
 from tau.hooks.types import ResourcesDiscoverEvent
 from tau.packages.manager import PackageManager
 from tau.packages.utils import add_site_packages_path
-from tau.resources.types import ResourceSnapshot
+from tau.resources.types import ResourceContext, ResourceSnapshot
 from tau.settings.paths import (
     get_builtins_dir,
     get_extensions_dir,
@@ -18,33 +18,51 @@ from tau.settings.types import ExtensionEntry
 if TYPE_CHECKING:
     from tau.extensions.api import _RuntimeRef
     from tau.extensions.loader import ExtensionLoader
-    from tau.hooks.service import Hooks
     from tau.inference.api.text.service import TextLLM
-    from tau.settings.manager import SettingsManager
 
 
-class ResourceLoader:
-    """Discover every runtime resource through one startup/reload path."""
+@runtime_checkable
+class ResourceLoader(Protocol):
+    """Replaceable interface for runtime resource discovery and loading."""
 
-    def __init__(
+    async def discover(self, context: ResourceContext) -> ResourceSnapshot:
+        """Return the resources available to the runtime."""
+        ...
+
+    def create_extension_loader(
         self,
+        snapshot: ResourceSnapshot,
         *,
-        cwd: Path,
-        settings: SettingsManager,
-        hooks: Hooks,
-    ) -> None:
-        self.cwd = cwd.resolve()
-        self.settings = settings
-        self.hooks = hooks
+        context: ResourceContext,
+        llm: TextLLM,
+        runtime_ref: _RuntimeRef,
+    ) -> ExtensionLoader:
+        """Construct the extension importer for a resource snapshot."""
+        ...
 
-    async def discover(self) -> ResourceSnapshot:
+    def apply_registries(
+        self,
+        snapshot: ResourceSnapshot,
+        *,
+        context: ResourceContext,
+    ) -> None:
+        """Apply skills, prompts, and themes from a resource snapshot."""
+        ...
+
+
+class DefaultResourceLoader:
+    """Default discovery for local, package, and hook-provided resources."""
+
+    async def discover(self, context: ResourceContext) -> ResourceSnapshot:
         """Return a deduplicated snapshot of local, package, and hook resources."""
+        cwd = context.cwd.resolve()
+        settings = context.settings
         extension_entries: list[ExtensionEntry] = []
         extension_sources: dict[str, str] = {}
         disabled_stems: set[str] = set()
         extension_configs: dict[str, dict] = {}
 
-        for entry in self.settings.get_all_extension_entries():
+        for entry in settings.get_all_extension_entries():
             stem = Path(entry.path).stem
             if entry.enabled:
                 extension_entries.append(entry)
@@ -57,18 +75,18 @@ class ResourceLoader:
         theme_paths: list[Path] = []
 
         packages = [
-            *((package, False) for package in self.settings.get_packages(local=False)),
-            *((package, True) for package in self.settings.get_packages(local=True)),
+            *((package, False) for package in settings.get_packages(local=False)),
+            *((package, True) for package in settings.get_packages(local=True)),
         ]
         for scope_local in (False, True):
             if any(local == scope_local for _package, local in packages):
-                manager = PackageManager(get_packages_venv(self.cwd if scope_local else None))
+                manager = PackageManager(get_packages_venv(cwd if scope_local else None))
                 add_site_packages_path(manager.site_packages())
 
         for package, local in packages:
             if not package.enabled:
                 continue
-            manager = PackageManager(get_packages_venv(self.cwd if local else None))
+            manager = PackageManager(get_packages_venv(cwd if local else None))
             extension_files = manager.find_resource_paths(
                 package.name,
                 "extensions",
@@ -97,7 +115,7 @@ class ResourceLoader:
                 )
             )
 
-        results = await self.hooks.emit(ResourcesDiscoverEvent(cwd=str(self.cwd)))
+        results = await context.hooks.emit(ResourcesDiscoverEvent(cwd=str(cwd)))
         for result in results:
             if not isinstance(result, ResourcesDiscoverResult):
                 continue
@@ -105,10 +123,10 @@ class ResourceLoader:
             prompt_paths.extend(Path(path).expanduser().resolve() for path in result.prompt_paths)
             theme_paths.extend(Path(path).expanduser().resolve() for path in result.theme_paths)
 
-        extensions_enabled = self.settings.is_extensions_enabled()
+        extensions_enabled = settings.is_extensions_enabled()
         return ResourceSnapshot(
             builtins_extension_dir=get_builtins_dir() / "extensions",
-            project_extension_dir=get_extensions_dir(self.cwd) if extensions_enabled else None,
+            project_extension_dir=get_extensions_dir(cwd) if extensions_enabled else None,
             global_extension_dir=get_extensions_dir() if extensions_enabled else None,
             extension_entries=tuple(extension_entries) if extensions_enabled else (),
             extension_sources=extension_sources if extensions_enabled else {},
@@ -125,6 +143,7 @@ class ResourceLoader:
         self,
         snapshot: ResourceSnapshot,
         *,
+        context: ResourceContext,
         llm: TextLLM,
         runtime_ref: _RuntimeRef,
     ) -> ExtensionLoader:
@@ -140,26 +159,31 @@ class ResourceLoader:
             disabled_stems=set(snapshot.disabled_extension_stems),
             entry_configs=snapshot.extension_configs,
             llm=llm,
-            settings=self.settings,
-            cwd=self.cwd,
+            settings=context.settings,
+            cwd=context.cwd,
             runtime_ref=runtime_ref,
         )
 
-    def apply_registries(self, snapshot: ResourceSnapshot) -> None:
+    def apply_registries(
+        self,
+        snapshot: ResourceSnapshot,
+        *,
+        context: ResourceContext,
+    ) -> None:
         """Reload skills, prompts, and themes from the same snapshot."""
         from tau.prompts.registry import prompt_registry
         from tau.skills.registry import skill_registry
         from tau.themes.registry import theme_registry
 
         skill_registry.reload(
-            cwd=self.cwd,
+            cwd=context.cwd,
             extra_paths=[str(path) for path in snapshot.skill_paths],
         )
         prompt_registry.reload(
-            cwd=self.cwd,
+            cwd=context.cwd,
             extra_paths=[str(path) for path in snapshot.prompt_paths],
         )
         theme_registry.reload_external(
-            cwd=self.cwd,
+            cwd=context.cwd,
             extra_paths=list(snapshot.theme_paths),
         )

@@ -14,7 +14,8 @@ from tau.extensions.api import _RuntimeRef
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
 from tau.inference.api.text.service import TextLLM as LLM
-from tau.resources.loader import ResourceLoader
+from tau.resources.loader import DefaultResourceLoader, ResourceLoader
+from tau.resources.types import ResourceContext
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
@@ -51,6 +52,7 @@ class RuntimeConfig(BaseModel):
     tools: list[Tool] = Field(default_factory=list)
     system_prompt: str = ""
     disable_context_files: bool = False
+    resource_loader: ResourceLoader | None = None
 
     # Trust
     project_trusted: bool | None = None  # None = auto-detect from trust store
@@ -182,13 +184,15 @@ class RuntimeContext:
             # Earliest lifecycle signal — core/manual subscribers only.
             await hooks.emit(RuntimeStartEvent())
 
-        resource_loader = ResourceLoader(cwd=cwd, settings=settings_manager, hooks=hooks)
-        resources = await resource_loader.discover()
+        resource_loader = config.resource_loader or DefaultResourceLoader()
+        resource_context = ResourceContext(cwd=cwd, settings=settings_manager, hooks=hooks)
+        resources = await resource_loader.discover(resource_context)
 
         if ext_runtime is None:
             runtime_ref = _RuntimeRef()
             el = resource_loader.create_extension_loader(
                 resources,
+                context=resource_context,
                 llm=llm,
                 runtime_ref=runtime_ref,
             )
@@ -222,7 +226,7 @@ class RuntimeContext:
         # ── Skills, prompts, and themes ──────────────────────────────────────
         from tau.skills.registry import skill_registry
 
-        resource_loader.apply_registries(resources)
+        resource_loader.apply_registries(resources, context=resource_context)
         skills = skill_registry.list()
 
         # ── System prompt ─────────────────────────────────────────────────────

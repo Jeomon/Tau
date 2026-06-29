@@ -137,6 +137,7 @@ The codebase is organized by function, not by feature:
 | `tau.tool` | Tool types and ToolRegistry |
 | `tau.skills` | Skill file loading and injection |
 | `tau.prompts` | Prompt template loading and argument substitution |
+| `tau.resources` | Unified discovery of extensions, skills, prompts, and themes |
 | `tau.themes` | Theme loading (YAML/JSON) and built-in themes |
 | `tau.builtins` | Built-in tools, commands, skills, themes |
 | `tau.runtime` | Agent runtime — wires agent, session, engine, extensions together |

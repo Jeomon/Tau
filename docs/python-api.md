@@ -40,6 +40,7 @@ asyncio.run(main())
 | `mode` | `str` | `"interactive"`, `"print"`, `"json"`, or `"rpc"` |
 | `tools` | `list[Tool]` | Extra tools registered as `"runtime"` source |
 | `system_prompt` | `str` | Custom system prompt (overrides the default) |
+| `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |
 | `config_dir` | `Path \| None` | Override config directory (default `~/.tau`) |
 
 ## `Runtime`
@@ -75,6 +76,41 @@ await runtime.reload_extensions()
 ```
 
 Re-discovers all extensions, skills, and prompts; syncs tools and rebuilds the system prompt without creating a new session.
+
+## Custom Resource Loaders
+
+`RuntimeConfig.resource_loader` accepts any object implementing the
+`ResourceLoader` protocol. Tau passes a `ResourceContext` containing the current
+working directory, settings manager, and hook bus on startup and reload.
+
+Subclassing the default loader is the simplest way to customize discovery while
+retaining Tau's extension and registry behavior:
+
+```python
+from dataclasses import replace
+
+from tau.resources import (
+    DefaultResourceLoader,
+    ResourceContext,
+    ResourceSnapshot,
+)
+
+class ProjectResourceLoader(DefaultResourceLoader):
+    async def discover(self, context: ResourceContext) -> ResourceSnapshot:
+        snapshot = await super().discover(context)
+        return replace(
+            snapshot,
+            skill_paths=(*snapshot.skill_paths, context.cwd / "agent-skills"),
+        )
+
+loader = ProjectResourceLoader()
+config = RuntimeConfig(cwd=Path.cwd(), resource_loader=loader)
+runtime = await Runtime.create(config)
+```
+
+A loader may instead implement all three protocol methods directly:
+`discover()`, `create_extension_loader()`, and `apply_registries()`. The same
+loader instance is retained for `/reload`.
 
 ### Model switching
 

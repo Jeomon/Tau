@@ -395,7 +395,7 @@ cli.add_command(list_packages, name="list")
 
 
 def _rewrite_args(argv: list[str]) -> list[str]:
-    """Normalize optional resume values and Pi-style ``@file`` arguments.
+    """Normalize optional resume values and ``@file`` arguments.
 
     click only supports required or absent values for options, so we pre-process
     sys.argv before click sees it:
