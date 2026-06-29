@@ -11,6 +11,7 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -32,3 +33,37 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Prepare GitHub release notes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          version = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          header = f"## {version} "
+
+          capture = False
+          notes: list[str] = []
+          for line in lines:
+              if line.startswith(header):
+                  capture = True
+                  continue
+              if capture and line.startswith("## "):
+                  break
+              if capture:
+                  notes.append(line)
+
+          body = "\n".join(notes).strip() + "\n"
+          Path("release-notes.md").write_text(body, encoding="utf-8")
+          PY
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          body_path: release-notes.md
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}

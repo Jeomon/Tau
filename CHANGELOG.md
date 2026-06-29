@@ -2,6 +2,20 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.4.6 — 2026-06-29
+
+### Runtime & extensions
+- Centralized resource discovery with `ResourceLoader` for extensions, skills,
+  prompts, and themes.
+- Runtime service dependency injection, in-memory inline extension factories,
+  runtime SDK event subscriptions, steering APIs, and startup diagnostics for
+  model fallback and stale extension contexts.
+- Added `requires_idle` for commands that must run only when the agent is idle.
+
+### Documentation
+- Expanded the Python API documentation for `disable_context_files` and
+  `project_trusted`.
+
 ## 0.4.0 — 2026-06-26
 
 ### Steering & follow-up reliability
