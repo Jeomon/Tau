@@ -65,10 +65,15 @@ Type `/` to open the command palette. Commands are fuzzy-searchable — type a f
 | `/copy` | Copy the last assistant message to the clipboard |
 | `/reload` | Reload extensions, skills, prompts, and settings |
 | `/settings` | Show current settings |
+| `/watch <url> [question]` | Load public video metadata and captions using `yt-dlp` |
 | `/help` or `/?` | List all commands and keyboard shortcuts |
 | `/quit` or `/q` or `/exit` | Exit tau |
 
 Extensions and prompts also appear in the command palette. Type `/` and browse to see everything available.
+
+`/watch` requires `yt-dlp` on `PATH`. It reads metadata and English captions
+from public URLs supported by `yt-dlp`; it does not download or inspect video
+frames. When captions are unavailable, the agent receives metadata only.
 
 ---
 

@@ -31,6 +31,13 @@ augment it.
 
 ## Run Modes
 
+## Interactive Commands
+
+`/watch <url> [question]` loads metadata and available English captions for a
+public video through `yt-dlp`, then sends them to the active model. Install
+`yt-dlp` separately and ensure it is available on `PATH`. Video frames and
+audio transcription are not performed.
+
 ### Interactive (default)
 
 Start the full terminal UI:
