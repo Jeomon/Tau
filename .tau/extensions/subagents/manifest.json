@@ -29,8 +29,8 @@
         {
           "key": "joinMode",
           "label": "Join mode",
-          "type": "select",
-          "options": ["smart", "async", "group"],
+          "type": "enum",
+          "values": ["smart", "async", "group"],
           "default": "smart",
           "description": "How background-completion notifications are grouped. smart=auto, async=separate, group=always combined."
         },
@@ -51,8 +51,8 @@
         {
           "key": "toolDescriptionMode",
           "label": "Tool description mode",
-          "type": "select",
-          "options": ["full", "compact"],
+          "type": "enum",
+          "values": ["full", "compact"],
           "default": "full",
           "description": "How verbose the Agent tool description is. full=rich, compact=~75% smaller."
         }

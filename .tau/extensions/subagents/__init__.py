@@ -15,7 +15,6 @@ Install: add .tau/extensions/subagents to extensions.list in .tau/settings.json
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -107,10 +106,56 @@ def register(tau) -> None:
                 "  /agents result <id> — show completed agent output"
             )
 
+    def _agents_argument_completions(text: str) -> list:
+        from tau.tui.autocomplete import AutocompleteItem
+
+        actions = {
+            "list": "List agent types and running agents",
+            "stop": "Stop a running agent",
+            "result": "Show an agent's result",
+        }
+        parts = text.split()
+        if not parts:
+            return [
+                AutocompleteItem(label=action, description=description)
+                for action, description in actions.items()
+            ]
+        if len(parts) == 1 and not text.endswith(" "):
+            prefix = parts[0].lower()
+            return [
+                AutocompleteItem(label=action, description=description)
+                for action, description in actions.items()
+                if action.startswith(prefix)
+            ]
+
+        action = parts[0].lower()
+        if action not in {"stop", "result"}:
+            return []
+        if len(parts) == 1:
+            prefix = ""
+        elif len(parts) == 2 and not text.endswith(" "):
+            prefix = parts[1]
+        else:
+            return []
+
+        records = manager.list_records()
+        if action == "stop":
+            records = [record for record in records if record.status in ("queued", "running")]
+        return [
+            AutocompleteItem(
+                label=f"{action} {record.id}",
+                description=f"{record.agent_type}: {record.description} ({record.status})",
+                insert_text=f"{action} {record.id}",
+            )
+            for record in records
+            if record.id.startswith(prefix)
+        ]
+
     tau.register_command(
         "agents",
         "Manage subagents — list types, view running agents, stop or inspect results",
         _cmd_agents,
+        get_argument_completions=_agents_argument_completions,
         argument_hint="[list|stop|result] [agent_id]",
         requires_idle=False,
     )
