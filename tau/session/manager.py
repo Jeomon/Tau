@@ -173,7 +173,8 @@ class SessionManager:
         if not self.persist or not self.session_file:
             return None
         lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
-        self.session_file.write_text("\n".join(lines), encoding="utf-8")
+        content = "\n".join(lines)
+        self.session_file.write_text(f"{content}\n" if content else "", encoding="utf-8")
 
     def _clear_index(self):
         """Clear the session indices."""
