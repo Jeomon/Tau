@@ -1,39 +1,51 @@
-"""Overlay components — picker overlay, prompt overlay, text overlay, editor overlay."""
+"""Overlay components — picker overlay, prompt overlay, text overlay, editor overlay, form overlay."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from tau.tui.component import Component
 from tau.tui.components.select_list import SelectItem, SelectList
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.utils import BOLD, DIM, RESET, pad, visible_width
+from tau.tui.utils import pad, visible_width
+
+if TYPE_CHECKING:
+    from tau.tui.theme import LayoutTheme
 
 T = TypeVar("T")
 
 # ── Box drawing helper ────────────────────────────────────────────────────────
 
 
-def _box(inner_lines: list[str], title: str, width: int) -> list[str]:
+def _box(inner_lines: list[str], title: str, width: int, theme: LayoutTheme | None = None) -> list[str]:
     """Wrap inner_lines in a Unicode border box of the given width."""
     inner_w = max(1, width - 4)  # "│ " + content + " │"
 
+    _id: Callable[[str], str] = lambda s: s  # noqa: E731
+    border = theme.border if theme is not None else _id
+    emphasis = theme.emphasis if theme is not None else _id
+
     if title:
-        t = f" {title} "
-        tv = visible_width(t)
+        t_str = f" {title} "
+        tv = visible_width(t_str)
         dashes = max(0, width - 2 - tv)
         left_d = dashes // 2
         right_d = dashes - left_d
-        top = "╭" + "─" * left_d + BOLD + t + RESET + "─" * right_d + "╮"
+        top = border("┌" + "─" * left_d) + emphasis(t_str) + border("─" * right_d + "┐")
     else:
-        top = "╭" + "─" * (width - 2) + "╮"
+        top = border("┌" + "─" * (width - 2) + "┐")
 
     lines = [top]
     for line in inner_lines:
-        lines.append("│ " + pad(line, inner_w) + " │")
-    lines.append("╰" + "─" * (width - 2) + "╯")
+        lines.append(border("│") + " " + pad(line, inner_w) + " " + border("│"))
+    lines.append(border("└" + "─" * (width - 2) + "┘"))
     return lines
+
+
+def _default_theme() -> LayoutTheme:
+    from tau.tui.theme import LayoutTheme as LT
+    return LT()
 
 
 # ── PickerOverlay ─────────────────────────────────────────────────────────────
@@ -69,6 +81,7 @@ class PickerOverlay[T](Component):
         searchable: bool = False,
         max_visible: int = 8,
         initial_index: int = 0,
+        theme: LayoutTheme | None = None,
     ) -> None:
         self._selector: SelectList[T] = SelectList(items, max_visible=max_visible)
         if items:
@@ -79,17 +92,22 @@ class PickerOverlay[T](Component):
         self._on_preview = on_preview
         self._searchable = searchable
         self._query = ""
+        self._theme = theme or _default_theme()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
+        t = self._theme
         inner_w = max(1, width - 4)
         inner: list[str] = []
         if self._searchable:
-            inner.append(f"  {DIM}Search:{RESET} {self._query}█")
+            if self._query:
+                inner.append(f"  {t.muted('⊘')} {self._query}█")
+            else:
+                inner.append("  " + t.muted("⊘ Search…"))
         inner.extend(self._selector.render(inner_w))
-        inner.append(f"  {DIM}↑↓ navigate · Enter select · Esc cancel{RESET}")
-        return _box(inner, self._title, width)
+        inner.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        return _box(inner, self._title, width, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -123,6 +141,9 @@ class PickerOverlay[T](Component):
     def invalidate(self) -> None:
         self._selector.invalidate()
 
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _fire_preview(self) -> None:
@@ -148,10 +169,12 @@ class TextOverlay(Component):
         lines: list[str],
         title: str = "",
         on_close: Callable[[], None] | None = None,
+        theme: LayoutTheme | None = None,
     ) -> None:
         self._lines = list(lines)
         self._title = title
         self._on_close = on_close
+        self._theme = theme or _default_theme()
 
     # ── Public ────────────────────────────────────────────────────────────────
 
@@ -164,10 +187,11 @@ class TextOverlay(Component):
     # ── Component ─────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
+        t = self._theme
         inner: list[str] = list(self._lines)
         if self._on_close is not None:
-            inner.append(f"  {DIM}Esc to close{RESET}")
-        return _box(inner, self._title, width)
+            inner.append("  " + t.muted("Esc to close"))
+        return _box(inner, self._title, width, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, KeyEvent) and event.key == "escape":
@@ -178,6 +202,9 @@ class TextOverlay(Component):
 
     def invalidate(self) -> None:
         pass
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
 
 
 # ── PromptOverlay ─────────────────────────────────────────────────────────────
@@ -209,23 +236,26 @@ class PromptOverlay(Component):
         on_commit: Callable[[str], None] | None = None,
         on_cancel: Callable[[], None] | None = None,
         secret: bool = False,
+        theme: LayoutTheme | None = None,
     ) -> None:
         self._label = label
         self._on_commit = on_commit
         self._on_cancel = on_cancel
         self._secret = secret
         self._value = ""
+        self._theme = theme or _default_theme()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
+        t = self._theme
         display = "*" * len(self._value) if self._secret else self._value
         inner = [
-            f"  {BOLD}{self._label}{RESET}",
-            f"  {DIM}Enter to confirm · Esc to cancel{RESET}",
+            "  " + t.emphasis(self._label),
+            "  " + t.muted("Enter to confirm  ·  Esc to cancel"),
             f"  {display}█",
         ]
-        return _box(inner, "", width)
+        return _box(inner, "", width, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -251,6 +281,9 @@ class PromptOverlay(Component):
     def invalidate(self) -> None:
         pass
 
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
+
 
 # ── EditorOverlay ─────────────────────────────────────────────────────────────
 
@@ -270,6 +303,7 @@ class EditorOverlay(Component):
         prefill: str = "",
         on_commit: Callable[[str], None] | None = None,
         on_cancel: Callable[[], None] | None = None,
+        theme: LayoutTheme | None = None,
     ) -> None:
         self._title = title
         self._lines: list[str] = prefill.splitlines() or [""]
@@ -278,6 +312,7 @@ class EditorOverlay(Component):
         self._scroll_top = 0
         self._on_commit = on_commit
         self._on_cancel = on_cancel
+        self._theme = theme or _default_theme()
 
     # ── Cursor helpers ────────────────────────────────────────────────────────
 
@@ -294,32 +329,30 @@ class EditorOverlay(Component):
 
     def render(self, width: int) -> list[str]:
         inner_w = max(1, width - 4)
+        t = self._theme
         self._clamp_scroll()
 
+        inner: list[str] = []
         visible = self._lines[self._scroll_top : self._scroll_top + self.VISIBLE_ROWS]
-        rows: list[str] = []
         for ri, line in enumerate(visible):
             abs_row = self._scroll_top + ri
             if abs_row == self._cursor_row:
                 before = line[: self._cursor_col]
                 after = line[self._cursor_col :]
-                content = before + "█" + after
+                inner.append((before + "█" + after)[:inner_w])
             else:
-                content = line
-            rows.append("│ " + pad(content[:inner_w], inner_w) + " │")
+                inner.append(line[:inner_w])
 
-        # scroll indicator
+        # scroll indicator or blank spacer
         total = len(self._lines)
         if total > self.VISIBLE_ROWS:
             pct = int(self._scroll_top / max(1, total - self.VISIBLE_ROWS) * 100)
-            rows.append("│" + DIM + f" ↕ {pct}%".rjust(width - 2) + RESET + "│")
+            inner.append(t.muted(f"↕ {pct}%"))
         else:
-            rows.append("│" + " " * (width - 2) + "│")
+            inner.append("")
 
-        hint = f"  {DIM}Ctrl+S to save · Esc to cancel{RESET}"
-        rows.append("│ " + pad(hint, inner_w) + " │")
-
-        return _box(rows, self._title, width)
+        inner.append(t.muted("Ctrl+S to save  ·  Esc to cancel"))
+        return _box(inner, self._title, width, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -397,3 +430,111 @@ class EditorOverlay(Component):
 
     def invalidate(self) -> None:
         pass
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
+
+
+# ── FormOverlay ───────────────────────────────────────────────────────────────
+
+
+class FormOverlay(Component):
+    """A floating overlay that renders a SettingsSelector as a form.
+
+    Supports all the same field kinds as /settings:
+      - Boolean / enum cycle   (values=[...])
+      - Text input             (text_input=True)
+      - Select submenu         (submenu_items=[...])
+      - Nested settings panel  (submenu_settings=[...])
+      - Tabs                   (tabs=[("Tab A", items_a), ...])
+
+    Usage::
+
+        from tau.modes.interactive.components.settings_selector import SettingItem
+
+        items = [
+            SettingItem("name",  "Name",  current_value="",      text_input=True,
+                        description="Display name for this profile"),
+            SettingItem("env",   "Env",   current_value="prod",
+                        values=["dev", "staging", "prod"],
+                        description="Target environment"),
+            SettingItem("model", "Model", current_value="gpt-4",
+                        submenu_items=["gpt-4", "gpt-4o", "claude-3-5"],
+                        description="LLM to use"),
+        ]
+
+        handle_ref = []
+
+        def on_change(field_id, value):
+            pass  # persist or react
+
+        def on_close():
+            handle_ref[0].close()
+
+        overlay = FormOverlay(items, title="New Profile",
+                              on_change=on_change, on_close=on_close)
+        handle = tui.show_overlay(overlay, OverlayOptions(width="60%"))
+        handle_ref.append(handle)
+    """
+
+    def __init__(
+        self,
+        items: list,
+        title: str = "",
+        on_change: Callable[[str, str], None] | None = None,
+        on_close: Callable[[], None] | None = None,
+        tabs: list[tuple[str, list]] | None = None,
+        theme: LayoutTheme | None = None,
+    ) -> None:
+        from tau.modes.interactive.components.settings_selector import SettingsSelector
+
+        self._title = title
+        self._on_close = on_close
+        self._theme = theme or _default_theme()
+        self._selector = SettingsSelector(
+            items,
+            on_change=on_change or (lambda *_: None),
+            theme=self._theme,
+            tabs=tabs,
+        )
+
+    # ── Component ─────────────────────────────────────────────────────────────
+
+    def render(self, width: int) -> list[str]:
+        inner_w = max(1, width - 4)
+        inner = self._selector.render(inner_w)
+        return _box(inner, self._title, width, self._theme)
+
+    def handle_input(self, event: InputEvent) -> bool:
+        if not isinstance(event, KeyEvent):
+            return False
+
+        match event.key:
+            case "escape":
+                if self._selector.in_submenu:
+                    self._selector.cancel_submenu()
+                elif self._on_close is not None:
+                    self._on_close()
+            case "up":
+                self._selector.move_up()
+            case "down":
+                self._selector.move_down()
+            case "enter" | " ":
+                self._selector.activate()
+            case "tab":
+                self._selector.next_tab()
+            case "backspace":
+                self._selector.backspace_search()
+            case ch if len(ch) == 1 and ch.isprintable():
+                self._selector.append_search(ch)
+            case _:
+                return False
+
+        return True
+
+    def invalidate(self) -> None:
+        pass
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
+        self._selector._theme = theme
