@@ -183,6 +183,11 @@ class LayoutTheme:
     accent: ColorFn = field(default_factory=lambda: _wrap(CYAN))  # highlighted value/path
     border: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))  # modal/box borders
 
+    # Optional terminal background colour applied via OSC 11 when Tau starts.
+    # Use a CSS hex string e.g. "#1e1e2e" or an "rgb(r,g,b)" string.
+    # None (default) leaves the terminal's own background unchanged.
+    terminal_bg: str | None = None
+
     spinner: SpinnerTheme = field(default_factory=SpinnerTheme)
     message: MessageTheme = field(default_factory=MessageTheme)
     input: InputTheme = field(default_factory=InputTheme)

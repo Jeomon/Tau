@@ -493,6 +493,33 @@ class Terminal:
         """
         self.write_flush("\x1b]11;?\x1b\\")
 
+    def set_background_color(self, color: str) -> None:
+        """Set the terminal's background colour via OSC 11.
+
+        ``color`` is a CSS-style hex string (``"#1e1e2e"``) or ``"rgb(r,g,b)"``.
+        Most modern terminals (iTerm2, Kitty, Alacritty, WezTerm, Terminal.app)
+        honour this. Unsupported terminals silently ignore it.
+
+        Call ``reset_background_color()`` on exit to restore the original colour.
+        """
+        if color.startswith("#") and len(color) in (7, 4):
+            h = color[1:]
+            if len(h) == 3:
+                h = h[0] * 2 + h[1] * 2 + h[2] * 2
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            osc_color = f"rgb:{r:02x}/{g:02x}/{b:02x}"
+        elif color.startswith("rgb("):
+            parts = color[4:-1].split(",")
+            r, g, b = (int(p.strip()) for p in parts)
+            osc_color = f"rgb:{r:02x}/{g:02x}/{b:02x}"
+        else:
+            osc_color = color  # pass through if already in OSC format
+        self.write_flush(f"\x1b]11;{osc_color}\x1b\\")
+
+    def reset_background_color(self) -> None:
+        """Restore the terminal's background colour to its default (OSC 111)."""
+        self.write_flush("\x1b]111;\x1b\\")
+
     def enable_kitty_keyboard(self) -> None:
         """Enable Kitty keyboard protocol (flags 1 + 2).
 

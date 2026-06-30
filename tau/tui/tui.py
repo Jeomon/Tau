@@ -784,6 +784,8 @@ class TUI(Container):
         # ``on_background_color`` (if set) fires once with the result (or None on
         # timeout); used for auto light/dark theme selection.
         self.background_color: tuple[int, int, int] | None = None
+        # Optional background to set via OSC 11 on startup (CSS hex or "rgb(r,g,b)").
+        self.terminal_bg: str | None = None
         self._bg_color_future: asyncio.Future | None = None
         self.on_background_color: Callable[[tuple[int, int, int] | None], None] | None = None
 
@@ -832,6 +834,8 @@ class TUI(Container):
             self._terminal.disable_autowrap()
             self._terminal.enable_bracketed_paste()
             self._terminal.enable_focus_reporting()
+            if self.terminal_bg:
+                self._terminal.set_background_color(self.terminal_bg)
             self._renderer.reset()
             self._request_render()
 
@@ -855,6 +859,8 @@ class TUI(Container):
                 self._terminal.disable_bracketed_paste()
                 self._terminal.disable_focus_reporting()
                 self._terminal.enable_autowrap()
+                if self.terminal_bg:
+                    self._terminal.reset_background_color()
                 # Move cursor past last rendered line so the shell prompt
                 # appears below the TUI output (not on top of it).
                 prev = self._renderer._prev_lines

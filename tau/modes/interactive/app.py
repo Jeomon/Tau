@@ -162,6 +162,8 @@ class App:
             editor_padding_x = sm.get_editor_padding_x()
 
         tui = TUI(show_hardware_cursor=show_hardware_cursor)
+        if resolved_theme.terminal_bg:
+            tui.terminal_bg = resolved_theme.terminal_bg
         layout = Layout(
             tui,
             theme=resolved_theme,
