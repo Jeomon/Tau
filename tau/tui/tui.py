@@ -549,6 +549,17 @@ class Renderer:
         self._hw_cursor_row = 0
         self._viewport_top = 0
 
+    def reset_with_clear(self) -> None:
+        """Force a full clear-and-redraw on the next frame.
+
+        Unlike reset(), this sets _resized so the render takes the clear=True
+        path — homing the cursor before writing — which is required when content
+        that was painted at arbitrary screen rows (e.g. an overlay) must be
+        erased without a terminal resize event.
+        """
+        self.reset()
+        self._resized = True
+
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
@@ -1017,8 +1028,8 @@ class TUI(Container):
             dispose = getattr(entry.component, "dispose", None)
             if callable(dispose):
                 dispose()
-            self._renderer.reset()
-            self._request_render()
+            self._renderer.reset_with_clear()
+            self._request_render(force=True)
 
         def _set_hidden(hidden: bool) -> None:
             if entry.hidden == hidden:
