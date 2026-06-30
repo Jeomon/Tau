@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, TypeVar
 from tau.tui.component import Component
 from tau.tui.components.select_list import SelectItem, SelectList
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.utils import pad, visible_width
+from tau.tui.utils import RESET, pad, visible_width
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -18,13 +18,33 @@ T = TypeVar("T")
 # ── Box drawing helper ────────────────────────────────────────────────────────
 
 
-def _box(inner_lines: list[str], title: str, width: int, theme: LayoutTheme | None = None) -> list[str]:
-    """Wrap inner_lines in a Unicode border box of the given width."""
+def _box(
+    inner_lines: list[str],
+    title: str,
+    width: int,
+    theme: LayoutTheme | None = None,
+    bg: str = "",
+) -> list[str]:
+    """Wrap inner_lines in a Unicode border box of the given width.
+
+    ``bg`` is an ANSI background escape string (e.g. ``bg(30,30,30)`` from
+    tau.tui.utils) applied to every content row inside the box.  Leave empty
+    (default) to use the terminal's own background — which is effectively
+    transparent.
+    """
     inner_w = max(1, width - 4)  # "│ " + content + " │"
 
     _id: Callable[[str], str] = lambda s: s  # noqa: E731
     border = theme.border if theme is not None else _id
     emphasis = theme.emphasis if theme is not None else _id
+
+    # When a background is requested, apply it to the *entire* row inside the
+    # box borders so padding spaces pick up the colour too.
+    def _row(content: str) -> str:
+        inner = " " + pad(content, inner_w) + " "
+        if bg:
+            inner = bg + inner + RESET
+        return border("│") + inner + border("│")
 
     if title:
         t_str = f" {title} "
@@ -38,7 +58,7 @@ def _box(inner_lines: list[str], title: str, width: int, theme: LayoutTheme | No
 
     lines = [top]
     for line in inner_lines:
-        lines.append(border("│") + " " + pad(line, inner_w) + " " + border("│"))
+        lines.append(_row(line))
     lines.append(border("└" + "─" * (width - 2) + "┘"))
     return lines
 
@@ -82,6 +102,7 @@ class PickerOverlay[T](Component):
         max_visible: int = 8,
         initial_index: int = 0,
         theme: LayoutTheme | None = None,
+        bg: str = "",
     ) -> None:
         self._selector: SelectList[T] = SelectList(items, max_visible=max_visible)
         if items:
@@ -93,6 +114,7 @@ class PickerOverlay[T](Component):
         self._searchable = searchable
         self._query = ""
         self._theme = theme or _default_theme()
+        self._bg = bg
 
     # ── Component ─────────────────────────────────────────────────────────────
 
@@ -107,7 +129,7 @@ class PickerOverlay[T](Component):
                 inner.append("  " + t.muted("⊘ Search…"))
         inner.extend(self._selector.render(inner_w))
         inner.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
-        return _box(inner, self._title, width, t)
+        return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -170,11 +192,13 @@ class TextOverlay(Component):
         title: str = "",
         on_close: Callable[[], None] | None = None,
         theme: LayoutTheme | None = None,
+        bg: str = "",
     ) -> None:
         self._lines = list(lines)
         self._title = title
         self._on_close = on_close
         self._theme = theme or _default_theme()
+        self._bg = bg
 
     # ── Public ────────────────────────────────────────────────────────────────
 
@@ -191,7 +215,7 @@ class TextOverlay(Component):
         inner: list[str] = list(self._lines)
         if self._on_close is not None:
             inner.append("  " + t.muted("Esc to close"))
-        return _box(inner, self._title, width, t)
+        return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, KeyEvent) and event.key == "escape":
@@ -237,6 +261,7 @@ class PromptOverlay(Component):
         on_cancel: Callable[[], None] | None = None,
         secret: bool = False,
         theme: LayoutTheme | None = None,
+        bg: str = "",
     ) -> None:
         self._label = label
         self._on_commit = on_commit
@@ -244,6 +269,7 @@ class PromptOverlay(Component):
         self._secret = secret
         self._value = ""
         self._theme = theme or _default_theme()
+        self._bg = bg
 
     # ── Component ─────────────────────────────────────────────────────────────
 
@@ -255,7 +281,7 @@ class PromptOverlay(Component):
             "  " + t.muted("Enter to confirm  ·  Esc to cancel"),
             f"  {display}█",
         ]
-        return _box(inner, "", width, t)
+        return _box(inner, "", width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -304,6 +330,7 @@ class EditorOverlay(Component):
         on_commit: Callable[[str], None] | None = None,
         on_cancel: Callable[[], None] | None = None,
         theme: LayoutTheme | None = None,
+        bg: str = "",
     ) -> None:
         self._title = title
         self._lines: list[str] = prefill.splitlines() or [""]
@@ -313,6 +340,7 @@ class EditorOverlay(Component):
         self._on_commit = on_commit
         self._on_cancel = on_cancel
         self._theme = theme or _default_theme()
+        self._bg = bg
 
     # ── Cursor helpers ────────────────────────────────────────────────────────
 
@@ -352,7 +380,7 @@ class EditorOverlay(Component):
             inner.append("")
 
         inner.append(t.muted("Ctrl+S to save  ·  Esc to cancel"))
-        return _box(inner, self._title, width, t)
+        return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -485,12 +513,14 @@ class FormOverlay(Component):
         on_close: Callable[[], None] | None = None,
         tabs: list[tuple[str, list]] | None = None,
         theme: LayoutTheme | None = None,
+        bg: str = "",
     ) -> None:
         from tau.modes.interactive.components.settings_selector import SettingsSelector
 
         self._title = title
         self._on_close = on_close
         self._theme = theme or _default_theme()
+        self._bg = bg
         self._selector = SettingsSelector(
             items,
             on_change=on_change or (lambda *_: None),
@@ -503,7 +533,7 @@ class FormOverlay(Component):
     def render(self, width: int) -> list[str]:
         inner_w = max(1, width - 4)
         inner = self._selector.render(inner_w)
-        return _box(inner, self._title, width, self._theme)
+        return _box(inner, self._title, width, self._theme, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
