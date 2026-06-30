@@ -162,6 +162,8 @@ class ModelSelector:
         self._muted = theme.muted
         self._emphasis = theme.emphasis
         self._success = theme.success
+        self._accent = theme.accent
+        self._border = theme.border
         if initial is not None:
             for i, s in enumerate(self._sections):
                 if s.modality == initial:
@@ -214,66 +216,92 @@ class ModelSelector:
 
     # ── Render ────────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        muted, emphasis, success = self._muted, self._emphasis, self._success
-
+    def render(self, width: int) -> list[str]:
+        muted, emphasis, success, accent, border = (
+            self._muted,
+            self._emphasis,
+            self._success,
+            self._accent,
+            self._border,
+        )
+        divider = border("─" * width)
         lines: list[str] = []
+
         sec = self._section
         if sec is None:
             lines.append("  " + muted("No models available. Use /login to add providers."))
             return lines
 
-        # Tab strip
-        tabs = [
-            (emphasis(s.label) if i == self._active else muted(s.label))
+        # ── Tab bar (modality sections) ────────────────────────────────────────
+        tab_parts = [
+            emphasis(f"[{s.label}]") if i == self._active else muted(s.label)
             for i, s in enumerate(self._sections)
         ]
-        lines.append(f"  {muted(' │ ').join(tabs)}  {muted('←/→ modality')}")
+        lines.append("  " + "  ".join(tab_parts))
+        lines.append(divider)
 
-        # Scope header — shown on any tab that spans multiple providers.
+        # ── Scope row (only when tab spans multiple providers) ─────────────────
         if sec.can_scope:
-            all_t = emphasis("all") if sec.scope == "all" else muted("all")
             scoped_label = "scoped"
             if sec.scope == "scoped" and sec.scope_provider:
                 scoped_label = f"scoped ({sec.scope_provider})"
-            sc_t = emphasis(scoped_label) if sec.scope == "scoped" else muted(scoped_label)
-            lines.append(f"  {muted('Scope:')} {all_t}{muted(' | ')}{sc_t}  {muted('tab: toggle')}")
-        else:
-            lines.append("  " + muted("↑/↓: navigate  enter: select  esc: cancel"))
+            all_t = emphasis("[all]") if sec.scope == "all" else muted("all")
+            sc_t = emphasis(f"[{scoped_label}]") if sec.scope == "scoped" else muted(scoped_label)
+            lines.append(f"  {muted('Scope:')} {all_t}  {sc_t}")
 
-        # Search line
-        cursor = "█"
+        # ── Search box ─────────────────────────────────────────────────────────
         if sec.search:
-            lines.append(f"  {muted('Search:')} {sec.search}{cursor}")
+            lines.append(f"  {muted('⊘')} {sec.search}█")
         else:
-            lines.append("  " + muted(f"Search: {cursor}"))
+            lines.append("  " + muted("⊘ Search models…"))
+        lines.append(divider)
 
+        # ── Model list ─────────────────────────────────────────────────────────
         if not sec.filtered:
             lines.append("  " + muted("No models match"))
-            return lines
+        else:
+            count = len(sec.filtered)
+            visible = min(VISIBLE_ROWS, count)
+            start = max(0, min(sec.selected - visible // 2, count - visible))
 
-        count = len(sec.filtered)
-        visible = min(VISIBLE_ROWS, count)
-        start = max(0, min(sec.selected - visible // 2, count - visible))
+            if start > 0:
+                lines.append("  " + muted(f"↑ {start} more above"))
 
-        for i in range(start, start + visible):
-            m = sec.filtered[i]
-            is_sel = i == sec.selected
-            is_current = f"{m.provider}/{m.id}" == sec.current_key
-            check = f" {success('✓')}" if is_current else ""
-            badge = muted(f"[{m.provider}]")
+            max_id = min(36, max(len(m.id) for m in sec.filtered[start : start + visible]))
+            for i in range(start, start + visible):
+                m = sec.filtered[i]
+                is_sel = i == sec.selected
+                is_current = f"{m.provider}/{m.id}" == sec.current_key
+                check = f" {success('✓')}" if is_current else ""
+                badge = f"[{m.provider}]" if m.provider else ""
+                model_id = m.id.ljust(max_id)
 
-            if is_sel:
-                lines.append(f"  {emphasis(f'→ {m.id}')} {badge}{check}")
-            else:
-                lines.append(f"    {m.id} {badge}{check}")
+                if is_sel:
+                    lines.append(
+                        f"  {accent('>')} {emphasis(model_id)}  {accent(badge)}{check}"
+                    )
+                else:
+                    lines.append(f"    {muted(model_id)}  {muted(badge)}{check}")
 
-        if count > visible:
-            lines.append("  " + muted(f"({sec.selected + 1}/{count})"))
+            remaining = count - (start + visible)
+            if remaining > 0:
+                lines.append("  " + muted(f"↓ {remaining} more below"))
 
-        sel_m = sec.filtered[sec.selected]
-        name = getattr(sel_m, "name", None) or sel_m.id
-        lines.append("  " + muted(f"Model Name: {name}"))
+        lines.append(divider)
+
+        # ── Selected model name ────────────────────────────────────────────────
+        if sec.filtered:
+            sel_m = sec.filtered[sec.selected]
+            name = getattr(sel_m, "name", None) or sel_m.id
+            lines.append("  " + muted(name))
+        else:
+            lines.append("  " + muted("—"))
+        lines.append(divider)
+
+        # ── Status bar ─────────────────────────────────────────────────────────
+        scope_hint = "  ·  tab: scope" if sec.can_scope else ""
+        tab_hint = "  ·  ←/→: switch" if len(self._sections) > 1 else ""
+        lines.append("  " + muted(f"Enter: select{scope_hint}{tab_hint}  ·  Esc: cancel"))
 
         return lines
 

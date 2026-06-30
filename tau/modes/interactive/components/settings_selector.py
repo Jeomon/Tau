@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 class ListSelector:
     """Submenu list picker used by SettingsSelector for submenu_items rows."""
 
-    HELP = "  ↑/↓: move  enter: select  esc: cancel"
-
     def __init__(
         self,
         items: list[str],
@@ -85,12 +83,12 @@ class ListSelector:
                 is_current = item == self._current
                 check = f" {t.success('✓')}" if is_current else ""
                 if is_sel:
-                    lines.append(f"  {t.emphasis(f'→ {item}')}{check}")
+                    lines.append(f"  {t.accent('>')} {t.emphasis(item)}{check}")
                 else:
-                    lines.append(f"    {item}{check}")
+                    lines.append(f"    {t.muted(item)}{check}")
 
         lines.append(divider)
-        lines.append("  " + t.muted(self.HELP.strip()))
+        lines.append("  " + t.muted("↑/↓ move  ·  enter select  ·  esc cancel"))
 
         return lines
 
@@ -113,13 +111,14 @@ class SettingItem:
 
 
 class SettingsSelector:
-    """Interactive settings list.
+    """Interactive settings list with tab bar, search box, and two-column layout.
 
-    - Up/Down  navigate rows
-    - Enter/Space  cycle value, open submenu/sub-panel, or enter text-edit mode
-    - Escape  cancel text-edit / close submenu / close modal
+    - Tab            cycle through tabs (when tabs provided)
+    - Up/Down        navigate rows
+    - Enter/Space    cycle value, open submenu/sub-panel, or enter text-edit mode
+    - Escape         cancel text-edit / close submenu / close modal
     - Type to fuzzy-search (or type into the edit buffer when editing)
-    - Backspace removes last search char (or last edit char when editing)
+    - Backspace      removes last search char (or last edit char when editing)
     """
 
     def __init__(
@@ -129,9 +128,10 @@ class SettingsSelector:
         max_visible: int = 10,
         title: str = "",
         theme: LayoutTheme | None = None,
+        tabs: list[tuple[str, list[SettingItem]]] | None = None,
     ) -> None:
-        self._all_items = items
-        self._filtered: list[SettingItem] = list(items)
+        self._tabs: list[tuple[str, list[SettingItem]]] = tabs or []
+        self._active_tab = 0
         self._on_change = on_change
         self._max_visible = max_visible
         self._title = title
@@ -144,14 +144,42 @@ class SettingsSelector:
             theme = _LT()
         self._theme = theme
 
-        # Submenu state — either a ListSelector (for submenu_items) or a nested SettingsSelector
+        source = self._tabs[0][1] if self._tabs else items
+        self._all_items: list[SettingItem] = list(source)
+        self._filtered: list[SettingItem] = list(self._all_items)
+
         self._submenu: object | None = None
         self._submenu_id: str | None = None
 
-        # Inline text-edit state
         self._editing = False
         self._edit_buffer = ""
         self._edit_id: str | None = None
+
+    # ── Tab navigation ────────────────────────────────────────────────────────
+
+    def next_tab(self) -> None:
+        if len(self._tabs) <= 1:
+            return
+        self._active_tab = (self._active_tab + 1) % len(self._tabs)
+        self._switch_tab()
+
+    def prev_tab(self) -> None:
+        if len(self._tabs) <= 1:
+            return
+        self._active_tab = (self._active_tab - 1) % len(self._tabs)
+        self._switch_tab()
+
+    def _switch_tab(self) -> None:
+        _, tab_items = self._tabs[self._active_tab]
+        self._all_items = list(tab_items)
+        self._search = ""
+        self._selected = 0
+        self._submenu = None
+        self._submenu_id = None
+        self._editing = False
+        self._edit_buffer = ""
+        self._edit_id = None
+        self._refilter()
 
     # ── Public state ──────────────────────────────────────────────────────────
 
@@ -161,7 +189,6 @@ class SettingsSelector:
 
     @property
     def is_editing(self) -> bool:
-        """Return whether a text-input row is currently being edited."""
         return self._editing
 
     # ── Navigation ────────────────────────────────────────────────────────────
@@ -192,7 +219,6 @@ class SettingsSelector:
             if isinstance(self._submenu, SettingsSelector):
                 self._submenu.activate()
             else:
-                # ListSelector: pick selected value and close
                 val = self._submenu.selected_value()  # type: ignore[attr-defined]
                 if val is not None and self._submenu_id is not None:
                     self._apply_value(self._submenu_id, val)
@@ -240,7 +266,6 @@ class SettingsSelector:
             self._edit_buffer = ""
             self._edit_id = None
         elif isinstance(self._submenu, SettingsSelector) and self._submenu.in_submenu:
-            # Delegate Escape inward so nested edit/submenu closes first
             self._submenu.cancel_submenu()
         else:
             self._submenu = None
@@ -283,18 +308,29 @@ class SettingsSelector:
         divider = t.border("─" * width)
         lines: list[str] = []
 
-        if self._title:
+        # ── Tab bar ────────────────────────────────────────────────────────────
+        if self._tabs:
+            parts = []
+            for i, (label, _) in enumerate(self._tabs):
+                if i == self._active_tab:
+                    parts.append(t.emphasis(f"[{label}]"))
+                else:
+                    parts.append(t.muted(label))
+            lines.append("  " + "  ".join(parts))
+        elif self._title:
             lines.append("  " + t.emphasis(self._title))
-            lines.append(divider)
+        lines.append(divider)
 
+        # ── Search box ─────────────────────────────────────────────────────────
         if self._editing:
             lines.append("  " + t.muted("editing — enter to confirm, esc to cancel"))
         elif self._search:
-            lines.append(f"  {t.muted('/')}{self._search}█")
+            lines.append(f"  {t.muted('⊘')} {self._search}{cursor_block()}")
         else:
-            lines.append("  " + t.muted("type to search…"))
+            lines.append("  " + t.muted("⊘ Search settings…"))
         lines.append(divider)
 
+        # ── Items list ─────────────────────────────────────────────────────────
         if not self._filtered:
             lines.append("  " + t.muted("No matching settings"))
         else:
@@ -304,7 +340,7 @@ class SettingsSelector:
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more"))
+                lines.append("  " + t.muted(f"↑ {start} more above"))
 
             for i in range(start, min(start + visible, count)):
                 item = self._filtered[i]
@@ -312,39 +348,45 @@ class SettingsSelector:
                 label_padded = item.label.ljust(max_label)
                 has_submenu = bool(item.submenu_items or item.submenu_settings)
 
+                val_display = (
+                    (item.current_value.replace("_", " ") + " ▸")
+                    if has_submenu
+                    else item.current_value.replace("_", " ")
+                )
+
                 if is_sel and self._editing:
                     val_display = self._edit_buffer + cursor_block()
-                    row = f"  {t.emphasis(f'→ {label_padded}')}  {t.emphasis(val_display)}"
+                    row = f"  {t.accent('>')} {t.emphasis(label_padded)}  {t.emphasis(val_display)}"
+                elif is_sel:
+                    row = f"  {t.accent('>')} {t.emphasis(label_padded)}  {t.accent(val_display)}"
                 else:
-                    val_display = (
-                        (item.current_value.replace("_", " ") + " ▸")
-                        if has_submenu
-                        else item.current_value.replace("_", " ")
-                    )
-                    if is_sel:
-                        row = f"  {t.emphasis(f'→ {label_padded}')}  {t.emphasis(val_display)}"
-                    else:
-                        row = f"    {t.muted(label_padded)}  {val_display}"
+                    row = f"    {t.muted(label_padded)}  {val_display}"
                 lines.append(row)
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more"))
+                lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
+
+        # ── Description of selected item ───────────────────────────────────────
         desc = ""
         if self._filtered and 0 <= self._selected < len(self._filtered):
             desc = self._filtered[self._selected].description
-        lines.append("  " + t.muted(desc) if desc else "  " + t.muted("—"))
-
+        lines.append("  " + t.muted(desc if desc else "—"))
         lines.append(divider)
+
+        # ── Status bar ─────────────────────────────────────────────────────────
         if self._editing:
-            lines.append("  " + t.muted("enter confirm  esc cancel"))
-        elif self._title:
-            lines.append("  " + t.muted("↑/↓ move  enter/spc toggle  esc back  type to search"))
+            lines.append("  " + t.muted("enter: confirm  ·  esc: cancel"))
         else:
+            tab_hint = "  ·  tab: switch" if len(self._tabs) > 1 else ""
+            back_or_close = "back" if (self._title or self._tabs) else "close & save"
             lines.append(
-                "  " + t.muted("↑/↓ move  enter/spc toggle  esc save & close  type to search")
+                "  "
+                + t.muted(
+                    f"Enter/Space to change  ·  / to search{tab_hint}  ·  Esc to {back_or_close}"
+                )
             )
 
         return lines

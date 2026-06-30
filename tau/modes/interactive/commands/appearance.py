@@ -64,7 +64,8 @@ def open_settings_panel(ctx: CommandContext) -> None:
         ctx.notify("Settings unavailable.")
         return
 
-    items: list[SettingItem] = [
+    # ── Settings tab — display & quick toggles ────────────────────────────────
+    settings_items: list[SettingItem] = [
         SettingItem(
             id="quiet_startup",
             label="Quiet startup",
@@ -111,6 +112,66 @@ def open_settings_panel(ctx: CommandContext) -> None:
             values=["true", "false"],
         ),
         SettingItem(
+            id="show_hardware_cursor",
+            label="Hardware cursor",
+            description="Show terminal cursor while positioning (useful for IME input)",
+            current_value="true" if sm.get_show_hardware_cursor() else "false",
+            values=["false", "true"],
+        ),
+        SettingItem(
+            id="theme",
+            label="Theme",
+            description="Color theme for the interface",
+            current_value=sm.get_theme() or DEFAULT_THEME,
+            submenu_items=[AUTO_THEME, *theme_registry.list()],
+            submenu_title="Theme",
+        ),
+        SettingItem(
+            id="project_trust",
+            label="Project trust",
+            description=(
+                "Whether to load project config, extensions,"
+                " and context files from .tau/ directories"
+            ),
+            current_value=sm.get_project_trust(),
+            values=["ask", "always", "never"],
+        ),
+        SettingItem(
+            id="double_escape_action",
+            label="Double-Escape action",
+            description="Action when Escape is pressed twice on an empty editor",
+            current_value=sm.get_double_escape_action(),
+            values=["fork", "tree", "none"],
+        ),
+        SettingItem(
+            id="tree_filter_mode",
+            label="Tree filter mode",
+            description="Default message filter in the /tree view",
+            current_value=sm.get_tree_filter_mode(),
+            submenu_items=["default", "no-tools", "user-only", "labeled-only", "all"],
+            submenu_title="Tree Filter Mode",
+        ),
+    ]
+
+    # ── Model tab — inference settings ─────────────────────────────────────────
+    model_items: list[SettingItem] = [
+        SettingItem(
+            id="thinking_level",
+            label="Thinking level",
+            description="Default reasoning depth for thinking-capable models",
+            current_value=getattr(sm.get_thinking_level(), "value", None)
+            or ThinkingLevel.Off.value,
+            submenu_items=[lv.value for lv in ThinkingLevel],
+            submenu_title="Thinking Level",
+        ),
+        SettingItem(
+            id="transport",
+            label="Transport",
+            description="Wire protocol used to reach provider endpoints",
+            current_value=sm.get_transport().value,
+            values=[t.value for t in Transport],
+        ),
+        SettingItem(
             id="steering_mode",
             label="Steering mode",
             description="How queued steering messages are delivered while the agent streams",
@@ -124,30 +185,10 @@ def open_settings_panel(ctx: CommandContext) -> None:
             current_value=sm.get_follow_up_mode().value,
             values=[m.value for m in FollowupMode],
         ),
-        SettingItem(
-            id="transport",
-            label="Transport",
-            description="Wire protocol used to reach provider endpoints",
-            current_value=sm.get_transport().value,
-            values=[t.value for t in Transport],
-        ),
-        SettingItem(
-            id="thinking_level",
-            label="Thinking level",
-            description="Default reasoning depth for thinking-capable models",
-            current_value=getattr(sm.get_thinking_level(), "value", None)
-            or ThinkingLevel.Off.value,
-            submenu_items=[lv.value for lv in ThinkingLevel],
-            submenu_title="Thinking Level",
-        ),
-        SettingItem(
-            id="theme",
-            label="Theme",
-            description="Color theme for the interface",
-            current_value=sm.get_theme() or DEFAULT_THEME,
-            submenu_items=[AUTO_THEME, *theme_registry.list()],
-            submenu_title="Theme",
-        ),
+    ]
+
+    # ── Advanced tab — networking, retry, compaction, editor ──────────────────
+    advanced_items: list[SettingItem] = [
         SettingItem(
             id="proxy",
             label="Proxy",
@@ -185,6 +226,13 @@ def open_settings_panel(ctx: CommandContext) -> None:
                     text_input=True,
                 ),
             ],
+        ),
+        SettingItem(
+            id="http_idle_timeout_ms",
+            label="HTTP idle timeout (ms)",
+            description="Idle timeout for LLM HTTP streams in milliseconds (default: 60000)",
+            current_value=str(sm.get_http_idle_timeout_ms()),
+            text_input=True,
         ),
         SettingItem(
             id="retry",
@@ -305,45 +353,6 @@ def open_settings_panel(ctx: CommandContext) -> None:
             ],
         ),
         SettingItem(
-            id="project_trust",
-            label="Project trust",
-            description=(
-                "Whether to load project config, extensions,"
-                " and context files from .tau/ directories"
-            ),
-            current_value=sm.get_project_trust(),
-            values=["ask", "always", "never"],
-        ),
-        SettingItem(
-            id="double_escape_action",
-            label="Double-Escape action",
-            description="Action when Escape is pressed twice on an empty editor",
-            current_value=sm.get_double_escape_action(),
-            values=["fork", "tree", "none"],
-        ),
-        SettingItem(
-            id="tree_filter_mode",
-            label="Tree filter mode",
-            description="Default message filter in the /tree view",
-            current_value=sm.get_tree_filter_mode(),
-            submenu_items=["default", "no-tools", "user-only", "labeled-only", "all"],
-            submenu_title="Tree Filter Mode",
-        ),
-        SettingItem(
-            id="show_hardware_cursor",
-            label="Hardware cursor",
-            description="Show terminal cursor while positioning (useful for IME input)",
-            current_value="true" if sm.get_show_hardware_cursor() else "false",
-            values=["false", "true"],
-        ),
-        SettingItem(
-            id="http_idle_timeout_ms",
-            label="HTTP idle timeout (ms)",
-            description="Idle timeout for LLM HTTP streams in milliseconds (default: 60000)",
-            current_value=str(sm.get_http_idle_timeout_ms()),
-            text_input=True,
-        ),
-        SettingItem(
             id="picker_max_visible",
             label="Picker max visible",
             description="Maximum number of items visible in list pickers (default: 8)",
@@ -380,26 +389,21 @@ def open_settings_panel(ctx: CommandContext) -> None:
 
         return _wrapped
 
-    # Append sub-panels from loaded extensions that called register_settings()
+    # Append extension sub-panels into the Advanced tab
     ext_runtime = ctx.runtime.extension_runtime
     if ext_runtime is not None:
         from pathlib import Path as _Path
 
         from tau.modes.interactive.components.settings_selector import refresh_current_values
 
-        # Build a path→settings lookup from the live settings manager so the
-        # panel always shows the values stored in settings.json, not the
-        # potentially stale snapshot captured at extension load time.
         ext_settings_map = {e.path: (e.settings or {}) for e in sm.get_all_extension_entries()}
 
         for ext in ext_runtime._extensions:
             for reg in ext.settings_registrations:
-                # Resolve extension directory path (e.g. "/…/voice" for "__init__.py")
                 p = _Path(ext.path)
                 ext_dir = str(p.parent)
                 current_config = ext_settings_map.get(ext_dir, ext.config)
                 refresh_current_values(reg.items, current_config)
-                # Refresh the on/off summary shown on the parent row
                 if reg.summary_key:
                     raw = current_config.get(reg.summary_key)
                     if raw is not None:
@@ -408,7 +412,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
                         )
 
                 row_id = f"_ext_{id(reg)}"
-                items.append(
+                advanced_items.append(
                     SettingItem(
                         id=row_id,
                         label=reg.title,
@@ -419,6 +423,9 @@ def open_settings_panel(ctx: CommandContext) -> None:
                         submenu_on_change=_ext_on_change(reg, row_id),
                     )
                 )
+
+    # Flat reference list for _update_parent — built after extensions are appended
+    items = settings_items + model_items + advanced_items
 
     sm.begin_batch()
 
@@ -536,5 +543,14 @@ def open_settings_panel(ctx: CommandContext) -> None:
         if ctx.on_palette_refresh is not None:
             ctx.on_palette_refresh()
 
-    modal = SettingsSelector(items, on_change=on_change, theme=ctx.layout.theme)
+    modal = SettingsSelector(
+        [],
+        on_change=on_change,
+        theme=ctx.layout.theme,
+        tabs=[
+            ("Settings", settings_items),
+            ("Model", model_items),
+            ("Advanced", advanced_items),
+        ],
+    )
     ctx.layout.open_settings_selector(modal, on_cancel=on_close)

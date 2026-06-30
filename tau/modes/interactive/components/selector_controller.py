@@ -95,6 +95,8 @@ class SelectorController:
                 selector.move_up()
             case "down":
                 selector.move_down()
+            case "tab":
+                selector.next_tab()
             case "enter":
                 selector.activate()
             case " ":
