@@ -64,21 +64,21 @@ class ExtensionSelector(Component):
             end = min(start + _VISIBLE_ROWS, len(self._options))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more"))
+                lines.append("  " + t.muted(f"↑ {start} more above"))
 
             for i in range(start, end):
                 opt = self._options[i]
                 if i == self._selected:
-                    lines.append(f"  {t.emphasis(f'→ {opt}')}")
+                    lines.append(f"  {t.accent('>')} {t.emphasis(opt)}")
                 else:
-                    lines.append(f"    {opt}")
+                    lines.append(f"    {t.muted(opt)}")
 
             remaining = len(self._options) - end
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more"))
+                lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑↓ navigate  enter select  esc cancel"))
+        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
 
         return lines
 

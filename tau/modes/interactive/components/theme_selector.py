@@ -49,22 +49,22 @@ class ThemeSelector(Component):
         start = max(0, min(self._selected - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted(f"↑ {start} more"))
+            lines.append("  " + t.muted(f"↑ {start} more above"))
 
         for i in range(start, start + visible):
             name = self._names[i]
             check = f" {t.success('✓')}" if name == self._current else ""
             if i == self._selected:
-                lines.append(f"  {t.emphasis(f'→ {name}')}{check}")
+                lines.append(f"  {t.accent('>')} {t.emphasis(name)}{check}")
             else:
-                lines.append(f"    {name}{check}")
+                lines.append(f"    {t.muted(name)}{check}")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted(f"↓ {remaining} more"))
+            lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑↓ navigate  enter select  esc cancel"))
+        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
 
         return lines
 

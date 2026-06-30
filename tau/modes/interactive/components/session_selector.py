@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,26 +55,26 @@ def _cleanup_session_media(session_path: Path) -> None:
                 media_file.unlink(missing_ok=True)
 
 
-def _age(dt: datetime) -> str:
-    """Format a datetime as a compact relative age string."""
-    now = datetime.now() if dt.tzinfo is None else datetime.now(tz=UTC)
-    secs = max(0, (now - dt).total_seconds())
-    mins = int(secs / 60)
-    if mins < 1:
-        return "now"
-    if mins < 60:
-        return f"{mins}m"
-    hours = mins // 60
-    if hours < 24:
-        return f"{hours}h"
-    days = hours // 24
-    if days < 7:
-        return f"{days}d"
-    if days < 30:
-        return f"{days // 7}w"
-    if days < 30:
-        return f"{days // 30}mo"
-    return f"{days // 365}y"
+def _humanize_age(dt: datetime) -> str:
+    """Human-readable relative time, e.g. '2 hours ago', 'a day ago'."""
+    import arrow
+
+    local_now = arrow.get(datetime.now())
+    return arrow.get(dt).humanize(local_now)
+
+
+
+def _file_size(path: Path) -> str:
+    """Human-readable file size for a session file."""
+    try:
+        size = path.stat().st_size
+        if size < 1024:
+            return f"{size}B"
+        if size < 1024 * 1024:
+            return f"{size // 1024}K"
+        return f"{size / (1024 * 1024):.1f}M"
+    except OSError:
+        return ""
 
 
 def _shorten(path: Path) -> str:
@@ -84,11 +84,6 @@ def _shorten(path: Path) -> str:
     except ValueError:
         return str(path)
 
-
-def _visible_len(s: str) -> int:
-    """Approximate visible terminal width of a string (strips ANSI escapes)."""
-    plain = re.sub(r"\x1b\[[0-9;]*[mK]|\x1b\][^\x07]*\x07", "", s)
-    return len(plain)
 
 
 class ResumeSelector:
@@ -135,6 +130,7 @@ class ResumeSelector:
 
         self._confirming_delete: Path | None = None
         self._status_msg: str = ""
+        self._meta_cache: dict[str, str] = {}
 
         self._refilter()
 
@@ -232,48 +228,48 @@ class ResumeSelector:
 
     # ── Render ────────────────────────────────────────────────────────────────
 
+    def _session_meta(self, session) -> str:
+        """Return file_size for a session, cached per session id."""
+        sid = session.id
+        if sid not in self._meta_cache:
+            size = _file_size(Path(session.path) if not isinstance(session.path, Path) else session.path)
+            self._meta_cache[sid] = size
+        return self._meta_cache[sid]
+
     def render(self, width: int) -> list[str]:
         t = self._theme
         divider = t.border("─" * width)
         lines: list[str] = []
 
-        # Header bar
-        scope_label = (
-            f"{t.emphasis('◉ Folder')}  {t.muted('○ All')}"
-            if self._scope == "current"
-            else f"{t.muted('○ Folder')}  {t.emphasis('◉ All')}"
-        )
-        sort_label = f"{t.muted('Sort:')} {t.accent(self._SORT_LABELS[self._sort_idx])}"
-        header_right = f"{scope_label}  {sort_label}"
-        title_left = f"  {t.emphasis('Resume Session')}"
-        right_plain_len = _visible_len(header_right)
-        pad = max(0, width - _visible_len(title_left) - right_plain_len - 1)
-        lines.append(title_left + " " * pad + header_right)
+        # ── Scope tab bar ──────────────────────────────────────────────────────
+        folder_label = t.emphasis("[Folder]") if self._scope == "current" else t.muted("Folder")
+        all_label = t.emphasis("[All]") if self._scope == "all" else t.muted("All")
+        sort_label = t.muted(f"Sort: {self._SORT_LABELS[self._sort_idx]}")
+        lines.append(f"  {folder_label}  {all_label}    {sort_label}")
+        lines.append(divider)
 
-        # Hints
+        # ── Search box ─────────────────────────────────────────────────────────
+        if self._search:
+            lines.append(f"  {t.muted('⊘')} {self._search}█")
+        else:
+            lines.append("  " + t.muted("⊘ Search sessions…"))
+        lines.append(divider)
+
+        # ── Delete confirmation ────────────────────────────────────────────────
         if self._confirming_delete is not None:
             del_path = self._confirming_delete
             short = _shorten(del_path)[: width - 20]
-            lines.append("  " + t.error(f"Delete '{short}'? enter=yes  esc=no"))
-        elif self._status_msg:
-            lines.append("  " + t.warning(self._status_msg))
-        else:
-            lines.append(
-                "  " + t.muted("tab scope  ctrl+r sort  ctrl+d delete  type search  esc cancel")
-            )
+            lines.append("  " + t.error(f"Delete '{short}'?  Enter: yes  ·  Esc: no"))
+            lines.append(divider)
 
-        # Search line
-        if self._search:
-            lines.append("  " + t.muted(f"/{self._search}█"))
+        # ── Session list (two-line entries) ────────────────────────────────────
+        show_project = self._scope == "all"
 
-        lines.append(divider)
-
-        # Session list
         if not self._filtered:
             if self._search:
                 lines.append("  " + t.muted(f"No sessions match '{self._search}'"))
             elif self._scope == "current":
-                lines.append("  " + t.muted("No sessions in current folder — press Tab for all"))
+                lines.append("  " + t.muted("No sessions in current folder — Tab for all"))
             else:
                 lines.append("  " + t.muted("No sessions found"))
         else:
@@ -282,11 +278,10 @@ class ResumeSelector:
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more"))
+                lines.append("  " + t.muted(f"↑ {start} more above"))
 
-            show_cwd = self._scope == "all"
-
-            for i in range(start, min(start + visible, count)):
+            end_idx = min(start + visible, count)
+            for i in range(start, end_idx):
                 session = self._filtered[i]
                 is_sel = i == self._selected
                 sel_path = (
@@ -294,43 +289,60 @@ class ResumeSelector:
                 )
                 is_del_target = sel_path == self._confirming_delete
 
-                display = session.name or session.id[:20]
-                age_str = _age(session.modified)
-                count_str = str(getattr(session, "message_count", 0))
-
-                right_parts = [count_str, age_str]
-                if show_cwd and hasattr(session, "cwd") and session.cwd:
-                    right_parts.insert(0, _shorten(Path(session.cwd)))
-                right = "  ".join(right_parts)
-
-                cursor = "→ " if is_sel else "  "
-                right_len = _visible_len(right)
-                available = width - 4 - right_len - 2
-                msg = display[: max(8, available)]
-
-                if is_del_target:
-                    msg_styled = t.error(msg)
-                    right_styled = t.error(right)
-                elif is_sel:
-                    msg_styled = t.emphasis(msg)
-                    right_styled = t.muted(right)
-                elif session.name:
-                    msg_styled = t.warning(msg)
-                    right_styled = t.muted(right)
+                # Named sessions show the name; unnamed show a short ID prefix
+                if session.name:
+                    display = session.name[: max(12, width - 6)]
                 else:
-                    msg_styled = msg
-                    right_styled = t.muted(right)
+                    display = session.id[:12]
 
-                cursor_styled = t.emphasis(cursor) if is_sel else cursor
-                left = cursor_styled + msg_styled
-                spacing = max(1, width - _visible_len(left) - right_len)
-                lines.append(left + " " * spacing + right_styled)
+                size = self._session_meta(session)
+
+                # ── Line 1: indicator + session name ──────────────────────────
+                if is_del_target:
+                    name_styled = t.error(display)
+                    indicator = t.error("> ")
+                elif is_sel:
+                    name_styled = t.emphasis(display)
+                    indicator = t.accent("> ")
+                elif session.name:
+                    name_styled = t.warning(display)
+                    indicator = "  "
+                else:
+                    name_styled = t.muted(display)
+                    indicator = "  "
+
+                lines.append("  " + indicator + name_styled)
+
+                # ── Line 2: age · project · size · ⚙ N ───────────────────────
+                meta_parts: list[str] = [_humanize_age(session.modified)]
+                if show_project and hasattr(session, "cwd") and session.cwd:
+                    meta_parts.append(Path(session.cwd).name)
+                if size:
+                    meta_parts.append(size)
+                mc = getattr(session, "message_count", 0)
+                if mc > 0:
+                    meta_parts.append(f"⚙ {mc}")
+
+                meta_line = "  ·  ".join(meta_parts)
+                lines.append("    " + t.muted(meta_line))
+
+                # blank line between entries for readability
+                if i < end_idx - 1:
+                    lines.append("")
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more"))
+                lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
+
+        # ── Status bar ─────────────────────────────────────────────────────────
+        if self._status_msg:
+            lines.append("  " + t.warning(self._status_msg))
+        else:
+            lines.append(
+                "  " + t.muted("tab: scope  ·  ctrl+r: sort  ·  ctrl+d: delete  ·  Esc: cancel")
+            )
         return lines
 
     # ── Internal ──────────────────────────────────────────────────────────────

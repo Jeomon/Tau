@@ -73,7 +73,7 @@ class OAuthSelector(Component):
             end = min(start + _VISIBLE_ROWS, len(self._providers))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more"))
+                lines.append("  " + t.muted(f"↑ {start} more above"))
 
             for i in range(start, end):
                 p = self._providers[i]
@@ -85,16 +85,16 @@ class OAuthSelector(Component):
                     status_part = ""
 
                 if i == self._selected:
-                    lines.append(f"  {t.emphasis(f'→ {p.name}')}{status_part}")
+                    lines.append(f"  {t.accent('>')} {t.emphasis(p.name)}{status_part}")
                 else:
-                    lines.append(f"    {p.name}{status_part}")
+                    lines.append(f"    {t.muted(p.name)}{status_part}")
 
             remaining = len(self._providers) - end
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more"))
+                lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑↓ navigate  enter select  esc cancel"))
+        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
 
         return lines
 

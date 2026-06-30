@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -25,13 +24,6 @@ class ConfigEntry:
     author: str | None = None
     path_display: str = ""  # pretty path shown in parentheses
 
-
-def _strip_ansi(s: str) -> str:
-    return re.sub(r"\x1b\[[0-9;]*[mK]", "", s)
-
-
-def _visible_len(s: str) -> int:
-    return len(_strip_ansi(s))
 
 
 ENABLED_SYMBOL = "✔"
@@ -71,20 +63,20 @@ class ConfigSelector(Component):
         lines: list[str] = []
 
         # Header
-        title = t.emphasis("Extensions")
-        hint = t.muted("space toggle  esc close")
-        gap = max(1, width - _visible_len(title) - _visible_len(hint) - 4)
-        lines.append(f"  {title}{' ' * gap}{hint}")
-        lines.append("  " + t.muted("Type to filter"))
+        lines.append("  " + t.emphasis("Extensions"))
         lines.append(divider)
 
-        # Search bar
+        # Search box
         if self._search:
-            lines.append("  " + t.muted(f"/{self._search}█"))
+            lines.append(f"  {t.muted('⊘')} {self._search}█")
+        else:
+            lines.append("  " + t.muted("⊘ Search extensions…"))
+        lines.append(divider)
 
         if not self._filtered:
             lines.append("  " + t.muted("No extensions found"))
             lines.append(divider)
+            lines.append("  " + t.muted("Space: toggle  ·  Esc: close"))
             return lines
 
         # Flat list with group headers
@@ -97,7 +89,7 @@ class ConfigSelector(Component):
         start = max(0, min(sel_flat_idx - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted("↑ more"))
+            lines.append("  " + t.muted(f"↑ {start} more above"))
 
         for i in range(start, min(start + visible, count)):
             kind, payload = flat[i]
@@ -109,21 +101,23 @@ class ConfigSelector(Component):
                 checkbox = (
                     t.success(ENABLED_SYMBOL) if payload.enabled else t.muted(DISABLED_SYMBOL)
                 )
-                name = t.emphasis(payload.name) if is_sel else payload.name
+                name = t.emphasis(payload.name) if is_sel else t.muted(payload.name)
                 label = name
                 if payload.author:
                     label += " " + t.muted(f"by {payload.author}")
                 if payload.path_display:
                     label += " " + t.muted(f"({payload.path_display})")
-                cursor = "→ " if is_sel else "  "
-                cursor_styled = t.emphasis(cursor) if is_sel else cursor
-                lines.append(f"  {cursor_styled}{checkbox} {label}")
+                if is_sel:
+                    lines.append(f"  {t.accent('>')} {checkbox} {label}")
+                else:
+                    lines.append(f"    {checkbox} {label}")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted("↓ more"))
+            lines.append("  " + t.muted(f"↓ {remaining} more below"))
 
         lines.append(divider)
+        lines.append("  " + t.muted("Space: toggle  ·  ↑/↓ to move  ·  Esc: close"))
         return lines
 
     def handle_input(self, event: InputEvent) -> bool:

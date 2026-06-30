@@ -198,46 +198,54 @@ def get_session_modified_date(
 
 
 def build_session_info(file: Path) -> SessionInfo | None:
-    """Parse a session file and extract metadata into a SessionInfo object."""
-    content = file.read_text(encoding="utf-8")
+    """Parse a session file and extract metadata into a SessionInfo object.
 
-    file_entries: list[SessionFileEntry] = []
-    lines = content.strip().splitlines()
-    adapter = TypeAdapter(SessionFileEntry)
+    Fast path: only the first line (header) and first ~30 lines (for the name)
+    are read; ``modified`` comes from the filesystem mtime so we never deserialize
+    the whole conversation history just to list sessions.
+    """
+    import json
 
-    for line in lines:
-        if not line.strip():
-            continue
-        with contextlib.suppress(Exception):
-            file_entries.append(adapter.validate_json(line))
-
-    if len(file_entries) == 0:
+    try:
+        stat = file.stat()
+    except OSError:
         return None
 
+    header_adapter: TypeAdapter[SessionHeader] = TypeAdapter(SessionHeader)
     header: SessionHeader | None = None
-    entries: list[SessionEntry] = []
+    name: str | None = None
     message_count = 0
-    for entry in file_entries:
-        if isinstance(entry, SessionHeader):
-            header = entry
-        else:
-            entries.append(entry)
-            if isinstance(entry, MessageEntry):
-                message_count += 1
+
+    try:
+        with file.open(encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                with contextlib.suppress(Exception):
+                    obj = json.loads(raw)
+                    entry_type = obj.get("type")
+                    if entry_type == SessionType.SESSION_HEADER and header is None:
+                        header = header_adapter.validate_python(obj)
+                    elif entry_type == SessionType.SESSION_INFO and name is None:
+                        name = obj.get("name")
+                    elif entry_type == SessionType.SESSION_MESSAGE:
+                        message_count += 1
+    except OSError:
+        return None
 
     if header is None:
         return None
 
-    cwd = header.cwd
-    parent_session = header.parent_session
+    modified = datetime.fromtimestamp(stat.st_mtime)
     created = datetime.fromtimestamp(header.timestamp)
-    modified = get_session_modified_date(entries, header)
 
     return SessionInfo(
         path=file,
         id=header.id,
-        cwd=cwd,
-        parent_session=parent_session,
+        cwd=header.cwd,
+        name=name,
+        parent_session=header.parent_session,
         created=created,
         modified=modified,
         message_count=message_count,

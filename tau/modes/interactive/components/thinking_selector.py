@@ -49,7 +49,6 @@ class ThinkingSelector(Component):
         lines: list[str] = []
 
         lines.append("  " + t.emphasis("Thinking Effort"))
-        lines.append("  " + t.muted("Select effort level"))
         lines.append(divider)
 
         for i, lv in enumerate(self._levels):
@@ -60,12 +59,12 @@ class ThinkingSelector(Component):
             desc_part = f"  {t.muted(desc)}" if desc else ""
 
             if is_sel:
-                lines.append(f"  {t.emphasis(f'→ {lv.value}')}{desc_part}{check}")
+                lines.append(f"  {t.accent('>')} {t.emphasis(lv.value)}{desc_part}{check}")
             else:
-                lines.append(f"    {lv.value}{desc_part}{check}")
+                lines.append(f"    {t.muted(lv.value)}{desc_part}{check}")
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑↓ navigate  enter select  esc cancel"))
+        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
 
         return lines
 
