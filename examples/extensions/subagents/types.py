@@ -12,9 +12,9 @@ class AgentStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
-    STEERED = "steered"   # hit turn limit, wrapped up gracefully
-    ABORTED = "aborted"   # exceeded grace period after turn limit
-    STOPPED = "stopped"   # user interrupted
+    STEERED = "steered"  # hit turn limit, wrapped up gracefully
+    ABORTED = "aborted"  # exceeded grace period after turn limit
+    STOPPED = "stopped"  # user interrupted
     ERROR = "error"
 
 
@@ -24,14 +24,18 @@ class AgentTypeDef:
     display_name: str
     description: str
     system_prompt: str
-    tools: list[str] | str = "all"   # "all", "none", list of tool names
+    tools: list[str] | str = "all"  # "all", "none", list of tool names
+    disallowed_tools: list[str] = field(default_factory=list)
+    skills: list[str] | str = field(default_factory=list)
     model: str | None = None
     max_turns: int | None = None
     run_in_background: bool = False
     inherit_context: bool = False
     isolated: bool = False
+    isolation: str | None = None
     enabled: bool = True
-    source: str = "builtin"          # "builtin" | "project" | "global"
+    memory: str | None = None
+    source: str = "builtin"  # "builtin" | "project" | "global"
 
 
 @dataclass
@@ -44,6 +48,10 @@ class AgentRecord:
     model: str | None
     max_turns: int | None
     run_in_background: bool
+    isolated: bool = False
+    isolation: str | None = None
+    worktree_path: Path | None = None
+    branch: str | None = None
     result: str | None = None
     error: str | None = None
     token_input: int = 0
@@ -70,6 +78,7 @@ class AgentRecord:
             "agent_type": self.agent_type,
             "description": self.description,
             "status": self.status,
+            "run_in_background": self.run_in_background,
             "turn_count": self.turn_count,
             "tool_uses": self.tool_uses,
             "token_input": self.token_input,

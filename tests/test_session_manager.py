@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from tau.message.types import UserMessage
+from tau.message.types import AssistantMessage, TextContent, UserMessage
 from tau.session.manager import SessionManager
-from tau.session.types import CustomInfoEntry
+from tau.session.types import CustomInfoEntry, MessageEntry
 
 
 def _manager(tmp_path) -> SessionManager:
@@ -74,6 +74,36 @@ def test_opening_invalid_existing_session_does_not_overwrite_it(tmp_path) -> Non
         )
 
     assert session_file.read_text(encoding="utf-8") == original
+
+
+def test_explicit_new_session_file_remains_valid_after_first_turn(tmp_path) -> None:
+    session_file = tmp_path / "explicit.jsonl"
+    manager = SessionManager(
+        cwd=tmp_path,
+        session_dir=tmp_path / "sessions",
+        session_file=session_file,
+        persist=True,
+    )
+    manager.append_message(UserMessage.from_text("first task"))
+    manager.append_message(AssistantMessage.from_text("first result"))
+
+    resumed = SessionManager(
+        cwd=tmp_path,
+        session_dir=tmp_path / "sessions",
+        session_file=session_file,
+        persist=True,
+    )
+
+    messages = [
+        "".join(
+            content.content
+            for content in entry.message.contents
+            if isinstance(content, TextContent)
+        )
+        for entry in resumed.get_branch()
+        if isinstance(entry, MessageEntry)
+    ]
+    assert messages == ["first task", "first result"]
 
 
 def test_persistence_errors_propagate(tmp_path) -> None:

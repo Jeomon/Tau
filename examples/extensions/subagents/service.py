@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,17 +25,20 @@ _TOOL_NAME_MAP = {
 }
 
 
-def _select_tools(tool_spec: list[str] | str) -> list:
+def _select_tools(tool_spec: list[str] | str, disallowed_tools: list[str] | None = None) -> list:
     from tau.builtins.tools import TOOLS
 
+    denied = {_TOOL_NAME_MAP.get(name, name) for name in (disallowed_tools or [])}
     if tool_spec == "all" or tool_spec == "*":
-        return list(TOOLS)
-    if tool_spec == "none" or tool_spec == "":
-        return []
-    if isinstance(tool_spec, list):
+        selected = list(TOOLS)
+    elif tool_spec == "none" or tool_spec == "":
+        selected = []
+    elif isinstance(tool_spec, list):
         allowed = {_TOOL_NAME_MAP.get(t, t) for t in tool_spec}
-        return [t for t in TOOLS if t.name in allowed]
-    return list(TOOLS)
+        selected = [t for t in TOOLS if t.name in allowed]
+    else:
+        selected = list(TOOLS)
+    return [tool for tool in selected if tool.name not in denied]
 
 
 def _count_tool_uses(session_manager) -> int:
@@ -62,9 +66,17 @@ def _collect_output(session_manager) -> str:
 
 
 class Subagent:
-    def __init__(self, output_dir: Path, cwd: Path) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        cwd: Path,
+        grace_turns: int = 1,
+        on_update: Callable[[], None] | None = None,
+    ) -> None:
         self._output_dir = output_dir
         self._cwd = cwd
+        self._grace_turns = max(1, grace_turns)
+        self._on_update = on_update
 
     async def run(
         self,
@@ -72,33 +84,62 @@ class Subagent:
         llm: TextLLM,
         agent_type: AgentTypeDef,
         context_messages: list | None = None,
+        run_cwd: Path | None = None,
     ) -> None:
         from tau.agent.service import Agent
         from tau.agent.types import AgentConfig
         from tau.engine.service import Engine
+        from tau.engine.types import ToolExecutionStartEvent
         from tau.hooks.service import Hooks
         from tau.session.manager import SessionManager
+
+        from .memory import build_memory_block
 
         record.status = AgentStatus.RUNNING
         record.started_at = asyncio.get_event_loop().time()
 
-        out_dir = self._output_dir / record.id
-        out_dir.mkdir(parents=True, exist_ok=True)
-        session_file = out_dir / "session.jsonl"
-        record.output_file = session_file
+        if record.output_file is None:
+            out_dir = self._output_dir / record.id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            record.output_file = out_dir / "session.jsonl"
+        session_file = record.output_file
 
-        tools = _select_tools(agent_type.tools)
+        from .skills import build_skills_block
+
+        tool_spec = ["read", "grep", "glob", "ls"] if record.isolated else agent_type.tools
+        tools = _select_tools(tool_spec, agent_type.disallowed_tools)
+        effective_cwd = run_cwd or self._cwd
         hooks = Hooks()
-        engine = Engine(cwd=self._cwd, llm=llm, tools=tools)
+        engine = Engine(cwd=effective_cwd, llm=llm, tools=tools)
+
+        async def on_engine_event(event) -> None:
+            if isinstance(event, ToolExecutionStartEvent):
+                record.tool_uses += 1
+            if self._on_update is not None:
+                self._on_update()
+
+        await engine.subscribe(on_engine_event)
         system_prompt = agent_type.system_prompt
+        skills_block = build_skills_block(agent_type.skills, self._cwd)
+        if skills_block:
+            system_prompt = "\n\n".join(part for part in (system_prompt, skills_block) if part)
+        if agent_type.memory:
+            writable = any(tool.name in {"write", "edit", "terminal"} for tool in tools)
+            memory_block = build_memory_block(
+                agent_name=agent_type.name,
+                scope=agent_type.memory,
+                cwd=self._cwd,
+                writable=writable,
+            )
+            system_prompt = "\n\n".join(part for part in (system_prompt, memory_block) if part)
 
         session_manager = SessionManager(
-            cwd=self._cwd,
+            cwd=effective_cwd,
             session_file=session_file,
             persist=True,
         )
 
-        config = AgentConfig(cwd=self._cwd, system_prompt=system_prompt)
+        config = AgentConfig(cwd=effective_cwd, system_prompt=system_prompt)
         agent = Agent(engine=engine, session_manager=session_manager, config=config, hooks=hooks)
 
         # Seed with parent context for fork
@@ -118,11 +159,16 @@ class Subagent:
             while not record.stop_event.is_set():
                 if max_turns and record.turn_count >= max_turns:
                     turn_limit_hit = True
-                    # Grace: ask agent to wrap up
-                    await agent.invoke(
-                        "Please wrap up your work immediately and provide a final summary."
-                    )
-                    record.turn_count += 1
+                    for grace_turn in range(self._grace_turns):
+                        remaining = self._grace_turns - grace_turn
+                        await agent.invoke(
+                            "The task turn limit has been reached. "
+                            f"You have {remaining} wrap-up turn(s) remaining. "
+                            "Stop new work and provide the final summary now."
+                        )
+                        record.turn_count += 1
+                        if record.stop_event.is_set():
+                            break
                     break
 
                 if record.steering_queue:

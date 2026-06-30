@@ -36,6 +36,15 @@ def _parse_md(path: Path) -> AgentTypeDef | None:
             tools = [t.strip() for t in tools_raw.split(",") if t.strip()]
     else:
         tools = tools_raw
+    disallowed_tools = _csv(fm.get("disallowed_tools") or fm.get("disallowedTools"))
+    skills_raw = fm.get("skills")
+    skills: list[str] | str
+    if isinstance(skills_raw, bool):
+        skills = "all" if skills_raw else []
+    elif str(skills_raw).lower() in {"all", "true"}:
+        skills = "all"
+    else:
+        skills = _csv(skills_raw)
 
     return AgentTypeDef(
         name=name,
@@ -43,12 +52,16 @@ def _parse_md(path: Path) -> AgentTypeDef | None:
         description=description,
         system_prompt=body,
         tools=tools,
+        disallowed_tools=disallowed_tools,
+        skills=skills,
         model=fm.get("model"),
         max_turns=_int_or_none(fm.get("max_turns") or fm.get("maxTurns")),
         run_in_background=_bool(fm.get("run_in_background") or fm.get("runInBackground"), False),
         inherit_context=_bool(fm.get("inherit_context") or fm.get("inheritContext"), False),
         isolated=_bool(fm.get("isolated"), False),
+        isolation="worktree" if fm.get("isolation") == "worktree" else None,
         enabled=_bool(fm.get("enabled"), True),
+        memory=_memory_scope_or_none(fm.get("memory")),
     )
 
 
@@ -80,6 +93,12 @@ def _bool(val: object, default: bool) -> bool:
     return str(val).lower() in ("true", "1", "yes")
 
 
+def _csv(val: object) -> list[str]:
+    if val is None:
+        return []
+    return [item.strip() for item in str(val).split(",") if item.strip()]
+
+
 def _int_or_none(val: object) -> int | None:
     if val is None:
         return None
@@ -87,6 +106,13 @@ def _int_or_none(val: object) -> int | None:
         return int(str(val))
     except (TypeError, ValueError):
         return None
+
+
+def _memory_scope_or_none(val: object) -> str | None:
+    if val is None:
+        return None
+    scope = str(val).strip().lower()
+    return scope if scope in {"project", "local", "user"} else None
 
 
 # ── Public loader ──────────────────────────────────────────────────────────────

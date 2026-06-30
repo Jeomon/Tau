@@ -35,7 +35,9 @@ class AgentInput(BaseModel):
     )
     model: str | None = Field(
         default=None,
-        description='Optional model override (e.g. "claude-haiku-4-5"). Omit to use the type\'s default.',
+        description=(
+            'Optional model override (e.g. "claude-haiku-4-5"). Omit to use the type\'s default.'
+        ),
     )
     max_turns: int | None = Field(
         default=None,
@@ -59,7 +61,24 @@ class AgentInput(BaseModel):
     )
     isolated: bool = Field(
         default=False,
-        description="Only give the agent read-only tools (read, grep, glob, ls) — no write or terminal.",
+        description=(
+            "Only give the agent read-only tools (read, grep, glob, ls) — no write or terminal."
+        ),
+    )
+    isolation: str | None = Field(
+        default=None,
+        description="Use 'worktree' to run in a strict isolated Git worktree.",
+        pattern=r"^(worktree)?$",
+    )
+
+
+class ScheduledAgentInput(AgentInput):
+    schedule: str | None = Field(
+        default=None,
+        description=(
+            "Run later using an interval (5m), relative time (+10m), ISO timestamp, "
+            "or six-field cron expression."
+        ),
     )
 
 
@@ -78,7 +97,9 @@ class GetSubagentResultInput(BaseModel):
 class SteerSubagentInput(BaseModel):
     agent_id: str = Field(description="The agent_id of the running agent to steer.")
     message: str = Field(
-        description="Message injected as the next user turn — delivered after the current action completes.",
+        description=(
+            "Message injected as the next user turn — delivered after the current action completes."
+        ),
     )
 
 
@@ -86,12 +107,18 @@ class SteerSubagentInput(BaseModel):
 
 
 class AgentTool(Tool):
-    def __init__(self, manager: SubagentManager) -> None:
+    def __init__(
+        self,
+        manager: SubagentManager,
+        scheduling_enabled: bool = True,
+        description_mode: str = "full",
+    ) -> None:
         self._manager = manager
+        self._description_mode = description_mode
         super().__init__(
             name="Agent",
             description=self._build_description(),
-            schema=AgentInput,
+            schema=ScheduledAgentInput if scheduling_enabled else AgentInput,
             kind=ToolKind.Execute,
             execution_mode=ToolExecutionMode.Parallel,
             render_call=self._render_call,
@@ -100,10 +127,14 @@ class AgentTool(Tool):
 
     def _build_description(self) -> str:
         types = self._manager.get_agent_types()
+        if self._description_mode == "compact":
+            names = ", ".join(t.name for t in types.values() if t.enabled)
+            return (
+                f"Launch a focused sub-agent. Available types: {names}. "
+                "Use background mode for parallel work and resume to continue a prior agent."
+            )
         type_lines = "\n".join(
-            f"  - {t.display_name} ({t.name}): {t.description}"
-            for t in types.values()
-            if t.enabled
+            f"  - {t.display_name} ({t.name}): {t.description}" for t in types.values() if t.enabled
         )
         return (
             "Launch a sub-agent to handle a delegated task in an isolated session.\n\n"
@@ -147,6 +178,17 @@ class AgentTool(Tool):
         self._manager.refresh_agent_types()
 
         try:
+            if p.get("schedule"):
+                if p.get("inherit_context") or p.get("resume"):
+                    raise ValueError("Scheduled agents cannot inherit context or resume a session.")
+                request = dict(p)
+                if context is not None and context.settings is not None:
+                    request["_enabled_models"] = context.settings.get_enabled_models()
+                job = self._manager.schedule(str(p["schedule"]), request)
+                return ToolResult.ok(
+                    invocation.id,
+                    f'<subagent-schedule id="{job.id}" next_run="{job.next_run}">',
+                )
             record = await self._manager.spawn(
                 prompt=p["prompt"],
                 description=p.get("description", ""),
@@ -157,7 +199,13 @@ class AgentTool(Tool):
                 inherit_context=bool(p.get("inherit_context", False)),
                 resume=p.get("resume"),
                 isolated=bool(p.get("isolated", False)),
+                isolation=p.get("isolation"),
                 llm=llm,
+                enabled_models=(
+                    context.settings.get_enabled_models()
+                    if context is not None and context.settings is not None
+                    else None
+                ),
             )
         except Exception as exc:
             return ToolResult.error(invocation.id, str(exc))

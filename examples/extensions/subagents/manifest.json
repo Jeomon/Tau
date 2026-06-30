@@ -49,6 +49,13 @@
           "description": "Hide the built-in agent types (scout, worker, etc.) — only custom .md types show."
         },
         {
+          "key": "scopeModels",
+          "label": "Scope subagent models",
+          "type": "bool",
+          "default": false,
+          "description": "Require runtime model overrides to match Tau's enabled_models patterns."
+        },
+        {
           "key": "toolDescriptionMode",
           "label": "Tool description mode",
           "type": "enum",
