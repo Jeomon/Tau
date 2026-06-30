@@ -159,6 +159,11 @@ class SettingsSelector:
     def in_submenu(self) -> bool:
         return self._submenu is not None or self._editing
 
+    @property
+    def is_editing(self) -> bool:
+        """Return whether a text-input row is currently being edited."""
+        return self._editing
+
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def move_up(self) -> None:

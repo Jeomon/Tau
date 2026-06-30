@@ -95,8 +95,13 @@ class SelectorController:
                 selector.move_up()
             case "down":
                 selector.move_down()
-            case "enter" | " ":
+            case "enter":
                 selector.activate()
+            case " ":
+                if selector.is_editing:
+                    selector.append_search(event.char or " ")
+                else:
+                    selector.activate()
             case "escape":
                 if selector.in_submenu:
                     selector.cancel_submenu()
