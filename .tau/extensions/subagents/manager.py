@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .agents import AgentTypeDef, load_agent_types
-from .runner import SubagentRunner
+from .service import Subagent
 from .types import AgentRecord, AgentStatus
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ class SubagentManager:
         self._disable_builtins = disable_builtins
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._records: dict[str, AgentRecord] = {}
-        self._runner = SubagentRunner(output_dir=output_dir, cwd=cwd)
+        self._runner = Subagent(output_dir=output_dir, cwd=cwd)
         self._llm: TextLLM | None = None
         self._agent_types: dict[str, AgentTypeDef] = {}
 

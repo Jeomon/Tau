@@ -24,7 +24,7 @@ _log = logging.getLogger(__name__)
 
 def register(tau) -> None:
     from .manager import SubagentManager
-    from .tool import AgentTool, GetSubagentResultTool, SteerSubagentTool
+    from .tool import AgentTool, GetSubagentResultTool, SubagentTool
 
     cwd = Path(tau.cwd)
     output_dir = cwd / ".tau" / "subagents" / "output"
@@ -45,7 +45,7 @@ def register(tau) -> None:
     tau.provide("subagents", manager)
     tau.register_tool(AgentTool(manager))
     tau.register_tool(GetSubagentResultTool(manager))
-    tau.register_tool(SteerSubagentTool(manager))
+    tau.register_tool(SubagentTool(manager))
 
     # ── Bind LLM once the runtime is ready ────────────────────────────────────
 

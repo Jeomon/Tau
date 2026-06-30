@@ -246,7 +246,7 @@ class GetSubagentResultTool(Tool):
         return ToolResult.ok(invocation.id, "\n".join(lines))
 
 
-class SteerSubagentTool(Tool):
+class SubagentTool(Tool):
     def __init__(self, manager: SubagentManager) -> None:
         self._manager = manager
         super().__init__(

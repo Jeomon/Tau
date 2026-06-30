@@ -61,7 +61,7 @@ def _collect_output(session_manager) -> str:
     return "\n\n".join(parts)
 
 
-class SubagentRunner:
+class Subagent:
     def __init__(self, output_dir: Path, cwd: Path) -> None:
         self._output_dir = output_dir
         self._cwd = cwd
