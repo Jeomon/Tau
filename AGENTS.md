@@ -205,8 +205,8 @@ Sessions are persisted to disk as JSONL files and can be resumed, forked, or clo
 Configuration uses JSON files with inheritance:
 
 1. Built-in defaults
-2. `~/.tau/settings.json` (global)
-3. `.tau/settings.json` (project)
+2. `~/.tau/` (global)
+3. `./.tau/` (project)
 4. Environment variables
 5. Command-line flags
 

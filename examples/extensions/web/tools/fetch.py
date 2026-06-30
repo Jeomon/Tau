@@ -19,7 +19,8 @@ from engines import BaseSearchEngine  # type: ignore[import]
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
-    return call_line("web_fetch", args.get("url", ""))
+    display = args.get("prompt") or args.get("url", "")
+    return call_line("web_fetch", display)
 
 
 _MAX_OUTPUT_CHARS = 50_000
