@@ -27,7 +27,13 @@ from tau.hooks.engine import (
     TurnEndEvent,
     TurnStartEvent,
 )
-from tau.message.types import AssistantMessage, LLMMessage, ToolCallContent, ToolResultContent
+from tau.message.types import (
+    AssistantMessage,
+    LLMMessage,
+    ToolCallContent,
+    ToolResultContent,
+    UserMessage,
+)
 from tau.tool.types import ToolExecutionMode, ToolInvocation, ToolResult
 
 
@@ -93,6 +99,7 @@ AfterToolCallCallback = Callable[
 BeforeToolCallCallback = Callable[
     [ToolInvocation, AbortSignal | None], Awaitable[ToolInvocation | ToolResultContent | None]
 ]
+EphemeralInjectionCallback = Callable[[], Awaitable[list[UserMessage]]]
 GetFollowUpMessagesCallback = Callable[[], list[LLMMessage]]
 GetSteeringMessagesCallback = Callable[[], list[LLMMessage]]
 OnEventCallback = Callable[["AgentEvent"], Awaitable[None]]
@@ -136,6 +143,7 @@ class EngineOptions:
     should_stop_after_turn: ShouldStopAfterTurnCallback | None = None
     should_skip_tool_calls: ShouldSkipToolCallsCallback | None = None
     transform_context: TransformContextCallback | None = None
+    ephemeral_injection: EphemeralInjectionCallback | None = None
 
 
 @dataclass

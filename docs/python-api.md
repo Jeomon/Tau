@@ -451,6 +451,31 @@ await runtime.invoke("What is 2 + 2?")
 print(last_response)
 ```
 
+## Ephemeral Context Injection
+
+Browser and computer-use agents can inject current state before every model
+request without persisting it in the session by configuring the engine:
+
+```python
+from tau.engine import Agent as Engine, Options as EngineOptions
+from tau.message.types import UserMessage
+
+async def current_browser_state() -> list[UserMessage]:
+    return [UserMessage.with_images("Current browser state", images=[screenshot])]
+
+engine = Engine(
+    cwd=Path.cwd(),
+    llm=llm,
+    tools=tools,
+    options=EngineOptions(ephemeral_injection=current_browser_state),
+)
+```
+
+The callback runs after context transformation and before each inference,
+including inference after tool execution. Failures are logged and ignored.
+Injected messages are appended only to the request copy. Anthropic prompt-cache
+breakpoints exclude this transient tail.
+
 ## Example: Batch Processing
 
 ```python

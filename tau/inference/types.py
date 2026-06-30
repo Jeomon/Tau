@@ -198,6 +198,7 @@ class LLMContext:
     tools: list[Tool] = field(default_factory=list)
     system_prompt: str | None = None
     response_format: StructuredResponseInput | None = None
+    ephemeral_message_count: int = 0
 
 
 def _default_text_event_data():

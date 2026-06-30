@@ -92,11 +92,12 @@ class AnthropicVertexAPI(BaseAPI):
         system: str | None,
         messages: list[dict[str, Any]],
         tools: list[Tool] | None = None,
+        ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
         _suppress_temp = any(s in model.id for s in ("opus-4-7", "opus-4-8"))
         params: dict[str, Any] = {
             "model": model.id,
-            "messages": anthropic_apply_message_cache(messages),
+            "messages": anthropic_apply_message_cache(messages, skip_tail=ephemeral_message_count),
             "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
         }
         if not _suppress_temp:
@@ -135,7 +136,13 @@ class AnthropicVertexAPI(BaseAPI):
         )
         if context.system_prompt:
             system = context.system_prompt
-        params = self._build_params(model, system, anthropic_messages, tools=context.tools or None)
+        params = self._build_params(
+            model,
+            system,
+            anthropic_messages,
+            tools=context.tools or None,
+            ephemeral_message_count=context.ephemeral_message_count,
+        )
         output_config = anthropic_output_config(context.response_format)
         if output_config is not None:
             params["output_config"] = output_config

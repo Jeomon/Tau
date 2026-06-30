@@ -12,9 +12,9 @@ from tau.message.types import ToolCallContent
 from tau.tool.types import ToolExecutionMode
 
 
-def _engine() -> Any:
+def _engine(options: EngineOptions | None = None) -> Any:
     llm = SimpleNamespace(model=SimpleNamespace(name="test"))
-    return Engine(cwd=Path("."), llm=llm, tools=[])  # type: ignore[arg-type]
+    return Engine(cwd=Path("."), llm=llm, tools=[], options=options)  # type: ignore[arg-type]
 
 
 def test_default_execution_runs_all_parallel_tools_concurrently() -> None:

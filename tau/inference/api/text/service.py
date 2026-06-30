@@ -260,6 +260,7 @@ class TextLLM:
             messages=messages,
             tools=context.tools,
             response_format=context.response_format,
+            ephemeral_message_count=context.ephemeral_message_count,
         )
 
         max_retries = self.api.options.max_retries
@@ -377,6 +378,7 @@ class TextLLM:
             messages=messages,
             tools=context.tools,
             response_format=context.response_format,
+            ephemeral_message_count=context.ephemeral_message_count,
         )
 
         attempt = 0

@@ -607,6 +607,16 @@ class Engine:
                     tool_calls.clear()
                     ctx_messages = list(messages)
 
+                    ephemeral_message_count = 0
+                    if self.options.ephemeral_injection is not None:
+                        try:
+                            ephemeral = await self.options.ephemeral_injection()
+                            if ephemeral:
+                                ephemeral_message_count = len(ephemeral)
+                                ctx_messages.extend(ephemeral)
+                        except Exception:
+                            _log.exception("ephemeral context injection failed")
+
                     if signal.is_set():
                         closing = AssistantMessage(stop_reason=StopReason.Abort)
                         await emit(MessageStartEvent(message=closing))
@@ -620,6 +630,7 @@ class Engine:
                         messages=ctx_messages,
                         tools=self.state.tools,
                         system_prompt=self.state.system_prompt,
+                        ephemeral_message_count=ephemeral_message_count,
                     )
 
                     await emit(MessageStartEvent(message=message))
