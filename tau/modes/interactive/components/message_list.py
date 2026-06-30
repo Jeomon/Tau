@@ -31,7 +31,8 @@ def _default_shell_preview(
         return lines
     if expanded:
         return [*lines, theme.dim("(ctrl+o to collapse)")]
-    return [*lines[:threshold], theme.dim("···  (ctrl+o to expand)")]
+    hidden = len(lines) - threshold
+    return [*lines[:threshold], theme.dim(f"… +{hidden} lines (ctrl+o to expand)")]
 
 
 def apply_render_shell(lines: list[str], theme: Any, color_fn: Any = None) -> list[str]:
