@@ -19,6 +19,7 @@ from pathlib import Path
 
 from tau.agent.types import AgentContext
 from tau.engine.service import Engine
+from tau.hooks.engine import ContextEventResult
 from tau.inference.types import (
     EndEvent,
     StopReason,
@@ -55,6 +56,7 @@ class ScriptedLLM:
         self._turns = list(turns)
         self.calls = 0
         self.contexts: list[list] = []
+        self.ephemeral_counts: list[int] = []
         self.model = _Model()
         self.api = _Api()
         # Optional per-turn async hooks, invoked just before that turn streams.
@@ -68,6 +70,7 @@ class ScriptedLLM:
         idx = self.calls
         self.calls += 1
         self.contexts.append(list(ctx.messages))
+        self.ephemeral_counts.append(ctx.ephemeral_message_count)
         hook = self.on_turn[idx] if idx < len(self.on_turn) else None
         if hook is not None:
             await hook()
@@ -107,6 +110,29 @@ def _texts(message) -> str:
 
 def _queue_updates(events: list, queue: str) -> list:
     return [e for e in events if getattr(e, "type", None) == "queue_update" and e.queue == queue]
+
+
+def test_context_hook_rewrites_and_appends_ephemeral_messages() -> None:
+    history: list[LLMMessage] = [UserMessage.from_text("original")]
+    engine, llm, _events = _make_engine([_text_turn()])
+
+    engine.hooks.register(
+        "context",
+        lambda _event: ContextEventResult(
+            messages=[UserMessage.from_text("rewritten")],
+            ephemeral_messages=[UserMessage.from_text("browser state")],
+        ),
+    )
+
+    run(engine.run(AgentContext(system_prompt="", messages=history)))
+
+    assert [_texts(message) for message in llm.contexts[0]] == [
+        "rewritten",
+        "browser state",
+    ]
+    assert llm.ephemeral_counts == [1]
+    assert _texts(history[0]) == "original"
+    assert not any(_texts(message) == "browser state" for message in history)
 
 
 # ── Tests ──────────────────────────────────────────────────────────────────────

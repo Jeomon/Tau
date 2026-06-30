@@ -30,6 +30,8 @@ from tau.engine.types import (
 )
 from tau.hooks.engine import (
     AgentEndReason,
+    ContextEvent,
+    ContextEventResult,
     MessageRollbackEvent,
     ToolResultEvent,
     ToolResultEventResult,
@@ -55,6 +57,7 @@ from tau.message.types import (
     ToolCallContent,
     ToolMessage,
     ToolResultContent,
+    UserMessage,
     Usage,
 )
 from tau.tool.types import ToolContext, ToolExecutionMode, ToolInvocation, ToolResult
@@ -608,14 +611,16 @@ class Engine:
                     ctx_messages = list(messages)
 
                     ephemeral_message_count = 0
+
                     if self.options.ephemeral_injection is not None:
                         try:
-                            ephemeral = await self.options.ephemeral_injection()
-                            if ephemeral:
-                                ephemeral_message_count = len(ephemeral)
-                                ctx_messages.extend(ephemeral)
+                            ephemeral_messages = await self.options.ephemeral_injection()
+                            if ephemeral_messages:
+                                ephemeral_message_count = len(ephemeral_messages)
+                                ctx_messages.extend(ephemeral_messages)
                         except Exception:
                             _log.exception("ephemeral context injection failed")
+                        
 
                     if signal.is_set():
                         closing = AssistantMessage(stop_reason=StopReason.Abort)

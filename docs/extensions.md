@@ -487,6 +487,34 @@ def register(tau):
 | `input` | `text`, `source` | `InputEventResult` | New user message received. `source`: `interactive \| rpc \| extension \| queue`. Return `action="transform"` with `text=` to replace, or `action="handled"` to suppress |
 | `context` | `messages` | `ContextEventResult` | Full message history about to be sent to LLM. Return `messages=` to rewrite it |
 
+For dynamic browser or computer-use state that must be refreshed before every
+LLM request without being persisted, return `ephemeral_messages` from a
+`context` handler:
+
+```python
+from tau.hooks import ContextEventResult
+from tau.message.types import UserMessage
+
+def register(tau):
+    @tau.on("context")
+    async def inject_state(event, ctx):
+        screenshot = await capture_screen()
+        return ContextEventResult(
+            ephemeral_messages=[
+                UserMessage.with_images(
+                    "Current browser state",
+                    images=[screenshot],
+                )
+            ]
+        )
+```
+
+The hook runs before every inference, including after tool execution.
+`ephemeral_messages` must contain only `UserMessage` objects. They are appended
+only to the provider request, are not persisted, and are excluded from
+Anthropic prompt-cache breakpoints. Use `messages=` in the same result to
+replace the stable request context.
+
 **Streaming & messages**
 
 | Event | Payload fields | Result type | Description |

@@ -274,9 +274,10 @@ class CompactionCancelledEvent:
 
 @dataclass
 class ContextEventResult:
-    """Returned by context handlers to replace the message list sent to the LLM."""
+    """Returned by context handlers to rewrite or transiently extend LLM context."""
 
     messages: list[Any] | None = None
+    ephemeral_messages: list[Any] = field(default_factory=list)
 
 
 @dataclass
