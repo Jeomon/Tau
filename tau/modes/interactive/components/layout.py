@@ -10,7 +10,7 @@ from tau.modes.interactive.components.message_list import MessageBlock, MessageL
 from tau.modes.interactive.components.selector_controller import SelectorController
 from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
 from tau.tui.autocomplete import AutocompleteManager
-from tau.tui.component import Component, Container
+from tau.tui.component import Component, Container, StaticComponent
 from tau.tui.components.editor import EditorComponent, EditorExtras
 from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
 from tau.tui.components.spinner import Spinner
@@ -277,6 +277,7 @@ class Layout(Component):
         # and _status_map are rendered by Layout itself (they sit between the
         # dividers and pickers); the remaining zones become TUI children.
         tui.add_child(self.header)
+        tui.add_child(StaticComponent([""]))
         tui.add_child(self.messages)
         tui.add_child(self.spinner)
         tui.add_child(self._pending_lines)
@@ -301,6 +302,7 @@ class Layout(Component):
     def attach(self, tui: TUI) -> None:
         """Re-add all zones to ``tui`` in the correct render order."""
         tui.add_child(self.header)
+        tui.add_child(StaticComponent([""]))
         tui.add_child(self.messages)
         tui.add_child(self.spinner)
         tui.add_child(self._pending_lines)
