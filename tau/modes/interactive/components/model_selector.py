@@ -242,12 +242,13 @@ class ModelSelector:
 
         # ── Scope row (only when tab spans multiple providers) ─────────────────
         if sec.can_scope:
-            scoped_label = "scoped"
             if sec.scope == "scoped" and sec.scope_provider:
-                scoped_label = f"scoped ({sec.scope_provider})"
-            all_t = emphasis("[all]") if sec.scope == "all" else muted("all")
-            sc_t = emphasis(f"[{scoped_label}]") if sec.scope == "scoped" else muted(scoped_label)
-            lines.append(f"  {muted('Scope:')} {all_t}  {sc_t}")
+                scope_label = f"scoped ({sec.scope_provider})"
+            elif sec.scope == "scoped":
+                scope_label = "scoped"
+            else:
+                scope_label = "all"
+            lines.append(f"  {muted('←')}  {emphasis(scope_label)}  {muted('→')}")
 
         # ── Search box ─────────────────────────────────────────────────────────
         if sec.search:
@@ -299,8 +300,8 @@ class ModelSelector:
         lines.append(divider)
 
         # ── Status bar ─────────────────────────────────────────────────────────
-        scope_hint = "  ·  tab: scope" if sec.can_scope else ""
-        tab_hint = "  ·  ←/→: switch" if len(self._sections) > 1 else ""
+        scope_hint = "  ·  ←/→: scope" if sec.can_scope else ""
+        tab_hint = "  ·  tab: modality" if len(self._sections) > 1 else ""
         lines.append("  " + muted(f"Enter: select{scope_hint}{tab_hint}  ·  Esc: cancel"))
 
         return lines

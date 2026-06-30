@@ -73,11 +73,11 @@ class SelectorController:
             case "down":
                 selector.move_down()
             case "left":
-                selector.prev_section()
-            case "right":
-                selector.next_section()
-            case "tab":
                 selector.toggle_scope()
+            case "right":
+                selector.toggle_scope()
+            case "tab":
+                selector.next_section()
             case "enter":
                 self._commit(active, selector.selected_value())
             case "escape":
