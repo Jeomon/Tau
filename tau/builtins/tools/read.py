@@ -27,13 +27,13 @@ class ReadParams(BaseModel):
     """Parameters for the read tool."""
 
     path: str = Field(
-        description="Absolute filesystem path to the file to be read.",
+        description="Absolute filesystem path to the UTF-8 text file to read.",
         examples=["/home/user/project/src/main.py", "/home/user/project/README.md"],
     )
     offset: int = Field(
         default=0,
         ge=0,
-        description="Line number to start reading from (0-based).",
+        description="Number of lines to skip before reading (0 reads from the first line).",
         examples=[0, 100, 250],
     )
     limit: int = Field(
@@ -75,9 +75,11 @@ class ReadTool(Tool):
         super().__init__(
             name="read",
             description=(
-                "Read the contents of a file. Returns each line with a stable hashline"
-                " anchor in the format '<line>:<hash>|<content>'."
-                " Use offset and limit to read large files in chunks."
+                "Read a UTF-8 text file, replacing invalid byte sequences when decoding. "
+                "Returns each line with a content-based hashline anchor in the format "
+                "'<line>:<hash>|<content>'. Duplicate content, including blank lines, can "
+                "share a hash; the line number is a proximity hint for edit. Use offset and "
+                "limit to read large files in chunks."
             ),
             schema=ReadParams,
             kind=ToolKind.Read,

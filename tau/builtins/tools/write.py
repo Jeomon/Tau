@@ -30,7 +30,7 @@ class WriteParams(BaseModel):
         examples=["/home/user/project/src/utils.py", "/home/user/project/config.json"],
     )
     content: str = Field(
-        description="Content to write to the file.",
+        description="Exact complete UTF-8 text content to write, replacing any existing content.",
         examples=["def hello():\n    print('Hello, world!')\n"],
     )
 

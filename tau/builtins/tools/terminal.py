@@ -58,7 +58,7 @@ class TerminalParams(BaseModel):
     """Parameters for terminal command execution."""
 
     cmd: str = Field(
-        description="Shell command to execute.",
+        description=("Non-interactive shell command to execute in the agent's working directory."),
         examples=["python -m pytest tests/", "ruff check src/", "git status"],
     )
     timeout: int = Field(
@@ -77,9 +77,9 @@ class TerminalTool(Tool):
         super().__init__(
             name="terminal",
             description=(
-                "Execute a shell command and return its combined stdout+stderr output. "
-                "Commands run in the agent's working directory. "
-                "Avoid interactive commands or those that require user input."
+                "Execute a non-interactive shell command in the agent's working directory. "
+                "Returns the combined stdout and stderr tail, retaining at most 50 KiB or "
+                "2,000 lines. Commands that require user input are unsupported."
             ),
             schema=TerminalParams,
             kind=ToolKind.Execute,

@@ -28,7 +28,10 @@ class LsParams(BaseModel):
 
     path: str = Field(
         default="",
-        description="Directory path to list. Defaults to the agent's cwd.",
+        description=(
+            "Directory to list. An empty value uses the agent's working directory; a relative "
+            "value is resolved from Tau's process working directory."
+        ),
         examples=["/home/user/project", "/home/user/project/src"],
     )
 
@@ -72,7 +75,9 @@ class LsTool(Tool):
     def __init__(self) -> None:
         super().__init__(
             name="ls",
-            description="List the contents of a directory, showing files and subdirectories.",
+            description=(
+                "List a directory's immediate files and subdirectories without recursing."
+            ),
             schema=LsParams,
             kind=ToolKind.Read,
             execution_mode=ToolExecutionMode.Parallel,

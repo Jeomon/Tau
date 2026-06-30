@@ -8,13 +8,15 @@ Tau ships with seven built-in tools covering file I/O, search, and shell executi
 
 ### read
 
-Read the contents of a file. Every returned line is prefixed with a hashline
-anchor in the form `<line>:<hash>|<content>`. The `edit` tool uses these anchors.
+Read a UTF-8 text file. Invalid byte sequences are replaced during decoding.
+Every returned line is prefixed with a content-based hashline anchor in the form
+`<line>:<hash>|<content>`. Duplicate content, including blank lines, can share a
+hash; the line number acts as a proximity hint when `edit` resolves an anchor.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | Yes | — | Absolute path to the file to read |
-| `offset` | integer | No | `0` | Line number to start reading from (0-based) |
+| `offset` | integer | No | `0` | Number of lines to skip; `0` starts at the first line |
 | `limit` | integer | No | `2000` | Maximum number of lines to return |
 
 ### write
@@ -24,14 +26,16 @@ Create a new file or overwrite an existing file entirely.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `path` | string | Yes | Absolute path to write |
-| `content` | string | Yes | Full file content |
+| `content` | string | Yes | Exact complete UTF-8 text content |
 
 ### edit
 
 Replace an inclusive line range using hashline anchors returned by `read`.
-The content hash lets an anchor survive line insertions or deletions elsewhere
+The content hash can let an anchor survive line insertions or deletions elsewhere
 in the file; when content occurs more than once, its original line number is
-used as a proximity hint. Edit-result diffs also display hashline anchors:
+used as a proximity hint and the closest occurrence is selected. An empty
+`new_content` deletes the selected range. Because the complete file is rewritten,
+an edit may normalize line endings. Edit-result diffs also display hashline anchors:
 removed lines use their old hashes, while added and context lines use current hashes.
 
 | Parameter | Type | Required | Default | Description |
@@ -39,50 +43,55 @@ removed lines use their old hashes, while added and context lines use current ha
 | `path` | string | Yes | — | Absolute path to the file |
 | `start_anchor` | string | Yes | — | First line to replace, formatted `<line>:<hash>` |
 | `end_anchor` | string | Yes | — | Last line to replace; use the start anchor for a single-line edit |
-| `new_content` | string | Yes | — | Content that replaces the anchored range |
+| `new_content` | string | Yes | — | UTF-8 text replacing the range; empty text deletes it |
 
 ### terminal
 
-Execute a shell command and return combined stdout + stderr.
+Execute a non-interactive shell command and return the combined stdout + stderr
+tail. At most 50 KiB or 2,000 lines are retained.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-`command` | string | Yes | — | Shell command to execute.
-`timeout` | integer | No | `30` | Timeout in seconds (max 600)
+| `cmd` | string | Yes | — | Non-interactive shell command to execute |
+| `timeout` | integer | No | `30` | Timeout in seconds (max 600) |
 
 Commands run in the agent's current working directory.
 
 ### glob
 
-Find files matching a glob pattern.
+Find files matching a glob pattern. Patterns are evaluated relative to `path`.
+Ripgrep's default filtering excludes hidden files and files matched by ignore
+rules.
 
 Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `pattern` | string | Yes | — | Glob pattern, e.g. `src/**/*.py` |
-| `path` | string | No | cwd | Base directory to search from |
+| `path` | string | No | cwd | Base directory; relative values use Tau's process working directory |
 
 ### grep
 
-Search for a regular expression across files.
+Search for a regular expression across files. Directory searches are recursive.
+Ripgrep's default filtering excludes hidden files and files matched by ignore
+rules.
 
 Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `pattern` | string | Yes | — | Regular expression to search for |
-| `path` | string | No | cwd | File or directory to search |
+| `path` | string | No | cwd | File or directory; relative values use Tau's process working directory |
 | `include` | string | No | `""` | Glob filter for files, e.g. `*.py` (only applies when `path` is a directory) |
 | `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive |
 
 ### ls
 
-List the contents of a directory.
+List a directory's immediate contents without recursing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | No | cwd | Directory path to list |
+| `path` | string | No | cwd | Directory; relative values use Tau's process working directory |
 
 ---
 

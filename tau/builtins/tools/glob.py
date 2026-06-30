@@ -54,12 +54,15 @@ class GlobParams(BaseModel):
     """Parameters for the glob tool."""
 
     pattern: str = Field(
-        description="Glob pattern (e.g. 'src/**/*.py').",
+        description=("Glob pattern evaluated relative to the base path (e.g. 'src/**/*.py')."),
         examples=["src/**/*.py", "**/*.ts", "tests/**/test_*.py"],
     )
     path: str = Field(
         default="",
-        description="Base directory to search from. Defaults to the agent's cwd.",
+        description=(
+            "Base directory to search. An empty value uses the agent's working directory; "
+            "a relative value is resolved from Tau's process working directory."
+        ),
         examples=["/home/user/project", "/home/user/project/src"],
     )
 
@@ -72,7 +75,8 @@ class GlobTool(Tool):
             name="glob",
             description=(
                 "Find files matching a glob pattern. Returns absolute paths, one per line, "
-                f"up to {_MAX_RESULTS} results. Supports ** for recursive matching."
+                f"up to {_MAX_RESULTS} results. Supports ** for recursive matching. Uses "
+                "ripgrep's default filtering, which excludes hidden and ignored files."
             ),
             schema=GlobParams,
             kind=ToolKind.Read,

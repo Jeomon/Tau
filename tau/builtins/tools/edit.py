@@ -34,7 +34,10 @@ class EditParams(BaseModel):
     )
     start_anchor: str = Field(
         pattern=r"^\d+:.{4}$",
-        description="Hashline anchor for the first line to replace, formatted '<line>:<hash>'.",
+        description=(
+            "Hashline anchor copied from read for the first line to replace, formatted "
+            "'<line>:<hash>'."
+        ),
         examples=["12:a3f1"],
     )
     end_anchor: str = Field(
@@ -46,7 +49,10 @@ class EditParams(BaseModel):
         examples=["14:9c8a"],
     )
     new_content: str = Field(
-        description="Content that replaces the inclusive anchored line range.",
+        description=(
+            "UTF-8 text replacing the inclusive anchored line range. Use an empty string "
+            "to delete the range."
+        ),
         examples=["def new_function():\n    return 5"],
     )
 
@@ -152,8 +158,10 @@ class EditTool(Tool):
         super().__init__(
             name="edit",
             description=(
-                "Replace an inclusive line range using hashline anchors returned by read."
-                " Anchors remain valid when surrounding lines shift."
+                "Replace an inclusive line range using content-based hashline anchors from "
+                "read. An anchor can survive shifted surrounding lines; when multiple lines "
+                "have the same hash, the closest line-number hint is selected. Rewriting may "
+                "normalize line endings throughout the file."
             ),
             schema=EditParams,
             kind=ToolKind.Edit,

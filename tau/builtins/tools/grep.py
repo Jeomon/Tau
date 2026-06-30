@@ -65,7 +65,10 @@ class GrepParams(BaseModel):
     )
     path: str = Field(
         default="",
-        description="File or directory to search. Defaults to the agent's cwd.",
+        description=(
+            "File or directory to search. An empty value uses the agent's working directory; "
+            "a relative value is resolved from Tau's process working directory."
+        ),
         examples=["/home/user/project/src", "/home/user/project/src/main.py"],
     )
     include: str = Field(
@@ -90,7 +93,8 @@ class GrepTool(Tool):
             name="grep",
             description=(
                 "Search for a regex pattern in files. Returns matches as 'file:line: content', "
-                f"up to {_MAX_MATCHES} matches. When path is a directory, searches recursively."
+                f"up to {_MAX_MATCHES} matches. Directory searches are recursive and use "
+                "ripgrep's default filtering, which excludes hidden and ignored files."
             ),
             schema=GrepParams,
             kind=ToolKind.Read,

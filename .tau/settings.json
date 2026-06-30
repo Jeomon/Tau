@@ -7,6 +7,17 @@
           "lsp": true,
           "eager": []
         }
+      },
+      {
+        "path": ".tau/extensions/subagents",
+        "settings": {
+          "maxConcurrent": 4,
+          "graceTurns": 5,
+          "joinMode": "smart",
+          "schedulingEnabled": true,
+          "disableDefaultAgents": false,
+          "toolDescriptionMode": "full"
+        }
       }
     ]
   }
