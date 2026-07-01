@@ -378,4 +378,4 @@ OAuth login/refresh operations (e.g., GitHub Copilot, OpenAI, Anthropic) also re
 
 - [Settings](settings.md) — Main settings reference
 - [Extensions](extensions.md) — Extensions can also use proxy settings via SettingsManager
-- [Providers](providers.md) — Model provider configuration (some may have custom proxy handling)
+- [Inference Providers](inference-providers.md) — Model provider configuration

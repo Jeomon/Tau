@@ -81,7 +81,7 @@ All field names use `snake_case`.
 |-------|------|-------------|
 | `model` | object | Per-modality model selections: `text`, `voice`, `speak`, `image`, and `video` |
 | `thinking_level` | string | Extended thinking budget level (see below) |
-| `transport` | string | Transport layer override (`"streaming"` or `"polling"`) |
+| `transport` | string | Transport preference: `"auto"`, `"http"`, `"websocket"`, or `"sse"` |
 | `enabled_models` | list[string] | Restrict the model picker to these model IDs |
 | `session_dir` | string | Override the directory used to store and discover sessions |
 
@@ -128,9 +128,10 @@ Toggle during a session with `/effort` or the effort picker.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `theme` | string | `"default"` | Theme name: `"default"`, `"dracula"`, `"nord"`, `"gruvbox"`, `"catppuccin"`, or a custom name |
+| `theme` | string | `"dark"` | Theme name: `"dark"`, `"light"`, `"auto"`, or an installed custom name |
 | `show_thinking` | boolean | `true` | Show extended-thinking blocks in the message list |
 | `show_tool_calls` | boolean | `true` | Show tool call / result blocks in the message list |
+| `show_images` | boolean | `true` | Render image content in the message list |
 | `picker_max_visible` | integer | `8` | Max visible rows in the model / theme picker |
 | `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown |
 | `tool_result_preview_lines` | integer | `5` | Lines shown before thinking or default-shell tool results collapse; values below 1 are clamped |
@@ -148,7 +149,7 @@ Toggle during a session with `/effort` or the effort picker.
 Example with both enabled:
 ```json
 {
-  "theme": "dracula",
+  "theme": "dark",
   "show_thinking": false,
   "show_tool_calls": true,
   "show_hardware_cursor": true,

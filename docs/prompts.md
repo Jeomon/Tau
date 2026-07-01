@@ -107,11 +107,8 @@ ${1:-Check for correctness, style, and security.}
 
 ## Listing Templates
 
-See all available templates:
-
-```text
-/prompts
-```
+Loaded templates appear in the `/` command palette. There is no separate
+`/prompts` command.
 
 ## Built-in Templates
 

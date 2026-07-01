@@ -39,7 +39,6 @@ Type `/` to open the command palette. Commands are fuzzy-searchable — type a f
 | `/tree` | Navigate the session tree and switch to a different branch |
 | `/clone` | Duplicate the current session at the current position |
 | `/compact` | Summarise and compact the current context |
-| `/name [name]` | Set or show the session display name |
 | `/session` | Show session info, message counts, and stats |
 
 ### Model & Appearance
@@ -65,6 +64,7 @@ Type `/` to open the command palette. Commands are fuzzy-searchable — type a f
 | `/copy` | Copy the last assistant message to the clipboard |
 | `/reload` | Reload extensions, skills, prompts, and settings |
 | `/settings` | Show current settings |
+| `/extensions` | Enable or disable extensions by scope |
 | `/watch <url> [question]` | Load public video metadata and captions using `yt-dlp` |
 | `/help` or `/?` | List all commands and keyboard shortcuts |
 | `/quit` or `/q` or `/exit` | Exit tau |
@@ -94,18 +94,6 @@ Branches the session tree at a specific entry ID. Creates a new branch from that
 ### `/clone`
 
 Duplicates the entire current branch into a new session file and switches into it. Both sessions start identical — changes in one do not affect the other. Useful for running parallel explorations from the same starting point.
-
-### `/name [name]`
-
-With an argument: sets the session display name (stored in the session file as a `session_info` entry).
-
-Without an argument: shows the current session name if one is set.
-
-```text
-/name Fix login regression
-```
-
-Named sessions appear with their name in `/resume` instead of the raw filename.
 
 ### `/session`
 
@@ -163,7 +151,7 @@ Sessions are saved automatically to `~/.tau/sessions/`, organised by working dir
 ```bash
 tau                  # new session
 tau --resume         # continue most recent session
-tau --session abc123 # resume specific session by ID
+tau --resume abc123  # resume specific session by ID
 tau --ephemeral      # temporary session, nothing saved
 ```
 

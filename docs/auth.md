@@ -6,7 +6,7 @@ Tau stores credentials for LLM providers in `~/.tau/auth.json`. This page explai
 
 For each provider, tau resolves credentials in this order:
 
-1. **Runtime override** — set via `--api-key` on the CLI (not persisted)
+1. **Runtime override** — set programmatically through `AuthManager` (not persisted)
 2. **Stored credential** — read from `~/.tau/auth.json`
 3. **Environment variable** — `{PROVIDER}_API_KEY` (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 
@@ -69,13 +69,11 @@ export OPENAI_API_KEY="sk-..."
 
 No file is needed — tau picks these up automatically.
 
-### CLI flag (one-off override)
+### Runtime override
 
-```bash
-tau --api-key sk-ant-...
-```
-
-Not stored. Only applies to the current session.
+Embedding applications may call
+`auth_manager.set_runtime_api_key(provider, key)`. The main Tau CLI does not
+provide an `--api-key` flag.
 
 ### Auth file (direct edit)
 
@@ -91,7 +89,9 @@ Run `/login` from within a session. Tau asks which authentication type to use:
 
 ### `/logout` command
 
-Run `/logout` to open a list of providers that have credentials stored in `~/.tau/auth.json`. Select one to remove it. Environment variables and CLI `--api-key` flags are unaffected.
+Run `/logout` to open a list of providers that have credentials stored in
+`~/.tau/auth.json`. Select one to remove it. Environment variables and
+programmatic runtime overrides are unaffected.
 
 ## Auth File Format
 
@@ -120,7 +120,7 @@ From Python (e.g. in an extension):
 status = auth_manager.get_auth_status("anthropic")
 # status.configured  → True / False
 # status.source      → "stored" | "runtime" | "env" | None
-# status.label       → env var name or "--api-key" if runtime
+# status.label       → env var name or "runtime override"
 ```
 
 ## Security

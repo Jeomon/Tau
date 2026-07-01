@@ -6,38 +6,20 @@ This page explains how to customise tau's terminal appearance.
 
 | Theme | Description |
 |-------|-------------|
-| `default` | tau's default dark colour palette |
-| `dracula` | Purple/pink accents on dark background |
-| `nord` | Arctic, north-bluish palette |
-| `gruvbox` | Retro groove colour scheme |
-| `catppuccin` | Pastel tones on dark background |
-| `ayu-dark` | Ayu dark theme with minimalist design |
-| `everforest` | Green-based forest palette |
-| `horizon` | Warm, horizon-inspired colors |
-| `kanagawa` | Japanese-inspired color palette |
-| `material-ocean` | Material Design with ocean blue tones |
-| `monokai` | Classic monokai dark theme |
-| `night-owl` | Night owl dark theme |
-| `one-dark` | Atom's One Dark theme |
-| `rose-pine` | Rose Pine color scheme |
-| `solarized-dark` | Solarized dark palette |
-| `tokyo-night` | Tokyo Night theme |
+| `dark` | Default terminal-adaptive dark theme |
+| `light` | Light theme using explicit RGB colours |
 
 ## Base Themes
 
-Tau also supports light and dark base themes for creating variants:
-
-| Theme | Description |
-|-------|-------------|
-| `dark` | Base dark theme for extending |
-| `light` | Base light theme for extending |
+Both built-ins are complete themes and useful starting points for custom
+variants.
 
 ## Set a Theme
 
 ### Command line
 
 ```bash
-tau --theme dracula
+tau --theme dark
 ```
 
 ### Settings
@@ -46,7 +28,7 @@ Set your default theme in `~/.tau/settings.json` or `.tau/settings.json`:
 
 ```json
 {
-  "theme": "dracula"
+  "theme": "dark"
 }
 ```
 
@@ -178,7 +160,9 @@ The `bold`, `italic`, `dim` modifiers can be combined: `{ color: "#a78bfa", bold
 
 ### Starting from a built-in
 
-The built-in themes are a good starting point. Copy one from `tau/builtins/themes/` and modify the colors you want to change — everything else inherits from `default` automatically.
+The built-in themes are a good starting point. Copy one from
+`tau/builtins/themes/` and modify the colors you want to change; omitted fields
+use the loader's defaults.
 
 ---
 

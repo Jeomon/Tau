@@ -6,7 +6,7 @@ Tau is a Python CLI framework for building interactive agent applications. It pr
 
 Tau allows you to:
 - Chat with LLMs (Claude, GPT, Gemini, Mistral, Ollama) in a terminal UI
-- Execute tools (terminal commands, read/write files, fetch web content) within conversations
+- Execute tools (terminal commands, file operations, search) within conversations
 - Save and resume sessions with branching and forking
 - Extend Tau with custom tools, commands, themes, and skills
 - Embed Tau in Python applications as a library
@@ -53,14 +53,13 @@ Tau allows you to:
 
 - [Project Structure](project-structure.md) - Codebase organization and module breakdown
 - [Development Setup](development.md) - Local development environment and testing
-- [Implementation Summary](IMPLEMENTATION_SUMMARY.md) - Recent changes and features
 
 ## Reference
 
 - [CLI Reference](cli-reference.md) - All flags, modes (interactive/print/json/rpc)
 - [Settings Reference](settings.md) - Complete settings schema
 - [Session Format](sessions.md) - JSONL file format and structure
-- [Hooks & Events](extensions.md#hooks) - All available hooks and events
+- [Hooks & Events](extensions.md#event-hooks) - All available hooks and events
 
 ---
 

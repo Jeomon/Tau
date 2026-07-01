@@ -183,8 +183,9 @@ Extensions can react to lifecycle events:
 - `session_start` - Session begins
 - `turn_start` - New inference turn starts
 - `turn_end` - Turn completes (before rendering)
-- `tool_execute` - Tool is about to execute
-- `tool_complete` - Tool execution finished
+- `tool_call` - Tool call can be inspected, rewritten, or blocked
+- `tool_result` - Tool result can be inspected or rewritten
+- `tool_execution_start` / `tool_execution_end` - Tool handler lifecycle
 - `tui_ready` - TUI is ready for input
 - `tui_exit` - TUI is exiting
 - `compaction_start` - Compaction begins
@@ -194,12 +195,13 @@ Hooks allow extensions to inspect state, modify messages, or react to events.
 
 ## Provider Abstraction
 
-All LLM providers (Anthropic, OpenAI, Google, Mistral, Ollama, Azure) implement a common interface:
+Providers describe authentication, endpoints, and the API adapter used for a
+request. Adapters stream normalized `LLMEvent` objects:
 
 ```python
-class Provider:
-    async def call(messages, tools, model) -> Response
-    async def stream(messages, tools, model) -> AsyncIterator[Event]
+class BaseAPI:
+    async def stream(self, context, model, options) -> AsyncIterator[LLMEvent]:
+        ...
 ```
 
 The inference module handles provider-specific details (API keys, endpoints, format conversions).
@@ -289,9 +291,9 @@ React to lifecycle events:
 
 ```python
 def register(tau):
-    async def on_tool_complete(event):
+    async def on_tool_end(event, ctx):
         print(f"Tool {event.tool_name} finished")
-    tau.on_hook("tool_complete", on_tool_complete)
+    tau.on("tool_execution_end", on_tool_end)
 ```
 
 ### Dialogs

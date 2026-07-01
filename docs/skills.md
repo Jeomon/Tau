@@ -100,13 +100,8 @@ Arguments after the skill name are available inside the skill as `$1`, `$2`, `$@
 
 ## Skill Discovery
 
-List all loaded skills (including builtins):
-
-```text
-/skills
-```
-
-Output shows name, source (builtin / global / project), and description.
+Invokable skills appear in the `/` command palette as `/skill:<name>`. There
+is no separate `/skills` command.
 
 ## Disabling a Skill
 

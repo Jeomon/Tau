@@ -4,7 +4,7 @@ This page gets you from install to a working first tau session in five minutes.
 
 ## Install
 
-Tau requires Python 3.13 or higher. Clone the repository and install:
+Tau requires Python 3.12 or higher. Clone the repository and install:
 
 ```bash
 cd /path/to/tau
@@ -32,7 +32,7 @@ export OPENAI_API_KEY=sk-...
 ### Google Gemini
 
 ```bash
-export GEMINI_API_KEY=...
+export GOOGLE_API_KEY=...
 ```
 
 ### Other Providers
@@ -53,7 +53,7 @@ You will be prompted to select a model from your configured providers. By defaul
 - `read` - read files
 - `write` - create or overwrite files
 - `edit` - patch files
-- `bash` - run shell commands
+- `terminal` - run shell commands
 
 Type a prompt and press Enter:
 
@@ -86,10 +86,10 @@ tau
 # Then in the editor, type @ to open file picker
 ```
 
-Or pass files as arguments:
+In non-interactive mode, attach files with `--file PATH`:
 
 ```bash
-tau --print "Explain this file" src/main.py
+tau --print --prompt "Explain this file" --file src/main.py
 ```
 
 ### Continue a Past Session
@@ -100,13 +100,8 @@ Sessions are saved automatically to `~/.tau/sessions/`. Resume the most recent:
 tau --resume
 ```
 
-Or browse all sessions interactively:
-
-```bash
-tau -r
-```
-
-Then use `/tree` inside the session to navigate the message history.
+Inside a running session, `/resume` opens the interactive session browser.
+Use `/tree` to navigate the current session history.
 
 ### Use a Different Model
 
@@ -130,7 +125,7 @@ tau --print "Summarize this repository"
 With a file reference:
 
 ```bash
-tau --print "Explain the main.py file" README.md
+tau --print --prompt "Explain this file" --file README.md
 ```
 
 ## Next Steps

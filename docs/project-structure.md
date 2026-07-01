@@ -1,13 +1,13 @@
 # Project Structure
 
-Tau consists of 230 Python modules organized into 25 main packages. This page documents the codebase organization and provides module-by-module reference for contributors and agents.
+Tau is organized into functional Python packages. This page documents the
+major modules; use the filesystem as the authoritative inventory.
 
 ## Directory Structure
 
 ```
-tau/                                # Main package (230 modules)
+tau/                                # Main package
 ├── __init__.py
-├── content_registry.py             # Content registry abstractions
 ├── agent/                          # Agent execution service
 ├── auth/                           # Authentication & credential management
 ├── builtins/                       # Built-in tools, commands, themes, skills
@@ -18,6 +18,7 @@ tau/                                # Main package (230 modules)
 │   ├── prompts/                    # Built-in prompt templates
 │   └── skills/                     # Built-in skills
 ├── commands/                       # Slash command system
+├── core/                           # Shared application primitives
 ├── console/                        # CLI entry point
 ├── engine/                         # Tool execution engine
 ├── extensions/                     # Plugin system & API
@@ -32,7 +33,7 @@ tau/                                # Main package (230 modules)
 ├── packages/                       # Package/dependency management
 ├── prompts/                        # Prompt template system
 ├── resources/                      # Unified runtime resource discovery
-├── rpc/                            # JSON-RPC protocol for IDE integration
+├── modes/                          # Interactive, print, and RPC modes
 ├── runtime/                        # Agent runtime service
 ├── session/                        # Session management and persistence
 ├── settings/                       # Configuration system
@@ -40,7 +41,8 @@ tau/                                # Main package (230 modules)
 ├── themes/                         # Theme loading and registry
 ├── tool/                           # Tool abstractions and registry
 ├── trust/                          # Trust and permission system
-└── tui/                            # Terminal user interface (22 files)
+├── tui/                            # Terminal user interface
+└── utils/                          # Shared utilities
 
 docs/                              # Documentation
 tests/                             # Test suite
@@ -78,14 +80,10 @@ Pre-installed functionality available to all users.
 - `grep.py` - Search files by regex
 - `ls.py` - List directory contents
 
-**Commands** (`commands/`) - Slash commands:
-- `model.py` - `/model` command (model selection)
-- `theme.py` - `/theme` command (theme picker)
-- `session.py` - Session management (`/new`, `/resume`, `/fork`, etc.)
-- `help.py` - `/help` command
+**Commands** (`commands/`) provide `/new`, `/fork`, `/reload`, `/compact`, and
+`/clear`. Interactive-only commands live under `modes/interactive/commands/`.
 
-**Themes** (`themes/`) - Default color schemes:
-- `default.yaml`, `dracula.yaml`, `nord.yaml`, `gruvbox.yaml`, `catppuccin.yaml`
+**Themes** (`themes/`) contain `dark.yaml` and `light.yaml`.
 
 **Prompts** (`prompts/`) - System prompts for agent context
 
@@ -119,7 +117,8 @@ Loading and API for custom extensions.
 - `loader.py` - Extension discovery and loading
 - `context.py` - Extension runtime context
 - `runtime.py` - Runtime context management
-- `events.py` - Extension events
+Hook event dataclasses live in `tau.hooks`; extensions consume them through the
+extension API.
 
 ### `hooks/` - Event Hook System
 
@@ -314,7 +313,7 @@ class RuntimeService:
 
 ### Extension API
 
-`extensions/api.py` - Main extension interface for plugins (31 KB).
+`extensions/api.py` - Main extension interface for plugins.
 
 Provides methods to register tools, commands, hooks, dialogs, etc.
 
@@ -322,12 +321,9 @@ Provides methods to register tools, commands, hooks, dialogs, etc.
 
 `hooks/service.py` - Event hooks for lifecycle events.
 
-Hooks available:
-- `session_start`, `session_end`
-- `turn_start`, `turn_end`
-- `tool_execute`, `tool_complete`
-- `tui_ready`, `tui_exit`
-- `compaction_start`, `compaction_end`
+Hook families cover runtime, session, engine, inference, and TUI lifecycle
+events. See [Extensions](extensions.md#event-hooks) for the complete current
+event table.
 
 ## Data Flow
 

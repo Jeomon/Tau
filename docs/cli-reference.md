@@ -3,7 +3,7 @@
 ## Usage
 
 ```bash
-tau [OPTIONS] [MESSAGE]
+tau [OPTIONS] COMMAND [ARGS]...
 ```
 
 Use `--prompt TEXT` for a non-interactive prompt. Piped stdin can supply or
@@ -13,14 +13,20 @@ augment it.
 
 | Option | Short | Description |
 |--------|-------|-------------|
+| `--version` | `-v` | Print the installed version |
+| `--debug` | `-d` | Enable debug logging |
+| `--cwd PATH` | `-c` | Set the working directory |
 | `--prompt` | `-p` | Run a non-interactive prompt |
+| `--output-format` | `-f` | Non-interactive output: `text` or `json` |
+| `--quiet` | `-q` | Hide the non-interactive spinner |
 | `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model` | | Model ID, or `provider/model` shorthand (e.g. `groq/llama-3.3-70b-versatile`) |
-| `--theme` | `-t` | UI theme: `default`, `dracula`, `nord`, `gruvbox`, `catppuccin`, `ayu-dark`, `everforest`, `horizon`, `kanagawa`, `material-ocean`, `monokai`, `night-owl`, `one-dark`, `rose-pine`, `solarized-dark`, `tokyo-night`, or a custom name |
+| `--theme` | `-t` | UI theme: `dark`, `light`, or an installed custom theme |
 | `--resume [ID]` | `-r` | Resume the most recent or a specified session |
 | `--fork ID` | | Fork a specified session at startup |
 | `--session-dir PATH` | | Override session storage |
 | `--name NAME` | | Set the session display name at startup |
+| `--system TEXT` | `-s` | Replace the generated system prompt |
 | `--ephemeral` | `-e` | Don't save this session to disk |
 | `--approve` | `-a` | Trust project-local files (extensions, settings, context files) for this run |
 | `--no-approve` | `-na` | Don't trust project-local files for this run |
@@ -66,7 +72,7 @@ that order.
 Emit a JSON event stream on stdout:
 
 ```bash
-tau --mode json "Your prompt"
+tau --mode json --prompt "Your prompt"
 ```
 
 Each line is a JSON object representing a lifecycle event (`agent_start`, `message_end`, etc.).
@@ -345,8 +351,7 @@ An explicit `--provider` always overrides the inferred provider.
 
 ```bash
 tau --resume                                    # continue most recent session
-tau --session abc123                            # resume by session ID
-tau --session ~/.tau/sessions/proj/file.jsonl   # resume by file path
+tau --resume abc123                             # resume by session ID
 tau --ephemeral                                 # temporary session, nothing saved
 ```
 
@@ -360,13 +365,16 @@ Manage provider credentials.
 tau auth --help
 ```
 
+Package management is available through `tau install`, `tau remove`,
+`tau list`, and `tau update`.
+
 ## Environment Variables
 
 | Variable | Effect |
 |----------|--------|
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `OPENAI_API_KEY` | OpenAI API key |
-| `GEMINI_API_KEY` | Google Gemini key |
+| `GOOGLE_API_KEY` | Google Gemini key |
 | `<PROVIDER>_API_KEY` | API key for any provider (uppercased provider name) |
 
 Provider and model can also be set permanently in `settings.json` — see [Settings](settings.md).

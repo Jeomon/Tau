@@ -4,15 +4,15 @@ This page covers setting up a development environment for tau.
 
 ## Prerequisites
 
-- Python 3.13 or higher
+- Python 3.12 or higher
 - git
 - pip or uv (Python package manager)
 
 ## Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/tau.git
-cd tau
+git clone https://github.com/Jeomon/Tau.git
+cd Tau
 ```
 
 ## Install Dependencies
@@ -63,7 +63,7 @@ tau --theme dark
 ### Run with Debug Logging
 
 ```bash
-TAU_LOG_LEVEL=DEBUG tau
+tau --debug
 ```
 
 ### Run Tests
@@ -215,7 +215,7 @@ logger.error("Error message")
 Enable debug logging:
 
 ```bash
-TAU_LOG_LEVEL=DEBUG tau
+tau --debug
 ```
 
 ## IDE Setup

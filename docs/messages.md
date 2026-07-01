@@ -12,9 +12,11 @@ A message from the user. Contains the prompt text and optionally referenced file
 
 ```python
 {
-  "type": "user",
-  "content": "Transcribe this audio",
-  "references": ["@audio.mp3"]
+  "role": "user",
+  "contents": [
+    {"type": "text", "content": "Transcribe this audio"},
+    {"type": "audio", "audio": ["...base64..."]}
+  ]
 }
 ```
 
@@ -36,13 +38,14 @@ counting the same tokens twice.
 
 ```python
 {
-  "type": "assistant",
-  "content": "Here's a summary...",
-  "tool_calls": [
+  "role": "assistant",
+  "contents": [
+    {"type": "text", "content": "Here's a summary..."},
     {
+      "type": "tool_call",
       "id": "call_123",
-      "tool": "read",
-      "input": {"path": "src/main.py"}
+      "name": "read",
+      "args": {"path": "src/main.py"}
     }
   ]
 }
@@ -54,11 +57,14 @@ Output from executing a tool.
 
 ```python
 {
-  "type": "tool_result",
-  "tool": "read",
-  "call_id": "call_123",
-  "content": "File contents here",
-  "error": null
+  "role": "tool",
+  "contents": [{
+    "type": "tool_result",
+    "id": "call_123",
+    "tool_name": "read",
+    "content": "File contents here",
+    "is_error": false
+  }]
 }
 ```
 
@@ -93,15 +99,8 @@ Cost: ~$0.012 (estimated)
 
 ### Token Limits
 
-Each model has a maximum context window:
-
-| Model | Context | Max Output |
-|-------|---------|-----------|
-| claude-3-5-sonnet | 200k | 4k |
-| gpt-4 | 8k | 4k |
-| gemini-2.0-flash | 1M | 8k |
-| mistral-large | 32k | 32k |
-| ollama/mistral | 32k | 32k |
+Context and output limits come from the active model metadata. Use `/model`
+and `/session` rather than relying on a static table.
 
 ### Context Compression
 
@@ -120,10 +119,10 @@ Run `/session` to see:
 
 ### Clear History
 
-Start a new session:
+Start a new session inside the TUI:
 
-```bash
-tau --new
+```text
+/new
 ```
 
 Resume from a specific point:

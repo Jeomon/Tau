@@ -4,7 +4,7 @@ This page covers installation and authentication setup for Tau and its inference
 
 ## Prerequisites
 
-- Python 3.13 or higher
+- Python 3.12 or higher
 - pip, uv, or another Python package manager
 - An API key or subscription from at least one inference provider
 
@@ -60,7 +60,7 @@ Get your API key from [OpenAI's platform](https://platform.openai.com/account/ap
 ### Google Gemini
 
 ```bash
-export GEMINI_API_KEY=...
+export GOOGLE_API_KEY=...
 ```
 
 Create a key at [Google AI Studio](https://aistudio.google.com).
@@ -75,13 +75,8 @@ Get your key from [Mistral's console](https://console.mistral.ai).
 
 ### Ollama (Local)
 
-If running Ollama locally, set the endpoint:
-
-```bash
-export OLLAMA_BASE_URL=http://localhost:11434
-```
-
-Ollama does not require an API key.
+Ollama uses `http://localhost:11434` by default and does not require an API
+key. Configure a different endpoint through a provider extension.
 
 ## Configure Authentication
 
@@ -103,7 +98,7 @@ Store credentials in `~/.tau/auth.json`:
 {
   "anthropic": { "type": "api_key", "key": "sk-ant-..." },
   "openai": { "type": "api_key", "key": "sk-..." },
-  "gemini": { "type": "api_key", "key": "..." }
+  "google": { "type": "api_key", "key": "..." }
 }
 ```
 
@@ -182,7 +177,7 @@ If using Ollama, ensure the service is running:
 ollama serve
 ```
 
-And verify the endpoint matches your `OLLAMA_BASE_URL` setting.
+Tau currently expects the service at `http://localhost:11434`.
 
 ## Next Steps
 

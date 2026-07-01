@@ -62,6 +62,10 @@
           "path": "extensions.md"
         },
         {
+          "title": "Extension Settings",
+          "path": "extension-settings.md"
+        },
+        {
           "title": "Themes",
           "path": "themes.md"
         },
@@ -80,6 +84,10 @@
         {
           "title": "Authentication",
           "path": "auth.md"
+        },
+        {
+          "title": "HTTP Proxy",
+          "path": "http-proxy.md"
         }
       ]
     },

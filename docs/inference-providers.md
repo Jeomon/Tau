@@ -6,21 +6,21 @@ This page documents all supported LLM inference providers and their setup.
 
 Tau supports the following inference providers:
 
-| Provider | Auth Type | Free Tier | Setup |
-|----------|-----------|-----------|-------|
-| Anthropic | API Key | Limited | [Link](#anthropic) |
-| OpenAI | API Key | No | [Link](#openai) |
-| Google Gemini | API Key | Yes | [Link](#google-gemini) |
-| Mistral AI | API Key | Limited | [Link](#mistral-ai) |
-| Fireworks AI | API Key | No | [Link](#fireworks-ai) |
-| Ollama | None | Yes | [Link](#ollama-local) |
-| Azure OpenAI | API Key | No | [Link](#azure-openai) |
+Built-in API-key providers are `openai`, `anthropic`, `google`, `nvidia`,
+`groq`, `openrouter`, `perplexity`, `xai`, `bedrock`, `kimi`, `minimax`,
+`cerebras`, `deepseek`, `kilocode`, `fireworks`, and `mistral`.
+
+Tau also includes local `ollama`, Google/Anthropic/OpenAI-compatible Vertex AI
+providers, and OAuth providers for OpenAI Codex, Claude Code, GitHub Copilot,
+and Google Antigravity. Extensions can register additional providers.
+
+The model picker is the authoritative model catalogue. Built-in model metadata
+changes more frequently than this guide, so model IDs and pricing are not
+enumerated here.
 
 ## Anthropic
 
 Anthropic provides Claude models with best-in-class reasoning and code generation.
-
-**Models**: `claude-3-5-sonnet`, `claude-3-opus`, `claude-3-haiku`, `claude-3-5-haiku`
 
 ### Setup
 
@@ -42,8 +42,6 @@ tau --model anthropic/claude-3-5-sonnet -p "Say hello"
 
 OpenAI provides GPT models optimized for a wide range of tasks.
 
-**Models**: `gpt-4`, `gpt-4-turbo`, `gpt-4o`, `gpt-3.5-turbo`
-
 ### Setup
 
 1. Create an account at [OpenAI Platform](https://platform.openai.com)
@@ -64,8 +62,6 @@ tau --model openai/gpt-4o -p "Say hello"
 
 Google provides Gemini models with multimodal capabilities.
 
-**Models**: `gemini-2.0-flash`, `gemini-1.5-pro`, `gemini-1.5-flash`
-
 ### Setup
 
 1. Visit [Google AI Studio](https://aistudio.google.com)
@@ -73,7 +69,7 @@ Google provides Gemini models with multimodal capabilities.
 3. Set the environment variable:
 
 ```bash
-export GEMINI_API_KEY=...
+export GOOGLE_API_KEY=...
 ```
 
 ### Verify
@@ -85,8 +81,6 @@ tau --model google/gemini-2.0-flash -p "Say hello"
 ## Mistral AI
 
 Mistral offers efficient open-source-based models.
-
-**Models**: `mistral-large`, `mistral-medium`, `mistral-small`
 
 ### Setup
 
@@ -107,21 +101,6 @@ tau --model mistral/mistral-large -p "Say hello"
 ## Fireworks AI
 
 Fireworks AI provides fast, cost-efficient inference for open-source models including Llama, DeepSeek, Qwen, and Mixtral — with OpenAI-compatible APIs.
-
-**Text models**:
-
-| Model | Context | Pricing (in/out per M tokens) |
-|-------|---------|-------------------------------|
-| `accounts/fireworks/models/llama-v3p3-70b-instruct` | 131K | $0.90 / $0.90 |
-| `accounts/fireworks/models/llama-v3p1-405b-instruct` | 131K | $3.00 / $3.00 |
-| `accounts/fireworks/models/deepseek-r1` *(thinking)* | 160K | $3.00 / $7.00 |
-| `accounts/fireworks/models/deepseek-v3` | 131K | $0.90 / $0.90 |
-| `accounts/fireworks/models/qwen3-235b-a22b` *(thinking)* | 131K | $0.22 / $0.88 |
-| `accounts/fireworks/models/qwen3-30b-a3b` *(thinking)* | 131K | $0.15 / $0.60 |
-| `accounts/fireworks/models/mixtral-8x22b-instruct` | 65K | $0.90 / $0.90 |
-| `accounts/fireworks/models/gemma2-9b-it` | 8K | $0.20 / $0.20 |
-
-**Image models**: Flux 1 Schnell FP8, Flux 1 Dev FP8
 
 ### Setup
 
@@ -148,8 +127,6 @@ tau --model fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct -p "Say 
 
 Run open-source models locally without API keys or internet.
 
-**Models**: `llama2`, `mistral`, `neural-chat`, `qwen3.5:cloud` (262K context, thinking), and [others](https://ollama.ai/library)
-
 ### Setup
 
 1. Install [Ollama](https://ollama.ai)
@@ -165,40 +142,12 @@ ollama pull mistral
 ollama serve
 ```
 
-4. Set the endpoint (default works if running locally):
-
-```bash
-export OLLAMA_BASE_URL=http://localhost:11434
-```
+Tau connects to `http://localhost:11434` by default.
 
 ### Verify
 
 ```bash
 tau --model ollama/mistral -p "Say hello"
-```
-
-## Azure OpenAI
-
-Use OpenAI models hosted on Azure infrastructure.
-
-**Models**: Same as OpenAI (gpt-4, gpt-3.5-turbo, etc.)
-
-### Setup
-
-1. Create an Azure OpenAI resource in the Azure Portal
-2. Deploy a model (e.g., gpt-4)
-3. Set environment variables:
-
-```bash
-export AZURE_OPENAI_API_KEY=...
-export AZURE_OPENAI_BASE_URL=https://your-resource.openai.azure.com
-export AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
-```
-
-### Verify
-
-```bash
-tau --model azure/gpt-4 -p "Say hello"
 ```
 
 ## Switching Providers

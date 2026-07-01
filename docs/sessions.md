@@ -75,11 +75,10 @@ This opens a searchable picker showing all past sessions for the current project
 
 ### Specific Session
 
-Resume a specific session by file path or ID:
+Resume a specific session by ID:
 
 ```bash
-tau --session ~/.tau/sessions/project/2024-01-15_10-30-45_abc123.jsonl
-tau --session abc123
+tau --resume abc123
 ```
 
 ## Start New Sessions
@@ -88,7 +87,6 @@ Start a new session in the current working directory:
 
 ```bash
 tau
-tau --new
 ```
 
 ### Named Sessions
@@ -99,11 +97,8 @@ Name a session when starting:
 tau --name "Fix login bug"
 ```
 
-Or rename during a session:
-
-```text
-/name "Updated task name"
-```
+The TUI does not currently expose a rename command. Extensions and RPC clients
+can update the session name through their respective APIs.
 
 ## Ephemeral Sessions
 
@@ -240,7 +235,7 @@ All entries share `id`, `timestamp`, and `parent_id` fields. `parent_id` is null
 | `label` | `target_id`, `label` | Human-readable name attached to an entry (shown in tree view) |
 | `thinking_level_change` | `thinking_level` | User changed the extended thinking budget level |
 | `model_change` | `model_id`, `provider_id` | User switched models |
-| `session_info` | `name` | Session name set via `/name` |
+| `session_info` | `name` | Session display name set at startup, by RPC, or by an extension |
 | `custom` | `custom_type`, `data` | Extension-specific metadata (not shown in TUI, not sent to LLM) |
 
 ### Example
