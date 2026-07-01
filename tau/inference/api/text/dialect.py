@@ -29,10 +29,13 @@ ANT_LING = "ant-ling"
 TOGETHER = "together"
 STRING_THINKING = "string-thinking"
 
-# Dialects whose assistant messages must carry the reasoning field back
-# on replay (the provider 400s otherwise), and the field name to use.
+# Dialects whose assistant messages must carry the reasoning field back on
+# replay — omitting it doesn't always error (NVIDIA's qwen-chat-template
+# route returns HTTP 200 with 0 completion tokens instead), so this is
+# confirmed per-dialect via live testing, not assumed.
 _REPLAY_FIELD: dict[str, str] = {
     DEEPSEEK: "reasoning_content",
+    QWEN_CHAT_TEMPLATE: "reasoning_content",
 }
 
 _REASONING_EFFORT: dict[ThinkingLevel, str] = {
