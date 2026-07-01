@@ -63,7 +63,6 @@ def _humanize_age(dt: datetime) -> str:
     return arrow.get(dt).humanize(local_now)
 
 
-
 def _file_size(path: Path) -> str:
     """Human-readable file size for a session file."""
     try:
@@ -83,7 +82,6 @@ def _shorten(path: Path) -> str:
         return "~/" + str(path.relative_to(home))
     except ValueError:
         return str(path)
-
 
 
 class ResumeSelector:
@@ -292,9 +290,7 @@ class ResumeSelector:
                 is_del_target = sel_path == self._confirming_delete
 
                 # Named sessions show the name; unnamed show a short ID prefix
-                display = (
-                    session.name[: max(12, width - 6)] if session.name else session.id[:12]
-                )
+                display = session.name[: max(12, width - 6)] if session.name else session.id[:12]
 
                 size = self._session_meta(session)
 

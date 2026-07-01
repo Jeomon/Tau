@@ -1,4 +1,5 @@
 """Tests for tau/settings/paths.py — configuration path functions."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -149,27 +150,33 @@ class TestBuiltinsDir:
 class TestGetDocsDirReadmePath:
     def test_get_docs_dir_returns_path(self):
         from tau.settings.paths import get_docs_dir
+
         p = get_docs_dir()
         assert isinstance(p, Path)
 
     def test_get_docs_dir_name(self):
         from tau.settings.paths import get_docs_dir
+
         assert get_docs_dir().name == "docs"
 
     def test_get_readme_path_returns_path(self):
         from tau.settings.paths import get_readme_path
+
         p = get_readme_path()
         assert isinstance(p, Path)
 
     def test_get_readme_path_name(self):
         from tau.settings.paths import get_readme_path
+
         assert get_readme_path().name == "README.md"
 
     def test_get_examples_path_returns_path(self):
         from tau.settings.paths import get_examples_path
+
         p = get_examples_path()
         assert isinstance(p, Path)
 
     def test_get_examples_path_name(self):
         from tau.settings.paths import get_examples_path
+
         assert get_examples_path().name == "examples"

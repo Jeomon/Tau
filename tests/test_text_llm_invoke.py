@@ -1,4 +1,5 @@
 """Tests for TextLLM.invoke() and TextLLM.stream() retry/empty-response behaviour."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,6 @@ from tau.inference.types import (
 from tau.inference.utils import ErrorKind
 from tau.message.types import ToolCallContent
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -26,11 +26,13 @@ from tau.message.types import ToolCallContent
 
 def _text_end(content: str) -> TextEndEvent:
     from tau.message.types import TextContent
+
     return TextEndEvent(text=TextContent(content=content))  # type: ignore[call-arg]
 
 
 def _text_delta(content: str) -> TextDeltaEvent:
     from tau.message.types import TextContent
+
     return TextDeltaEvent(text=TextContent(content=content))  # type: ignore[call-arg]
 
 
@@ -79,6 +81,7 @@ def _make_llm(api_invoke_side_effect=None, max_retries: int = 2):
 
 def _context() -> LLMContext:
     from tau.message.types import UserMessage
+
     return LLMContext(messages=[UserMessage.from_text("hello")])
 
 
@@ -145,6 +148,7 @@ class TestInvokeRetryOnTransientError:
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
             assert any(isinstance(e, TextEndEvent) for e in result)
+
         asyncio.run(_run())
 
     def test_retries_on_server_error_then_succeeds(self):
@@ -153,6 +157,7 @@ class TestInvokeRetryOnTransientError:
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
             assert any(isinstance(e, TextEndEvent) for e in result)
+
         asyncio.run(_run())
 
     def test_returns_error_event_after_exhausting_retries(self):
@@ -164,6 +169,7 @@ class TestInvokeRetryOnTransientError:
             result = await llm.invoke(_context())
             assert any(isinstance(e, ErrorEvent) for e in result)
             assert llm.api.invoke.call_count == 3
+
         asyncio.run(_run())
 
     def test_no_retry_on_non_retryable_error(self):
@@ -172,6 +178,7 @@ class TestInvokeRetryOnTransientError:
             result = await llm.invoke(_context())
             assert any(isinstance(e, ErrorEvent) for e in result)
             assert llm.api.invoke.call_count == 1
+
         asyncio.run(_run())
 
     def test_error_event_carries_kind(self):
@@ -180,6 +187,7 @@ class TestInvokeRetryOnTransientError:
             result = await llm.invoke(_context())
             error_event = next(e for e in result if isinstance(e, ErrorEvent))
             assert error_event.kind == ErrorKind.RATE_LIMIT
+
         asyncio.run(_run())
 
 
@@ -196,6 +204,7 @@ class TestInvokeRetryOnEmptyResponse:
             assert llm.api.invoke.call_count == 2
             text_end = next(e for e in result if isinstance(e, TextEndEvent))
             assert text_end.text.content == "real summary"
+
         asyncio.run(_run())
 
     def test_retries_on_whitespace_only_text(self):
@@ -203,6 +212,7 @@ class TestInvokeRetryOnEmptyResponse:
             llm = _make_llm([[_text_end("   \n  ")], [_text_end("content")]])
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
+
         asyncio.run(_run())
 
     def test_retries_on_no_text_events_at_all(self):
@@ -210,6 +220,7 @@ class TestInvokeRetryOnEmptyResponse:
             llm = _make_llm([[EndEvent()], [_text_end("ok")]])
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
+
         asyncio.run(_run())
 
     def test_does_not_retry_when_tool_calls_present(self):
@@ -218,6 +229,7 @@ class TestInvokeRetryOnEmptyResponse:
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 1
             assert any(isinstance(e, ToolCallEndEvent) for e in result)
+
         asyncio.run(_run())
 
     def test_returns_empty_after_exhausting_retries(self):
@@ -226,6 +238,7 @@ class TestInvokeRetryOnEmptyResponse:
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 3
             assert any(isinstance(e, TextEndEvent) for e in result)
+
         asyncio.run(_run())
 
     def test_delta_events_blank_also_retries(self):
@@ -240,6 +253,7 @@ class TestInvokeRetryOnEmptyResponse:
             ]
             result = await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
+
         asyncio.run(_run())
 
 
@@ -251,41 +265,53 @@ class TestInvokeRetryOnEmptyResponse:
 class TestStreamRetryOnEmptyResponse:
     def test_retries_when_no_content_events(self):
         async def _run():
-            llm, call_count = _make_stream_llm([
-                [StartEvent(), EndEvent()],
-                [StartEvent(), _text_end("hello")],
-            ])
+            llm, call_count = _make_stream_llm(
+                [
+                    [StartEvent(), EndEvent()],
+                    [StartEvent(), _text_end("hello")],
+                ]
+            )
             events = await _collect_stream(llm, _context())
             assert call_count["n"] == 2
             assert any(isinstance(e, TextEndEvent) for e in events)
+
         asyncio.run(_run())
 
     def test_emits_retry_event_before_retry(self):
         async def _run():
-            llm, _ = _make_stream_llm([
-                [StartEvent(), EndEvent()],
-                [StartEvent(), _text_end("ok")],
-            ])
+            llm, _ = _make_stream_llm(
+                [
+                    [StartEvent(), EndEvent()],
+                    [StartEvent(), _text_end("ok")],
+                ]
+            )
             events = await _collect_stream(llm, _context())
             assert any(isinstance(e, RetryEvent) for e in events)
+
         asyncio.run(_run())
 
     def test_does_not_retry_when_text_present(self):
         async def _run():
-            llm, call_count = _make_stream_llm([
-                [StartEvent(), _text_end("content"), EndEvent()],
-            ])
+            llm, call_count = _make_stream_llm(
+                [
+                    [StartEvent(), _text_end("content"), EndEvent()],
+                ]
+            )
             await _collect_stream(llm, _context())
             assert call_count["n"] == 1
+
         asyncio.run(_run())
 
     def test_does_not_retry_when_tool_calls_present(self):
         async def _run():
-            llm, call_count = _make_stream_llm([
-                [StartEvent(), _tool_call_end(), EndEvent()],
-            ])
+            llm, call_count = _make_stream_llm(
+                [
+                    [StartEvent(), _tool_call_end(), EndEvent()],
+                ]
+            )
             await _collect_stream(llm, _context())
             assert call_count["n"] == 1
+
         asyncio.run(_run())
 
     def test_returns_after_exhausting_retries(self):
@@ -294,15 +320,19 @@ class TestStreamRetryOnEmptyResponse:
             llm, call_count = _make_stream_llm([empty, empty, empty], max_retries=2)
             await _collect_stream(llm, _context())
             assert call_count["n"] == 3
+
         asyncio.run(_run())
 
     def test_retries_on_exception_before_content(self):
         async def _run():
-            llm, call_count = _make_stream_llm([
-                _error("rate limit", 429),
-                [StartEvent(), _text_end("ok")],
-            ])
+            llm, call_count = _make_stream_llm(
+                [
+                    _error("rate limit", 429),
+                    [StartEvent(), _text_end("ok")],
+                ]
+            )
             events = await _collect_stream(llm, _context())
             assert call_count["n"] == 2
             assert any(isinstance(e, TextEndEvent) for e in events)
+
         asyncio.run(_run())

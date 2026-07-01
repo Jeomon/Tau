@@ -117,6 +117,38 @@ def _render_hunk_line(char: str, old_line: int, new_line: int, text: str) -> str
     return f"{anchor}{marker}{text}"
 
 
+def _collapse_hunk_context(
+    hunk: list[tuple[str, int, int, str]],
+    context_lines: int = 3,
+) -> tuple[list[tuple[str, int, int, str] | str], int]:
+    """Keep changes and nearby context, replacing unchanged gaps with markers."""
+    changed = [index for index, (char, *_rest) in enumerate(hunk) if char != " "]
+    if not changed:
+        return list(hunk), 0
+
+    visible: set[int] = set()
+    for index in changed:
+        start = max(0, index - context_lines)
+        end = min(len(hunk), index + context_lines + 1)
+        visible.update(range(start, end))
+
+    collapsed: list[tuple[str, int, int, str] | str] = []
+    hidden_total = 0
+    index = 0
+    while index < len(hunk):
+        if index in visible:
+            collapsed.append(hunk[index])
+            index += 1
+            continue
+        gap_start = index
+        while index < len(hunk) and index not in visible:
+            index += 1
+        hidden = index - gap_start
+        hidden_total += hidden
+        collapsed.append(f"… (+{hidden} {'line' if hidden == 1 else 'lines'})")
+    return collapsed, hidden_total
+
+
 def _render_edit_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import GREEN, RED, RESET
 
@@ -139,14 +171,31 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     if not hunks:
         return result
 
+    hidden_total = 0
     for hunk in hunks:
-        for char, ol, nl, text in hunk:
+        displayed: list[tuple[str, int, int, str] | str]
+        if opts.expanded:
+            displayed = list(hunk)
+        else:
+            displayed, hidden = _collapse_hunk_context(hunk)
+            hidden_total += hidden
+        for line in displayed:
+            if isinstance(line, str):
+                muted = opts.theme.muted(line) if opts.theme is not None else line
+                result.append(muted)
+                continue
+            char, ol, nl, text = line
             if char == "+":
                 result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
             elif char == "-":
                 result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
             else:
                 result.append(_render_hunk_line(char, ol, nl, text))
+
+    if hidden_total:
+        result.append("(ctrl+o to expand)")
+    elif opts.expanded and any(_collapse_hunk_context(hunk)[1] for hunk in hunks):
+        result.append("(ctrl+o to collapse)")
 
     return result
 
@@ -168,6 +217,7 @@ class EditTool(Tool):
             render_result=_render_edit_result,
             render_call=_render_edit_call,
             render_shell="default",
+            result_expandable=False,
             prompt_guidelines=(
                 "Read the file first and copy its hashline anchors exactly."
                 " Use the same start and end anchor for a single-line edit."

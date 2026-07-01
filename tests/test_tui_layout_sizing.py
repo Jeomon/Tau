@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from tau.tui.utils import visible_width
 from tau.tui.component import Columns, Constrained, Rows, StaticComponent
+from tau.tui.utils import visible_width
 
 # ── Constrained ───────────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 """Tests for tau/utils/http_proxy.py — proxy resolution logic."""
+
 from __future__ import annotations
 
 import pytest
@@ -63,7 +64,9 @@ class TestShouldProxyHostname:
         assert _should_proxy_hostname("localhost", 80, no_proxy="localhost") is False
 
     def test_unrelated_hostname_proxied(self):
-        assert _should_proxy_hostname("api.example.com", 443, no_proxy="localhost,127.0.0.1") is True
+        assert (
+            _should_proxy_hostname("api.example.com", 443, no_proxy="localhost,127.0.0.1") is True
+        )
 
     def test_wildcard_subdomain_excluded(self):
         assert _should_proxy_hostname("sub.corp.internal", 443, no_proxy="*.corp.internal") is False
@@ -78,7 +81,12 @@ class TestShouldProxyHostname:
         assert _should_proxy_hostname("myhost", 443, no_proxy="myhost:8080") is True
 
     def test_multiple_entries_comma_separated(self):
-        assert _should_proxy_hostname("internal.corp", 80, no_proxy="localhost,internal.corp,127.0.0.1") is False
+        assert (
+            _should_proxy_hostname(
+                "internal.corp", 80, no_proxy="localhost,internal.corp,127.0.0.1"
+            )
+            is False
+        )
 
 
 class TestValidateProxyUrl:

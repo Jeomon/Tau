@@ -1,4 +1,5 @@
 """Tests for tau/settings/utils.py — nested dict setter and enum coercion."""
+
 from __future__ import annotations
 
 from enum import Enum

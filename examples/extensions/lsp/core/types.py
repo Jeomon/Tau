@@ -27,6 +27,7 @@ class ServerDefinition:
 
 # ── LSP protocol response types ───────────────────────────────────────────────
 
+
 class Position(TypedDict):
     line: int
     character: int
@@ -43,59 +44,59 @@ class Location(TypedDict):
 
 
 class DiagnosticSeverity(IntEnum):
-    Error       = 1
-    Warning     = 2
+    Error = 1
+    Warning = 2
     Information = 3
-    Hint        = 4
+    Hint = 4
 
 
 class Diagnostic(TypedDict):
     range: Range
     message: str
-    severity: NotRequired[int]   # DiagnosticSeverity
-    source: NotRequired[str]     # "pyright", "ruff", etc.
+    severity: NotRequired[int]  # DiagnosticSeverity
+    source: NotRequired[str]  # "pyright", "ruff", etc.
     code: NotRequired[str | int]
 
 
 class SymbolKind(IntEnum):
-    File          = 1
-    Module        = 2
-    Namespace     = 3
-    Package       = 4
-    Class         = 5
-    Method        = 6
-    Property      = 7
-    Field         = 8
-    Constructor   = 9
-    Enum          = 10
-    Interface     = 11
-    Function      = 12
-    Variable      = 13
-    Constant      = 14
-    String        = 15
-    Number        = 16
-    Boolean       = 17
-    Array         = 18
-    Object        = 19
-    Key           = 20
-    Null          = 21
-    EnumMember    = 22
-    Struct        = 23
-    Event         = 24
-    Operator      = 25
+    File = 1
+    Module = 2
+    Namespace = 3
+    Package = 4
+    Class = 5
+    Method = 6
+    Property = 7
+    Field = 8
+    Constructor = 9
+    Enum = 10
+    Interface = 11
+    Function = 12
+    Variable = 13
+    Constant = 14
+    String = 15
+    Number = 16
+    Boolean = 17
+    Array = 18
+    Object = 19
+    Key = 20
+    Null = 21
+    EnumMember = 22
+    Struct = 23
+    Event = 24
+    Operator = 25
     TypeParameter = 26
 
 
 class SymbolInformation(TypedDict):
     name: str
-    kind: int                    # SymbolKind
+    kind: int  # SymbolKind
     location: Location
     containerName: NotRequired[str]
 
 
 class DocumentSymbol(TypedDict):
     name: str
-    kind: int                    # SymbolKind
+    kind: int  # SymbolKind
     range: Range
     selectionRange: Range
     detail: NotRequired[str]
@@ -108,12 +109,12 @@ class TextEdit(TypedDict):
 
 
 class WorkspaceEdit(TypedDict):
-    changes: NotRequired[dict[str, list[TextEdit]]]          # uri → edits
-    documentChanges: NotRequired[list[dict[str, Any]]]       # versioned edits
+    changes: NotRequired[dict[str, list[TextEdit]]]  # uri → edits
+    documentChanges: NotRequired[list[dict[str, Any]]]  # versioned edits
 
 
 class MarkupContent(TypedDict):
-    kind: str    # "plaintext" | "markdown"
+    kind: str  # "plaintext" | "markdown"
     value: str
 
 
@@ -141,7 +142,7 @@ class SignatureHelp(TypedDict):
 
 class CodeAction(TypedDict):
     title: str
-    kind: NotRequired[str]       # "quickfix" | "refactor" | "refactor.extract" | …
+    kind: NotRequired[str]  # "quickfix" | "refactor" | "refactor.extract" | …
     edit: NotRequired[WorkspaceEdit]
     command: NotRequired[dict[str, Any]]
     isPreferred: NotRequired[bool]
@@ -149,7 +150,7 @@ class CodeAction(TypedDict):
 
 class CallHierarchyItem(TypedDict):
     name: str
-    kind: int                    # SymbolKind
+    kind: int  # SymbolKind
     uri: str
     range: Range
     selectionRange: Range
@@ -168,7 +169,7 @@ class OutgoingCall(TypedDict):
 
 class TypeHierarchyItem(TypedDict):
     name: str
-    kind: int                    # SymbolKind
+    kind: int  # SymbolKind
     uri: str
     range: Range
     selectionRange: Range
@@ -176,14 +177,14 @@ class TypeHierarchyItem(TypedDict):
 
 
 class InlayHintKind(IntEnum):
-    Type      = 1
+    Type = 1
     Parameter = 2
 
 
 class InlayHint(TypedDict):
     position: Position
-    label: str | list[dict[str, Any]]   # string or InlayHintLabelPart[]
-    kind: NotRequired[int]               # InlayHintKind
+    label: str | list[dict[str, Any]]  # string or InlayHintLabelPart[]
+    kind: NotRequired[int]  # InlayHintKind
     tooltip: NotRequired[str]
 
 

@@ -1,4 +1,5 @@
 """Tests for tau/themes/registry.py — ThemeRegistry."""
+
 from __future__ import annotations
 
 import pytest
@@ -15,6 +16,7 @@ def _registry() -> ThemeRegistry:
 class TestThemeRegistryRegister:
     def test_register_instance(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         t = LayoutTheme()
         r.register("custom", t)
@@ -23,6 +25,7 @@ class TestThemeRegistryRegister:
 
     def test_register_factory(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("factory_theme", lambda: LayoutTheme())
         result = r.get("factory_theme")
@@ -30,18 +33,21 @@ class TestThemeRegistryRegister:
 
     def test_register_instance_has_runtime_source(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("rt", LayoutTheme())
         assert r.source("rt") == "runtime"
 
     def test_register_factory_has_runtime_source(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("rt_factory", lambda: LayoutTheme())
         assert r.source("rt_factory") == "runtime"
 
     def test_register_case_insensitive_lookup(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("MyTheme", LayoutTheme())
         assert r.get("mytheme") is not None
@@ -49,6 +55,7 @@ class TestThemeRegistryRegister:
 
     def test_register_overwrite(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         t1 = LayoutTheme()
         t2 = LayoutTheme()
@@ -66,6 +73,7 @@ class TestThemeRegistryGet:
 
     def test_get_returns_theme(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("mythem", LayoutTheme())
         result = r.get("mythem")
@@ -75,6 +83,7 @@ class TestThemeRegistryGet:
 class TestThemeRegistryUnregister:
     def test_unregister_removes_theme(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("to_remove", LayoutTheme())
         r.unregister("to_remove")
@@ -88,6 +97,7 @@ class TestThemeRegistryUnregister:
 
     def test_unregister_removes_source(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("bye", LayoutTheme())
         r.unregister("bye")
@@ -101,6 +111,7 @@ class TestThemeRegistryList:
 
     def test_list_returns_names(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("alpha", LayoutTheme())
         r.register("beta", LayoutTheme())
@@ -110,6 +121,7 @@ class TestThemeRegistryList:
 
     def test_list_lowercase(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         r.register("MyMixedCase", LayoutTheme())
         assert "mymixedcase" in r.list()
@@ -124,11 +136,13 @@ class TestThemeRegistryGetDefault:
     def test_get_default_with_dark_builtin(self):
         r = ThemeRegistry()
         from tau.tui.theme import LayoutTheme
+
         result = r.get_default()
         assert isinstance(result, LayoutTheme)
 
     def test_get_default_fallback_when_empty(self):
         from tau.tui.theme import LayoutTheme
+
         r = _registry()
         result = r.get_default()
         assert isinstance(result, LayoutTheme)

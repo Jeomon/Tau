@@ -1,4 +1,5 @@
 """Tests for tau/session/types.py — all entry types, SessionType enum."""
+
 from __future__ import annotations
 
 from tau.inference.types import ThinkingLevel
@@ -81,11 +82,13 @@ class TestSessionInfoEntry:
 class TestMessageEntry:
     def test_type_field(self):
         from tau.message.types import UserMessage
+
         entry = MessageEntry(message=UserMessage())
         assert entry.type == SessionType.SESSION_MESSAGE
 
     def test_meta_default_none(self):
         from tau.message.types import UserMessage
+
         entry = MessageEntry(message=UserMessage())
         assert entry.meta is None
 
@@ -173,7 +176,9 @@ class TestCompactionEntry:
         assert e.type == SessionType.COMPACTION
 
     def test_fields_stored(self):
-        e = CompactionEntry(summary="Compact summary", first_kept_entry_id="abc123", tokens_before=5000)
+        e = CompactionEntry(
+            summary="Compact summary", first_kept_entry_id="abc123", tokens_before=5000
+        )
         assert e.summary == "Compact summary"
         assert e.first_kept_entry_id == "abc123"
         assert e.tokens_before == 5000

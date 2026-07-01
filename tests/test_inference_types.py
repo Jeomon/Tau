@@ -1,4 +1,5 @@
 """Tests for tau/inference/types.py — shared inference type logic."""
+
 from __future__ import annotations
 
 from tau.inference.types import (

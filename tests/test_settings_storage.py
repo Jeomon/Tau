@@ -1,4 +1,5 @@
 """Tests for tau/settings/storage.py — InMemorySettingsStorage."""
+
 from __future__ import annotations
 
 import json
@@ -84,19 +85,24 @@ class TestInMemorySettingsStorageLockResult:
     def test_sequential_writes_accumulate(self):
         s = _storage()
         s.with_lock(SCOPE.GLOBAL, lambda _: LockResult(result=None, next='{"count": 1}'))
-        s.with_lock(SCOPE.GLOBAL, lambda data: LockResult(result=None, next=json.dumps({**json.loads(data), "count": 2})))
+        s.with_lock(
+            SCOPE.GLOBAL,
+            lambda data: LockResult(result=None, next=json.dumps({**json.loads(data), "count": 2})),
+        )
         assert json.loads(s.global_data)["count"] == 2
 
 
 class TestFileSettingsStorage:
     def test_creates_parent_directory(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
+
         nested = tmp_path / "a" / "b" / "c"
         storage = FileSettingsStorage(cwd=tmp_path, config_dir=nested)
         assert (nested / "settings.json").parent.exists()
 
     def test_global_lock_reads_empty_json_when_missing(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
+
         storage = FileSettingsStorage(cwd=tmp_path, config_dir=tmp_path)
         result = storage.with_lock(SCOPE.GLOBAL, lambda v: LockResult(result=v))
         raw: str = result.result  # type: ignore[assignment]
@@ -104,6 +110,7 @@ class TestFileSettingsStorage:
 
     def test_global_lock_writes_value(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
+
         storage = FileSettingsStorage(cwd=tmp_path, config_dir=tmp_path)
         storage.with_lock(SCOPE.GLOBAL, lambda _: LockResult(result=None, next='{"x": 1}'))
         result = storage.with_lock(SCOPE.GLOBAL, lambda v: LockResult(result=v))
@@ -112,6 +119,7 @@ class TestFileSettingsStorage:
 
     def test_project_lock_uses_cwd_path(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
+
         cwd = tmp_path / "project"
         cwd.mkdir()
         storage = FileSettingsStorage(cwd=cwd, config_dir=tmp_path)
@@ -122,6 +130,7 @@ class TestFileSettingsStorage:
 
     def test_no_write_when_next_is_none(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
+
         storage = FileSettingsStorage(cwd=tmp_path, config_dir=tmp_path)
         storage.with_lock(SCOPE.GLOBAL, lambda _: LockResult(result=None, next='{"initial": 1}'))
         storage.with_lock(SCOPE.GLOBAL, lambda _: LockResult(result=None, next=None))

@@ -1,4 +1,5 @@
 """Tests for tau/tui/theme.py — theme dataclasses and color helpers."""
+
 from __future__ import annotations
 
 import re

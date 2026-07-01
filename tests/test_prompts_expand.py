@@ -1,4 +1,5 @@
 """Tests for tau/prompts/expand.py — template argument expansion."""
+
 from __future__ import annotations
 
 from tau.prompts.expand import _parse_args, expand

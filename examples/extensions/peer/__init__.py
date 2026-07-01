@@ -19,22 +19,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 # ----------------------------------------------------------------------
-# Re‑export the split pieces so external imports keep working.
-# ----------------------------------------------------------------------
-from .service import Peer                     # the runtime service class
-from .types import (                         # pure value objects
-    PeerConfig,
-    PeerMessage,
-    PeerRegistration,
-)
-from .utils import (                         # helpers used by the tool
-    _argument_completions,
-    _emit,
-    _format_command_result,
-    _render_peer_result,
-)
-
-# ----------------------------------------------------------------------
 # Tool‑related imports (unchanged)
 # ----------------------------------------------------------------------
 from tau.tool.types import (
@@ -47,19 +31,35 @@ from tau.tool.types import (
 )
 
 # ----------------------------------------------------------------------
+# Re‑export the split pieces so external imports keep working.
+# ----------------------------------------------------------------------
+from .service import Peer  # the runtime service class
+from .types import (  # pure value objects
+    PeerConfig,
+    PeerMessage,
+    PeerRegistration,
+)
+from .utils import (  # helpers used by the tool
+    _argument_completions,
+    _emit,
+    _format_command_result,
+    _render_peer_result,
+)
+
+
+# ----------------------------------------------------------------------
 # Tool schema
 # ----------------------------------------------------------------------
 class PeerToolSchema(BaseModel):
-    action: Literal[
-        "join", "list", "status", "send", "inbox", "receipts", "leave"
-    ] = Field(description="Peer operation to perform.")
+    action: Literal["join", "list", "status", "send", "inbox", "receipts", "leave"] = Field(
+        description="Peer operation to perform."
+    )
     name: str | None = Field(default=None, description="Peer name for join.")
     to: str | None = Field(default=None, description="Recipient peer name for send.")
     message: str | None = Field(default=None, description="Message body for send.")
     reply_to: str | None = Field(default=None, description="Message ID being replied to.")
-    limit: int = Field(
-        default=20, ge=1, le=100, description="Maximum records to return."
-    )
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum records to return.")
+
 
 # ----------------------------------------------------------------------
 # Tool implementation – attaches the UI formatter.
@@ -112,6 +112,7 @@ class PeerTool(Tool):
         except (OSError, RuntimeError, ValueError) as exc:
             return ToolResult.error(invocation.id, str(exc))
 
+
 # ----------------------------------------------------------------------
 # Action dispatcher – unchanged logic, operates on the re‑exported Peer class.
 # ----------------------------------------------------------------------
@@ -154,6 +155,7 @@ async def execute_action(
         await peer.stop()
         return {"joined": False}
     raise ValueError(f"Unknown peer action: {action}")
+
 
 # ----------------------------------------------------------------------
 # Extension registration – uses the façade Peer class.
@@ -248,6 +250,7 @@ def register(tau: Any) -> None:
     @tau.on("extension_unload")
     async def _extension_unload(_event: Any, _ctx: Any) -> None:
         await peer.stop()
+
 
 # ----------------------------------------------------------------------
 # Public export list (optional, makes ``from ... import *`` tidy)

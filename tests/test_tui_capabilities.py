@@ -1,4 +1,5 @@
 """Tests for tau/tui/capabilities.py — detect_capabilities, cell dimensions, is_image_line."""
+
 from __future__ import annotations
 
 import pytest

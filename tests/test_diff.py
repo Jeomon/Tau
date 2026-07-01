@@ -1,4 +1,5 @@
 """Tests for tau/tui/diff.py — unified diff rendering."""
+
 from __future__ import annotations
 
 from tau.tui.utils import _is_diff, _word_diff, render_diff
@@ -7,6 +8,7 @@ from tau.tui.utils import _is_diff, _word_diff, render_diff
 # Identity styling functions for test assertions
 def _id(s: str) -> str:
     return s
+
 
 def _tag(prefix: str):
     return lambda s: f"[{prefix}]{s}[/{prefix}]"
@@ -120,14 +122,7 @@ class TestRenderDiff:
         assert result == []
 
     def test_full_diff(self):
-        diff = (
-            "--- a/f.py\n"
-            "+++ b/f.py\n"
-            "@@ -1,2 +1,2 @@\n"
-            " unchanged\n"
-            "-old\n"
-            "+new\n"
-        )
+        diff = "--- a/f.py\n+++ b/f.py\n@@ -1,2 +1,2 @@\n unchanged\n-old\n+new\n"
         added, removed, context, hunk, inverse = self._make_fns()
         result = render_diff(diff, added, removed, context, hunk, inverse)
         # 3 headers + 1 context + 2 change lines (word-diff of 1:1 replace)

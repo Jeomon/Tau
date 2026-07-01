@@ -1,4 +1,5 @@
 """Tests for tau/session/utils.py — session ID generation, path encoding, and file parsing."""
+
 from __future__ import annotations
 
 import json
@@ -187,14 +188,17 @@ class TestIsMessageWithContents:
 class TestCreateSessionId:
     def test_returns_string(self):
         from tau.session.utils import create_session_id
+
         assert isinstance(create_session_id(), str)
 
     def test_nonempty(self):
         from tau.session.utils import create_session_id
+
         assert len(create_session_id()) > 0
 
     def test_unique_across_calls(self):
         from tau.session.utils import create_session_id
+
         ids = {create_session_id() for _ in range(20)}
         assert len(ids) == 20
 
@@ -303,7 +307,9 @@ class TestGetSessionModifiedDate:
 
 
 class TestBuildSessionInfo:
-    def _make_session_file(self, path: Path, cwd: str = "/tmp", extra_lines: list[str] | None = None) -> Path:
+    def _make_session_file(
+        self, path: Path, cwd: str = "/tmp", extra_lines: list[str] | None = None
+    ) -> Path:
         header = SessionHeader(cwd=Path(cwd))
         lines = [header.model_dump_json()]
         if extra_lines:

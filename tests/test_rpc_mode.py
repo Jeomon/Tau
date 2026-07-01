@@ -1,4 +1,5 @@
 """Tests for tau/rpc/mode.py — _write, _serialize_event, RpcExtensionUIContext."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,5 @@
 """Tests for tau/message/types.py — message type construction and methods."""
+
 from __future__ import annotations
 
 from tau.inference.types import StopReason
@@ -118,10 +119,12 @@ class TestAssistantMessage:
         assert msg.text_content() == "reply"
 
     def test_text_content_concatenates(self):
-        msg = AssistantMessage(contents=[  # type: ignore[arg-type]
-            TextContent(content="foo"),
-            TextContent(content="bar"),
-        ])
+        msg = AssistantMessage(
+            contents=[  # type: ignore[arg-type]
+                TextContent(content="foo"),
+                TextContent(content="bar"),
+            ]
+        )
         assert msg.text_content() == "foobar"
 
     def test_tool_calls_extracted(self):
@@ -221,13 +224,16 @@ class TestUsage:
 class TestAudioContentMethods:
     def test_from_base64(self):
         from tau.message.types import AudioContent
+
         b64 = "SUQz"  # ID3 magic in base64 prefix
         ac = AudioContent.from_base64(b64)
         assert ac.audio == [b64]
 
     def test_from_base64_roundtrip(self):
         import base64
+
         from tau.message.types import AudioContent
+
         raw = b"ID3" + b"\x00" * 10
         b64 = base64.b64encode(raw).decode()
         ac = AudioContent.from_base64(b64)
@@ -237,6 +243,7 @@ class TestAudioContentMethods:
 
     def test_from_file(self, tmp_path):
         from tau.message.types import AudioContent
+
         f = tmp_path / "sound.mp3"
         f.write_bytes(b"ID3" + b"\x00" * 10)
         ac = AudioContent.from_file(f)
@@ -244,17 +251,20 @@ class TestAudioContentMethods:
 
     def test_to_base64_with_bytes(self):
         from tau.message.types import AudioContent
+
         raw = b"ID3" + b"\x00" * 10
         ac = AudioContent(audio=[raw])
         b64, mime = ac.to_base64()[0]
         assert mime == "audio/mpeg"
         import base64
+
         assert base64.b64decode(b64)[:3] == b"ID3"
 
 
 class TestVideoContentMethods:
     def test_from_file(self, tmp_path):
         from tau.message.types import VideoContent
+
         f = tmp_path / "clip.mp4"
         f.write_bytes(b"\x00\x00\x00\x18ftyp")
         vc = VideoContent.from_file(f)
@@ -262,17 +272,20 @@ class TestVideoContentMethods:
 
     def test_to_base64_with_bytes(self):
         from tau.message.types import VideoContent
+
         raw = b"\x00\x01\x02\x03"
         vc = VideoContent(video=[raw])
         b64, mime = vc.to_base64()[0]
         assert mime == "video/mp4"
         import base64
+
         assert base64.b64decode(b64) == raw
 
 
 class TestBranchSummaryMessage:
     def test_construction(self):
         from tau.message.types import BranchSummaryMessage, Role
+
         msg = BranchSummaryMessage(summary="branch done", from_id="entry123")
         assert msg.summary == "branch done"
         assert msg.from_id == "entry123"
@@ -280,6 +293,7 @@ class TestBranchSummaryMessage:
 
     def test_defaults(self):
         from tau.message.types import BranchSummaryMessage
+
         msg = BranchSummaryMessage()
         assert msg.summary == ""
         assert msg.from_id == ""
@@ -289,6 +303,7 @@ class TestBranchSummaryMessage:
 class TestCompactionSummaryMessageDirect:
     def test_construction(self):
         from tau.message.types import CompactionSummaryMessage, Role
+
         msg = CompactionSummaryMessage(summary="ctx summary", tokens_before=5000)
         assert msg.summary == "ctx summary"
         assert msg.tokens_before == 5000
@@ -296,6 +311,7 @@ class TestCompactionSummaryMessageDirect:
 
     def test_defaults(self):
         from tau.message.types import CompactionSummaryMessage
+
         msg = CompactionSummaryMessage()
         assert msg.summary == ""
         assert msg.tokens_before == 0

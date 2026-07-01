@@ -1,4 +1,5 @@
 """Tests for model availability filtering and STT/TTS classification (step 2)."""
+
 from __future__ import annotations
 
 from tau.inference.api.availability import available_models

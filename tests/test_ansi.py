@@ -1,4 +1,5 @@
 """Tests for tau/tui/ansi.py — ANSI escape code utilities."""
+
 from __future__ import annotations
 
 from tau.tui.utils import (
@@ -265,7 +266,7 @@ class TestRendererOverflowWrap:
         result = exp.expand(["hi", "x" * 25, "ok"])
         assert result[0] == "hi"
         assert result[-1] == "ok"
-        assert "x" * 25 == "".join(ln for ln in result if ln not in ("hi", "ok"))
+        assert "".join(ln for ln in result if ln not in ("hi", "ok")) == "x" * 25
 
 
 class TestAnsiStateTracker:
@@ -331,23 +332,28 @@ class TestAnsiStateTracker:
 class TestWindowFocus:
     def setup_method(self):
         from tau.tui import utils as ansi
+
         ansi._window_focused = True  # reset to known state
 
     def teardown_method(self):
         from tau.tui import utils as ansi
+
         ansi._window_focused = True  # restore default
 
     def test_is_focused_by_default(self):
         from tau.tui.utils import is_window_focused
+
         assert is_window_focused() is True
 
     def test_set_unfocused(self):
         from tau.tui.utils import is_window_focused, set_window_focused
+
         set_window_focused(False)
         assert is_window_focused() is False
 
     def test_set_focused(self):
         from tau.tui.utils import is_window_focused, set_window_focused
+
         set_window_focused(False)
         set_window_focused(True)
         assert is_window_focused() is True
@@ -356,20 +362,24 @@ class TestWindowFocus:
 class TestCursorBlock:
     def setup_method(self):
         from tau.tui import utils as ansi
+
         ansi._window_focused = True
 
     def teardown_method(self):
         from tau.tui import utils as ansi
+
         ansi._window_focused = True
 
     def test_focused_returns_reverse_video(self):
         from tau.tui.utils import REVERSE, cursor_block
+
         result = cursor_block("x")
         assert REVERSE in result
         assert "x" in result
 
     def test_unfocused_returns_bare_char(self):
         from tau.tui.utils import REVERSE, cursor_block, set_window_focused
+
         set_window_focused(False)
         result = cursor_block("x")
         assert result == "x"
@@ -377,5 +387,6 @@ class TestCursorBlock:
 
     def test_default_char_is_space(self):
         from tau.tui.utils import cursor_block
+
         result = cursor_block()
         assert " " in result

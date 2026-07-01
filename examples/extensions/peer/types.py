@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .utils import _validate_peer_name, _read_json
+from .utils import _validate_peer_name
 
 
 @dataclass(frozen=True)
 class PeerConfig:
     """Configuration for a peer mesh."""
+
     root: Path
     default_name: str | None = None
     auto_join: bool = True
@@ -29,7 +29,7 @@ class PeerRegistration:
     updated_at: str
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "PeerRegistration":
+    def from_dict(cls, value: dict[str, Any]) -> PeerRegistration:
         return cls(
             version=int(value["version"]),
             name=_validate_peer_name(str(value["name"])),
@@ -55,7 +55,7 @@ class PeerMessage:
     requires_ack: bool = True
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "PeerMessage":
+    def from_dict(cls, value: dict[str, Any]) -> PeerMessage:
         msg = cls(
             version=int(value["version"]),
             id=str(value["id"]),

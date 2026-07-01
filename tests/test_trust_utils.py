@@ -1,4 +1,5 @@
 """Tests for tau/trust/utils.py — trust path resolution and option building."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -98,22 +99,26 @@ class TestGetTrustOptions:
 class TestHasProjectTrustInputs:
     def test_false_for_empty_dir(self, tmp_path):
         from tau.trust.utils import has_project_trust_inputs
+
         assert has_project_trust_inputs(tmp_path) is False
 
     def test_true_when_tau_config_dir_exists(self, tmp_path):
         from tau.settings.paths import CONFIG_DIR_NAME
         from tau.trust.utils import has_project_trust_inputs
+
         (tmp_path / CONFIG_DIR_NAME).mkdir()
         assert has_project_trust_inputs(tmp_path) is True
 
     def test_true_when_agents_skills_dir_exists(self, tmp_path):
         from tau.trust.utils import has_project_trust_inputs
+
         (tmp_path / ".agents" / "skills").mkdir(parents=True)
         assert has_project_trust_inputs(tmp_path) is True
 
     def test_true_when_in_ancestor_dir(self, tmp_path):
         from tau.settings.paths import CONFIG_DIR_NAME
         from tau.trust.utils import has_project_trust_inputs
+
         (tmp_path / CONFIG_DIR_NAME).mkdir()
         nested = tmp_path / "a" / "b" / "c"
         nested.mkdir(parents=True)
@@ -121,4 +126,5 @@ class TestHasProjectTrustInputs:
 
     def test_accepts_string_path(self, tmp_path):
         from tau.trust.utils import has_project_trust_inputs
+
         assert has_project_trust_inputs(str(tmp_path)) is False

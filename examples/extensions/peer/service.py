@@ -12,18 +12,21 @@ from typing import Any
 
 from .types import PeerConfig, PeerMessage, PeerRegistration
 from .utils import (
+    PROTOCOL_VERSION,
     _atomic_json_write,
+    _format_messages,
+    _is_process_alive,
     _now,
     _read_json,
     _validate_peer_name,
-    _is_process_alive,
-    _format_messages,
-    PROTOCOL_VERSION,
 )
 
-PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 32 * 1024
 MAX_SOCKET_LINE_BYTES = 64 * 1024
+
+
+class PeerNameConflictError(RuntimeError):
+    """Raised when another live peer owns a requested name."""
 
 
 class Peer:
@@ -88,7 +91,10 @@ class Peer:
         if self.joined or not self.config.auto_join:
             return
         req = self.config.default_name or f"tau-{os.getpid()}"
-        await self.join(req, ctx)
+        try:
+            await self.join(req, ctx)
+        except PeerNameConflictError:
+            await self.join(f"{req}-{os.getpid()}", ctx)
 
     async def join(self, requested_name: str, ctx: Any) -> str:
         name = _validate_peer_name(requested_name)
@@ -157,7 +163,7 @@ class Peer:
                 and _is_process_alive(existing.pid)
                 and Path(existing.socket_path).exists()
             ):
-                raise RuntimeError(f'Peer name "{name}" is already active.')
+                raise PeerNameConflictError(f'Peer name "{name}" is already active.')
             with contextlib.suppress(OSError):
                 path.unlink()
 
@@ -166,7 +172,7 @@ class Peer:
         try:
             fd = os.open(path, flags, 0o600)
         except FileExistsError as exc:
-            raise RuntimeError(f'Peer name "{name}" was claimed concurrently.') from exc
+            raise PeerNameConflictError(f'Peer name "{name}" was claimed concurrently.') from exc
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(asdict(reg), stream, ensure_ascii=True, separators=(",", ":"))
             stream.write("\n")

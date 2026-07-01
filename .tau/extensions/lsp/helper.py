@@ -23,7 +23,7 @@ def normalize(obj: Any, cwd: str) -> Any:
             except ValueError:
                 out["path"] = abs_path
         elif k in ("line", "character") and isinstance(v, int):
-            out[k] = v + 1           # 0-based → 1-based
+            out[k] = v + 1  # 0-based → 1-based
         else:
             out[k] = normalize(v, cwd)
     return out
@@ -33,7 +33,7 @@ def read_snippet(path_str: str, start_line: int, end_line: int, max_lines: int) 
     """Read lines start_line..end_line from file (1-based). Returns None on any error."""
     try:
         lines = Path(path_str).read_text(errors="replace").splitlines()
-        s = max(0, start_line - 1)                           # back to 0-based for list indexing
+        s = max(0, start_line - 1)  # back to 0-based for list indexing
         e = min(len(lines), start_line - 1 + max_lines, end_line)
         return "\n".join(lines[s:e]) or None
     except Exception:

@@ -5,6 +5,7 @@ Manages a pool of LSPClients (one per server_id+root pair).
 Lazily spawns servers on first file access and deduplicates
 by (server_id, root) so the same server isn't started twice.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,10 +25,10 @@ _ClientKey = tuple[str, str]
 
 # Symbol kinds worth surfacing in workspaceSymbol results (mirrors opencode)
 _USEFUL_SYMBOL_KINDS = {
-    5,   # Class
-    6,   # Method
-    7,   # Property — sometimes useful
-    9,   # Constructor
+    5,  # Class
+    6,  # Method
+    7,  # Property — sometimes useful
+    9,  # Constructor
     10,  # Enum
     11,  # Interface
     12,  # Function
@@ -71,6 +72,7 @@ class LSP:
             if cmd:
                 from .server import _nearest_root
                 from .types import ServerDefinition
+
                 ext = item.get("extensions", getattr(existing, "extensions", []))
                 self._servers[name] = ServerDefinition(
                     id=name,
@@ -102,7 +104,7 @@ class LSP:
                 rel_root = root
             remaining = max(0.0, retry_after - now)
             status: Literal["connected", "error"] = "error"
-            _ = remaining   # exposed via logs; status field stays "error"
+            _ = remaining  # exposed via logs; status field stays "error"
             out.append(ServerStatus(id=server_id, root=rel_root, status=status))
         return out
 
@@ -135,7 +137,7 @@ class LSP:
             if retry_after is not None:
                 if asyncio.get_event_loop().time() < retry_after:
                     continue
-                del self._broken[key]   # backoff expired — allow respawn
+                del self._broken[key]  # backoff expired — allow respawn
 
             # Already running — but check if the process has since died
             if key in self._clients:
@@ -143,8 +145,11 @@ class LSP:
                 if client._process.returncode is not None:
                     del self._clients[key]
                     self._broken[key] = asyncio.get_event_loop().time() + 10.0
-                    logger.warning("lsp: %s crashed (exit %d), will retry in 10s",
-                                   server.id, client._process.returncode)
+                    logger.warning(
+                        "lsp: %s crashed (exit %d), will retry in 10s",
+                        server.id,
+                        client._process.returncode,
+                    )
                     continue
                 results.append(client)
                 continue
@@ -167,7 +172,9 @@ class LSP:
 
         return results
 
-    async def _spawn(self, server: ServerDefinition, root: str, key: _ClientKey) -> LSPClient | None:
+    async def _spawn(
+        self, server: ServerDefinition, root: str, key: _ClientKey
+    ) -> LSPClient | None:
         try:
             client = await LSPClient.create(
                 server_id=server.id,
@@ -228,9 +235,9 @@ class LSP:
 
     async def touch_file(self, file: str, wait_for_diagnostics: bool = False) -> None:
         clients = await self.get_clients(file)
-        await asyncio.gather(*[
-            c.open_file(file, wait_for_diagnostics) for c in clients
-        ], return_exceptions=True)
+        await asyncio.gather(
+            *[c.open_file(file, wait_for_diagnostics) for c in clients], return_exceptions=True
+        )
 
     async def save_file(self, path: str) -> None:
         """Send willSave, apply willSaveWaitUntil edits, then didSave."""
@@ -268,10 +275,10 @@ class LSP:
 
     async def did_change_configuration(self, settings: dict | None = None) -> None:
         """Notify all running language servers that configuration has changed."""
-        await asyncio.gather(*[
-            c.did_change_configuration(settings)
-            for c in self._clients.values()
-        ], return_exceptions=True)
+        await asyncio.gather(
+            *[c.did_change_configuration(settings) for c in self._clients.values()],
+            return_exceptions=True,
+        )
 
     async def eager(self, server_ids: list[str] | None = None) -> None:
         """Pre-warm servers by spawning them immediately.
@@ -293,9 +300,9 @@ class LSP:
             for dirpath, _dirs, filenames in os.walk(self._cwd):
                 for fname in sorted(filenames):
                     if not server.extensions or Path(fname).suffix in server.extensions:
-                        asyncio.create_task(self.touch_file(
-                            str(Path(dirpath) / fname), wait_for_diagnostics=False
-                        ))
+                        asyncio.create_task(
+                            self.touch_file(str(Path(dirpath) / fname), wait_for_diagnostics=False)
+                        )
                         break
                 else:
                     continue
@@ -315,6 +322,7 @@ class LSP:
         cwd = Path(self._cwd)
         try:
             import pathspec
+
             gitignore = cwd / ".gitignore"
             lines = gitignore.read_text().splitlines() if gitignore.is_file() else []
             spec = pathspec.PathSpec.from_lines("gitwildmatch", lines)
@@ -326,8 +334,7 @@ class LSP:
             rel_dir = Path(dirpath).relative_to(cwd)
             if spec is not None:
                 dirs[:] = [
-                    d for d in dirs
-                    if not spec.match_file(str(rel_dir / d) + "/") and d != ".git"
+                    d for d in dirs if not spec.match_file(str(rel_dir / d) + "/") and d != ".git"
                 ]
             else:
                 dirs[:] = [d for d in dirs if d != ".git"]
@@ -356,9 +363,9 @@ class LSP:
 
     async def _run(self, file: str, method: str, *args: Any) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[
-            getattr(c, method)(file, *args) for c in clients
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[getattr(c, method)(file, *args) for c in clients], return_exceptions=True
+        )
         out = []
         for r in results:
             if isinstance(r, Exception):
@@ -383,7 +390,9 @@ class LSP:
 
     async def document_symbol(self, file: str) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[c.document_symbol(file) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.document_symbol(file) for c in clients], return_exceptions=True
+        )
         out = []
         for r in results:
             if isinstance(r, list):
@@ -419,21 +428,25 @@ class LSP:
     @staticmethod
     def _apply_text_edits(content: str, edits: list[dict]) -> str:
         """Apply LSP TextEdit[] to file content. Edits must be non-overlapping."""
-        lines = content.split('\n')
+        lines = content.split("\n")
         # Apply in reverse order so earlier positions aren't shifted by later edits
-        for edit in sorted(edits, key=lambda e: (
-            e['range']['start']['line'],
-            e['range']['start']['character'],
-        ), reverse=True):
-            r = edit['range']
-            sl, sc = r['start']['line'], r['start']['character']
-            el, ec = r['end']['line'], r['end']['character']
-            new_text = edit.get('newText', '')
-            prefix = lines[sl][:sc] if sl < len(lines) else ''
-            suffix = lines[el][ec:] if el < len(lines) else ''
-            replacement = (prefix + new_text + suffix).split('\n')
-            lines[sl:el + 1] = replacement
-        return '\n'.join(lines)
+        for edit in sorted(
+            edits,
+            key=lambda e: (
+                e["range"]["start"]["line"],
+                e["range"]["start"]["character"],
+            ),
+            reverse=True,
+        ):
+            r = edit["range"]
+            sl, sc = r["start"]["line"], r["start"]["character"]
+            el, ec = r["end"]["line"], r["end"]["character"]
+            new_text = edit.get("newText", "")
+            prefix = lines[sl][:sc] if sl < len(lines) else ""
+            suffix = lines[el][ec:] if el < len(lines) else ""
+            replacement = (prefix + new_text + suffix).split("\n")
+            lines[sl : el + 1] = replacement
+        return "\n".join(lines)
 
     async def apply_workspace_edit(self, workspace_edit: dict) -> dict[str, int]:
         """Apply a WorkspaceEdit to disk. Returns {relative_path: edit_count}."""
@@ -441,26 +454,30 @@ class LSP:
 
         # Collect URI → edits from either documentChanges or changes
         file_edits: dict[str, list[dict]] = {}
-        if 'documentChanges' in workspace_edit:
-            for change in workspace_edit['documentChanges']:
-                uri = change.get('textDocument', {}).get('uri', '')
+        if "documentChanges" in workspace_edit:
+            for change in workspace_edit["documentChanges"]:
+                uri = change.get("textDocument", {}).get("uri", "")
                 if uri:
-                    file_edits.setdefault(uri, []).extend(change.get('edits', []))
-        elif 'changes' in workspace_edit:
-            for uri, edits in workspace_edit['changes'].items():
+                    file_edits.setdefault(uri, []).extend(change.get("edits", []))
+        elif "changes" in workspace_edit:
+            for uri, edits in workspace_edit["changes"].items():
                 file_edits.setdefault(uri, []).extend(edits)
 
         applied: dict[str, int] = {}
         for uri, edits in file_edits.items():
             if not edits:
                 continue
-            path = Path(urlparse(uri).path) if uri.startswith('file://') else Path(uri)
+            path = Path(urlparse(uri).path) if uri.startswith("file://") else Path(uri)
             try:
-                content = path.read_text(encoding='utf-8')
-                path.write_text(self._apply_text_edits(content, edits), encoding='utf-8')
+                content = path.read_text(encoding="utf-8")
+                path.write_text(self._apply_text_edits(content, edits), encoding="utf-8")
                 await self.touch_file(str(path), wait_for_diagnostics=False)
                 await self.save_file(str(path))
-                rel = str(path.relative_to(self._cwd)) if path.is_relative_to(Path(self._cwd)) else path.name
+                rel = (
+                    str(path.relative_to(self._cwd))
+                    if path.is_relative_to(Path(self._cwd))
+                    else path.name
+                )
                 applied[rel] = len(edits)
             except Exception as exc:
                 logger.warning("apply_workspace_edit: %s: %s", path.name, exc)
@@ -472,8 +489,8 @@ class LSP:
         if not edits:
             return 0
         path = Path(file)
-        content = path.read_text(encoding='utf-8')
-        path.write_text(self._apply_text_edits(content, edits), encoding='utf-8')
+        content = path.read_text(encoding="utf-8")
+        path.write_text(self._apply_text_edits(content, edits), encoding="utf-8")
         await self.touch_file(file, wait_for_diagnostics=False)
         await self.save_file(file)
         return len(edits)
@@ -483,9 +500,9 @@ class LSP:
     async def rename(self, file: str, line: int, character: int, new_name: str) -> dict[str, int]:
         """Rename symbol and apply the WorkspaceEdit to disk. Returns {file: edit_count}."""
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[
-            c.rename(file, line, character, new_name) for c in clients
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.rename(file, line, character, new_name) for c in clients], return_exceptions=True
+        )
         applied: dict[str, int] = {}
         for r in results:
             if not isinstance(r, dict):
@@ -499,9 +516,10 @@ class LSP:
         self, file: str, line: int, character: int, end_line: int, end_char: int
     ) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[
-            c.code_action(file, line, character, end_line, end_char) for c in clients
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.code_action(file, line, character, end_line, end_char) for c in clients],
+            return_exceptions=True,
+        )
         out = []
         for r in results:
             if isinstance(r, list):
@@ -530,30 +548,30 @@ class LSP:
         Lazy actions (missing both 'edit' and 'command') are resolved via
         codeAction/resolve before applying.
         """
-        edit = action.get('edit')
-        command = action.get('command')
+        edit = action.get("edit")
+        command = action.get("command")
 
         # Resolve lazy action — server may omit edit/command until resolve is called
         if not edit and not isinstance(command, dict):
             for client in self._clients.values():
                 resolved = await client.resolve_code_action(action)
                 if resolved is not None:
-                    edit = resolved.get('edit')
-                    command = resolved.get('command')
+                    edit = resolved.get("edit")
+                    command = resolved.get("command")
                     if edit or isinstance(command, dict):
                         action = resolved
                         break
 
-        edit = action.get('edit')
-        command = action.get('command')
+        edit = action.get("edit")
+        command = action.get("command")
 
         if edit:
             return await self.apply_workspace_edit(edit)
         if isinstance(command, dict):
-            cmd = command.get('command', '')
-            args = command.get('arguments', [])
+            cmd = command.get("command", "")
+            args = command.get("arguments", [])
             await self.execute_command(cmd, args)
-            return {}   # edits applied asynchronously via workspace/applyEdit callback
+            return {}  # edits applied asynchronously via workspace/applyEdit callback
         return None
 
     async def create_file(self, path: str, content: str = "") -> dict[str, int]:
@@ -659,7 +677,9 @@ class LSP:
     async def formatting(self, file: str) -> dict[str, int]:
         """Format file and apply edits to disk. Returns {file: edit_count}."""
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[c.formatting(file) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.formatting(file) for c in clients], return_exceptions=True
+        )
         edits: list[dict] = []
         for r in results:
             if isinstance(r, list):
@@ -668,7 +688,9 @@ class LSP:
             return {}
         count = await self.apply_text_edits_to_file(file, edits)
         path = Path(file)
-        rel = str(path.relative_to(self._cwd)) if path.is_relative_to(Path(self._cwd)) else path.name
+        rel = (
+            str(path.relative_to(self._cwd)) if path.is_relative_to(Path(self._cwd)) else path.name
+        )
         return {rel: count}
 
     async def range_formatting(
@@ -676,9 +698,10 @@ class LSP:
     ) -> dict[str, int]:
         """Format a range and apply edits to disk. Returns {file: edit_count}."""
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[
-            c.range_formatting(file, line, character, end_line, end_char) for c in clients
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.range_formatting(file, line, character, end_line, end_char) for c in clients],
+            return_exceptions=True,
+        )
         edits: list[dict] = []
         for r in results:
             if isinstance(r, list):
@@ -687,7 +710,9 @@ class LSP:
             return {}
         count = await self.apply_text_edits_to_file(file, edits)
         path = Path(file)
-        rel = str(path.relative_to(self._cwd)) if path.is_relative_to(Path(self._cwd)) else path.name
+        rel = (
+            str(path.relative_to(self._cwd)) if path.is_relative_to(Path(self._cwd)) else path.name
+        )
         return {rel: count}
 
     async def supertypes(self, file: str, line: int, character: int) -> list[Any]:
@@ -698,9 +723,9 @@ class LSP:
 
     async def inlay_hints(self, file: str, start_line: int, end_line: int) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[
-            c.inlay_hints(file, start_line, end_line) for c in clients
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.inlay_hints(file, start_line, end_line) for c in clients], return_exceptions=True
+        )
         out: list[Any] = []
         for r in results:
             if isinstance(r, list):
@@ -709,7 +734,9 @@ class LSP:
 
     async def code_lens(self, file: str) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[c.code_lens(file) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.code_lens(file) for c in clients], return_exceptions=True
+        )
         out: list[Any] = []
         for r in results:
             if isinstance(r, list):
@@ -762,7 +789,9 @@ class LSP:
 
     async def folding_range(self, file: str) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[c.folding_range(file) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.folding_range(file) for c in clients], return_exceptions=True
+        )
         out: list[Any] = []
         for r in results:
             if isinstance(r, list):
@@ -771,7 +800,9 @@ class LSP:
 
     async def document_link(self, file: str) -> list[Any]:
         clients = await self.get_clients(file)
-        results = await asyncio.gather(*[c.document_link(file) for c in clients], return_exceptions=True)
+        results = await asyncio.gather(
+            *[c.document_link(file) for c in clients], return_exceptions=True
+        )
         out: list[Any] = []
         for r in results:
             if isinstance(r, list):
@@ -830,5 +861,7 @@ class LSP:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def shutdown(self) -> None:
-        await asyncio.gather(*[c.shutdown() for c in self._clients.values()], return_exceptions=True)
+        await asyncio.gather(
+            *[c.shutdown() for c in self._clients.values()], return_exceptions=True
+        )
         self._clients.clear()

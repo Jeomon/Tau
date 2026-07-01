@@ -1,4 +1,5 @@
 """Tests for tau/prompts/loader.py — prompt template loading."""
+
 from __future__ import annotations
 
 from tau.prompts.loader import _parse_frontmatter, load_template_from_file, load_templates_from_dir

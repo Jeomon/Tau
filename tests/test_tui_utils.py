@@ -1,4 +1,5 @@
 """Tests for tau/tui/utils.py — project_name."""
+
 from __future__ import annotations
 
 from tau.tui.utils import project_name

@@ -416,13 +416,10 @@ def _split_text_unit(buf: str) -> tuple[str, str]:
     return buf[:i], buf[i:]
 
 
-def _is_complete(buf: str) -> bool | None:
-    """
-    Return True if buf is a complete escape sequence,
-    False if it will never be one, None if it's incomplete (needs more data).
-    """
+def _complete_prefix_len(buf: str) -> int | None:
+    """Return the length of the first complete escape sequence, or None."""
     if not buf.startswith("\x1b"):
-        return True  # not an escape — single char, always complete
+        return 1
 
     if len(buf) == 1:
         return None  # bare ESC, could be start of sequence
@@ -431,9 +428,7 @@ def _is_complete(buf: str) -> bool | None:
 
     # SS3: ESC O <char>
     if second == "O":
-        if len(buf) < 3:
-            return None
-        return True
+        return 3 if len(buf) >= 3 else None
 
     # CSI: ESC [ <params> <final>
     if second == "[":
@@ -443,41 +438,52 @@ def _is_complete(buf: str) -> bool | None:
         # Must be checked first because ~ is a valid CSI final byte and the
         # generic scan below would fire on \x1b[200~ before the content arrives.
         if buf.startswith("\x1b[200~"):
-            return True if "\x1b[201~" in buf else None
+            end = buf.find("\x1b[201~")
+            return end + 6 if end != -1 else None
         # Basic mouse: ESC [ M <button> <col> <row> — exactly 6 bytes.
         # Must be checked before the generic final-byte scan because 'M' is a
         # valid CSI final byte and would otherwise terminate prematurely,
         # leaving the 3 parameter bytes to be parsed as text.
         if buf[2] == "M":
-            return len(buf) >= 6
+            return 6 if len(buf) >= 6 else None
         # Final byte is 0x40–0x7E (@–~)
         for i in range(2, len(buf)):
-            c = buf[i]
-            code = ord(c)
+            code = ord(buf[i])
             if 0x40 <= code <= 0x7E:
-                return True
+                return i + 1
         return None  # still accumulating params
 
     # APC: ESC _ ... ST  (zero-width cursor markers etc.)
     if second == "_":
-        if buf.endswith("\x1b\\") or buf.endswith("\x07"):
-            return True
-        return None
+        st = buf.find("\x1b\\", 2)
+        bel = buf.find("\x07", 2)
+        ends = [idx + (2 if idx == st else 1) for idx in (st, bel) if idx != -1]
+        return min(ends) if ends else None
 
     # OSC: ESC ] ... BEL or ST
     if second == "]":
-        if buf.endswith("\x07") or buf.endswith("\x1b\\"):
-            return True
-        return None
+        st = buf.find("\x1b\\", 2)
+        bel = buf.find("\x07", 2)
+        ends = [idx + (2 if idx == st else 1) for idx in (st, bel) if idx != -1]
+        return min(ends) if ends else None
 
     # DCS / PM / SOS / APC variants: ESC P/X/^ ... ST
     if second in ("P", "X", "^"):
-        if buf.endswith("\x1b\\"):
-            return True
-        return None
+        st = buf.find("\x1b\\", 2)
+        return st + 2 if st != -1 else None
 
     # Other 2-char sequences (ESC <char>): complete
-    return True
+    return 2
+
+
+def _is_complete(buf: str) -> bool | None:
+    """
+    Return True if buf starts with a complete escape sequence,
+    False if it will never be one, None if it's incomplete (needs more data).
+    """
+    if not buf.startswith("\x1b"):
+        return True  # not an escape — single char, always complete
+    return True if _complete_prefix_len(buf) is not None else None
 
 
 # ── Parser ────────────────────────────────────────────────────────────────────
@@ -512,13 +518,13 @@ class InputParser:
                 if event is not None:
                     events.append(event)
                 continue
-            complete = _is_complete(self._buf)
-            if complete is None:
+            prefix_len = _complete_prefix_len(self._buf)
+            if prefix_len is None:
                 break  # need more data
-            event = self._parse_one(self._buf)
+            unit, self._buf = self._buf[:prefix_len], self._buf[prefix_len:]
+            event = self._parse_one(unit)
             if event is not None:
                 events.append(event)
-            self._buf = ""
         return events
 
     def flush(self) -> list[InputEvent]:

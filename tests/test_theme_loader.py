@@ -1,4 +1,5 @@
 """Tests for tau/themes/loader.py — theme parsing and loading."""
+
 from __future__ import annotations
 
 import json

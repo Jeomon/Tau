@@ -516,7 +516,7 @@ class MessageBlock:
 
             opts = ToolRenderOptions(
                 is_error=item.is_error,
-                expanded=self._expanded if tool.render_shell != "default" else False,
+                expanded=self._expanded,
                 is_partial=self._streaming,
                 metadata=item.metadata,
                 theme=self._theme,

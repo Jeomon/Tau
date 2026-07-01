@@ -1,4 +1,5 @@
 """Tests for tau/inference/provider/oauth/utils.py — parse_authorization_input."""
+
 from __future__ import annotations
 
 from tau.inference.provider.oauth.utils import parse_authorization_input

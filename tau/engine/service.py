@@ -617,7 +617,6 @@ class Engine:
                                 ctx_messages.extend(ephemeral_messages)
                         except Exception:
                             _log.exception("ephemeral context injection failed")
-                        
 
                     if signal.is_set():
                         closing = AssistantMessage(stop_reason=StopReason.Abort)

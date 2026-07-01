@@ -13,6 +13,7 @@ def _nearest_root(markers: list[str], exclude_markers: list[str] | None = None) 
     marker is hit first (mirrors opencode's NearestRoot logic).
     Supports glob patterns (e.g. "*.sln") via Path.glob().
     """
+
     async def find(file: str) -> str | None:
         start = Path(file).parent
         current = start
@@ -44,109 +45,157 @@ def _file_dir(file: str) -> str:
 
 # ── Root finders ──────────────────────────────────────────────────────────────
 
+
 async def _pyright_root(file: str) -> str | None:
-    return await _nearest_root(["pyrightconfig.json", "pyproject.toml", "setup.py", "setup.cfg"])(file)
+    return await _nearest_root(["pyrightconfig.json", "pyproject.toml", "setup.py", "setup.cfg"])(
+        file
+    )
+
 
 async def _ruff_root(file: str) -> str | None:
     return await _nearest_root(["ruff.toml", ".ruff.toml", "pyproject.toml"])(file)
 
+
 async def _ts_root(file: str) -> str | None:
     return await _nearest_root(["tsconfig.json", "package.json"])(file)
+
 
 async def _deno_root(file: str) -> str | None:
     return await _nearest_root(["deno.json", "deno.jsonc"])(file)
 
+
 async def _go_root(file: str) -> str | None:
     return await _nearest_root(["go.mod"])(file)
+
 
 async def _rust_root(file: str) -> str | None:
     return await _nearest_root(["Cargo.toml"])(file)
 
+
 async def _clangd_root(file: str) -> str | None:
     return await _nearest_root(["compile_commands.json", "CMakeLists.txt", ".clangd"])(file)
+
 
 async def _java_root(file: str) -> str | None:
     return await _nearest_root(["pom.xml", "build.gradle", "build.gradle.kts", ".project"])(file)
 
+
 async def _ruby_root(file: str) -> str | None:
     return await _nearest_root(["Gemfile", ".ruby-version"])(file)
+
 
 async def _lua_root(file: str) -> str | None:
     return await _nearest_root([".luarc.json", ".luarc.jsonc", ".luacheckrc"])(file)
 
+
 async def _zig_root(file: str) -> str | None:
     return await _nearest_root(["build.zig", "build.zig.zon"])(file)
+
 
 async def _swift_root(file: str) -> str | None:
     return await _nearest_root(["Package.swift"])(file)
 
+
 async def _elixir_root(file: str) -> str | None:
     return await _nearest_root(["mix.exs"])(file)
 
+
 async def _kotlin_root(file: str) -> str | None:
-    return await _nearest_root(["build.gradle.kts", "build.gradle", "pom.xml", "settings.gradle.kts"])(file)
+    return await _nearest_root(
+        ["build.gradle.kts", "build.gradle", "pom.xml", "settings.gradle.kts"]
+    )(file)
+
 
 async def _terraform_root(file: str) -> str | None:
     return await _nearest_root([".terraform", "terraform.tf", "main.tf"])(file)
 
+
 async def _csharp_root(file: str) -> str | None:
     return await _nearest_root(["*.sln", "*.csproj"])(file)
+
 
 async def _php_root(file: str) -> str | None:
     return await _nearest_root(["composer.json"])(file)
 
+
 async def _erlang_root(file: str) -> str | None:
     return await _nearest_root(["rebar.config", "erlang.mk", "mix.exs"])(file)
+
 
 async def _haskell_root(file: str) -> str | None:
     return await _nearest_root(["*.cabal", "stack.yaml", "cabal.project"])(file)
 
+
 async def _ocaml_root(file: str) -> str | None:
     return await _nearest_root(["dune-project", "*.opam"])(file)
+
 
 async def _svelte_root(file: str) -> str | None:
     return await _nearest_root(["svelte.config.js", "svelte.config.ts", "package.json"])(file)
 
+
 async def _vue_root(file: str) -> str | None:
     return await _nearest_root(["vue.config.js", "vite.config.ts", "package.json"])(file)
+
 
 async def _yaml_root(file: str) -> str | None:
     return _file_dir(file)
 
+
 async def _bash_root(file: str) -> str | None:
     return _file_dir(file)
 
+
 async def _astro_root(file: str) -> str | None:
-    return await _nearest_root(["astro.config.js", "astro.config.mjs", "astro.config.ts", "package.json"])(file)
+    return await _nearest_root(
+        ["astro.config.js", "astro.config.mjs", "astro.config.ts", "package.json"]
+    )(file)
+
 
 async def _clojure_root(file: str) -> str | None:
     return await _nearest_root(["deps.edn", "project.clj", "build.clj", ".clj-kondo"])(file)
 
+
 async def _dart_root(file: str) -> str | None:
     return await _nearest_root(["pubspec.yaml"])(file)
 
+
 async def _eslint_root(file: str) -> str | None:
-    return await _nearest_root([
-        "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs",
-        ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json",
-        ".eslintrc.yaml", ".eslintrc.yml", ".eslintrc",
-        "package.json",
-    ])(file)
+    return await _nearest_root(
+        [
+            "eslint.config.js",
+            "eslint.config.mjs",
+            "eslint.config.cjs",
+            ".eslintrc.js",
+            ".eslintrc.cjs",
+            ".eslintrc.json",
+            ".eslintrc.yaml",
+            ".eslintrc.yml",
+            ".eslintrc",
+            "package.json",
+        ]
+    )(file)
+
 
 async def _fsharp_root(file: str) -> str | None:
     return await _nearest_root(["*.sln", "*.fsproj"])(file)
 
+
 async def _gleam_root(file: str) -> str | None:
     return await _nearest_root(["gleam.toml"])(file)
+
 
 async def _julia_root(file: str) -> str | None:
     return await _nearest_root(["Project.toml", "JuliaProject.toml"])(file)
 
+
 async def _nix_root(file: str) -> str | None:
     return await _nearest_root(["flake.nix", "default.nix", "shell.nix"])(file)
 
+
 async def _prisma_root(file: str) -> str | None:
     return await _nearest_root(["package.json", "prisma"])(file)
+
 
 async def _typst_root(file: str) -> str | None:
     return await _nearest_root(["typst.toml"])(file) or _file_dir(file)
@@ -190,7 +239,19 @@ BUILTIN_SERVERS: list[ServerDefinition] = [
     ),
     ServerDefinition(
         id="oxlint",
-        extensions=[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".astro", ".svelte"],
+        extensions=[
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".mjs",
+            ".cjs",
+            ".mts",
+            ".cts",
+            ".vue",
+            ".astro",
+            ".svelte",
+        ],
         command=["oxlint-language-server"],
         root_finder=_eslint_root,
     ),
@@ -370,8 +431,11 @@ BUILTIN_SERVERS: list[ServerDefinition] = [
         id="julials",
         extensions=[".jl"],
         command=[
-            "julia", "--startup-file=no", "--history-file=no",
-            "-e", "using LanguageServer; runserver()",
+            "julia",
+            "--startup-file=no",
+            "--history-file=no",
+            "-e",
+            "using LanguageServer; runserver()",
         ],
         root_finder=_julia_root,
     ),

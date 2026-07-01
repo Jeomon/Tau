@@ -1,4 +1,5 @@
 """Tests for tau/inference/model/types.py — Model cost calculations."""
+
 from __future__ import annotations
 
 from tau.inference.model.types import Cost, Modality, Model

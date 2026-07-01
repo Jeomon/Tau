@@ -1,4 +1,5 @@
 """Tavily engine (LLM-oriented search, https://tavily.com). Requires an API key + ``tavily-python``."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +21,7 @@ class TavilySearchEngine(BaseSearchEngine):
     def _get_client(self):
         if self._client is None:
             from tavily import TavilyClient
+
             self._client = TavilyClient(api_key=self._api_key)
         return self._client
 
@@ -28,17 +30,23 @@ class TavilySearchEngine(BaseSearchEngine):
             client = self._get_client()
             topic = "news" if mode is SearchMode.news else "general"
             response = client.search(
-                query, max_results=max_results, topic=topic, search_depth=self._search_depth,
+                query,
+                max_results=max_results,
+                topic=topic,
+                search_depth=self._search_depth,
             )
             out: list[dict] = []
             for r in response.get("results", []):
-                out.append(result(
-                    title=r.get("title", ""),
-                    url=r.get("url", ""),
-                    snippet=r.get("content", ""),
-                    date=r.get("published_date", ""),
-                ))
+                out.append(
+                    result(
+                        title=r.get("title", ""),
+                        url=r.get("url", ""),
+                        snippet=r.get("content", ""),
+                        date=r.get("published_date", ""),
+                    )
+                )
             return out
+
         return await asyncio.to_thread(_search)
 
     async def fetch(self, url: str, timeout: int) -> str:
@@ -49,4 +57,5 @@ class TavilySearchEngine(BaseSearchEngine):
             if not results:
                 return ""
             return results[0].get("raw_content", "") or ""
+
         return await asyncio.to_thread(_fetch)

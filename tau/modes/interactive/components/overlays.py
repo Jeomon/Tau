@@ -65,6 +65,7 @@ def _box(
 
 def _default_theme() -> LayoutTheme:
     from tau.tui.theme import LayoutTheme as LT
+
     return LT()
 
 

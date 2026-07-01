@@ -8,6 +8,7 @@ Transport mirrors opencode's lsp/client.ts:
   - notifications: dispatched to registered handlers
   - server→client requests: answered automatically
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,34 +26,34 @@ logger = logging.getLogger(__name__)
 
 # Maps serverCapabilities keys → LSP method name (for dynamic-registration lookup)
 _CAP_TO_METHOD: dict[str, str] = {
-    "hoverProvider":                   "textDocument/hover",
-    "definitionProvider":              "textDocument/definition",
-    "declarationProvider":             "textDocument/declaration",
-    "typeDefinitionProvider":          "textDocument/typeDefinition",
-    "implementationProvider":          "textDocument/implementation",
-    "referencesProvider":              "textDocument/references",
-    "documentSymbolProvider":          "textDocument/documentSymbol",
-    "workspaceSymbolProvider":         "workspace/symbol",
-    "callHierarchyProvider":           "textDocument/prepareCallHierarchy",
-    "typeHierarchyProvider":           "textDocument/prepareTypeHierarchy",
-    "renameProvider":                  "textDocument/rename",
-    "codeActionProvider":              "textDocument/codeAction",
-    "documentFormattingProvider":      "textDocument/formatting",
+    "hoverProvider": "textDocument/hover",
+    "definitionProvider": "textDocument/definition",
+    "declarationProvider": "textDocument/declaration",
+    "typeDefinitionProvider": "textDocument/typeDefinition",
+    "implementationProvider": "textDocument/implementation",
+    "referencesProvider": "textDocument/references",
+    "documentSymbolProvider": "textDocument/documentSymbol",
+    "workspaceSymbolProvider": "workspace/symbol",
+    "callHierarchyProvider": "textDocument/prepareCallHierarchy",
+    "typeHierarchyProvider": "textDocument/prepareTypeHierarchy",
+    "renameProvider": "textDocument/rename",
+    "codeActionProvider": "textDocument/codeAction",
+    "documentFormattingProvider": "textDocument/formatting",
     "documentRangeFormattingProvider": "textDocument/rangeFormatting",
-    "inlayHintProvider":               "textDocument/inlayHint",
-    "codeLensProvider":                "textDocument/codeLens",
-    "signatureHelpProvider":           "textDocument/signatureHelp",
-    "executeCommandProvider":          "workspace/executeCommand",
-    "diagnosticProvider":              "textDocument/diagnostic",
-    "completionProvider":              "textDocument/completion",
-    "documentHighlightProvider":       "textDocument/documentHighlight",
-    "selectionRangeProvider":          "textDocument/selectionRange",
-    "foldingRangeProvider":            "textDocument/foldingRange",
-    "documentLinkProvider":            "textDocument/documentLink",
-    "semanticTokensProvider":          "textDocument/semanticTokens/full",
-    "inlineValueProvider":             "textDocument/inlineValue",
-    "monikerProvider":                 "textDocument/moniker",
-    "linkedEditingRangeProvider":      "textDocument/linkedEditingRange",
+    "inlayHintProvider": "textDocument/inlayHint",
+    "codeLensProvider": "textDocument/codeLens",
+    "signatureHelpProvider": "textDocument/signatureHelp",
+    "executeCommandProvider": "workspace/executeCommand",
+    "diagnosticProvider": "textDocument/diagnostic",
+    "completionProvider": "textDocument/completion",
+    "documentHighlightProvider": "textDocument/documentHighlight",
+    "selectionRangeProvider": "textDocument/selectionRange",
+    "foldingRangeProvider": "textDocument/foldingRange",
+    "documentLinkProvider": "textDocument/documentLink",
+    "semanticTokensProvider": "textDocument/semanticTokens/full",
+    "inlineValueProvider": "textDocument/inlineValue",
+    "monikerProvider": "textDocument/moniker",
+    "linkedEditingRangeProvider": "textDocument/linkedEditingRange",
 }
 
 
@@ -72,7 +73,7 @@ class LSPClient:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._notification_handlers: dict[str, list[Callable[[dict], None]]] = {}
         self.diagnostics: dict[str, list[dict]] = {}
-        self._file_versions: dict[str, int] = {}   # path → current didOpen/didChange version
+        self._file_versions: dict[str, int] = {}  # path → current didOpen/didChange version
         self._reader_task: asyncio.Task | None = None
         self._diagnostics_events: dict[str, asyncio.Event] = {}
         # Server capabilities from the initialize response
@@ -85,10 +86,10 @@ class LSPClient:
         self._server_request_handlers: dict[str, Callable[..., Any]] = {}
         self._stderr_task: asyncio.Task | None = None
         # Diagnostic result IDs for incremental pull (LSP 3.17)
-        self._ws_diag_result_ids: list[dict] = []       # previousResultIds for workspace/diagnostic
-        self._ws_diag_cache: dict[str, list] = {}       # path → last-known full diagnostics
-        self._pull_result_ids: dict[str, str] = {}      # path → resultId from textDocument/diagnostic
-        self._pull_diag_cache: dict[str, list] = {}     # path → last-known pull diagnostics
+        self._ws_diag_result_ids: list[dict] = []  # previousResultIds for workspace/diagnostic
+        self._ws_diag_cache: dict[str, list] = {}  # path → last-known full diagnostics
+        self._pull_result_ids: dict[str, str] = {}  # path → resultId from textDocument/diagnostic
+        self._pull_diag_cache: dict[str, list] = {}  # path → last-known pull diagnostics
 
     # ── Factory ──────────────────────────────────────────────────────────────
 
@@ -102,6 +103,7 @@ class LSPClient:
         env: dict[str, str] | None = None,
     ) -> LSPClient:
         import os
+
         merged_env = {**os.environ, **(env or {})}
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -163,7 +165,9 @@ class LSPClient:
                     # Errors and warnings from the server are surfaced at WARNING so
                     # they appear without requiring debug logging enabled.
                     lower = decoded.lower()
-                    if any(w in lower for w in ("error", "fatal", "crash", "traceback", "exception")):
+                    if any(
+                        w in lower for w in ("error", "fatal", "crash", "traceback", "exception")
+                    ):
                         logger.warning("lsp[%s] stderr: %s", self.server_id, decoded)
                     else:
                         logger.debug("lsp[%s] stderr: %s", self.server_id, decoded)
@@ -193,7 +197,11 @@ class LSPClient:
             elif method in ("window/showMessage", "window/logMessage"):
                 self._on_server_message(msg.get("params", {}))
             elif method == "$/logTrace":
-                logger.debug("lsp[%s] trace: %s", self.server_id, (msg.get("params") or {}).get("message", ""))
+                logger.debug(
+                    "lsp[%s] trace: %s",
+                    self.server_id,
+                    (msg.get("params") or {}).get("message", ""),
+                )
             elif method == "window/workDoneProgress/cancel":
                 pass  # client-side cancel; we drive no UI progress
             for handler in self._notification_handlers.get(method, []):
@@ -215,9 +223,13 @@ class LSPClient:
         if isinstance(value, dict):
             kind = value.get("kind")
             if kind == "begin":
-                logger.debug("lsp[%s] progress begin [%s]: %s", self.server_id, token, value.get("title", ""))
+                logger.debug(
+                    "lsp[%s] progress begin [%s]: %s", self.server_id, token, value.get("title", "")
+                )
             elif kind == "end" and value.get("message"):
-                logger.debug("lsp[%s] progress end [%s]: %s", self.server_id, token, value.get("message", ""))
+                logger.debug(
+                    "lsp[%s] progress end [%s]: %s", self.server_id, token, value.get("message", "")
+                )
 
     def _on_server_message(self, params: dict) -> None:
         """Log window/showMessage and window/logMessage notifications from the server."""
@@ -243,16 +255,21 @@ class LSPClient:
         elif method == "client/registerCapability":
             for reg in (params or {}).get("registrations", []):
                 self._dynamic_registrations[reg["method"]] = reg.get("registerOptions", {})
-            logger.debug("lsp[%s] registered dynamic capabilities: %s",
-                         self.server_id,
-                         [r["method"] for r in (params or {}).get("registrations", [])])
+            logger.debug(
+                "lsp[%s] registered dynamic capabilities: %s",
+                self.server_id,
+                [r["method"] for r in (params or {}).get("registrations", [])],
+            )
         elif method == "client/unregisterCapability":
             for unreg in (params or {}).get("unregistrations", []):
                 self._dynamic_registrations.pop(unreg.get("method", ""), None)
         elif method == "window/showMessageRequest":
             params_ = params or {}
-            logger.info("lsp[%s] server [showMessageRequest]: %s",
-                        self.server_id, params_.get("message", ""))
+            logger.info(
+                "lsp[%s] server [showMessageRequest]: %s",
+                self.server_id,
+                params_.get("message", ""),
+            )
             # result stays None (no action selected — dialog dismissed)
         elif method == "window/workDoneProgress/create":
             pass  # acknowledge; result stays None — we track no UI progress state
@@ -298,8 +315,9 @@ class LSPClient:
         except TimeoutError:
             self._pending.pop(req_id, None)
             with contextlib.suppress(Exception):
-                await self._send({"jsonrpc": "2.0", "method": "$/cancelRequest",
-                                  "params": {"id": req_id}})
+                await self._send(
+                    {"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": req_id}}
+                )
             raise
 
     async def request_partial(self, method: str, params: dict, timeout: float = 10.0) -> list:
@@ -311,7 +329,9 @@ class LSPClient:
         token = str(uuid.uuid4())
         self._partial_results[token] = []
         try:
-            result = await self.request(method, {**params, "partialResultToken": token}, timeout=timeout)
+            result = await self.request(
+                method, {**params, "partialResultToken": token}, timeout=timeout
+            )
         except Exception:
             self._partial_results.pop(token, None)
             return []
@@ -344,88 +364,106 @@ class LSPClient:
 
     async def _initialize(self) -> None:
         root_uri = Path(self.root).as_uri()
-        result = await self.request("initialize", {
-            "rootUri": root_uri,
-            "processId": None,
-            "workspaceFolders": [{"name": "workspace", "uri": root_uri}],
-            "initializationOptions": self._initialization,
-            "capabilities": {
-                "textDocument": {
-                    "publishDiagnostics": {"relatedInformation": True, "versionSupport": False},
-                    "hover": {"contentFormat": ["plaintext", "markdown"]},
-                    "definition": {"linkSupport": False},
-                    "declaration": {"linkSupport": False},
-                    "typeDefinition": {"linkSupport": False},
-                    "references": {},
-                    "implementation": {},
-                    "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
-                    "callHierarchy": {},
-                    "typeHierarchy": {},
-                    "rename": {"prepareSupport": True},
-                    "codeAction": {
-                        "codeActionLiteralSupport": {
-                            "codeActionKind": {"valueSet": [
-                                "quickfix", "refactor", "refactor.extract",
-                                "refactor.inline", "refactor.rewrite", "source",
-                            ]},
+        result = await self.request(
+            "initialize",
+            {
+                "rootUri": root_uri,
+                "processId": None,
+                "workspaceFolders": [{"name": "workspace", "uri": root_uri}],
+                "initializationOptions": self._initialization,
+                "capabilities": {
+                    "textDocument": {
+                        "publishDiagnostics": {"relatedInformation": True, "versionSupport": False},
+                        "hover": {"contentFormat": ["plaintext", "markdown"]},
+                        "definition": {"linkSupport": False},
+                        "declaration": {"linkSupport": False},
+                        "typeDefinition": {"linkSupport": False},
+                        "references": {},
+                        "implementation": {},
+                        "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
+                        "callHierarchy": {},
+                        "typeHierarchy": {},
+                        "rename": {"prepareSupport": True},
+                        "codeAction": {
+                            "codeActionLiteralSupport": {
+                                "codeActionKind": {
+                                    "valueSet": [
+                                        "quickfix",
+                                        "refactor",
+                                        "refactor.extract",
+                                        "refactor.inline",
+                                        "refactor.rewrite",
+                                        "source",
+                                    ]
+                                },
+                            },
+                        },
+                        "signatureHelp": {
+                            "signatureInformation": {
+                                "documentationFormat": ["plaintext", "markdown"],
+                                "parameterInformation": {"labelOffsetSupport": True},
+                            },
+                        },
+                        "synchronization": {
+                            "willSave": True,
+                            "willSaveWaitUntil": True,
+                            "didSave": True,
+                        },
+                        "formatting": {},
+                        "rangeFormatting": {},
+                        "inlayHint": {"dynamicRegistration": True},
+                        "codeLens": {"dynamicRegistration": True},
+                        "diagnostic": {
+                            "dynamicRegistration": False,
+                            "relatedDocumentSupport": False,
+                        },
+                        "completion": {
+                            "completionItem": {
+                                "documentationFormat": ["plaintext", "markdown"],
+                                "resolveSupport": {
+                                    "properties": ["documentation", "detail", "additionalTextEdits"]
+                                },
+                            },
+                            "completionItemKind": {"valueSet": list(range(1, 26))},
+                        },
+                        "documentHighlight": {},
+                        "selectionRange": {},
+                        "foldingRange": {
+                            "rangeLimit": 5000,
+                            "lineFoldingOnly": True,
+                        },
+                        "documentLink": {"tooltipSupport": False},
+                        "semanticTokens": {
+                            "requests": {"full": {"delta": True}, "range": True},
+                            "tokenTypes": [],
+                            "tokenModifiers": [],
+                            "formats": ["relative"],
+                            "augmentsSyntaxTokens": True,
+                        },
+                        "inlineValue": {},
+                        "moniker": {},
+                        "linkedEditingRange": {},
+                    },
+                    "workspace": {
+                        "symbol": {"resolveSupport": {"properties": ["location.range"]}},
+                        "workspaceFolders": True,
+                        "configuration": True,
+                        "executeCommand": {"dynamicRegistration": False},
+                        "applyEdit": True,
+                        "fileOperations": {
+                            "willCreate": True,
+                            "didCreate": True,
+                            "willRename": True,
+                            "didRename": True,
+                            "willDelete": True,
+                            "didDelete": True,
                         },
                     },
-                    "signatureHelp": {
-                        "signatureInformation": {
-                            "documentationFormat": ["plaintext", "markdown"],
-                            "parameterInformation": {"labelOffsetSupport": True},
-                        },
-                    },
-                    "synchronization": {
-                        "willSave": True,
-                        "willSaveWaitUntil": True,
-                        "didSave": True,
-                    },
-                    "formatting": {},
-                    "rangeFormatting": {},
-                    "inlayHint": {"dynamicRegistration": True},
-                    "codeLens": {"dynamicRegistration": True},
-                    "diagnostic": {"dynamicRegistration": False, "relatedDocumentSupport": False},
-                    "completion": {
-                        "completionItem": {
-                            "documentationFormat": ["plaintext", "markdown"],
-                            "resolveSupport": {"properties": ["documentation", "detail", "additionalTextEdits"]},
-                        },
-                        "completionItemKind": {"valueSet": list(range(1, 26))},
-                    },
-                    "documentHighlight": {},
-                    "selectionRange": {},
-                    "foldingRange": {
-                        "rangeLimit": 5000,
-                        "lineFoldingOnly": True,
-                    },
-                    "documentLink": {"tooltipSupport": False},
-                    "semanticTokens": {
-                        "requests": {"full": {"delta": True}, "range": True},
-                        "tokenTypes": [],
-                        "tokenModifiers": [],
-                        "formats": ["relative"],
-                        "augmentsSyntaxTokens": True,
-                    },
-                    "inlineValue": {},
-                    "moniker": {},
-                    "linkedEditingRange": {},
+                    "window": {"workDoneProgress": True},
                 },
-                "workspace": {
-                    "symbol": {"resolveSupport": {"properties": ["location.range"]}},
-                    "workspaceFolders": True,
-                    "configuration": True,
-                    "executeCommand": {"dynamicRegistration": False},
-                    "applyEdit": True,
-                    "fileOperations": {
-                        "willCreate": True, "didCreate": True,
-                        "willRename": True, "didRename": True,
-                        "willDelete": True, "didDelete": True,
-                    },
-                },
-                "window": {"workDoneProgress": True},
             },
-        }, timeout=30.0)
+            timeout=30.0,
+        )
         self._capabilities = (result or {}).get("capabilities", {})
         logger.debug("lsp[%s] capabilities: %s", self.server_id, list(self._capabilities))
         await self.notify("initialized", {})
@@ -444,29 +482,38 @@ class LSPClient:
 
         if version is not None:
             # Already open — notify the server that the file content changed
-            await self.notify("workspace/didChangeWatchedFiles", {
-                "changes": [{"uri": uri, "type": 2}]   # 2 = Changed
-            })
+            await self.notify(
+                "workspace/didChangeWatchedFiles",
+                {
+                    "changes": [{"uri": uri, "type": 2}]  # 2 = Changed
+                },
+            )
             next_version = version + 1
             self._file_versions[path] = next_version
-            await self.notify("textDocument/didChange", {
-                "textDocument": {"uri": uri, "version": next_version},
-                "contentChanges": [{"text": text}],
-            })
+            await self.notify(
+                "textDocument/didChange",
+                {
+                    "textDocument": {"uri": uri, "version": next_version},
+                    "contentChanges": [{"text": text}],
+                },
+            )
         else:
             # First touch — open the document in the server
             ext = Path(path).suffix
             lang = EXTENSION_TO_LANGUAGE.get(ext, "plaintext")
-            self.diagnostics.pop(path, None)   # clear any stale diagnostics
+            self.diagnostics.pop(path, None)  # clear any stale diagnostics
             self._file_versions[path] = 0
-            await self.notify("textDocument/didOpen", {
-                "textDocument": {
-                    "uri": uri,
-                    "languageId": lang,
-                    "version": 0,
-                    "text": text,
-                }
-            })
+            await self.notify(
+                "textDocument/didOpen",
+                {
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": lang,
+                        "version": 0,
+                        "text": text,
+                    }
+                },
+            )
 
         if wait_for_diagnostics:
             with contextlib.suppress(TimeoutError):
@@ -518,9 +565,13 @@ class LSPClient:
         if not (isinstance(cap, dict) and cap.get("workspaceDiagnostics")):
             return {}
         try:
-            result = await self.request("workspace/diagnostic", {
-                "previousResultIds": self._ws_diag_result_ids,
-            }, timeout=30.0)
+            result = await self.request(
+                "workspace/diagnostic",
+                {
+                    "previousResultIds": self._ws_diag_result_ids,
+                },
+                timeout=30.0,
+            )
             out: dict[str, list] = {}
             new_result_ids: list[dict] = []
             for item in (result or {}).get("items", []):
@@ -566,7 +617,9 @@ class LSPClient:
         if not self.supports("definitionProvider"):
             return []
         try:
-            result = await self.request("textDocument/definition", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/definition", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -585,7 +638,9 @@ class LSPClient:
         if not self.supports("implementationProvider"):
             return []
         try:
-            result = await self.request("textDocument/implementation", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/implementation", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -594,9 +649,12 @@ class LSPClient:
         if not self.supports("documentSymbolProvider"):
             return []
         try:
-            result = await self.request("textDocument/documentSymbol", {
-                "textDocument": {"uri": Path(file).as_uri()},
-            })
+            result = await self.request(
+                "textDocument/documentSymbol",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                },
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -629,7 +687,9 @@ class LSPClient:
         if not self.supports("callHierarchyProvider"):
             return []
         try:
-            result = await self.request("textDocument/prepareCallHierarchy", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/prepareCallHierarchy", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -656,7 +716,9 @@ class LSPClient:
         if not self.supports("declarationProvider"):
             return []
         try:
-            result = await self.request("textDocument/declaration", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/declaration", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -665,7 +727,9 @@ class LSPClient:
         if not self.supports("typeDefinitionProvider"):
             return []
         try:
-            result = await self.request("textDocument/typeDefinition", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/typeDefinition", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -683,9 +747,9 @@ class LSPClient:
                     timeout=5.0,
                 )
                 if check is None:
-                    return None   # invalid rename position
+                    return None  # invalid rename position
             except Exception:
-                return None       # server rejected this position
+                return None  # server rejected this position
         try:
             params = self._pos_params(file, line, character)
             params["newName"] = new_name
@@ -699,14 +763,17 @@ class LSPClient:
         if not self.supports("codeActionProvider"):
             return []
         try:
-            result = await self.request("textDocument/codeAction", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "range": {
-                    "start": {"line": line, "character": character},
-                    "end": {"line": end_line, "character": end_char},
+            result = await self.request(
+                "textDocument/codeAction",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "range": {
+                        "start": {"line": line, "character": character},
+                        "end": {"line": end_line, "character": end_char},
+                    },
+                    "context": {"diagnostics": self.diagnostics.get(file, [])},
                 },
-                "context": {"diagnostics": self.diagnostics.get(file, [])},
-            })
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -729,7 +796,9 @@ class LSPClient:
         if not self.supports("signatureHelpProvider"):
             return None
         try:
-            return await self.request("textDocument/signatureHelp", self._pos_params(file, line, character))
+            return await self.request(
+                "textDocument/signatureHelp", self._pos_params(file, line, character)
+            )
         except Exception:
             return None
 
@@ -738,9 +807,12 @@ class LSPClient:
         if path not in self._file_versions:
             return
         with contextlib.suppress(Exception):
-            await self.notify("textDocument/didSave", {
-                "textDocument": {"uri": Path(path).as_uri()},
-            })
+            await self.notify(
+                "textDocument/didSave",
+                {
+                    "textDocument": {"uri": Path(path).as_uri()},
+                },
+            )
 
     async def will_rename_files(self, renames: list[tuple[str, str]]) -> Any:
         """workspace/willRenameFiles — ask server for edits to apply before a file move.
@@ -752,8 +824,7 @@ class LSPClient:
         if not cap.get("willRename"):
             return None
         files = [
-            {"oldUri": Path(old).as_uri(), "newUri": Path(new).as_uri()}
-            for old, new in renames
+            {"oldUri": Path(old).as_uri(), "newUri": Path(new).as_uri()} for old, new in renames
         ]
         try:
             return await self.request("workspace/willRenameFiles", {"files": files}, timeout=10.0)
@@ -766,8 +837,7 @@ class LSPClient:
         if not cap.get("didRename"):
             return
         files = [
-            {"oldUri": Path(old).as_uri(), "newUri": Path(new).as_uri()}
-            for old, new in renames
+            {"oldUri": Path(old).as_uri(), "newUri": Path(new).as_uri()} for old, new in renames
         ]
         with contextlib.suppress(Exception):
             await self.notify("workspace/didRenameFiles", {"files": files})
@@ -780,10 +850,13 @@ class LSPClient:
         if path not in self._file_versions:
             return
         with contextlib.suppress(Exception):
-            await self.notify("textDocument/willSave", {
-                "textDocument": {"uri": Path(path).as_uri()},
-                "reason": 1,   # 1=Manual, 2=AfterDelay, 3=FocusOut
-            })
+            await self.notify(
+                "textDocument/willSave",
+                {
+                    "textDocument": {"uri": Path(path).as_uri()},
+                    "reason": 1,  # 1=Manual, 2=AfterDelay, 3=FocusOut
+                },
+            )
 
     async def will_save_wait_until(self, path: str) -> list:
         """textDocument/willSaveWaitUntil — get edits to apply before writing to disk.
@@ -796,10 +869,14 @@ class LSPClient:
         if path not in self._file_versions:
             return []
         try:
-            result = await self.request("textDocument/willSaveWaitUntil", {
-                "textDocument": {"uri": Path(path).as_uri()},
-                "reason": 1,
-            }, timeout=5.0)
+            result = await self.request(
+                "textDocument/willSaveWaitUntil",
+                {
+                    "textDocument": {"uri": Path(path).as_uri()},
+                    "reason": 1,
+                },
+                timeout=5.0,
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -814,9 +891,12 @@ class LSPClient:
         self._pull_result_ids.pop(path, None)
         self._pull_diag_cache.pop(path, None)
         with contextlib.suppress(Exception):
-            await self.notify("textDocument/didClose", {
-                "textDocument": {"uri": Path(path).as_uri()},
-            })
+            await self.notify(
+                "textDocument/didClose",
+                {
+                    "textDocument": {"uri": Path(path).as_uri()},
+                },
+            )
 
     async def will_create_files(self, paths: list[str]) -> Any:
         """workspace/willCreateFiles — ask server for edits before files are created."""
@@ -861,9 +941,10 @@ class LSPClient:
     async def notify_file_deleted(self, path: str) -> None:
         """workspace/didChangeWatchedFiles (Deleted=3) — file removed from disk."""
         with contextlib.suppress(Exception):
-            await self.notify("workspace/didChangeWatchedFiles", {
-                "changes": [{"uri": Path(path).as_uri(), "type": 3}]
-            })
+            await self.notify(
+                "workspace/didChangeWatchedFiles",
+                {"changes": [{"uri": Path(path).as_uri(), "type": 3}]},
+            )
 
     async def did_change_configuration(self, settings: dict | None = None) -> None:
         """workspace/didChangeConfiguration — notify server that configuration changed.
@@ -878,10 +959,14 @@ class LSPClient:
         if not self.supports("executeCommandProvider"):
             return None
         try:
-            return await self.request("workspace/executeCommand", {
-                "command": command,
-                "arguments": arguments or [],
-            }, timeout=30.0)
+            return await self.request(
+                "workspace/executeCommand",
+                {
+                    "command": command,
+                    "arguments": arguments or [],
+                },
+                timeout=30.0,
+            )
         except Exception:
             return None
 
@@ -889,12 +974,16 @@ class LSPClient:
         if not self.supports("documentFormattingProvider"):
             return []
         from .utils import detect_indent
+
         tab_size, insert_spaces = detect_indent(file)
         try:
-            result = await self.request("textDocument/formatting", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "options": {"tabSize": tab_size, "insertSpaces": insert_spaces},
-            })
+            result = await self.request(
+                "textDocument/formatting",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "options": {"tabSize": tab_size, "insertSpaces": insert_spaces},
+                },
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -905,16 +994,20 @@ class LSPClient:
         if not self.supports("documentRangeFormattingProvider"):
             return []
         from .utils import detect_indent
+
         tab_size, insert_spaces = detect_indent(file)
         try:
-            result = await self.request("textDocument/rangeFormatting", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "range": {
-                    "start": {"line": line, "character": character},
-                    "end": {"line": end_line, "character": end_char},
+            result = await self.request(
+                "textDocument/rangeFormatting",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "range": {
+                        "start": {"line": line, "character": character},
+                        "end": {"line": end_line, "character": end_char},
+                    },
+                    "options": {"tabSize": tab_size, "insertSpaces": insert_spaces},
                 },
-                "options": {"tabSize": tab_size, "insertSpaces": insert_spaces},
-            })
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -923,13 +1016,16 @@ class LSPClient:
         if not self.supports("inlayHintProvider"):
             return []
         try:
-            result = await self.request("textDocument/inlayHint", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "range": {
-                    "start": {"line": start_line, "character": 0},
-                    "end": {"line": end_line, "character": 0},
+            result = await self.request(
+                "textDocument/inlayHint",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "range": {
+                        "start": {"line": start_line, "character": 0},
+                        "end": {"line": end_line, "character": 0},
+                    },
                 },
-            })
+            )
             hints = _as_list(result)
         except Exception:
             return []
@@ -955,9 +1051,12 @@ class LSPClient:
         if not self.supports("codeLensProvider"):
             return []
         try:
-            result = await self.request("textDocument/codeLens", {
-                "textDocument": {"uri": Path(file).as_uri()},
-            })
+            result = await self.request(
+                "textDocument/codeLens",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                },
+            )
             lenses = _as_list(result)
         except Exception:
             return []
@@ -1014,7 +1113,9 @@ class LSPClient:
         if not self.supports("completionProvider"):
             return None
         try:
-            return await self.request("textDocument/completion", self._pos_params(file, line, character))
+            return await self.request(
+                "textDocument/completion", self._pos_params(file, line, character)
+            )
         except Exception:
             return None
 
@@ -1031,7 +1132,9 @@ class LSPClient:
         if not self.supports("documentHighlightProvider"):
             return []
         try:
-            result = await self.request("textDocument/documentHighlight", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/documentHighlight", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -1040,10 +1143,13 @@ class LSPClient:
         if not self.supports("selectionRangeProvider"):
             return []
         try:
-            result = await self.request("textDocument/selectionRange", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "positions": positions,
-            })
+            result = await self.request(
+                "textDocument/selectionRange",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "positions": positions,
+                },
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -1052,9 +1158,12 @@ class LSPClient:
         if not self.supports("foldingRangeProvider"):
             return []
         try:
-            result = await self.request("textDocument/foldingRange", {
-                "textDocument": {"uri": Path(file).as_uri()},
-            })
+            result = await self.request(
+                "textDocument/foldingRange",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                },
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -1063,9 +1172,12 @@ class LSPClient:
         if not self.supports("documentLinkProvider"):
             return []
         try:
-            result = await self.request("textDocument/documentLink", {
-                "textDocument": {"uri": Path(file).as_uri()},
-            })
+            result = await self.request(
+                "textDocument/documentLink",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                },
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -1084,9 +1196,12 @@ class LSPClient:
         if not (isinstance(cap, dict) and cap.get("full")):
             return None
         try:
-            return await self.request("textDocument/semanticTokens/full", {
-                "textDocument": {"uri": Path(file).as_uri()},
-            })
+            return await self.request(
+                "textDocument/semanticTokens/full",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                },
+            )
         except Exception:
             return None
 
@@ -1097,13 +1212,16 @@ class LSPClient:
         if not (isinstance(cap, dict) and cap.get("range")):
             return None
         try:
-            return await self.request("textDocument/semanticTokens/range", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "range": {
-                    "start": {"line": line, "character": character},
-                    "end": {"line": end_line, "character": end_char},
+            return await self.request(
+                "textDocument/semanticTokens/range",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "range": {
+                        "start": {"line": line, "character": character},
+                        "end": {"line": end_line, "character": end_char},
+                    },
                 },
-            })
+            )
         except Exception:
             return None
 
@@ -1113,10 +1231,13 @@ class LSPClient:
         if not (isinstance(full, dict) and full.get("delta")):
             return None
         try:
-            return await self.request("textDocument/semanticTokens/full/delta", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "previousResultId": previous_result_id,
-            })
+            return await self.request(
+                "textDocument/semanticTokens/full/delta",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "previousResultId": previous_result_id,
+                },
+            )
         except Exception:
             return None
 
@@ -1126,17 +1247,23 @@ class LSPClient:
         if not self.supports("inlineValueProvider"):
             return []
         try:
-            result = await self.request("textDocument/inlineValue", {
-                "textDocument": {"uri": Path(file).as_uri()},
-                "range": {
-                    "start": {"line": line, "character": character},
-                    "end": {"line": end_line, "character": end_char},
+            result = await self.request(
+                "textDocument/inlineValue",
+                {
+                    "textDocument": {"uri": Path(file).as_uri()},
+                    "range": {
+                        "start": {"line": line, "character": character},
+                        "end": {"line": end_line, "character": end_char},
+                    },
+                    "context": {
+                        "frameId": 0,
+                        "stoppedLocation": {
+                            "start": {"line": line, "character": character},
+                            "end": {"line": end_line, "character": end_char},
+                        },
+                    },
                 },
-                "context": {"frameId": 0, "stoppedLocation": {
-                    "start": {"line": line, "character": character},
-                    "end": {"line": end_line, "character": end_char},
-                }},
-            })
+            )
             return _as_list(result)
         except Exception:
             return []
@@ -1145,17 +1272,21 @@ class LSPClient:
         if not self.supports("monikerProvider"):
             return []
         try:
-            result = await self.request("textDocument/moniker", self._pos_params(file, line, character))
+            result = await self.request(
+                "textDocument/moniker", self._pos_params(file, line, character)
+            )
             return _as_list(result)
         except Exception:
             return []
 
     async def linked_editing_range(self, file: str, line: int, character: int) -> dict | None:
-        """textDocument/linkedEditingRange — paired ranges that change together (e.g. HTML open/close tags)."""
+"""Linked editing range: paired ranges that change together (e.g., HTML open/close tags)."""
         if not self.supports("linkedEditingRangeProvider"):
             return None
         try:
-            return await self.request("textDocument/linkedEditingRange", self._pos_params(file, line, character))
+            return await self.request(
+                "textDocument/linkedEditingRange", self._pos_params(file, line, character)
+            )
         except Exception:
             return None
 
@@ -1199,6 +1330,7 @@ class LSPClient:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _uri_to_path(uri: str) -> str:
     if uri.startswith("file://"):

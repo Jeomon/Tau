@@ -1,4 +1,5 @@
 """Tests for tau/inference/model/registry.py — ModelRegistry."""
+
 from __future__ import annotations
 
 from tau.inference.model.registry import ModelRegistry

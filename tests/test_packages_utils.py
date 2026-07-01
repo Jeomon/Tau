@@ -1,4 +1,5 @@
 """Tests for tau/packages/utils.py — package source parsing."""
+
 from __future__ import annotations
 
 import sys
@@ -152,11 +153,13 @@ class TestParseSource:
 class TestExtensionsFromPyproject:
     def test_returns_empty_for_missing_file(self, tmp_path):
         from tau.packages.utils import extensions_from_pyproject
+
         result = extensions_from_pyproject(tmp_path / "nonexistent.toml", tmp_path)
         assert result == []
 
     def test_returns_empty_when_no_tau_section(self, tmp_path):
         from tau.packages.utils import extensions_from_pyproject
+
         f = tmp_path / "pyproject.toml"
         f.write_text('[tool.other]\nextensions = ["ext.py"]\n', encoding="utf-8")
         result = extensions_from_pyproject(f, tmp_path)
@@ -165,6 +168,7 @@ class TestExtensionsFromPyproject:
     def test_returns_existing_extension_paths(self, tmp_path):
         from tau.packages.utils import extensions_from_pyproject
         from tau.settings.paths import get_app_name
+
         ext = tmp_path / "my_ext.py"
         ext.write_text("# extension", encoding="utf-8")
         app_name = get_app_name().lower()
@@ -180,6 +184,7 @@ class TestExtensionsFromPyproject:
     def test_skips_nonexistent_extension_files(self, tmp_path):
         from tau.packages.utils import extensions_from_pyproject
         from tau.settings.paths import get_app_name
+
         app_name = get_app_name().lower()
         f = tmp_path / "pyproject.toml"
         f.write_text(
@@ -191,6 +196,7 @@ class TestExtensionsFromPyproject:
 
     def test_invalid_toml_returns_empty(self, tmp_path):
         from tau.packages.utils import extensions_from_pyproject
+
         f = tmp_path / "pyproject.toml"
         f.write_text("not valid toml ][", encoding="utf-8")
         result = extensions_from_pyproject(f, tmp_path)

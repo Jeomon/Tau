@@ -1,4 +1,5 @@
 """Tests for tau/inference/utils.py — API error classification."""
+
 from __future__ import annotations
 
 from tau.inference.utils import ErrorKind, classify_error
@@ -184,6 +185,7 @@ class TestClassifyError:
         # SDK RateLimitError without a status code should still classify as rate limit
         class RateLimitError(Exception):
             pass
+
         exc = RateLimitError("rate limited")
         r = classify_error(exc)
         assert r.kind == ErrorKind.RATE_LIMIT

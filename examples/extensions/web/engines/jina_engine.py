@@ -4,6 +4,7 @@ No extra dependencies required (uses httpx, already in the project).
 An optional API key unlocks higher rate limits and the internal proxy.
 Obtain one at https://jina.ai/reader.
 """
+
 from __future__ import annotations
 
 from urllib.parse import quote
@@ -47,11 +48,13 @@ class JinaSearchEngine(BaseSearchEngine):
         for r in results_raw[:max_results]:
             content = r.get("content", "") or ""
             snippet = r.get("description", "") or content[:300]
-            out.append(result(
-                title=r.get("title", ""),
-                url=r.get("url", ""),
-                snippet=snippet,
-            ))
+            out.append(
+                result(
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=snippet,
+                )
+            )
         return out
 
     async def fetch(self, url: str, timeout: int) -> str:

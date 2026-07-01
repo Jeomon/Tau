@@ -140,6 +140,9 @@ class TestEditTool:
     def setup_method(self):
         self.tool = EditTool()
 
+    def test_result_diff_is_always_expanded(self):
+        assert self.tool.result_expandable is False
+
     def test_replaces_single_anchored_line(self, tmp_path):
         f = tmp_path / "code.py"
         f.write_text("def old_name():\n    pass\n")
@@ -288,6 +291,49 @@ class TestEditTool:
         assert f"{_anchor(2, 'old value')}  -  old value" in rendered
         assert f"{_anchor(2, 'new value')}  +  new value" in rendered
         assert f"{_anchor(1, 'before')}     before" in rendered
+
+    def test_diff_renderer_collapses_only_distant_context(self, tmp_path):
+        f = tmp_path / "diff.py"
+        original_lines = [f"line {number}" for number in range(1, 16)]
+        f.write_text("\n".join(original_lines) + "\n")
+        result = run(
+            self.tool.execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=_anchor(8, "line 8"),
+                    end_anchor=_anchor(8, "line 8"),
+                    new_content="changed line",
+                )
+            )
+        )
+
+        collapsed = "\n".join(
+            _render_edit_result(
+                result.content,
+                ToolRenderOptions(metadata=result.metadata),
+            )
+        )
+
+        assert "line 4" not in collapsed
+        assert "line 5" in collapsed
+        assert "line 11" in collapsed
+        assert "line 12" not in collapsed
+        assert collapsed.count("… (+4 lines)") == 2
+        assert "changed line" in collapsed
+        assert "ctrl+o to expand" in collapsed
+
+        expanded = "\n".join(
+            _render_edit_result(
+                result.content,
+                ToolRenderOptions(expanded=True, metadata=result.metadata),
+            )
+        )
+
+        assert "line 1" in expanded
+        assert "line 15" in expanded
+        assert "… (+" not in expanded
+        assert "ctrl+o to collapse" in expanded
 
     def test_not_a_file(self, tmp_path):
         result = run(

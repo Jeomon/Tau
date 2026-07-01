@@ -461,7 +461,8 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 s = r.get("start", {})
                 e = r.get("end", {})
                 out.append(
-                    f"{s.get('line', 1)}:{s.get('character', 1)} – {e.get('line', 1)}:{e.get('character', 1)}"
+(f"{s.get('line', 1)}:{s.get('character', 1)} – "
+ f"{e.get('line', 1)}:{e.get('character', 1)}")
                 )
             word_pattern = data.get("wordPattern", "")
             if word_pattern:
@@ -480,8 +481,10 @@ class LSPParams(BaseModel):
     )
     file_path: str = Field(
         default="",
-        description="Absolute path to the file to inspect. Required for all ops except workspaceSymbol (a project-wide search).",
-        examples=["/home/user/project/src/main.py", "/home/user/project/src/utils.ts"],
+        description=(
+            "Absolute path to the file to inspect. Required for all ops "
+            "except workspaceSymbol (a project-wide search)."
+        ),
     )
     line: int = Field(
         default=1,

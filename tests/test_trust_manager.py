@@ -1,4 +1,5 @@
 """Tests for tau/trust/manager.py — TrustStore get/set/apply_option."""
+
 from __future__ import annotations
 
 from tau.trust.manager import TrustStore
@@ -67,6 +68,7 @@ class TestTrustStoreSet:
 
     def test_trust_json_does_not_contain_none(self, tmp_path):
         import json
+
         store = _store(tmp_path)
         store.set("/path/a", True)
         store.set("/path/b", None)

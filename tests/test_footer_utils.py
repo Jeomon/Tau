@@ -1,4 +1,5 @@
 """Tests for tau/builtins/extensions/footer/utils.py."""
+
 from __future__ import annotations
 
 import os

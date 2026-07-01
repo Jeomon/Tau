@@ -1,4 +1,5 @@
 """Tests for tau/skills/loader.py — skill loading from files and directories."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,7 +60,9 @@ class TestLoadSkillFromFile:
         assert err is not None
 
     def test_disable_model_invocation_flag(self, tmp_path):
-        f = _write(tmp_path / "s.md", "---\ndescription: d\ndisable-model-invocation: true\n---\nbody")
+        f = _write(
+            tmp_path / "s.md", "---\ndescription: d\ndisable-model-invocation: true\n---\nbody"
+        )
         skill, _ = load_skill_from_file(f)
         assert skill is not None
         assert skill.disable_model_invocation is True

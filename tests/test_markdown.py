@@ -1,4 +1,5 @@
 """Tests for tau/tui/markdown.py — render_markdown output."""
+
 from __future__ import annotations
 
 import re
@@ -223,7 +224,9 @@ class TestTable:
         # every non-empty line that is a table row should start/end with │
         table_lines = [ln for ln in lines if "│" in ln]
         for ln in table_lines:
-            assert ln.startswith("┌") or ln.startswith("├") or ln.startswith("└") or ln.startswith("│")
+            assert (
+                ln.startswith("┌") or ln.startswith("├") or ln.startswith("└") or ln.startswith("│")
+            )
 
     def test_all_content_preserved_on_narrow_terminal(self):
         md = "| Col1 | Col2 |\n|------|------|\n| hello world foo | bar baz qux |"

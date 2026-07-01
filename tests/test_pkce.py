@@ -1,4 +1,5 @@
 """Tests for tau/inference/provider/oauth/pkce.py — PKCE challenge generation."""
+
 from __future__ import annotations
 
 import base64

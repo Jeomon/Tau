@@ -1,4 +1,5 @@
 """Tests for tau/auth/manager.py — credential CRUD and helper functions."""
+
 from __future__ import annotations
 
 from tau.auth.manager import AuthManager, _get_env_api_key, _is_unrecoverable_refresh_error
@@ -13,6 +14,7 @@ def _manager(initial: dict | None = None) -> AuthManager:
 # ---------------------------------------------------------------------------
 # _get_env_api_key
 # ---------------------------------------------------------------------------
+
 
 class TestGetEnvApiKey:
     def test_reads_provider_api_key(self, monkeypatch):
@@ -31,6 +33,7 @@ class TestGetEnvApiKey:
 # ---------------------------------------------------------------------------
 # _is_unrecoverable_refresh_error
 # ---------------------------------------------------------------------------
+
 
 class TestIsUnrecoverableRefreshError:
     def test_invalid_grant_is_unrecoverable(self):
@@ -72,6 +75,7 @@ class TestIsUnrecoverableRefreshError:
 # ---------------------------------------------------------------------------
 # AuthManager CRUD (in-memory)
 # ---------------------------------------------------------------------------
+
 
 class TestAuthManagerFactory:
     def test_creates_empty_manager(self):
@@ -136,6 +140,7 @@ class TestAuthManagerGetSetHasRemove:
 # ---------------------------------------------------------------------------
 # AuthStatus
 # ---------------------------------------------------------------------------
+
 
 class TestAuthManagerAuthStatus:
     def test_configured_when_stored(self):

@@ -37,6 +37,9 @@ used as a proximity hint and the closest occurrence is selected. An empty
 `new_content` deletes the selected range. Because the complete file is rewritten,
 an edit may normalize line endings. Edit-result diffs also display hashline anchors:
 removed lines use their old hashes, while added and context lines use current hashes.
+Edit diffs always show every changed line. By default they include three unchanged
+lines around each change and collapse larger unchanged gaps into `… (+N lines)`;
+Ctrl+O expands those gaps to show the complete file context.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|

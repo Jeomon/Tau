@@ -1,4 +1,5 @@
 """Tests for tau/utils/image_processing.py — ProcessedImage and helpers."""
+
 from __future__ import annotations
 
 import io
@@ -13,6 +14,7 @@ from tau.utils.image_processing import (
 
 try:
     from PIL import Image
+
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -30,33 +32,45 @@ def _make_png(width: int = 100, height: int = 100, color=(255, 0, 0)) -> bytes:
 class TestProcessedImage:
     def test_was_resized_false_when_same_dimensions(self):
         p = ProcessedImage(
-            data=b"", mime_type="image/png",
-            original_width=100, original_height=100,
-            display_width=100, display_height=100,
+            data=b"",
+            mime_type="image/png",
+            original_width=100,
+            original_height=100,
+            display_width=100,
+            display_height=100,
         )
         assert p.was_resized is False
 
     def test_was_resized_true_when_different(self):
         p = ProcessedImage(
-            data=b"", mime_type="image/png",
-            original_width=4000, original_height=3000,
-            display_width=2000, display_height=1500,
+            data=b"",
+            mime_type="image/png",
+            original_width=4000,
+            original_height=3000,
+            display_width=2000,
+            display_height=1500,
         )
         assert p.was_resized is True
 
     def test_dimension_note_none_when_not_resized(self):
         p = ProcessedImage(
-            data=b"", mime_type="image/png",
-            original_width=100, original_height=100,
-            display_width=100, display_height=100,
+            data=b"",
+            mime_type="image/png",
+            original_width=100,
+            original_height=100,
+            display_width=100,
+            display_height=100,
         )
         assert p.dimension_note() is None
 
     def test_dimension_note_contains_scale(self):
         p = ProcessedImage(
-            data=b"", mime_type="image/png",
-            original_width=4000, original_height=4000,
-            display_width=2000, display_height=2000,
+            data=b"",
+            mime_type="image/png",
+            original_width=4000,
+            original_height=4000,
+            display_width=2000,
+            display_height=2000,
         )
         note = p.dimension_note()
         assert note is not None
@@ -130,17 +144,20 @@ class TestProcessImage:
 class TestConvertToPng:
     def test_png_input_returns_png(self):
         from tau.utils.image_processing import convert_to_png
+
         data = _make_png(10, 10)
         result = convert_to_png(data)
         assert result[:4] == b"\x89PNG"
 
     def test_output_is_bytes(self):
         from tau.utils.image_processing import convert_to_png
+
         data = _make_png(5, 5)
         assert isinstance(convert_to_png(data), bytes)
 
     def test_nonempty_output(self):
         from tau.utils.image_processing import convert_to_png
+
         data = _make_png(8, 8)
         assert len(convert_to_png(data)) > 0
 
@@ -148,41 +165,53 @@ class TestConvertToPng:
 class TestEncodingHelpers:
     def test_encode_png_returns_png_bytes(self):
         from PIL import Image
+
         from tau.utils.image_processing import _encode_png
+
         img = Image.new("RGB", (4, 4), color=(255, 0, 0))
         result = _encode_png(img)
         assert result[:4] == b"\x89PNG"
 
     def test_encode_png_rgba_mode(self):
         from PIL import Image
+
         from tau.utils.image_processing import _encode_png
+
         img = Image.new("RGBA", (4, 4), color=(0, 255, 0, 128))
         result = _encode_png(img)
         assert result[:4] == b"\x89PNG"
 
     def test_encode_jpeg_returns_jpeg_bytes(self):
         from PIL import Image
+
         from tau.utils.image_processing import _encode_jpeg
+
         img = Image.new("RGB", (4, 4), color=(0, 0, 255))
         result = _encode_jpeg(img, quality=80)
         assert result[:2] == b"\xff\xd8"
 
     def test_as_rgb_converts_palette_mode(self):
         from PIL import Image
+
         from tau.utils.image_processing import _as_rgb
+
         img = Image.new("P", (4, 4))
         result = _as_rgb(img)
         assert result.mode == "RGB"
 
     def test_as_rgb_leaves_rgb_unchanged(self):
         from PIL import Image
+
         from tau.utils.image_processing import _as_rgb
+
         img = Image.new("RGB", (4, 4))
         assert _as_rgb(img) is img
 
     def test_encode_best_returns_tuple(self):
         from PIL import Image
+
         from tau.utils.image_processing import _encode_best
+
         img = Image.new("RGB", (4, 4))
         data, mime = _encode_best(img, max_bytes=10_000_000, jpeg_quality=80, force_png=False)
         assert isinstance(data, bytes)
@@ -190,7 +219,9 @@ class TestEncodingHelpers:
 
     def test_encode_best_force_png(self):
         from PIL import Image
+
         from tau.utils.image_processing import _encode_best
+
         img = Image.new("RGB", (4, 4))
         _, mime = _encode_best(img, max_bytes=10_000_000, jpeg_quality=80, force_png=True)
         assert mime == "image/png"

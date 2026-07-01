@@ -1,4 +1,5 @@
 """Tests for the /login provider union (tau/tui/commands/auth.py)."""
+
 from __future__ import annotations
 
 from tau.modes.interactive.commands.auth import _all_providers

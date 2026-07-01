@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import os
 import re
 import tempfile
-import uuid
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 # ----------------------------------------------------------------------
 # Constants (mirrored from the original implementation)
@@ -80,7 +77,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 # ----------------------------------------------------------------------
 # UI‑related helpers (used by the tool implementation)
 # ----------------------------------------------------------------------
-def _format_messages(messages: list["PeerMessage"]) -> str:
+def _format_messages(messages: list[PeerMessage]) -> str:
     """Render one or more PeerMessage objects as short paragraphs."""
     sections = []
     for m in messages:
@@ -167,7 +164,7 @@ def _render_peer_result(content: str, opts: Any) -> list[str]:
     return lines
 
 
-def _argument_completions(peer: "Peer", text: str) -> list[Any]:
+def _argument_completions(peer: Peer, text: str) -> list[Any]:
     from tau.tui.autocomplete import AutocompleteItem
 
     actions = {

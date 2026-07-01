@@ -1,23 +1,27 @@
 """Tests for tau/tui/keybindings.py — KeybindingsManager, Key constants."""
+
 from __future__ import annotations
 
 import pytest
 
-from tau.tui.input import KeyEvent
 from tau.tui.input import (
     KeybindingsManager,
+    KeyEvent,
     configure_keybindings,
     get_keybindings,
 )
 
 
-def _key(key: str, ctrl: bool = False, alt: bool = False, shift: bool = False, meta: bool = False) -> KeyEvent:
+def _key(
+    key: str, ctrl: bool = False, alt: bool = False, shift: bool = False, meta: bool = False
+) -> KeyEvent:
     return KeyEvent(key=key, ctrl=ctrl, alt=alt, shift=shift, meta=meta)
 
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
     import tau.tui.input as kb
+
     original = kb._keybindings_instance
     yield
     kb._keybindings_instance = original

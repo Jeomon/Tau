@@ -1,4 +1,5 @@
 """Tests for tau/inference/api/text/utils.py — OpenAI/Anthropic format converters."""
+
 from __future__ import annotations
 
 import json
@@ -87,9 +88,7 @@ class TestOpenaiAssistantContent:
         assert len(tools) == 1
 
     def test_multiple_texts_concatenated(self):
-        text, _ = openai_assistant_content(
-            [TextContent(content="foo"), TextContent(content="bar")]
-        )
+        text, _ = openai_assistant_content([TextContent(content="foo"), TextContent(content="bar")])
         assert text == "foobar"
 
 
@@ -99,6 +98,7 @@ class TestOpenaiResponseFormat:
 
     def test_structured_format_returned(self):
         from tau.inference.types import StructuredResponseFormat
+
         fmt = StructuredResponseFormat(name="output", schema={"type": "object"})
         result = openai_response_format(fmt)
         assert result is not None
@@ -108,6 +108,7 @@ class TestOpenaiResponseFormat:
 
     def test_dict_schema_passed_through(self):
         from tau.inference.types import StructuredResponseFormat
+
         schema = {"type": "object", "properties": {"x": {"type": "integer"}}}
         fmt = StructuredResponseFormat(name="resp", schema=schema)
         result = openai_response_format(fmt)
@@ -120,6 +121,7 @@ class TestAnthropicOutputConfig:
 
     def test_structured_format_returned(self):
         from tau.inference.types import StructuredResponseFormat
+
         fmt = StructuredResponseFormat(name="out", schema={"type": "string"})
         result = anthropic_output_config(fmt)
         assert result is not None

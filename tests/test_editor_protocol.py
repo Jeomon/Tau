@@ -1,4 +1,5 @@
 """The editor (prompt) protocols and TextInput's conformance to them."""
+
 from __future__ import annotations
 
 from tau.tui.components.editor import EditorComponent, EditorExtras
@@ -62,6 +63,7 @@ class TestPartialEditor:
         class NotAnEditor:
             def render(self, width: int) -> list[str]:
                 return [""]
+
             # no handle_input / text / cursor / submit / callbacks
 
         assert not isinstance(NotAnEditor(), EditorComponent)

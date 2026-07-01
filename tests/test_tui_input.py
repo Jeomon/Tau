@@ -1,4 +1,5 @@
 """Tests for tau/tui/input.py — KeyEvent, _normalize_keyid, matches_key, Key constants."""
+
 from __future__ import annotations
 
 from tau.tui.input import (
@@ -224,23 +225,27 @@ class TestBgColorEvent:
 class TestDecodeModifier:
     def test_no_modifier(self):
         from tau.tui.input import _decode_modifier
+
         shift, alt, ctrl, meta = _decode_modifier(1)
         assert (shift, alt, ctrl, meta) == (False, False, False, False)
 
     def test_shift_only(self):
         from tau.tui.input import _decode_modifier
+
         shift, alt, ctrl, meta = _decode_modifier(2)
         assert shift is True
         assert alt is False
 
     def test_ctrl_shift(self):
         from tau.tui.input import _decode_modifier
+
         shift, alt, ctrl, meta = _decode_modifier(6)  # bits: shift=1, ctrl=4 → val=5 → mod=6
         assert shift is True
         assert ctrl is True
 
     def test_all_modifiers(self):
         from tau.tui.input import _decode_modifier
+
         # shift(1) + alt(2) + ctrl(4) + meta(8) = 15, mod = 16
         shift, alt, ctrl, meta = _decode_modifier(16)
         assert all([shift, alt, ctrl, meta])
@@ -249,44 +254,54 @@ class TestDecodeModifier:
 class TestIsComplete:
     def test_plain_char_is_complete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("a") is True
 
     def test_bare_esc_is_incomplete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1b") is None
 
     def test_esc_letter_is_complete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1ba") is True
 
     def test_csi_incomplete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1b[") is None
 
     def test_csi_complete_arrow(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1b[A") is True
 
     def test_osc_complete_bel(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1b]11;rgb:ffff/ffff/ffff\x07") is True
 
     def test_osc_incomplete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1b]11;rgb:ffff") is None
 
     def test_ss3_complete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1bOP") is True
 
     def test_ss3_incomplete(self):
         from tau.tui.input import _is_complete
+
         assert _is_complete("\x1bO") is None
 
 
 class TestInputParser:
     def _parser(self):
         from tau.tui.input import InputParser
+
         return InputParser()
 
     def _key(self, raw: str) -> KeyEvent:
@@ -341,18 +356,21 @@ class TestInputParser:
 
     def test_focus_in(self):
         from tau.tui.input import FocusEvent
+
         events = self._parser().feed("\x1b[I")
         assert isinstance(events[0], FocusEvent)
         assert events[0].focused is True
 
     def test_focus_out(self):
         from tau.tui.input import FocusEvent
+
         events = self._parser().feed("\x1b[O")
         assert isinstance(events[0], FocusEvent)
         assert events[0].focused is False
 
     def test_osc_background_color(self):
         from tau.tui.input import BgColorEvent
+
         events = self._parser().feed("\x1b]11;rgb:ffff/0000/8080\x07")
         assert isinstance(events[0], BgColorEvent)
         assert events[0].r == 255
@@ -360,6 +378,7 @@ class TestInputParser:
 
     def test_bracketed_paste(self):
         from tau.tui.input import PasteEvent
+
         events = self._parser().feed("\x1b[200~hello world\x1b[201~")
         assert isinstance(events[0], PasteEvent)
         assert events[0].text == "hello world"
@@ -385,6 +404,7 @@ class TestInputParser:
 
     def test_mouse_sgr_press(self):
         from tau.tui.input import MouseEvent
+
         events = self._parser().feed("\x1b[<0;10;5M")
         assert isinstance(events[0], MouseEvent)
         assert events[0].pressed is True
@@ -410,6 +430,24 @@ class TestInputParser:
     def test_char_then_escape_sequence(self):
         events = self._parser().feed("a\x1b[A")
         assert [e.key for e in events if isinstance(e, KeyEvent)] == ["a", "up"]
+
+    def test_batched_escape_sequences_are_split(self):
+        events = self._parser().feed("\x1b[A\x1b[B")
+        assert [e.key for e in events if isinstance(e, KeyEvent)] == ["up", "down"]
+
+    def test_escape_sequence_then_text_is_split(self):
+        events = self._parser().feed("\x1b[Aa")
+        assert [e.key for e in events if isinstance(e, KeyEvent)] == ["up", "a"]
+
+    def test_batched_paste_then_key_is_split(self):
+        from tau.tui.input import PasteEvent
+
+        events = self._parser().feed("\x1b[200~hello\x1b[201~a")
+        assert len(events) == 2
+        assert isinstance(events[0], PasteEvent)
+        assert events[0].text == "hello"
+        assert isinstance(events[1], KeyEvent)
+        assert events[1].key == "a"
 
     def test_flush_empty(self):
         assert self._parser().flush() == []

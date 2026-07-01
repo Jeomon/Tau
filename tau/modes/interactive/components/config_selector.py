@@ -25,7 +25,6 @@ class ConfigEntry:
     path_display: str = ""  # pretty path shown in parentheses
 
 
-
 ENABLED_SYMBOL = "✔"
 DISABLED_SYMBOL = "✖"
 

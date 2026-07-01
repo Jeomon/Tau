@@ -16,6 +16,7 @@ Normalized result keys (all optional, default ""):
     publisher  Publisher (books).
     info       Extra free-form info (books).
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -23,16 +24,24 @@ from enum import StrEnum
 
 
 class SearchMode(StrEnum):
-    text   = "text"
-    news   = "news"
+    text = "text"
+    news = "news"
     images = "images"
     videos = "videos"
-    books  = "books"
+    books = "books"
 
 
 _RESULT_KEYS = (
-    "title", "url", "snippet", "source", "date",
-    "image", "duration", "author", "publisher", "info",
+    "title",
+    "url",
+    "snippet",
+    "source",
+    "date",
+    "image",
+    "duration",
+    "author",
+    "publisher",
+    "info",
 )
 
 

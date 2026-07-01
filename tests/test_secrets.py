@@ -1,4 +1,5 @@
 """Tests for tau/utils/secrets.py — secret reference resolution."""
+
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,5 @@
 """Tests for tau/utils/version_check.py — PEP 440 version comparison."""
+
 from __future__ import annotations
 
 from tau.utils.version_check import _is_newer

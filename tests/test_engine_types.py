@@ -1,4 +1,5 @@
 """Tests for tau/engine/types.py — SteeringMode, FollowupMode, message queues."""
+
 from __future__ import annotations
 
 import asyncio

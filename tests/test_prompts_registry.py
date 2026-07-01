@@ -1,12 +1,17 @@
 """Tests for tau/prompts/registry.py — PromptRegistry."""
+
 from __future__ import annotations
 
 from tau.prompts.registry import PromptRegistry
 from tau.prompts.types import PromptTemplate
 
 
-def _template(name: str, content: str = "Hello $ARGUMENTS", description: str = "A prompt") -> PromptTemplate:
-    return PromptTemplate(name=name, description=description, content=content, file_path="/fake/prompt.md")
+def _template(
+    name: str, content: str = "Hello $ARGUMENTS", description: str = "A prompt"
+) -> PromptTemplate:
+    return PromptTemplate(
+        name=name, description=description, content=content, file_path="/fake/prompt.md"
+    )
 
 
 def _registry(*templates: PromptTemplate) -> PromptRegistry:

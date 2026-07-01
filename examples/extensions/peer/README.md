@@ -37,3 +37,7 @@ Optional extension settings:
   "auto_join": true
 }
 ```
+
+If the configured name is already owned by another live Tau process, automatic
+startup joins with a process-suffixed name. Explicit `peer join` requests remain
+strict and report the collision.

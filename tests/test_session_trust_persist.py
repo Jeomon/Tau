@@ -4,6 +4,7 @@ Verifies that the session directory is NOT created on disk until the user
 grants project trust, and IS created (with buffered entries flushed) once
 enable_persist() is called.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -126,9 +127,7 @@ class TestTrustPendingPersistFlag:
 
     def test_persist_false_no_session_file(self, tmp_path):
         """When persist=False, session_file must remain None until enable_persist()."""
-        sm = SessionManager(
-            cwd=tmp_path, session_dir=tmp_path / "sessions", persist=False
-        )
+        sm = SessionManager(cwd=tmp_path, session_dir=tmp_path / "sessions", persist=False)
         assert sm.session_file is None
 
     def test_persist_false_then_approve_creates_dir(self, tmp_path):

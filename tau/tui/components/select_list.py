@@ -107,6 +107,26 @@ class SelectList[T](Component):
             self._selected = (self._selected + 1) % len(self._filtered)
             self._clamp_scroll()
 
+    def page_up(self) -> None:
+        if self._filtered:
+            self._selected = max(0, self._selected - self._max_visible)
+            self._clamp_scroll()
+
+    def page_down(self) -> None:
+        if self._filtered:
+            self._selected = min(len(self._filtered) - 1, self._selected + self._max_visible)
+            self._clamp_scroll()
+
+    def move_top(self) -> None:
+        if self._filtered:
+            self._selected = 0
+            self._clamp_scroll()
+
+    def move_bottom(self) -> None:
+        if self._filtered:
+            self._selected = len(self._filtered) - 1
+            self._clamp_scroll()
+
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
@@ -175,6 +195,26 @@ class SelectList[T](Component):
 
         if kb.matches(event, "tui.select.up"):
             self.move_up()
+            return True
+
+        if kb.matches(event, "tui.select.down"):
+            self.move_down()
+            return True
+
+        if kb.matches(event, "tui.select.page_up"):
+            self.page_up()
+            return True
+
+        if kb.matches(event, "tui.select.page_down"):
+            self.page_down()
+            return True
+
+        if kb.matches(event, "tui.select.top"):
+            self.move_top()
+            return True
+
+        if kb.matches(event, "tui.select.bottom"):
+            self.move_bottom()
             return True
 
         if kb.matches(event, "tui.select.down"):

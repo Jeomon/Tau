@@ -1,4 +1,5 @@
 """Built-in community themes extension — registers catppuccin, dracula, gruvbox, and nord."""
+
 from __future__ import annotations
 
 

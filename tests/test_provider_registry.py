@@ -1,4 +1,5 @@
 """Tests for tau/inference/provider/registry.py — provider registries."""
+
 from __future__ import annotations
 
 from tau.inference.provider.registry import (

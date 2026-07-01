@@ -1,4 +1,5 @@
 """Tests for tau/inference/api/text/utils.py — message format conversion utilities."""
+
 from __future__ import annotations
 
 import json
@@ -64,9 +65,11 @@ class TestOpenaiMessagesToChat:
         assert result == [{"role": "assistant", "content": "Hi there!"}]
 
     def test_assistant_with_tool_calls(self):
-        msg = AssistantMessage(contents=[
-            ToolCallContent(id="call_1", name="my_tool", args={"x": 1}),
-        ])
+        msg = AssistantMessage(
+            contents=[
+                ToolCallContent(id="call_1", name="my_tool", args={"x": 1}),
+            ]
+        )
         result = openai_messages_to_chat([msg])
         assert len(result) == 1
         entry = result[0]
@@ -116,9 +119,11 @@ class TestAnthropicMessagesToList:
         assert result == [{"role": "assistant", "content": [{"type": "text", "text": "Hi"}]}]
 
     def test_thinking_content_included_when_supported(self):
-        msg = AssistantMessage(contents=[
-            ThinkingContent(content="my thought", signature="sig123"),
-        ])
+        msg = AssistantMessage(
+            contents=[
+                ThinkingContent(content="my thought", signature="sig123"),
+            ]
+        )
         _, result = anthropic_messages_to_list([msg], supports_thinking=True)
         entry = result[0]["content"][0]
         assert entry["type"] == "thinking"
@@ -126,10 +131,12 @@ class TestAnthropicMessagesToList:
         assert entry["signature"] == "sig123"
 
     def test_thinking_content_merged_when_not_supported(self):
-        msg = AssistantMessage(contents=[
-            ThinkingContent(content="thought", signature="sig"),
-            TextContent(content="reply"),
-        ])
+        msg = AssistantMessage(
+            contents=[
+                ThinkingContent(content="thought", signature="sig"),
+                TextContent(content="reply"),
+            ]
+        )
         _, result = anthropic_messages_to_list([msg], supports_thinking=False)
         content = result[0]["content"]
         # Should be merged into a single text block
@@ -165,7 +172,9 @@ class TestAnthropicApplyMessageCache:
         last = result[-1]["content"]
         second_last = result[-2]["content"]
         assert isinstance(last, list) and last[-1].get("cache_control") == {"type": "ephemeral"}
-        assert isinstance(second_last, list) and second_last[-1].get("cache_control") == {"type": "ephemeral"}
+        assert isinstance(second_last, list) and second_last[-1].get("cache_control") == {
+            "type": "ephemeral"
+        }
 
     def test_does_not_mutate_original(self):
         msgs = self._make_msgs(3)

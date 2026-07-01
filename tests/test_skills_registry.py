@@ -1,4 +1,5 @@
 """Tests for tau/skills/registry.py — SkillRegistry."""
+
 from __future__ import annotations
 
 from tau.skills.registry import SkillRegistry

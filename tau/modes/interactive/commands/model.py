@@ -109,9 +109,7 @@ def open_model_selector(ctx: CommandContext, modality: str | None = None) -> Non
             )
 
             def apply_voice(voice: str) -> None:
-                asyncio.ensure_future(
-                    _apply_model(ctx, mod, model_id, provider, voice=voice)
-                )
+                asyncio.ensure_future(_apply_model(ctx, mod, model_id, provider, voice=voice))
 
             ctx.layout.open_voice_selector(
                 getattr(model, "name", None) or model_id,

@@ -1,4 +1,5 @@
 """Exa engine (neural search, https://exa.ai). Requires an API key + ``exa-py``."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +21,7 @@ class ExaSearchEngine(BaseSearchEngine):
     def _get_client(self):
         if self._client is None:
             from exa_py import Exa
+
             self._client = Exa(self._api_key)
         return self._client
 
@@ -37,14 +39,17 @@ class ExaSearchEngine(BaseSearchEngine):
             out: list[dict] = []
             for r in response.results:
                 snippet = (getattr(r, "text", "") or "").strip()
-                out.append(result(
-                    title=getattr(r, "title", "") or "",
-                    url=getattr(r, "url", "") or "",
-                    snippet=snippet,
-                    source=getattr(r, "author", "") or "",
-                    date=getattr(r, "published_date", "") or "",
-                ))
+                out.append(
+                    result(
+                        title=getattr(r, "title", "") or "",
+                        url=getattr(r, "url", "") or "",
+                        snippet=snippet,
+                        source=getattr(r, "author", "") or "",
+                        date=getattr(r, "published_date", "") or "",
+                    )
+                )
             return out
+
         return await asyncio.to_thread(_search)
 
     async def fetch(self, url: str, timeout: int) -> str:
@@ -54,4 +59,5 @@ class ExaSearchEngine(BaseSearchEngine):
             if not response.results:
                 return ""
             return getattr(response.results[0], "text", "") or ""
+
         return await asyncio.to_thread(_fetch)

@@ -32,6 +32,7 @@ persists it and reloads this extension, so it takes effect live.
 Requires: ddgs (default engine) — declared in manifest.json. The exa / tavily
 engines additionally need the `exa-py` / `tavily-python` packages installed.
 """
+
 from __future__ import annotations
 
 import sys
@@ -39,9 +40,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from tools.search import WebSearchTool
-from tools.fetch import WebFetchTool
 from engines import build_engine
+from tools.fetch import WebFetchTool
+from tools.search import WebSearchTool
 
 
 def register(tau) -> None:

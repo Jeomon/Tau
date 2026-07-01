@@ -1,4 +1,5 @@
 """Tests for tau/message/utils.py — MIME detection, encoding, and message filtering."""
+
 from __future__ import annotations
 
 import base64
@@ -182,15 +183,19 @@ class TestStripUnusableTrailingAssistant:
 class TestVideoToBase64:
     def test_bytes_returns_base64_string(self):
         from tau.message.utils import video_to_base64
+
         data = b"\x00\x01\x02\x03"
         b64, mime = video_to_base64(data)
         import base64
+
         assert base64.b64decode(b64) == data
         assert mime == "video/mp4"
 
     def test_base64_string_passthrough(self):
-        from tau.message.utils import video_to_base64
         import base64
+
+        from tau.message.utils import video_to_base64
+
         b64 = base64.b64encode(b"fake video").decode()
         result, mime = video_to_base64(b64)
         assert result == b64
@@ -198,9 +203,11 @@ class TestVideoToBase64:
 
     def test_file_path_reads_file(self, tmp_path):
         from tau.message.utils import video_to_base64
+
         f = tmp_path / "v.mp4"
         f.write_bytes(b"fake video bytes")
         b64, mime = video_to_base64(f"file:{f}")
         import base64
+
         assert base64.b64decode(b64) == b"fake video bytes"
         assert mime == "video/mp4"

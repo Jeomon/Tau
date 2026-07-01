@@ -3,9 +3,11 @@
 Add a new backend by subclassing :class:`BaseSearchEngine` and registering it
 in ``_BUILDERS`` below.
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .base import BaseSearchEngine, SearchMode, result
 from .ddgs_engine import DDGSearchEngine
@@ -14,9 +16,15 @@ from .jina_engine import JinaSearchEngine
 from .tavily_engine import TavilySearchEngine
 
 __all__ = [
-    "BaseSearchEngine", "SearchMode", "result",
-    "DDGSearchEngine", "ExaSearchEngine", "JinaSearchEngine", "TavilySearchEngine",
-    "build_engine", "get_nested",
+    "BaseSearchEngine",
+    "SearchMode",
+    "result",
+    "DDGSearchEngine",
+    "ExaSearchEngine",
+    "JinaSearchEngine",
+    "TavilySearchEngine",
+    "build_engine",
+    "get_nested",
 ]
 
 
@@ -33,6 +41,7 @@ def get_nested(d: dict, path: str, default: Any = "") -> Any:
 def _resolve_secret(value: str) -> str:
     """Resolve an api_key value: literal, ``$ENV_VAR``, or ``!shell-command``."""
     from tau.utils.secrets import resolve_secret
+
     return resolve_secret(value)
 
 
@@ -74,10 +83,10 @@ def _build_jina(config: dict) -> BaseSearchEngine:
 
 
 _BUILDERS: dict[str, Callable[[dict], BaseSearchEngine]] = {
-    "ddgs":   _build_ddgs,
-    "exa":    _build_exa,
+    "ddgs": _build_ddgs,
+    "exa": _build_exa,
     "tavily": _build_tavily,
-    "jina":   _build_jina,
+    "jina": _build_jina,
 }
 
 
