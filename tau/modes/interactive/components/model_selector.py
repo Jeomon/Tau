@@ -2,10 +2,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tau.inference.model.types import Modality
+
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
 VISIBLE_ROWS = 10
+
+
+def _format_token_count(tokens: int) -> str:
+    """Format a token count compactly for the model picker."""
+    if tokens >= 1_000_000:
+        return f"{tokens / 1_000_000:.2f}".rstrip("0").rstrip(".") + "M"
+    if tokens >= 1_000:
+        return f"{tokens / 1_000:.0f}K"
+    return str(tokens)
+
+
+def _format_modalities(modalities: list[Modality]) -> str:
+    """Format model modalities as a compact plus-separated label."""
+    return "+".join(modality.value for modality in modalities) or "unknown"
 
 
 class _Section:
@@ -124,17 +140,18 @@ class ModelSelector:
     search, scope toggle, navigation, and rendering. Designed to be wrapped in
     InlineSelector(kind="model").
 
-    Keys (handled by the layout): ↑/↓ navigate the list, ←/→ switch modality,
-    Tab toggles scoped/all, Enter selects, Esc cancels.
+    Keys (handled by the layout): ↑/↓ navigate the list, ←/→ toggle provider
+    scope, Tab switches modality, Enter selects, Esc cancels.
 
     Visual:
-      Text │ Voice │ Speak │ Image          ←/→ modality
-      Scope: all | scoped  tab: toggle
+      Text │ Voice │ Speak │ Image
+      Scope: all | scoped  ←/→: toggle
       Search: <query>█
       → whisper-1 [openai] ✓
         gpt-4o-transcribe [openai]
       (1/6)
-      Model Name: Whisper 1
+      Model Name: GPT-5 (thinking)
+      Context: 128K · Modalities: text+image → text
     """
 
     def __init__(
@@ -278,9 +295,7 @@ class ModelSelector:
                 model_id = m.id.ljust(max_id)
 
                 if is_sel:
-                    lines.append(
-                        f"  {accent('>')} {emphasis(model_id)}  {accent(badge)}{check}"
-                    )
+                    lines.append(f"  {accent('>')} {emphasis(model_id)}  {accent(badge)}{check}")
                 else:
                     lines.append(f"    {muted(model_id)}  {muted(badge)}{check}")
 
@@ -294,7 +309,16 @@ class ModelSelector:
         if sec.filtered:
             sel_m = sec.filtered[sec.selected]
             name = getattr(sel_m, "name", None) or sel_m.id
-            lines.append("  " + muted(name))
+            if sec.modality == "text" and sel_m.thinking:
+                name += " (thinking)"
+            lines.append("  " + emphasis(name))
+            inputs = _format_modalities(sel_m.input)
+            outputs = _format_modalities(sel_m.output)
+            if sec.modality == "text":
+                context = _format_token_count(sel_m.context_window)
+                lines.append(f"  Context: {context} · Modalities: {inputs} → {outputs}")
+            else:
+                lines.append(f"  Modalities: {inputs} → {outputs}")
         else:
             lines.append("  " + muted("—"))
         lines.append(divider)
