@@ -17,10 +17,11 @@ class PromptOptions(BaseModel):
     cwd: Path
     tools: list[Tool] = Field(default_factory=list)
 
-    # Identity override — loaded from SYSTEM.md if present, else default coding agent identity.
-    custom_prompt: str | None = None
+    # Identity-layer override. Unlike RuntimeConfig.system_prompt, this does not
+    # bypass the remaining generated prompt sections.
+    identity_prompt: str | None = None
 
-    # Appended verbatim after all other sections (APPEND_SYSTEM.md).
+    # Appended verbatim after all generated sections (APPEND_SYSTEM.md).
     append_prompt: str | None = None
 
     # Extra strings appended after append_prompt (used by extensions).

@@ -146,7 +146,7 @@ path and committed with an atomic replacement.
 
 ## Tool Constraints
 
-Add a `.agents.md` file to your project root to give the agent standing instructions about tool usage:
+Add an `AGENTS.md` file to your project to give the agent standing instructions about tool usage:
 
 ```markdown
 # Project Instructions
@@ -157,7 +157,9 @@ Add a `.agents.md` file to your project root to give the agent standing instruct
 - Use `edit` for small changes, `write` for new files
 ```
 
-Tau searches for `.agents.md`, `agents.md`, or `~/.tau/agents.md`. The file is automatically loaded at session start and injected into the agent's context.
+Tau searches case-insensitively for `AGENTS.md` or `CLAUDE.md` from the Git
+repository root through the current directory. See
+[Project Context Files](project-context.md) for precedence and trust behavior.
 
 ---
 

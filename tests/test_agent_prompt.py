@@ -1,4 +1,5 @@
 """Tests for tau/agent/prompt/builder.py — prompt construction."""
+
 from __future__ import annotations
 
 import platform
@@ -7,9 +8,11 @@ from pathlib import Path
 from tau.agent.prompt.builder import (
     _DEFAULT_IDENTITY,
     _GENERAL_GUIDELINES,
+    _PRECEDENCE_GUIDELINES,
     PromptBuilder,
     _detect_os,
     _detect_shell,
+    _redact_remote_url,
     load_project_context_file,
     load_project_context_files,
 )
@@ -25,6 +28,7 @@ def _opts(cwd: Path, **kwargs) -> PromptOptions:
 # ---------------------------------------------------------------------------
 # load_project_context_file
 # ---------------------------------------------------------------------------
+
 
 class TestLoadProjectContextFile:
     def test_returns_none_when_no_file(self, tmp_path):
@@ -54,16 +58,23 @@ class TestLoadProjectContextFile:
         assert load_project_context_file(tmp_path) is None
 
     def test_case_insensitive_detection(self, tmp_path):
-        (tmp_path / "agents.md").write_text("content")
-        # Should not match AGENTS.MD/AGENTS.md on case-sensitive filesystems
-        # We test that supported variants work
-        load_project_context_file(tmp_path)
-        # lowercase may or may not match depending on OS — just verify no exception
+        (tmp_path / "AgEnTs.Md").write_text("content")
+        result = load_project_context_file(tmp_path)
+        assert result is not None
+        assert result[1].name == "AgEnTs.Md"
+
+    def test_agents_file_takes_priority_over_claude_file(self, tmp_path):
+        (tmp_path / "claude.md").write_text("claude content")
+        (tmp_path / "agents.md").write_text("agents content")
+        result = load_project_context_file(tmp_path)
+        assert result is not None
+        assert result[0] == "agents content"
 
 
 # ---------------------------------------------------------------------------
 # _detect_os
 # ---------------------------------------------------------------------------
+
 
 class TestDetectOs:
     def test_returns_nonempty_string(self):
@@ -83,6 +94,7 @@ class TestDetectOs:
 # ---------------------------------------------------------------------------
 # _detect_shell
 # ---------------------------------------------------------------------------
+
 
 class TestDetectShell:
     def test_returns_nonempty_string(self):
@@ -107,16 +119,18 @@ class TestDetectShell:
 # PromptBuilder
 # ---------------------------------------------------------------------------
 
+
 class TestPromptBuilderIdentity:
     def test_default_identity_used_when_no_custom(self, tmp_path):
         builder = PromptBuilder(_opts(tmp_path))
         prompt = builder.build()
         assert _DEFAULT_IDENTITY in prompt
+        assert prompt.startswith("You are Tau,")
 
-    def test_custom_prompt_overrides_identity(self, tmp_path):
-        builder = PromptBuilder(_opts(tmp_path, custom_prompt="Custom system prompt."))
+    def test_identity_prompt_overrides_identity(self, tmp_path):
+        builder = PromptBuilder(_opts(tmp_path, identity_prompt="Custom identity."))
         prompt = builder.build()
-        assert "Custom system prompt." in prompt
+        assert "Custom identity." in prompt
         assert _DEFAULT_IDENTITY not in prompt
 
     def test_system_md_overrides_default(self, tmp_path):
@@ -141,8 +155,12 @@ class TestPromptBuilderGuidelines:
         for guideline in _GENERAL_GUIDELINES:
             assert guideline in prompt
 
-    def test_guidelines_present_with_custom_prompt(self, tmp_path):
-        builder = PromptBuilder(_opts(tmp_path, custom_prompt="Custom identity."))
+    def test_precedence_guidelines_present(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path)).build()
+        assert _PRECEDENCE_GUIDELINES in prompt
+
+    def test_guidelines_present_with_identity_prompt(self, tmp_path):
+        builder = PromptBuilder(_opts(tmp_path, identity_prompt="Custom identity."))
         prompt = builder.build()
         assert "# Guidelines" in prompt
         assert _GENERAL_GUIDELINES[0] in prompt
@@ -156,6 +174,7 @@ class TestPromptBuilderFooter:
 
     def test_footer_contains_date(self, tmp_path):
         from datetime import date
+
         builder = PromptBuilder(_opts(tmp_path))
         prompt = builder.build()
         assert date.today().isoformat() in prompt
@@ -278,6 +297,10 @@ class TestPromptBuilderAppend:
         assert "Extra 1" in prompt
         assert "Extra 2" in prompt
 
+    def test_appends_are_last(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, append_prompt="LAST INSTRUCTION")).build()
+        assert prompt.endswith("LAST INSTRUCTION")
+
     def test_append_system_md_loaded(self, tmp_path):
         tau_dir = tmp_path / ".tau"
         tau_dir.mkdir()
@@ -285,3 +308,21 @@ class TestPromptBuilderAppend:
         builder = PromptBuilder(_opts(tmp_path))
         prompt = builder.build()
         assert "Appended instructions." in prompt
+
+
+class TestRemoteUrlRedaction:
+    def test_redacts_https_credentials(self):
+        assert (
+            _redact_remote_url("https://user:secret@example.com/org/repo.git")
+            == "https://***@example.com/org/repo.git"
+        )
+
+    def test_preserves_remote_without_credentials(self):
+        remote = "git@github.com:org/repo.git"
+        assert _redact_remote_url(remote) == remote
+
+    def test_redacts_query_parameters(self):
+        assert (
+            _redact_remote_url("https://example.com/org/repo.git?token=secret")
+            == "https://example.com/org/repo.git?***"
+        )

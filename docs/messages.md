@@ -64,7 +64,8 @@ Output from executing a tool.
 
 ### System Message
 
-Context and instructions for the agent. Loaded from `.agents.md` file in project or home directory.
+Context and instructions for the agent. Tau constructs this separately from
+persisted session messages and may include trusted project context files.
 
 ```python
 {
@@ -145,17 +146,18 @@ Use `@` in the editor to fuzzy-search files.
 
 ## System Instructions
 
-Tau loads system instructions from `.agents.md` files in your project or home directory:
+Tau loads project instructions from context files:
 
-**Project-level** (priority):
-- `.agents.md` or `agents.md` in project root or parent directories
-- Injected into context for the current project
+**Within a Git repository:**
 
-**Global**:
-- `~/.tau/agents.md` in home directory
-- Used as fallback for all projects
+- `AGENTS.md` or `CLAUDE.md`, matched case-insensitively
+- One file per directory from the repository root through the current directory
+- Files closer to the current directory take precedence
 
-Example `.agents.md`:
+Outside a Git repository, only the current directory is checked. Context files
+are loaded only for trusted projects.
+
+Example `AGENTS.md`:
 
 ```markdown
 # Project Instructions
@@ -167,6 +169,7 @@ Example `.agents.md`:
 ```
 
 Instructions are automatically injected into every turn sent to the LLM.
+See [Project Context Files](project-context.md) for complete behavior.
 
 ## Message Delivery
 

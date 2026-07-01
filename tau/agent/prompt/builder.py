@@ -6,6 +6,7 @@ import shutil
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from tau.agent.prompt.types import PromptOptions
 from tau.settings.paths import (
@@ -16,22 +17,36 @@ from tau.settings.paths import (
     get_system_prompt_path,
 )
 
+_CONTEXT_FILE_NAMES = ("agents.md", "claude.md")
+
+
+def _context_file_paths(directory: Path) -> list[Path]:
+    """Return supported context files in deterministic priority order."""
+    try:
+        entries = [entry for entry in directory.iterdir() if entry.is_file()]
+    except OSError:
+        return []
+
+    paths: list[Path] = []
+    for preferred_name in _CONTEXT_FILE_NAMES:
+        matches = [entry for entry in entries if entry.name.casefold() == preferred_name]
+        matches.sort(key=lambda entry: (entry.name != preferred_name.upper(), entry.name))
+        paths.extend(matches)
+    return paths
+
 
 def load_project_context_file(cwd: Path) -> tuple[str, Path] | None:
     """Load AGENTS.md or CLAUDE.md from project directory.
 
     Returns (content, path) tuple if found, None otherwise.
-    Looks for AGENTS.md first, then CLAUDE.md (case-insensitive).
+    Looks for AGENTS.md first, then CLAUDE.md, case-insensitively.
     """
-    candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
-    for filename in candidates:
-        path = cwd / filename
-        if path.is_file():
-            try:
-                content = path.read_text(encoding="utf-8").strip()
-                return (content, path) if content else None
-            except OSError:
-                pass
+    for path in _context_file_paths(cwd):
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+            return (content, path) if content else None
+        except OSError:
+            pass
     return None
 
 
@@ -57,29 +72,26 @@ def load_project_context_files(
     Returns (content, path) tuples ordered root-first so cwd instructions appear
     last and take highest precedence when the model reads top-to-bottom.
     """
-    candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]
 
     def _load(directory: Path) -> tuple[str, Path] | None:
         seen_files: set[tuple[int, int]] = set()
-        for filename in candidates:
-            path = directory / filename
-            if path.is_file():
-                try:
-                    stat = path.stat()
-                except OSError as exc:
-                    if on_error is not None:
-                        on_error(path, exc)
-                    continue
-                identity = (stat.st_dev, stat.st_ino)
-                if identity in seen_files:
-                    continue
-                seen_files.add(identity)
-                try:
-                    content = path.read_text(encoding="utf-8").strip()
-                    return (content, path) if content else None
-                except OSError as exc:
-                    if on_error is not None:
-                        on_error(path, exc)
+        for path in _context_file_paths(directory):
+            try:
+                stat = path.stat()
+            except OSError as exc:
+                if on_error is not None:
+                    on_error(path, exc)
+                continue
+            identity = (stat.st_dev, stat.st_ino)
+            if identity in seen_files:
+                continue
+            seen_files.add(identity)
+            try:
+                content = path.read_text(encoding="utf-8").strip()
+                return (content, path) if content else None
+            except OSError as exc:
+                if on_error is not None:
+                    on_error(path, exc)
         return None
 
     resolved = cwd.resolve()
@@ -110,23 +122,40 @@ def load_project_context_files(
 
 
 _DEFAULT_IDENTITY = """\
-You are a coding agent operating inside Tau, a coding agent harness. You help users by
-reading files, executing commands, editing code, and writing new files.
+You are Tau, an agentic coding assistant operating through the Tau CLI framework. You help
+users understand and modify software by reading files, executing commands, editing code,
+and writing new files.
 
 You have strong software engineering skills. You think carefully before making changes,
 and follow the existing style and conventions of the project.
 """
 
 _GENERAL_GUIDELINES = [
-    "If a task is ambiguous, ask a precise, clarifying question before proceeding.",
+    (
+        "When ambiguity materially affects the result or would make an action risky, "
+        "ask a precise clarifying question; otherwise state a reasonable assumption and proceed."
+    ),
     ("Do only what the task asks; don't add features, refactors, or abstractions beyond scope."),
     "Write comments when the *why* is non-obvious — well-named code explains itself.",
-    "Keep responses short, concise, and direct; don't summarize what you just did.",
+    (
+        "Keep responses concise and direct. After making changes, report the outcome, "
+        "the relevant files, and validation results without narrating routine steps."
+    ),
     (
         "Prioritize accuracy over agreement — investigate before confirming, and "
         "disagree when the evidence calls for it."
     ),
 ]
+
+_PRECEDENCE_GUIDELINES = """\
+## Instruction Precedence
+
+- The identity establishes your baseline role.
+- Appended user or extension instructions have the highest priority for behavioral guidance.
+- Project instructions override general Tau and tool guidelines when they conflict.
+- For nested project instructions, the file closest to the current working directory wins.
+- Tool guidelines apply unless a higher-priority instruction explicitly conflicts with them.
+"""
 
 
 _GIT_STATUS_MAX_LINES = 30
@@ -182,6 +211,8 @@ def _git_status(cwd: Path) -> str:
         remote = next((r.url for r in repo.remotes if r.name == "origin"), None)
         if remote is None and repo.remotes:
             remote = repo.remotes[0].url
+        if remote is not None:
+            remote = _redact_remote_url(remote)
 
         status = repo.git.status("--porcelain")
         if status:
@@ -219,19 +250,36 @@ def _git_status(cwd: Path) -> str:
     return "\n".join(parts)
 
 
+def _redact_remote_url(url: str) -> str:
+    """Remove credentials from a Git remote URL before prompt inclusion."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "(redacted invalid remote URL)"
+    netloc = parsed.netloc
+    if "@" in netloc:
+        host = netloc.rsplit("@", maxsplit=1)[1]
+        netloc = f"***@{host}"
+    query = "***" if parsed.query else ""
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, parsed.fragment))
+
+
 class PromptBuilder:
     """
     Assembles the system prompt from layered sources.
 
     Layers in order:
-      Identity              — SYSTEM.md if present, else built-in identity;
-                              --system bypasses entirely
+      Identity              — SYSTEM.md if present, else built-in identity
+      Guidelines            — general behavior and explicit precedence
       Tools section         — auto-generated from tool list (descriptions + guidelines)
       Tau docs              — tau documentation and examples
       Project Instructions  — AGENTS.md or CLAUDE.md from project (if present)
       Skills section        — available skills
-      APPEND_SYSTEM.md      — verbatim append (user additions)
-      Footer                — cwd, date
+      Git snapshot          — branch, redacted remote, status, recent commits
+      Environment           — cwd, OS, architecture, shell, date
+      APPEND_SYSTEM.md      — verbatim append, deliberately last
+
+    RuntimeConfig.system_prompt and the CLI --system option bypass this builder.
     """
 
     def __init__(self, options: PromptOptions) -> None:
@@ -249,11 +297,11 @@ class PromptBuilder:
         docs = self._docs_section()
         project_context = self._project_context_section()
         skills = self._skills_section()
-        append = self._append()
         git = self._git_section()
         footer = self._footer()
+        append = self._append()
         return (
-            identity + guidelines + tools + docs + project_context + skills + append + git + footer
+            identity + guidelines + tools + docs + project_context + skills + git + footer + append
         )
 
     # ------------------------------------------------------------------
@@ -261,8 +309,8 @@ class PromptBuilder:
     # ------------------------------------------------------------------
 
     def _identity(self) -> str:
-        if self._opts.custom_prompt:
-            return self._opts.custom_prompt
+        if self._opts.identity_prompt:
+            return self._opts.identity_prompt
 
         system_md = self._read_path(get_system_prompt_path(self._opts.cwd))
         if system_md:
@@ -272,7 +320,7 @@ class PromptBuilder:
 
     def _guidelines_section(self) -> str:
         bullets = "\n".join(f"- {g}" for g in _GENERAL_GUIDELINES)
-        return f"\n\n# Guidelines\n\n{bullets}"
+        return f"\n\n# Guidelines\n\n{bullets}\n\n{_PRECEDENCE_GUIDELINES}"
 
     def _tools_section(self) -> str:
         tools = self._opts.tools
@@ -326,7 +374,8 @@ class PromptBuilder:
         )
         return (
             "\n\n# Project Instructions\n\n"
-            "Project-specific guidelines (follow before general Tau guidelines):\n\n"
+            "Project-specific guidelines. Files are ordered from the repository root "
+            "toward the current directory; later files take precedence:\n\n"
             "<project_context>\n\n" + blocks + "</project_context>"
         )
 

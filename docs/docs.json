@@ -43,6 +43,10 @@
         {
           "title": "Tools",
           "path": "tools.md"
+        },
+        {
+          "title": "Project Context",
+          "path": "project-context.md"
         }
       ]
     },

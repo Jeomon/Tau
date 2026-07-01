@@ -27,6 +27,7 @@ Tau allows you to:
 - [Sessions](sessions.md) - Session persistence, branching, compaction, JSONL format
 - [Inference Providers](inference-providers.md) - Supported LLMs and provider setup
 - [Tools](tools.md) - Tool registry, built-in tools, execution model
+- [Project Context Files](project-context.md) - Repository-specific agent instructions
 - [CLI Reference](cli-reference.md) - All command-line options and run modes
 
 ## Configuration & Customization

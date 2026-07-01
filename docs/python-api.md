@@ -46,7 +46,7 @@ asyncio.run(main())
 | `tools` | `list[Tool]` | Extra tools registered as `"runtime"` source |
 | `tool_allowlist` | `set[str] \| None` | Enable only these built-in, runtime, or extension tool names |
 | `exclude_tools` | `set[str]` | Tool names disabled after applying the allowlist |
-| `system_prompt` | `str` | Custom system prompt (overrides the default) |
+| `system_prompt` | `str` | Complete system-prompt replacement; bypasses generated tools, project context, skills, Git, environment, and append sections |
 | `disable_context_files` | `bool` | Skip AGENTS.md / CLAUDE.md discovery and loading |
 | `project_trusted` | `bool \| None` | Override project trust detection (`None` uses trust-store and policy defaults) |
 | `resource_loader` | `ResourceLoader \| None` | Replace resource discovery and registry loading |

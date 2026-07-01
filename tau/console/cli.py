@@ -98,7 +98,7 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     "-s",
     default=None,
     metavar="TEXT",
-    help="Inject additional text into the system prompt.",
+    help="Replace the generated system prompt completely.",
 )
 @click.option(
     "--ephemeral", "-e", is_flag=True, default=False, help="Don't save this session to disk."

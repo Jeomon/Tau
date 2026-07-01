@@ -5,9 +5,13 @@ Tau automatically discovers and includes project-specific instructions from `AGE
 ## Overview
 
 When you run Tau in a project directory, it:
+
 1. Looks for `AGENTS.md` or `CLAUDE.md` (case-insensitive)
-2. If found and the project is trusted, includes the content in the system prompt
-3. Prioritizes project instructions above general Tau guidelines
+2. Walks from the Git repository root through the current directory
+3. If the project is trusted, includes one context file from each directory
+4. Prioritizes the closest file above parent files, general Tau rules, and tool guidelines
+
+Outside a Git repository, Tau checks only the current directory.
 
 This is useful for:
 - **Coding standards** — Define how the agent should write code
@@ -53,13 +57,14 @@ Or use `CLAUDE.md` for the same purpose (they're equivalent).
 
 ### File priority
 
-Tau checks for these files in order (case-insensitive):
-1. `AGENTS.md`
-2. `AGENTS.MD`
-3. `CLAUDE.md`
-4. `CLAUDE.MD`
+Tau checks for these names case-insensitively, in this order:
 
-The first one found is used.
+1. `AGENTS.md`
+2. `CLAUDE.md`
+
+The first one found in each directory is used. When multiple directories provide
+instructions, Tau orders them from the repository root to the current directory.
+The closest file takes precedence if instructions conflict.
 
 ## Trust & Security
 
@@ -140,7 +145,8 @@ Project-specific guidelines and rules (from AGENTS.md):
 
 [Content of AGENTS.md here]
 
-Follow project-specific instructions before general Tau guidelines.
+Files are ordered from the repository root toward the current directory; later
+files take precedence.
 ```
 
 The agent sees this and prioritizes project instructions when making decisions.
@@ -220,14 +226,15 @@ The agent sees this and prioritizes project instructions when making decisions.
 ## Common Issues
 
 **Project context not appearing**
-- Check the file exists in the project root
-- Verify filename is exactly `AGENTS.md` or `CLAUDE.md`
+
+- Check the file exists between the repository root and current directory
+- Verify the filename is `AGENTS.md` or `CLAUDE.md`, in any letter case
 - Check project trust: `tau --approve` or `/trust` command
 - Use `--no-context-files` to confirm it's being loaded
 
 **Want to see if it's loaded**
-- Run with `--verbose` flag for logging (when available)
-- Check system prompt in `/session` command
+
+- Inspect the effective system prompt through the Python API or an extension context
 
 **Trust decisions not persisting**
 - By default, trust decisions are stored in `~/.tau/trust.json`
@@ -239,7 +246,7 @@ The agent sees this and prioritizes project instructions when making decisions.
 | Approach | When to use | Pros | Cons |
 |----------|-----------|------|------|
 | **AGENTS.md/CLAUDE.md** | Team project guidelines | Lightweight, auto-discovered, version-controlled | Limited to per-project |
-| **Custom prompt (`--system-prompt`)** | One-off instructions | Flexible | Lost after session |
+| **Custom prompt (`--system`)** | Complete one-off prompt replacement | Flexible | Bypasses generated tools, project context, skills, Git, environment, and append sections |
 | **settings.json** | User/global preferences | Persistent | Not project-specific |
 | **Environment variables** | Sensitive data, deployment-specific | Secure, flexible | Not human-readable |
 

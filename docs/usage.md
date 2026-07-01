@@ -171,8 +171,13 @@ tau --ephemeral      # temporary session, nothing saved
 
 Tau loads context files at startup to give the agent standing instructions. It searches for:
 
-1. `.agents.md` or `agents.md` in current directory and parent directories (up to home)
-2. `~/.tau/agents.md` in the user's home
+1. `AGENTS.md` or `CLAUDE.md`, matched case-insensitively
+2. Every directory from the Git repository root through the current directory
+
+Outside a Git repository, Tau checks only the current directory. It loads at most
+one context file per directory, preferring `AGENTS.md` over `CLAUDE.md`. Files
+closer to the current directory take precedence over files closer to the repository
+root.
 
 Use context files to provide system-level instructions:
 
