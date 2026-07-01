@@ -232,7 +232,9 @@ class ResumeSelector:
         """Return file_size for a session, cached per session id."""
         sid = session.id
         if sid not in self._meta_cache:
-            size = _file_size(Path(session.path) if not isinstance(session.path, Path) else session.path)
+            path = session.path
+            session_path = path if isinstance(path, Path) else Path(path)
+            size = _file_size(session_path)
             self._meta_cache[sid] = size
         return self._meta_cache[sid]
 
@@ -290,10 +292,9 @@ class ResumeSelector:
                 is_del_target = sel_path == self._confirming_delete
 
                 # Named sessions show the name; unnamed show a short ID prefix
-                if session.name:
-                    display = session.name[: max(12, width - 6)]
-                else:
-                    display = session.id[:12]
+                display = (
+                    session.name[: max(12, width - 6)] if session.name else session.id[:12]
+                )
 
                 size = self._session_meta(session)
 

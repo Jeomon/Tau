@@ -30,8 +30,6 @@ from tau.engine.types import (
 )
 from tau.hooks.engine import (
     AgentEndReason,
-    ContextEvent,
-    ContextEventResult,
     MessageRollbackEvent,
     ToolResultEvent,
     ToolResultEventResult,
@@ -57,7 +55,6 @@ from tau.message.types import (
     ToolCallContent,
     ToolMessage,
     ToolResultContent,
-    UserMessage,
     Usage,
 )
 from tau.tool.types import ToolContext, ToolExecutionMode, ToolInvocation, ToolResult

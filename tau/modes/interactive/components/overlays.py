@@ -1,4 +1,4 @@
-"""Overlay components — picker overlay, prompt overlay, text overlay, editor overlay, form overlay."""
+"""Overlay components."""
 
 from __future__ import annotations
 
