@@ -98,7 +98,7 @@ class GitHubCopilotChatAPI(BaseAPI):
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         """Stream LLMEvents from the GitHub Copilot Chat API."""
-        chat_messages = openai_messages_to_chat(context.messages)
+        chat_messages = openai_messages_to_chat(context.messages, model)
         if context.system_prompt:
             chat_messages = [{"role": "system", "content": context.system_prompt}] + chat_messages
         params = self._build_params(model, chat_messages, tools=context.tools or None)

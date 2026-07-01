@@ -34,6 +34,7 @@ class Model:
     cost: Cost = field(default_factory=Cost)
     thinking: bool = False
     thinking_level: ThinkingLevel | None = None
+    thinking_format: str | None = None
     context_window: int = 0
     max_input_tokens: int | None = None
     max_output_tokens: int = 16384

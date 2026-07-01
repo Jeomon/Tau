@@ -60,18 +60,20 @@ class TestOpenaiUserContent:
 
 class TestOpenaiAssistantContent:
     def test_text_only(self):
-        text, tools = openai_assistant_content([TextContent(content="hello")])
+        text, tools, thinking = openai_assistant_content([TextContent(content="hello")])
         assert text == "hello"
         assert tools == []
+        assert thinking == ""
 
     def test_empty_returns_none_text(self):
-        text, tools = openai_assistant_content([])
+        text, tools, thinking = openai_assistant_content([])
         assert text is None
         assert tools == []
+        assert thinking == ""
 
     def test_tool_call(self):
         tc = ToolCallContent(id="call1", name="search", args={"q": "test"})
-        text, tools = openai_assistant_content([tc])
+        text, tools, _thinking = openai_assistant_content([tc])
         assert text is None
         assert len(tools) == 1
         assert tools[0]["id"] == "call1"
@@ -83,12 +85,14 @@ class TestOpenaiAssistantContent:
             TextContent(content="I'll search"),
             ToolCallContent(id="c1", name="fn", args={}),
         ]
-        text, tools = openai_assistant_content(items)
+        text, tools, _thinking = openai_assistant_content(items)
         assert text == "I'll search"
         assert len(tools) == 1
 
     def test_multiple_texts_concatenated(self):
-        text, _ = openai_assistant_content([TextContent(content="foo"), TextContent(content="bar")])
+        text, _tools, _thinking = openai_assistant_content(
+            [TextContent(content="foo"), TextContent(content="bar")]
+        )
         assert text == "foobar"
 
 

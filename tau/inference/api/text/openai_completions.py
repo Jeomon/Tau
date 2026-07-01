@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
 
+from tau.inference.api.text import dialect
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
     openai_messages_to_chat,
@@ -25,7 +26,6 @@ from tau.inference.types import (
     TextStartEvent,
     ThinkingDeltaEvent,
     ThinkingEndEvent,
-    ThinkingLevel,
     ThinkingStartEvent,
     ToolCallDeltaEvent,
     ToolCallEndEvent,
@@ -39,15 +39,6 @@ from tau.message.types import (
 
 if TYPE_CHECKING:
     from tau.tool.types import Tool
-
-_REASONING_EFFORT: dict[ThinkingLevel, str] = {
-    ThinkingLevel.Minimal: "low",
-    ThinkingLevel.Low: "low",
-    ThinkingLevel.Medium: "medium",
-    ThinkingLevel.High: "high",
-    ThinkingLevel.XHigh: "high",
-    ThinkingLevel.Max: "high",
-}
 
 _STOP_REASON: dict[str, StopReason] = {
     "stop": StopReason.Stop,
@@ -105,11 +96,6 @@ class OpenAICompletionsAPI(BaseAPI):
         }
         if self.options.max_tokens is not None:
             params["max_completion_tokens"] = self.options.max_tokens
-        if (
-            self.options.thinking_level is not None
-            and self.options.thinking_level != ThinkingLevel.Off
-        ):
-            params["reasoning_effort"] = _REASONING_EFFORT[self.options.thinking_level]
 
         if tools:
             params["tools"] = [
@@ -131,7 +117,7 @@ class OpenAICompletionsAPI(BaseAPI):
         """Stream LLMEvents from the OpenAI Chat Completions API."""
         if self.options.api_key:
             self._client.api_key = self.options.api_key
-        chat_messages = openai_messages_to_chat(context.messages)
+        chat_messages = openai_messages_to_chat(context.messages, model)
         if context.system_prompt:
             chat_messages = [{"role": "system", "content": context.system_prompt}] + chat_messages
         params = self._build_params(model, chat_messages, tools=context.tools or None)
@@ -143,6 +129,14 @@ class OpenAICompletionsAPI(BaseAPI):
             modified = self.options.on_payload(params)
             if modified is not None:
                 params = modified
+
+        # Dialect-specific reasoning params (chat_template_kwargs, thinking, etc.)
+        # aren't part of the SDK's typed create() signature, so they must ride in
+        # extra_body rather than be spread as keyword arguments.
+        extra_body = {
+            **dialect.build_reasoning_request_params(model, self.options),
+            **(self.options.extra_params or {}),
+        }
 
         text_started = False
         text_buf = ""
@@ -167,7 +161,7 @@ class OpenAICompletionsAPI(BaseAPI):
             **params,
             stream=True,
             stream_options={"include_usage": True},
-            extra_body=self.options.extra_params or {},
+            extra_body=extra_body,
         ) as sdk_stream:
             async for chunk in sdk_stream:
                 if self._cancelled():
@@ -185,10 +179,7 @@ class OpenAICompletionsAPI(BaseAPI):
 
                 delta = choice.delta
 
-                # Handle reasoning/thinking content (often used by NVIDIA and some OpenAI models)
-                reasoning = getattr(delta, "reasoning_content", None) or getattr(
-                    delta, "thinking", None
-                )
+                reasoning = dialect.extract_thinking_delta(delta)
                 if reasoning:
                     if not thinking_started:
                         yield ThinkingStartEvent(thinking=ThinkingContent(content=""))

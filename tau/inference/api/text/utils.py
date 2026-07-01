@@ -100,16 +100,25 @@ def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
     return parts
 
 
-def openai_assistant_content(content_items: list) -> tuple[str | None, list[dict[str, Any]]]:
-    """Convert assistant message contents to OpenAI chat format (completions/copilot)."""
-    from tau.message.types import TextContent, ToolCallContent
+def openai_assistant_content(
+    content_items: list,
+) -> tuple[str | None, list[dict[str, Any]], str]:
+    """Convert assistant message contents to OpenAI chat format (completions/copilot).
+
+    Returns (text, tool_calls, thinking_text) — thinking_text is the concatenated
+    ThinkingContent, left to the caller to re-attach per the model's dialect.
+    """
+    from tau.message.types import TextContent, ThinkingContent, ToolCallContent
 
     text_parts: list[str] = []
+    thinking_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     for item in content_items:
         match item:
             case TextContent():
                 text_parts.append(item.content)
+            case ThinkingContent():
+                thinking_parts.append(item.content)
             case ToolCallContent():
                 tool_calls.append(
                     {
@@ -118,7 +127,7 @@ def openai_assistant_content(content_items: list) -> tuple[str | None, list[dict
                         "function": {"name": item.name, "arguments": json.dumps(item.args)},
                     }
                 )
-    return "".join(text_parts) or None, tool_calls
+    return "".join(text_parts) or None, tool_calls, "".join(thinking_parts)
 
 
 def openai_response_format(response_format: Any | None) -> dict[str, Any] | None:
@@ -138,8 +147,14 @@ def openai_response_format(response_format: Any | None) -> dict[str, Any] | None
     }
 
 
-def openai_messages_to_chat(messages: list) -> list[dict[str, Any]]:
-    """Convert a message list to OpenAI chat completions format."""
+def openai_messages_to_chat(messages: list, model: Any = None) -> list[dict[str, Any]]:
+    """Convert a message list to OpenAI chat completions format.
+
+    ``model`` (when given) drives dialect-specific replay handling, e.g.
+    re-attaching stored thinking as ``reasoning_content`` for models that
+    require it on every assistant message.
+    """
+    from tau.inference.api.text import dialect
     from tau.message.types import (
         AssistantMessage,
         SystemMessage,
@@ -160,12 +175,14 @@ def openai_messages_to_chat(messages: list) -> list[dict[str, Any]]:
                     continue
                 result.append({"role": "user", "content": openai_user_content(msg.contents)})
             case AssistantMessage():
-                text, tool_calls = openai_assistant_content(msg.contents)
+                text, tool_calls, thinking_text = openai_assistant_content(msg.contents)
                 entry: dict[str, Any] = {"role": "assistant"}
                 if text is not None:
                     entry["content"] = text
                 if tool_calls:
                     entry["tool_calls"] = tool_calls
+                if model is not None:
+                    dialect.attach_reasoning_for_replay(entry, model, thinking_text)
                 result.append(entry)
             case ToolMessage():
                 for content in msg.contents:

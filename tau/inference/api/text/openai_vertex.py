@@ -180,7 +180,7 @@ class OpenAIVertexAPI(BaseAPI):
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         client = self._make_client(model)
-        chat_messages = openai_messages_to_chat(context.messages)
+        chat_messages = openai_messages_to_chat(context.messages, model)
         if context.system_prompt:
             chat_messages = [{"role": "system", "content": context.system_prompt}] + chat_messages
         params = self._build_params(model, chat_messages, tools=context.tools or None)
