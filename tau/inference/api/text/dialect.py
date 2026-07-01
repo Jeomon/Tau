@@ -83,7 +83,9 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
         return {"enable_thinking": bool(effort)}
 
     if tag == QWEN_CHAT_TEMPLATE:
-        return {"chat_template_kwargs": {"enable_thinking": bool(effort), "preserve_thinking": True}}
+        return {
+            "chat_template_kwargs": {"enable_thinking": bool(effort), "preserve_thinking": True}
+        }
 
     if tag == CHAT_TEMPLATE:
         return {"chat_template_kwargs": {"enable_thinking": bool(effort)}}
@@ -96,7 +98,9 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
 
     if tag == OPENROUTER:
         # OpenRouter normalizes reasoning across providers via a nested object.
-        return {"reasoning": {"effort": effort or "none"}}
+        # Models marked as reasoning-capable may expose reasoning as mandatory;
+        # sending effort="none" makes those endpoints reject the request.
+        return {"reasoning": {"effort": effort}} if effort else {"reasoning": {"enabled": True}}
 
     if tag == ANT_LING:
         return {"reasoning": {"effort": effort}} if effort else {}

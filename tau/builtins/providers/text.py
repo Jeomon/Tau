@@ -48,9 +48,7 @@ api_providers = [
         id="openrouter",
         name="OpenRouter",
         api="openai_completions",
-        options=LLMOptions(
-            base_url="https://openrouter.ai/api/v1", extra_params={"include_reasoning": True}
-        ),
+        options=LLMOptions(base_url="https://openrouter.ai/api/v1"),
     ),
     APIProvider(
         id="perplexity",
