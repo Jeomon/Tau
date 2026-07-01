@@ -134,6 +134,11 @@ successful result into Markdown rendering with
 `metadata={"_render_format": "markdown"}`. Tau renders the Markdown before
 applying the standard preview/collapse shell. Error results remain plain text.
 
+Extensions that enrich model-facing result text can keep the original TUI text
+in `_display_content`. They can append structured UI sections through
+`_extra_blocks`, where each block contains `lines` and can optionally set its
+own `preview_lines` collapse threshold.
+
 ---
 
 ## Adding Custom Tools

@@ -180,3 +180,58 @@ class TestMarkdownToolResult:
         ]
 
         assert any("Article" in line and "##" not in line for line in lines)
+
+
+class TestToolResultExtraBlocks:
+    def test_block_can_override_collapsed_preview_lines(self):
+        message = ToolMessage.from_result(
+            ToolResultContent(
+                id="call",
+                content="updated file",
+                metadata={
+                    "_extra_blocks": [
+                        {
+                            "lines": ["1 error", "ERROR [1:1] broken"],
+                            "preview_lines": 1,
+                        }
+                    ]
+                },
+            )
+        )
+        block = MessageBlock(message)
+
+        collapsed = [strip_ansi(line) for line in block.render(80)]
+
+        assert any("1 error" in line for line in collapsed)
+        assert not any("broken" in line for line in collapsed)
+        assert any("ctrl+o to expand" in line for line in collapsed)
+
+        block.toggle_expanded()
+        expanded = [strip_ansi(line) for line in block.render(80)]
+
+        assert sum("broken" in line for line in expanded) == 1
+        assert any("ctrl+o to collapse" in line for line in expanded)
+
+    def test_display_content_does_not_replace_model_content(self):
+        message = ToolMessage.from_result(
+            ToolResultContent(
+                id="call",
+                content="updated file\n\nERROR [1:1] broken",
+                metadata={
+                    "_display_content": "updated file",
+                    "_extra_blocks": [
+                        {
+                            "lines": ["1 error", "ERROR [1:1] broken"],
+                            "preview_lines": 1,
+                        }
+                    ],
+                },
+            )
+        )
+        block = MessageBlock(message)
+        block.toggle_expanded()
+
+        expanded = [strip_ansi(line) for line in block.render(80)]
+
+        assert message.contents[0].content.endswith("ERROR [1:1] broken")
+        assert sum("ERROR [1:1] broken" in line for line in expanded) == 1

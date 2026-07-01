@@ -509,6 +509,7 @@ class MessageBlock:
         if not isinstance(item, ToolResultContent):
             return []
 
+        display_content = item.metadata.get("_display_content", item.content)
         tool = self._tool_lookup(tool_name) if (self._tool_lookup and tool_name) else None
         if tool is not None and tool.render_result is not None:
             from tau.tool.types import ToolRenderOptions
@@ -520,7 +521,7 @@ class MessageBlock:
                 metadata=item.metadata,
                 theme=self._theme,
             )
-            custom = tool.render_result(item.content, opts)
+            custom = tool.render_result(str(display_content), opts)
             if custom:
                 # A custom renderer must return one terminal line per element.
                 # Defensively flatten any embedded newlines so the differential
@@ -567,7 +568,7 @@ class MessageBlock:
 
         t = self._theme
         color_fn = t.tool_result_err if item.is_error else t.tool_result_ok
-        content = str(item.content).strip() if item.content else ""
+        content = str(display_content).strip() if display_content else ""
         all_lines = content.split("\n") if content else []
         if not all_lines:
             rendered = [color_fn("(no output)")]
@@ -635,7 +636,7 @@ def _render_extra_blocks(
             block_lines,
             expanded=expanded,
             expandable=True,
-            preview_lines=preview_lines,
+            preview_lines=block.get("preview_lines", preview_lines),
             theme=theme,
         )
         lines.append(f"{_RESULT_INDENT}{theme.dim('└')} {rendered[0]}")
