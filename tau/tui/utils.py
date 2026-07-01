@@ -219,19 +219,50 @@ def wrap(text: str, width: int) -> list[str]:
 
 
 def _wrap_single_line(line: str, width: int) -> list[str]:
-    """Wrap a single line (no embedded newlines) to width columns."""
+    """Wrap a single line (no embedded newlines) to width columns.
+
+    Continuation lines are re-indented to match the source line's leading
+    whitespace, so wrapped code/output keeps its original alignment.
+    """
     if visible_width(line) <= width:
         return [line]
+
+    indent = _leading_whitespace(line)
+    indent_width = visible_width(indent)
+    if indent_width >= width:
+        indent, indent_width = "", 0
 
     lines: list[str] = []
     tracker = _AnsiStateTracker()
     remaining = line
+    first = True
 
     while remaining:
-        chunk, remaining = _split_at_columns(remaining, width, tracker)
+        chunk_width = width if first else width - indent_width
+        chunk, remaining = _split_at_columns(remaining, chunk_width, tracker)
+        if not first and indent:
+            chunk = indent + chunk
         lines.append(chunk)
+        first = False
 
     return lines
+
+
+def _leading_whitespace(line: str) -> str:
+    """Return the leading run of spaces/tabs in line, skipping ANSI codes."""
+    ws: list[str] = []
+    i = 0
+    while i < len(line):
+        m = _ANSI_RE.match(line, i)
+        if m:
+            i += len(m.group(0))
+            continue
+        ch = line[i]
+        if ch not in (" ", "\t"):
+            break
+        ws.append(ch)
+        i += 1
+    return "".join(ws)
 
 
 def _split_at_columns(text: str, width: int, tracker: _AnsiStateTracker) -> tuple[str, str]:
