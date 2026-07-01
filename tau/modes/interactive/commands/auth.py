@@ -238,7 +238,7 @@ def open_api_key_provider_selector(ctx: CommandContext) -> None:
             label=f"API key for {name}  (literal, $ENV_VAR, or !command):",
             on_commit=lambda key: _save_api_key(ctx, provider_id, name, key),
             on_cancel=lambda: ctx.notify("Login cancelled."),
-            secret=True,
+            secret=False,
         )
 
     ctx.layout.open_oauth_selector("login", items, on_pick, lambda: ctx.notify("Login cancelled."))

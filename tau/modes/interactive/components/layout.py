@@ -19,6 +19,7 @@ from tau.tui.input import (
     InputEvent,
     KeyEvent,
     MouseEvent,
+    PasteEvent,
 )  # MouseEvent kept for type narrowing
 from tau.tui.theme import LayoutTheme
 
@@ -98,6 +99,9 @@ class TextPrompt:
         """Handle a key event. Always returns True — prompt is modal."""
         if not self.active:
             return False
+        if isinstance(event, PasteEvent):
+            self._value += event.text.replace("\r", "").replace("\n", "")
+            return True
         if not isinstance(event, KeyEvent):
             return True
         match event.key:
@@ -403,18 +407,19 @@ class Layout(Component):
         if self._selectors.handle_input(event):
             return True
 
+        # Text prompt (accepts paste in addition to key events)
+        if self._prompt.active:
+            if isinstance(event, (KeyEvent, PasteEvent)):
+                self._prompt.handle_input(event)
+                self._tui.request_render()
+            return True
+
         if isinstance(event, KeyEvent):
             # Settings panel: Esc closes
             if self._settings_panel is not None:
                 if event.key == "escape":
                     self._settings_panel = None
                     self._tui.request_render()
-                return True
-
-            # Text prompt
-            if self._prompt.active:
-                self._prompt.handle_input(event)
-                self._tui.request_render()
                 return True
 
             # File picker navigation (active when '@' is in progress)
