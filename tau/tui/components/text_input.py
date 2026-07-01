@@ -1,15 +1,34 @@
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 import unicodedata as _ud
 from bisect import bisect_right
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import grapheme
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent, get_keybindings
-from tau.tui.utils import BOLD, CURSOR_MARKER, DIM, RESET, cursor_block, visible_width
+from tau.tui.utils import (
+    BOLD,
+    CURSOR_MARKER,
+    DIM,
+    RESET,
+    cursor_block,
+    is_window_focused,
+    visible_width,
+)
+
+if TYPE_CHECKING:
+    from tau.tui.tui import TUI
+
+# Cursor blinks only after this many seconds of no keystrokes, so it stays
+# solid while actively typing. Half-cycle length (on/off) once blinking.
+_BLINK_IDLE_DELAY = 0.5
+_BLINK_HALF_PERIOD = 0.7
 
 # Matches any atomic input token at end-of-string (for backspace)
 # or start-of-string (for delete-forward).
@@ -65,6 +84,7 @@ class TextInput(Component):
         on_paste_text: Callable[[str], None] | None = None,
         on_history_transform: Callable[[str], str] | None = None,
         padding_x: int = 0,
+        tui: TUI | None = None,
     ) -> None:
         self._prefix = prefix
         self._placeholder = placeholder
@@ -92,6 +112,15 @@ class TextInput(Component):
         # extensions (e.g. voice input) may swap in an animated/coloured cell and
         # restore this default afterwards.
         self.cursor_cell: Callable[[str], str] = cursor_block
+
+        # Blink state: solid while typing, blinks after a short idle period.
+        # Only meaningful while the terminal window has focus — see
+        # _effective_cursor_cell(). Requires `tui` for request_render(); with
+        # no tui the cursor just stays solid (no blink task is started).
+        self._tui = tui
+        self._blink_on: bool = True
+        self._last_activity: float = time.monotonic()
+        self._blink_task: asyncio.Task[None] | None = None
 
         self._history: list[str] = []
         self._history_idx = -1
@@ -243,6 +272,9 @@ class TextInput(Component):
     # -------------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
+        self._ensure_blink_task()
+        cursor_cell = self._effective_cursor_cell()
+
         prefix_w = visible_width(self._prefix)
         padding = " " * self._padding_x
         available = max(1, width - prefix_w - self._padding_x * 2)
@@ -253,7 +285,7 @@ class TextInput(Component):
         display_text = self._text[self._visual_strip :] if self._visual_strip else self._text
 
         if not display_text:
-            empty_cursor = CURSOR_MARKER + self.cursor_cell(" ")
+            empty_cursor = CURSOR_MARKER + cursor_cell(" ")
             effective_placeholder = (
                 self._placeholder_override
                 if self._placeholder_override is not None
@@ -283,7 +315,7 @@ class TextInput(Component):
         for i, line_text in enumerate(text_lines):
             line_prefix = self._prefix if i == 0 else indent
             col_in_line = cursor_col if i == cursor_line_idx else -1
-            segments = _render_line_wrapped(line_text, col_in_line, available, self.cursor_cell)
+            segments = _render_line_wrapped(line_text, col_in_line, available, cursor_cell)
             for j, seg in enumerate(segments):
                 seg_prefix = line_prefix if j == 0 else indent
                 if (
@@ -300,6 +332,7 @@ class TextInput(Component):
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, PasteEvent):
+            self._mark_activity()
             text = event.text.replace("\r", "")
             if self.on_paste_text:
                 self.on_paste_text(text)
@@ -309,6 +342,8 @@ class TextInput(Component):
 
         if not isinstance(event, KeyEvent):
             return False
+
+        self._mark_activity()
 
         keybindings = get_keybindings()
 
@@ -383,6 +418,53 @@ class TextInput(Component):
                 return False
 
         return True
+
+    # -------------------------------------------------------------------------
+    # Cursor blink
+    # -------------------------------------------------------------------------
+
+    def _mark_activity(self) -> None:
+        """Record a keystroke: keep the cursor solid and reset the idle clock."""
+        self._last_activity = time.monotonic()
+        if not self._blink_on:
+            self._blink_on = True
+            if self._tui is not None:
+                self._tui.request_render()
+
+    def _ensure_blink_task(self) -> None:
+        """Lazily start the blink loop once an event loop is guaranteed to exist."""
+        if self._tui is not None and self._blink_task is None:
+            self._blink_task = asyncio.ensure_future(self._blink_loop())
+
+    async def _blink_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(_BLINK_HALF_PERIOD)
+                idle = time.monotonic() - self._last_activity >= _BLINK_IDLE_DELAY
+                if not is_window_focused() or not idle:
+                    if not self._blink_on:
+                        self._blink_on = True
+                        if self._tui is not None:
+                            self._tui.request_render()
+                    continue
+                self._blink_on = not self._blink_on
+                if self._tui is not None:
+                    self._tui.request_render()
+        except asyncio.CancelledError:
+            pass
+
+    def _effective_cursor_cell(self) -> Callable[[str], str]:
+        """Wrap ``cursor_cell`` with blink behaviour, unless it's been overridden.
+
+        Only applies when the terminal window has focus; unfocused falls back
+        entirely to the default ``cursor_cell`` (which itself defers to the
+        terminal's native hollow cursor — see ``cursor_block``).
+        """
+        if self.cursor_cell is not cursor_block or not is_window_focused():
+            return self.cursor_cell
+        if self._blink_on:
+            return self.cursor_cell
+        return lambda ch: ch
 
     # -------------------------------------------------------------------------
     # Cursor helpers

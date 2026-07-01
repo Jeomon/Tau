@@ -212,6 +212,7 @@ class Layout(Component):
             prefix=self._theme.input.prefix,
             placeholder=self._theme.input.placeholder,
             padding_x=editor_padding_x,
+            tui=tui,
         )
 
         # ── Public Container zones ──────────────────────────────────────────
@@ -887,6 +888,7 @@ class Layout(Component):
             new_input: Any = TextInput(
                 prefix=self._theme.input.prefix,
                 placeholder=self._theme.input.placeholder,
+                tui=self._tui,
             )
         else:
             new_input = factory(self._theme.input, get_keybindings())
