@@ -68,3 +68,52 @@ def test_followup_and_dequeue_use_configured_bindings() -> None:
     assert editor.handle_input(KeyEvent(key="r", ctrl=True)) is True
     assert followups == ["later"]
     assert dequeues == [True]
+
+
+class TestUpDownSoftWrap:
+    """Up/Down should walk soft-wrapped visual rows before touching history."""
+
+    def _wrapped_editor(self, width: int = 20) -> TextInput:
+        editor = TextInput()
+        editor.replace_history(["first message", "second message"])
+        # prefix "> " is 2 cols; render(20) -> available == 18 columns.
+        editor.set_text("a" * 10 + " " + "b" * 10 + " " + "c" * 10)
+        editor.render(width)
+        return editor
+
+    def test_up_from_last_row_moves_within_wrapped_line_first(self) -> None:
+        editor = self._wrapped_editor()
+        editor._cursor = len(editor.text)  # noqa: SLF001
+
+        text_before = editor.text
+        assert editor.handle_input(KeyEvent(key="up")) is True
+        assert editor.text == text_before  # history not touched yet
+        assert editor.cursor < len(text_before)
+
+    def test_up_falls_through_to_history_only_at_top_row(self) -> None:
+        editor = self._wrapped_editor()
+        editor._cursor = len(editor.text)  # noqa: SLF001
+
+        editor.handle_input(KeyEvent(key="up"))  # -> top visual row, same line
+        assert editor.text != "second message"
+
+        editor.handle_input(KeyEvent(key="up"))  # now at top row -> history
+        assert editor.text == "second message"
+
+    def test_down_from_top_row_moves_within_wrapped_line_first(self) -> None:
+        editor = self._wrapped_editor()
+        editor._cursor = 0  # noqa: SLF001
+
+        text_before = editor.text
+        assert editor.handle_input(KeyEvent(key="down")) is True
+        assert editor.text == text_before
+        assert editor.cursor > 0
+
+    def test_single_line_unwrapped_still_falls_through_immediately(self) -> None:
+        editor = TextInput()
+        editor.replace_history(["prior"])
+        editor.set_text("short")
+        editor.render(80)
+
+        assert editor.handle_input(KeyEvent(key="up")) is True
+        assert editor.text == "prior"

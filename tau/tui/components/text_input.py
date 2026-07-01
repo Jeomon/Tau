@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata as _ud
+from bisect import bisect_right
 from collections.abc import Callable
 
 import grapheme
@@ -82,6 +83,10 @@ class TextInput(Component):
         self._cursor = 0
         self._line_scrolls: dict[int, int] = {}
         self._arg_hint: str = ""
+        # Wrap width from the most recent render(), used so Up/Down can move
+        # between soft-wrapped visual rows the same way they appear on screen.
+        # Large sentinel means "no wrap known yet" (behaves as unwrapped).
+        self._last_available: int = 1 << 30
 
         # How the text cursor cell is drawn. Defaults to the reverse-video block;
         # extensions (e.g. voice input) may swap in an animated/coloured cell and
@@ -241,6 +246,7 @@ class TextInput(Component):
         prefix_w = visible_width(self._prefix)
         padding = " " * self._padding_x
         available = max(1, width - prefix_w - self._padding_x * 2)
+        self._last_available = available
         indent = " " * prefix_w
 
         # Strip leading chars that the prefix has already represented visually.
@@ -549,26 +555,63 @@ class TextInput(Component):
         return sum(len(ln) + 1 for ln in lines[:idx])
 
     def _move_up(self) -> None:
-        """Move the cursor up a line; browse history when already on the first line."""
-        line_idx, col = self._cursor_line_col()
-        if line_idx == 0:
+        """Move up a visual (soft-wrapped) row; browse history at the very first row."""
+        if not self._move_visual_row(-1):
             self._history_prev()
-            return
-        self._last_edit = None
-        lines = self._text.split("\n")
-        new_col = min(col, len(lines[line_idx - 1]))
-        self._cursor = self._line_offset(line_idx - 1, lines) + new_col
 
     def _move_down(self) -> None:
-        """Move the cursor down a line; browse history when already on the last line."""
-        line_idx, col = self._cursor_line_col()
-        lines = self._text.split("\n")
-        if line_idx >= len(lines) - 1:
+        """Move down a visual (soft-wrapped) row; browse history at the very last row."""
+        if not self._move_visual_row(1):
             self._history_next()
-            return
+
+    def _move_visual_row(self, direction: int) -> bool:
+        """Move the cursor to the visual row above (-1) or below (+1) the current one.
+
+        Accounts for soft-wrap: a single logical line that wraps into several
+        on-screen rows is treated as several rows here, so Up/Down first walks
+        within a wrapped line before crossing into the next logical line.
+        Returns False when there is no such row (cursor already on the first/
+        last visual row of the whole buffer) so the caller can fall back to
+        history navigation.
+        """
+        lines = self._text.split("\n")
+        line_idx, col = self._cursor_line_col()
+        available = self._last_available
+
+        starts_per_line = [_wrap_row_starts(line, available) for line in lines]
+
+        starts = starts_per_line[line_idx]
+        ri = bisect_right(starts, col) - 1
+        row_start = starts[ri]
+
+        flat_idx = sum(len(s) for s in starts_per_line[:line_idx]) + ri
+        total_rows = sum(len(s) for s in starts_per_line)
+
+        target_flat = flat_idx + direction
+        if target_flat < 0 or target_flat >= total_rows:
+            return False
+
+        remaining = target_flat
+        target_li, target_ri = 0, 0
+        for li, s in enumerate(starts_per_line):
+            if remaining < len(s):
+                target_li, target_ri = li, remaining
+                break
+            remaining -= len(s)
+
+        target_starts = starts_per_line[target_li]
+        target_start = target_starts[target_ri]
+        target_end = (
+            target_starts[target_ri + 1]
+            if target_ri + 1 < len(target_starts)
+            else len(lines[target_li])
+        )
+
         self._last_edit = None
-        new_col = min(col, len(lines[line_idx + 1]))
-        self._cursor = self._line_offset(line_idx + 1, lines) + new_col
+        rel = col - row_start
+        new_col = target_start + min(rel, target_end - target_start)
+        self._cursor = self._line_offset(target_li, lines) + new_col
+        return True
 
     def _delete_word_back(self) -> None:
         if self._cursor <= 0:
@@ -657,6 +700,25 @@ def _char_width(ch: str) -> int:
     if _ud.category(ch) in ("Mn", "Me", "Cf"):
         return 0
     return 1
+
+
+def _wrap_row_starts(text: str, available: int) -> list[int]:
+    """Character indices where each visual (soft-wrapped) row of ``text`` begins.
+
+    Always starts with 0. Mirrors the wrap decision in ``_render_line_wrapped``
+    so cursor math (Up/Down) lands on the same rows that are actually drawn.
+    """
+    if available <= 0:
+        return [0]
+    starts = [0]
+    col = 0
+    for i, ch in enumerate(text):
+        w = _char_width(ch)
+        if w > 0 and col + w > available and col > 0:
+            starts.append(i)
+            col = 0
+        col += w
+    return starts
 
 
 def _render_line_wrapped(
