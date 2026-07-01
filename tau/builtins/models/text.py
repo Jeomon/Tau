@@ -4843,7 +4843,7 @@ models = [
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
         context_window=131072,
-        max_output_tokens=131072,
+        max_output_tokens=16384,
         input=[Modality.Text],
         output=[Modality.Text],
         api=None,
