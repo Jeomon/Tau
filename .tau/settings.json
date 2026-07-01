@@ -18,6 +18,10 @@
           "disableDefaultAgents": false,
           "toolDescriptionMode": "full"
         }
+      },
+      {
+        "path": ".tau/extensions/ask_user",
+        "settings": {}
       }
     ]
   }

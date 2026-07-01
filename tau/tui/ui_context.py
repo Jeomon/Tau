@@ -440,6 +440,36 @@ class UIContext:
         )
         return layout._tui.show_overlay(component, opts)
 
+    def has_active_selector(self) -> bool:
+        """True when a capturing overlay or inline selector modal holds keyboard focus.
+
+        Covers both modal mechanisms in the TUI: floating overlays shown via
+        ``show_overlay``/``custom`` (e.g. ``ask_user``, ``PromptOverlay``) and
+        inline selector modals (``/settings``, ``/model``, ``/resume``,
+        ``/theme``, tree, voice picker, etc.), which are handled by a separate
+        ``SelectorController`` rather than the overlay stack.
+
+        ``on_terminal_input`` intercept handlers run before either of those get
+        a chance to see input, so a global handler (e.g. a push-to-talk key)
+        should check this and return ``None``/``False`` when it's true, letting
+        the event fall through to whatever modal is open instead of swallowing it.
+
+        Usage::
+
+            def on_key(event):
+                if ctx.ui.has_active_selector():
+                    return None  # let the open dialog/selector handle it
+                ...
+        """
+        layout = self._layout()
+        if layout is None:
+            return False
+        tui = getattr(layout, "_tui", None)
+        if getattr(tui, "_focused_overlay", None) is not None:
+            return True
+        selectors = getattr(layout, "_selectors", None)
+        return bool(getattr(selectors, "is_active", False))
+
     def notify(self, message: str | list[str], type: str = "info") -> None:  # noqa: A002
         """Show an inline system notification in the message list.
 
