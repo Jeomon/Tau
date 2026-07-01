@@ -199,7 +199,7 @@ def _build_diag_block(diagnostics: list[dict]) -> dict:
     if len(diagnostics) > _MAX_ERRORS_PER_FILE:
         detail.append(f"{_DIM}··· {len(diagnostics) - _MAX_ERRORS_PER_FILE} more{_RESET}")
 
-    return {"lines": [summary, *detail]}
+    return {"lines": [summary, *detail], "preview_lines": 1}
 
 
 def _diag_lines(diagnostics: list[dict]) -> list[str]:
@@ -292,7 +292,10 @@ def register(tau) -> None:
             return None
         return ToolResultEventResult(
             content=event.content + "\n\n" + _format_diagnostics_plain(issues),
-            metadata={"_extra_blocks": [_build_diag_block(issues)]},
+            metadata={
+                "_display_content": event.content,
+                "_extra_blocks": [_build_diag_block(issues)],
+            },
         )
 
     # ── 2. write/edit tools → report LSP errors to agent and user ────────────
@@ -327,7 +330,10 @@ def register(tau) -> None:
 
         return ToolResultEventResult(
             content=event.content + "\n\n" + _format_diagnostics_plain(all_issues),
-            metadata={"_extra_blocks": [_build_diag_block(all_issues)]},
+            metadata={
+                "_display_content": event.content,
+                "_extra_blocks": [_build_diag_block(all_issues)],
+            },
         )
 
     # ── 3. context → inject active diagnostics before each LLM turn ──────────
