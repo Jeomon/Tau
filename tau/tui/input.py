@@ -877,7 +877,7 @@ _DEFAULTS: KeyMap = {
     "app.invocations.toggle": ["ctrl+e"],
     # App-level
     "tui.app.quit": ["ctrl+c", "ctrl+d"],
-    "tui.app.abort": ["ctrl+c"],
+    "tui.app.abort": ["escape", "ctrl+c"],
     # Scroll (message list)
     "tui.scroll.up": ["page_up"],
     "tui.scroll.down": ["page_down"],

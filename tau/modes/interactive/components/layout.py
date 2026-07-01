@@ -20,6 +20,7 @@ from tau.tui.input import (
     KeyEvent,
     MouseEvent,
     PasteEvent,
+    get_keybindings,
 )  # MouseEvent kept for type narrowing
 from tau.tui.theme import LayoutTheme
 
@@ -415,25 +416,27 @@ class Layout(Component):
             return True
 
         if isinstance(event, KeyEvent):
+            keybindings = get_keybindings()
+
             # Settings panel: Esc closes
             if self._settings_panel is not None:
-                if event.key == "escape":
+                if keybindings.matches(event, "tui.select.dismiss"):
                     self._settings_panel = None
                     self._tui.request_render()
                 return True
 
             # File picker navigation (active when '@' is in progress)
             if self.file_picker.active:
-                if event.key in ("up",):
+                if keybindings.matches(event, "tui.select.up"):
                     self.file_picker.move_up()
                     return True
-                if event.key in ("down",):
+                if keybindings.matches(event, "tui.select.down"):
                     self.file_picker.move_down()
                     return True
-                if event.key == "tab":
+                if keybindings.matches(event, "tui.select.confirm"):
                     self._accept_file_or_descend()
                     return True
-                if event.key == "escape":
+                if keybindings.matches(event, "tui.select.dismiss"):
                     self.file_picker.close()
                     self._tui.request_render()
                     return True
@@ -450,21 +453,24 @@ class Layout(Component):
 
             # Palette navigation
             if self.palette.active:
-                if event.key == "up":
+                if keybindings.matches(event, "tui.select.up"):
                     self.palette.move_up()
                     return True
-                if event.key == "down":
+                if keybindings.matches(event, "tui.select.down"):
                     self.palette.move_down()
                     return True
-                if event.key == "escape":
+                if keybindings.matches(event, "tui.select.dismiss"):
                     self.input.clear()
                     self._sync_pickers()
                     return True
-                if event.key in ("tab", "right"):
-                    self._accept_palette_selection()
-                    return True
-                if event.key == "enter":
+                if keybindings.matches(event, "tui.select.confirm") and event.key in (
+                    "enter",
+                    "return",
+                ):
                     self._execute_palette_selection()
+                    return True
+                if keybindings.matches(event, "tui.select.confirm") or event.key == "right":
+                    self._accept_palette_selection()
                     return True
 
         result = self.input.handle_input(event)
@@ -473,7 +479,7 @@ class Layout(Component):
         # global key handler, which turns it into an abort.
         if (
             isinstance(event, KeyEvent)
-            and event.key == "escape"
+            and get_keybindings().matches(event, "tui.app.abort")
             and not result
             and not self._is_busy()
         ):

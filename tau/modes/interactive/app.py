@@ -557,15 +557,18 @@ class App:
         if not isinstance(event, KeyEvent):
             return
 
-        if event.matches("escape"):
-            self._handle_escape()
-            return
-
-        if event.matches("ctrl+c"):
-            self._handle_ctrl_c()
-            return
-
         keybindings = get_keybindings()
+        if keybindings.matches(event, "tui.app.abort"):
+            if event.matches("ctrl+c"):
+                self._handle_ctrl_c()
+            else:
+                self._handle_escape()
+            return
+
+        if keybindings.matches(event, "tui.app.quit"):
+            self._tui.stop()
+            return
+
         if keybindings.matches(event, "app.details.toggle"):
             self._layout.messages.toggle_details_expanded()
             self._tui.request_render()
@@ -575,9 +578,6 @@ class App:
             self._layout.messages.toggle_invocations_expanded()
             self._tui.request_render()
             return
-
-        if event.matches("ctrl+d"):
-            self._tui.stop()
 
     def _handle_escape(self) -> None:
         import time

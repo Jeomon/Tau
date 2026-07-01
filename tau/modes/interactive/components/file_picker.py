@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
-from tau.tui.input import InputEvent, Key, KeyEvent
+from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.utils import fuzzy_filter
 
 if TYPE_CHECKING:
@@ -212,10 +212,11 @@ class FilePicker(Component):
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
             return False
-        if event.matches(Key.UP, Key.ctrl("p")):
+        keybindings = get_keybindings()
+        if keybindings.matches(event, "tui.select.up"):
             self.move_up()
             return True
-        if event.matches(Key.DOWN, Key.ctrl("n")):
+        if keybindings.matches(event, "tui.select.down"):
             self.move_down()
             return True
         return False

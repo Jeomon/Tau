@@ -7,7 +7,7 @@ from collections.abc import Callable
 import grapheme
 
 from tau.tui.component import Component
-from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent
+from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent, get_keybindings
 from tau.tui.utils import BOLD, CURSOR_MARKER, DIM, RESET, cursor_block, visible_width
 
 # Matches any atomic input token at end-of-string (for backspace)
@@ -304,9 +304,13 @@ class TextInput(Component):
         if not isinstance(event, KeyEvent):
             return False
 
+        keybindings = get_keybindings()
+
         # Modified combos are listed before their bare counterparts; matching is
         # exact on modifiers, so order is for readability, not correctness.
-        if event.matches(Key.ENTER):
+        if keybindings.matches(event, "tui.input.newline"):
+            self._insert("\n")
+        elif keybindings.matches(event, "tui.input.submit"):
             if self._text.endswith("\\"):
                 # Replace trailing backslash with a real newline
                 self._checkpoint("newline")
@@ -316,9 +320,9 @@ class TextInput(Component):
                 self._line_scrolls = {}
             else:
                 self._submit()
-        elif event.matches(Key.alt(Key.ENTER)):
+        elif keybindings.matches(event, "app.message.followup"):
             self._submit_followup()
-        elif event.matches(Key.alt(Key.UP)):
+        elif keybindings.matches(event, "app.message.dequeue"):
             if self._on_dequeue:
                 self._on_dequeue()
         elif event.matches(Key.ctrl("v")):
@@ -327,7 +331,7 @@ class TextInput(Component):
                 return True
         elif event.matches(Key.BACKSPACE):
             self._backspace()
-        elif event.matches(Key.DELETE, Key.ctrl("d")):
+        elif event.matches(Key.DELETE) or (self._text and event.matches(Key.ctrl("d"))):
             self._delete_forward()
         elif event.matches(Key.alt(Key.LEFT), Key.ctrl(Key.LEFT)):
             self._word_left()
@@ -349,14 +353,14 @@ class TextInput(Component):
                 self._last_edit = None
                 self._text = self._text[: self._cursor]
                 self._line_scrolls = {}
-        elif event.matches(Key.ctrl("u")):
+        elif keybindings.matches(event, "tui.input.clear"):
             if self._cursor > 0:
                 self._checkpoint("kill")
                 self._last_edit = None
                 self._text = self._text[self._cursor :]
                 self._cursor = 0
                 self._line_scrolls = {}
-        elif event.matches(Key.ctrl("w")):
+        elif keybindings.matches(event, "tui.input.word_back"):
             self._delete_word_back()
         elif event.matches(Key.ctrl("z")):
             self._undo_op()

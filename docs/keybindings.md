@@ -50,9 +50,7 @@
 
 ## Customising Keybindings
 
-Tau currently supports programmatic overrides for a limited set of
-application and reusable picker actions. Pass a `KeyMap` to `App.create()` at
-startup:
+Pass a `KeyMap` to `App.create()` at startup:
 
 ```python
 from tau.tui import KeyMap
@@ -69,12 +67,20 @@ app = await App.create(runtime, keybindings=overrides)
 
 A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that trigger it.
 
-### Effective customizable actions
+### Available actions
 
 | Action | Default keys | Description |
 |--------|-------------|-------------|
+| `tui.input.submit` | `enter` | Submit the current message |
+| `tui.input.newline` | `shift+enter` | Insert a newline in the editor |
+| `tui.input.clear` | `ctrl+u` | Kill from cursor to start |
+| `tui.input.word_back` | `ctrl+w` | Delete previous word |
+| `app.message.followup` | `alt+enter` | Queue as follow-up message |
+| `app.message.dequeue` | `alt+up` | Restore queued messages into editor |
 | `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result previews |
 | `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
+| `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit tau |
+| `tui.app.abort` | `escape`, `ctrl+c` | Abort the current turn |
 | `tui.select.up` | `up`, `ctrl+p` | Move selection up |
 | `tui.select.down` | `down`, `ctrl+n` | Move selection down |
 | `tui.select.page_up` | `page_up` | Move up a page |
@@ -83,29 +89,19 @@ A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that
 | `tui.select.bottom` | `end` | Jump to bottom |
 | `tui.select.confirm` | `enter`, `tab` | Confirm selection |
 | `tui.select.dismiss` | `escape` | Dismiss picker |
+| `tui.scroll.up` | `page_up` | Scroll messages up one page |
+| `tui.scroll.down` | `page_down` | Scroll messages down one page |
+| `tui.scroll.top` | `home` | Scroll to the first message |
+| `tui.scroll.bottom` | `end` | Scroll to the latest message |
 
 The `tui.select.*` actions apply to components built on Tau's reusable
-`SelectList`. Some specialized pickers currently handle their keys directly
-and do not honor these overrides.
-
-### Fixed bindings
-
-The editor, message queue, quit, abort, and scroll bindings listed under
-[Default Keybindings](#default-keybindings) are currently fixed in their
-components. Entries for these actions exist in Tau's internal keymap for
-conflict classification, but overriding them does not change their runtime
-behavior:
-
-- `tui.input.*`
-- `app.message.*`
-- `tui.app.quit`
-- `tui.app.abort`
-- `tui.scroll.*`
+`SelectList` and to the corresponding navigation operations in specialized
+pickers. A specialized picker may not support every operation; for example, a
+compact autocomplete list only supports up and down.
 
 Extension shortcuts are literal key combinations rather than `KeyMap` actions.
-Tau checks them against the configured map used for conflict classification
-and prevents extensions from replacing reserved editor and application
-bindings. See
+Tau checks them against the effective map and prevents extensions from
+replacing reserved editor and application bindings. See
 [Keyboard shortcuts](extensions.md#keyboard-shortcuts).
 
 ### Key notation

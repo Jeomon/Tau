@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.component import Component
-from tau.tui.input import InputEvent, Key, KeyEvent
+from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import render_markdown
 from tau.tui.theme import MessageTheme
 from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
@@ -848,17 +848,18 @@ class MessageList(Component):
     def handle_input(self, event: InputEvent) -> bool:
         if not self._focused or not isinstance(event, KeyEvent):
             return False
-        if event.matches(Key.PAGE_UP, "b"):
+        keybindings = get_keybindings()
+        if keybindings.matches(event, "tui.scroll.up") or event.matches("b"):
             self.scroll_up(self._height)
-        elif event.matches(Key.PAGE_DOWN, Key.SPACE):
+        elif keybindings.matches(event, "tui.scroll.down") or event.matches(Key.SPACE):
             self.scroll_down(self._height)
         elif event.matches(Key.UP, "k"):
             self.scroll_up(1)
         elif event.matches(Key.DOWN, "j"):
             self.scroll_down(1)
-        elif event.matches(Key.END, Key.shift("g")):
+        elif keybindings.matches(event, "tui.scroll.bottom") or event.matches(Key.shift("g")):
             self.scroll_to_bottom()
-        elif event.matches(Key.HOME, "g"):
+        elif keybindings.matches(event, "tui.scroll.top") or event.matches("g"):
             self.scroll_to_top()
         else:
             return False

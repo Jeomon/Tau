@@ -657,17 +657,17 @@ def register(tau):
 ## Keyboard shortcuts
 
 `register_shortcut` takes a literal key combination. Tau compares extension
-shortcuts with the configured `KeyMap` used for conflict classification.
+shortcuts with the effective `KeyMap`.
 Safety-critical editor and application bindings are reserved and cannot be
 replaced by extensions. An extension may replace a non-reserved global
 application binding, with a warning. If multiple extensions register the same
 key, the last loaded extension wins and Tau reports a warning.
 
-The editor and several specialized pickers still handle their bindings
-directly. Registering an extension shortcut does not replace a key already
-consumed by the focused component. See
+Some low-level editor operations that are not exposed as `KeyMap` actions,
+such as cursor movement, are still consumed directly by the focused editor.
+Registering an extension shortcut does not replace those operations. See
 [Customising keybindings](keybindings.md#customising-keybindings) for the
-currently effective customizable actions and fixed bindings.
+available actions.
 
 ```python
 def register(tau):
