@@ -27,7 +27,7 @@
 
 | Shortcut | Action |
 |----------|--------|
-| Escape | Abort current turn; restore queued messages |
+| Escape | Abort the active operation; double-press while idle to clear TUI messages |
 | Ctrl+C | Abort turn; double-press to quit |
 | Ctrl+D | Quit (on empty input) |
 | Ctrl+O | Toggle expand/collapse for thinking and tool-result blocks |

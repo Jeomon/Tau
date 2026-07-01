@@ -205,8 +205,8 @@ class Settings:
     quiet_startup: bool | None = None  # suppress startup notices (default: False)
 
     # UI behaviour
-    double_escape_action: Literal["fork", "tree", "none"] | None = (
-        None  # action on double-Escape with empty editor (default: "fork")
+    double_escape_action: Literal["clear", "fork", "tree", "none"] | None = (
+        None  # action on double-Escape while idle (default: "clear")
     )
     tree_filter_mode: Literal["default", "no-tools", "user-only", "labeled-only", "all"] | None = (
         None  # default /tree filter mode

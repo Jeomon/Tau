@@ -586,15 +586,13 @@ class App:
         if agent is not None and not agent.is_idle():
             self._input.escape_abort()
             self._last_escape = 0.0
-        elif not self._layout.input.text:
+        else:
             now = time.monotonic()
             if now - self._last_escape < 0.5:
                 self._last_escape = 0.0
                 self._do_double_escape()
             else:
                 self._last_escape = now
-        else:
-            self._last_escape = 0.0
 
     def _handle_ctrl_c(self) -> None:
         import time
@@ -615,18 +613,24 @@ class App:
         """Execute the action configured for double-Escape on an empty editor."""
 
         sm = self._runtime.settings_manager
-        action = sm.get_double_escape_action() if sm is not None else "fork"
+        action = sm.get_double_escape_action() if sm is not None else "clear"
         match action:
             case "none":
                 return
+            case "clear":
+                self._layout.clear_messages()
+                self._tui.request_render()
             case "tree":
                 from tau.modes.interactive.commands import session as cmd_session
 
                 cmd_session.open_tree_selector(self._ctx())
-            case "fork" | _:
+            case "fork":
                 from tau.modes.interactive.commands import session as cmd_session
 
                 cmd_session.cmd_clone(self._ctx())
+            case _:
+                self._layout.clear_messages()
+                self._tui.request_render()
 
     # -------------------------------------------------------------------------
     # Extension shortcuts

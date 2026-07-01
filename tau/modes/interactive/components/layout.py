@@ -474,17 +474,6 @@ class Layout(Component):
                     return True
 
         result = self.input.handle_input(event)
-        # Escape in normal mode (no modal open, agent idle): clear the editor.
-        # While the agent is streaming, leave ESC unconsumed so it reaches the
-        # global key handler, which turns it into an abort.
-        if (
-            isinstance(event, KeyEvent)
-            and get_keybindings().matches(event, "tui.app.abort")
-            and not result
-            and not self._is_busy()
-        ):
-            self.input.clear()
-            result = True
         self._sync_pickers()
         return result
 

@@ -53,7 +53,7 @@ All settings documented in the reference below are editable from the TUI. Settin
 | Setting | Panel location |
 |---------|----------------|
 | `project_trust` | Top level — cycles `"ask"` / `"always"` / `"never"` |
-| `double_escape_action` | Top level — cycles `"fork"` / `"tree"` / `"none"` |
+| `double_escape_action` | Top level — cycles `"clear"` / `"fork"` / `"tree"` / `"none"` |
 | `tree_filter_mode` | Top level — cycles all five modes |
 | `show_hardware_cursor` | Top level — boolean toggle |
 | `http_idle_timeout_ms` | Top level — text input |
@@ -137,7 +137,7 @@ Toggle during a session with `/effort` or the effort picker.
 | `tool_result_preview_lines` | integer | `5` | Lines shown before thinking or default-shell tool results collapse; values below 1 are clamped |
 | `show_hardware_cursor` | boolean | `false` | Keep the terminal cursor visible while it is repositioned (aids IME input) |
 | `editor_padding_x` | integer | `0` | Horizontal padding (spaces) added inside the input editor |
-| `double_escape_action` | string | `"fork"` | What happens when Escape is pressed twice on an empty editor: `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
+| `double_escape_action` | string | `"clear"` | What happens when Escape is pressed twice while idle: `"clear"` clears TUI messages, `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
 | `tree_filter_mode` | string | `"default"` | Default message filter when `/tree` opens: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
 
 #### Hardware Cursor & Editor Padding

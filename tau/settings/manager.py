@@ -1048,15 +1048,15 @@ class SettingsManager:
     # ── UI behaviour ──────────────────────────────────────────────────────────
 
     def get_double_escape_action(self) -> str:
-        """Return the double-escape key action: 'fork', 'tree', or 'none' (default: 'fork')."""
+        """Return the double-Escape action (default: ``"clear"``)."""
         v = self.settings.double_escape_action
-        return v if v is not None else "fork"
+        return v if v is not None else "clear"
 
     def set_double_escape_action(self, value: str) -> None:
         """Set the double-escape key action and persist to global settings."""
-        if value not in ("fork", "tree", "none"):
+        if value not in ("clear", "fork", "tree", "none"):
             raise ValueError(
-                f"double_escape_action must be 'fork', 'tree', or 'none', got {value!r}"
+                f"double_escape_action must be 'clear', 'fork', 'tree', or 'none', got {value!r}"
             )
         self.global_settings.double_escape_action = value  # type: ignore[assignment]
         self._mark_modified("double_escape_action")

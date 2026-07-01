@@ -139,9 +139,9 @@ def open_settings_panel(ctx: CommandContext) -> None:
         SettingItem(
             id="double_escape_action",
             label="Double-Escape action",
-            description="Action when Escape is pressed twice on an empty editor",
+            description="Action when Escape is pressed twice while idle",
             current_value=sm.get_double_escape_action(),
-            values=["fork", "tree", "none"],
+            values=["clear", "fork", "tree", "none"],
         ),
         SettingItem(
             id="tree_filter_mode",
