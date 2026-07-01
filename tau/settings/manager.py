@@ -560,14 +560,25 @@ class SettingsManager:
         model = self.settings.model
         return getattr(model, modality, None) if model is not None else None
 
-    def set_model_ref(self, modality: str, provider: str, model_id: str) -> None:
-        """Persist the ``{id, provider}`` for a modality to global settings."""
+    def set_model_ref(
+        self,
+        modality: str,
+        provider: str,
+        model_id: str,
+        *,
+        voice: str | None = None,
+    ) -> None:
+        """Persist a model selection and optional TTS voice to global settings."""
         modality = _MODALITY_ALIASES.get(modality, modality)
         if modality not in _MODALITY_SLOTS:
             raise ValueError(f"unknown model modality: {modality!r}")
         if self.global_settings.model is None:
             self.global_settings.model = ModelSettings()
-        setattr(self.global_settings.model, modality, ModelRef(id=model_id, provider=provider))
+        setattr(
+            self.global_settings.model,
+            modality,
+            ModelRef(id=model_id, provider=provider, voice=voice),
+        )
         self._mark_modified("model", modality)
         self._save()
 

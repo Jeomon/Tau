@@ -52,7 +52,7 @@ class SelectorController:
             tree.label_edit_key(event)
             return self._rendered()
 
-        delegated = {"oauth", "extension", "config", "effort", "theme"}
+        delegated = {"oauth", "extension", "config", "effort", "theme", "voice"}
         if active.kind in delegated:
             selector.handle_input(event)
             return self._rendered()

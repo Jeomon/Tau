@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from tau.inference.model.types import Model
 from tau.modes.interactive.commands.context import CommandContext
 
 # (modality, tab label) in display order. "voice" = STT, "speak" = TTS.
@@ -22,7 +23,7 @@ _MODALITY_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-def _list_for(modality: str) -> list:
+def _list_for(modality: str) -> list[Model]:
     """Return the available models for a modality (auth-filtered)."""
     from tau.inference.api.audio.service import AudioLLM
     from tau.inference.api.image.service import ImageLLM
@@ -73,6 +74,7 @@ def modality_completions(prefix: str) -> list:
 def open_model_selector(ctx: CommandContext, modality: str | None = None) -> None:
     """Open the tabbed model selector, optionally focused on ``modality``."""
     sections: list[tuple[str, str, list, str]] = []
+    models_by_key: dict[tuple[str, str, str], Model] = {}
     for mod, label in _MODALITIES:
         try:
             models = _list_for(mod)
@@ -80,6 +82,7 @@ def open_model_selector(ctx: CommandContext, modality: str | None = None) -> Non
             models = []
         if models:
             sections.append((mod, label, models, _current_key(ctx, mod)))
+            models_by_key.update({(mod, model.provider, model.id): model for model in models})
 
     if not sections:
         ctx.notify("No models available. Use /login to add providers.")
@@ -89,6 +92,35 @@ def open_model_selector(ctx: CommandContext, modality: str | None = None) -> Non
 
     def commit(value: tuple[str, str, str]) -> None:
         model_id, provider, mod = value
+        model = models_by_key.get((mod, provider, model_id))
+        voices = list(getattr(model, "voices", []))
+        if mod == "speak" and voices:
+            current_ref = (
+                ctx.runtime.settings_manager.get_model_ref("speak")
+                if ctx.runtime.settings_manager is not None
+                else None
+            )
+            current_voice = (
+                current_ref.voice
+                if current_ref is not None
+                and current_ref.id == model_id
+                and current_ref.provider == provider
+                else None
+            )
+
+            def apply_voice(voice: str) -> None:
+                asyncio.ensure_future(
+                    _apply_model(ctx, mod, model_id, provider, voice=voice)
+                )
+
+            ctx.layout.open_voice_selector(
+                getattr(model, "name", None) or model_id,
+                voices,
+                current_voice,
+                apply_voice,
+                lambda: ctx.notify("Voice selection cancelled."),
+            )
+            return
         asyncio.ensure_future(_apply_model(ctx, mod, model_id, provider))
 
     ctx.layout.open_model_selector(
@@ -99,7 +131,14 @@ def open_model_selector(ctx: CommandContext, modality: str | None = None) -> Non
     )
 
 
-async def _apply_model(ctx: CommandContext, modality: str, model_id: str, provider: str) -> None:
+async def _apply_model(
+    ctx: CommandContext,
+    modality: str,
+    model_id: str,
+    provider: str,
+    *,
+    voice: str | None = None,
+) -> None:
     try:
         if modality == "text":
             # Live-swap the chat model (this also persists to settings).
@@ -110,9 +149,10 @@ async def _apply_model(ctx: CommandContext, modality: str, model_id: str, provid
             return
         sm = ctx.runtime.settings_manager
         if sm is not None:
-            sm.set_model_ref(modality, provider, model_id)
+            sm.set_model_ref(modality, provider, model_id, voice=voice)
         label = dict(_MODALITIES).get(modality, modality)
-        ctx.notify(f"{label} model set to {provider}/{model_id}")
+        voice_label = f" with voice {voice}" if voice else ""
+        ctx.notify(f"{label} model set to {provider}/{model_id}{voice_label}")
     except Exception as exc:
         ctx.notify(f"Failed to set model: {exc}")
 

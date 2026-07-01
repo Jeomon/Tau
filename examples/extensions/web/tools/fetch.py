@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
+from engines import BaseSearchEngine  # type: ignore[import]
 from pydantic import BaseModel, Field
 
+from tau.tool.render import call_line
 from tau.tool.types import (
     Tool,
     ToolContext,
@@ -13,9 +15,6 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
-from tau.tool.render import call_line
-
-from engines import BaseSearchEngine  # type: ignore[import]
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -54,7 +53,9 @@ class _WebFetchSchema(BaseModel):
     )
     timeout: int = Field(
         default=10,
-        description="Request timeout in seconds (default 10). Increase to 30+ for slow or large pages.",
+        description=(
+            "Request timeout in seconds (default 10). Increase to 30+ for slow or large pages."
+        ),
         examples=[10, 30],
     )
 
@@ -71,7 +72,6 @@ def _render_web_fetch(content: str, opts: Any) -> list[str]:
     # Style via the theme passed on the render options — the stable surface for
     # extensions — rather than importing ANSI codes from Tau internals.
     _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
-    muted = getattr(opts.theme, "muted", _id)
     error = getattr(opts.theme, "error", _id)
 
     if opts.is_error:
@@ -82,21 +82,21 @@ def _render_web_fetch(content: str, opts: Any) -> list[str]:
     extracted = metadata.get("extracted", False)
 
     domain = urlparse(url).netloc or url
-    size_tag = f"  {muted(_human_size(content_length))}" if content_length else ""
-    ext_tag = f"  {muted('extracted')}" if extracted else ""
+    size_tag = f"  {_human_size(content_length)}" if content_length else ""
+    ext_tag = "  extracted" if extracted else ""
     summary = f"Fetched {domain}{size_tag}{ext_tag}"
 
     # Strip the header lines the tool prepends (URL: ... and [External content...])
     body_lines = [
-        l
-        for l in content.splitlines()
-        if not l.startswith("URL: ") and not l.startswith("[External content")
+        line
+        for line in content.splitlines()
+        if not line.startswith("URL: ") and not line.startswith("[External content")
     ]
 
     if not body_lines:
         return [summary]
 
-    out = [summary]
+    out = [summary, ""]
     for line in body_lines:
         out.append(line)
     return out
@@ -110,7 +110,8 @@ class WebFetchTool(Tool):
             description=(
                 "Fetch the content of a URL and return it as text. Use after web_search to read a "
                 "full page. Also useful for REST APIs, config files, and documentation. "
-                "Set prompt= to extract only what you need — the LLM will filter irrelevant content. "
+                "Set prompt= to extract only what you need — the LLM will filter "
+                "irrelevant content. "
                 "Omit prompt for raw output (JSON APIs, downloads, etc.)."
             ),
             schema=_WebFetchSchema,
@@ -119,7 +120,10 @@ class WebFetchTool(Tool):
             render_result=_render_web_fetch,
             render_call=_render_web_fetch_call,
             render_shell="default",
-            prompt_guidelines="Use after web_search to read the full content of a result. Set prompt= to extract only the relevant section and avoid returning large irrelevant pages.",
+            prompt_guidelines=(
+                "Use after web_search to read the full content of a result. Set prompt= "
+                "to extract only the relevant section and avoid returning large irrelevant pages."
+            ),
         )
 
     async def _extract_relevant(self, text: str, prompt: str, llm) -> str:
@@ -190,6 +194,7 @@ class WebFetchTool(Tool):
             "truncated": truncated,
             "extracted": extracted,
             "engine": self._engine.name,
+            "_render_format": "markdown",
         }
 
         return ToolResult.ok(invocation.id, f"URL: {url}\n{_UNTRUSTED}\n{text}", metadata=metadata)

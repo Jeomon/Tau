@@ -1070,6 +1070,38 @@ class Layout(Component):
         self._active_selector = InlineSelector(kind="effort", selector=sel)
         self._tui.request_render()
 
+    def open_voice_selector(
+        self,
+        model_name: str,
+        voices: list[str],
+        current: str | None,
+        on_commit: Callable[[str], None],
+        on_cancel: Callable[[], None],
+    ) -> None:
+        """Open a voice selector for a text-to-speech model."""
+        from tau.modes.interactive.components.voice_selector import VoiceSelector
+
+        def _on_select(voice: str) -> None:
+            self._active_selector = None
+            on_commit(voice)
+            self._tui.request_render()
+
+        def _on_cancel() -> None:
+            self._active_selector = None
+            on_cancel()
+            self._tui.request_render()
+
+        selector = VoiceSelector(
+            model_name=model_name,
+            voices=voices,
+            current=current,
+            on_select=_on_select,
+            on_cancel=_on_cancel,
+            theme=self._theme,
+        )
+        self._active_selector = InlineSelector(kind="voice", selector=selector)
+        self._tui.request_render()
+
     def open_settings_selector(
         self,
         modal: object,

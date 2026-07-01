@@ -46,7 +46,7 @@ Type `/` to open the command palette. Commands are fuzzy-searchable — type a f
 
 | Command | Description |
 |---------|-------------|
-| `/model` | Open the model picker; shows modalities plus text-model context and reasoning capability |
+| `/model` | Pick a model by modality; Speak models with declared voices open a second voice picker |
 | `/theme` | Open the theme picker |
 | `/effort` | Set the thinking effort level |
 

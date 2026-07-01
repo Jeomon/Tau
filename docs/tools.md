@@ -129,6 +129,11 @@ threshold or `result_expandable=False` to always show their complete rendered
 output. Custom renderers should return their complete semantic output and must
 not add expand/collapse hints.
 
+Tool results render as plain text by default. A tool can opt an individual
+successful result into Markdown rendering with
+`metadata={"_render_format": "markdown"}`. Tau renders the Markdown before
+applying the standard preview/collapse shell. Error results remain plain text.
+
 ---
 
 ## Adding Custom Tools

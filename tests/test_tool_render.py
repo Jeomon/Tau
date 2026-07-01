@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from tau.modes.interactive.components.message_list import _default_shell_preview
+from types import SimpleNamespace
+
+from tau.message.types import ToolMessage, ToolResultContent
+from tau.modes.interactive.components.message_list import MessageBlock, _default_shell_preview
 from tau.tool.render import call_line, display_name
 from tau.tool.types import ToolKind, ToolResult
 from tau.tui.theme import MessageTheme
@@ -126,3 +129,54 @@ class TestDefaultToolResultShell:
             theme=MessageTheme(),
         )
         assert rendered == lines
+
+
+class TestMarkdownToolResult:
+    def test_explicit_markdown_result_is_rendered(self):
+        message = ToolMessage.from_result(
+            ToolResultContent(
+                id="call",
+                content="## Result\n\n- first\n- second",
+                metadata={"_render_format": "markdown"},
+            )
+        )
+
+        lines = [strip_ansi(line) for line in MessageBlock(message).render(80)]
+
+        assert any("Result" in line and "##" not in line for line in lines)
+        assert any("•" in line and "first" in line for line in lines)
+
+    def test_plain_result_does_not_infer_markdown(self):
+        message = ToolMessage.from_result(
+            ToolResultContent(id="call", content="## literal heading")
+        )
+
+        lines = [strip_ansi(line) for line in MessageBlock(message).render(80)]
+
+        assert any("## literal heading" in line for line in lines)
+
+    def test_custom_renderer_can_opt_into_markdown(self):
+        message = ToolMessage.from_result(
+            ToolResultContent(
+                id="call",
+                tool_name="web_fetch",
+                content="ignored",
+                metadata={"_render_format": "markdown"},
+            )
+        )
+        tool = SimpleNamespace(
+            render_result=lambda _content, _opts: ["Fetched example.com", "", "## Article"],
+            render_shell="default",
+            result_preview_lines=None,
+            result_expandable=True,
+        )
+
+        lines = [
+            strip_ansi(line)
+            for line in MessageBlock(
+                message,
+                tool_lookup=lambda _name: tool,
+            ).render(80)
+        ]
+
+        assert any("Article" in line and "##" not in line for line in lines)

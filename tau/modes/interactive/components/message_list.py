@@ -17,6 +17,16 @@ _RESULT_INDENT = "    "
 _DEFAULT_DETAIL_PREVIEW_LINES = 5
 
 
+def _apply_nested_style(text: str, style: Callable[[str], str]) -> str:
+    """Apply a semantic style and restore it after nested ANSI resets."""
+    marker = "\0tau-style\0"
+    styled_marker = style(marker)
+    if marker not in styled_marker:
+        return style(text)
+    prefix, suffix = styled_marker.split(marker, maxsplit=1)
+    return prefix + text.replace(RESET, RESET + prefix) + suffix
+
+
 def _default_shell_preview(
     lines: list[str],
     *,
@@ -296,18 +306,30 @@ class MessageBlock:
                 if idx > 0 and isinstance(msg.contents[idx - 1], ThinkingContent):
                     continue
 
-                thinking_lines: list[str] = []
+                thinking_parts: list[str] = []
                 thinking_idx = idx
                 while thinking_idx < len(msg.contents):
                     thinking = msg.contents[thinking_idx]
                     if not isinstance(thinking, ThinkingContent):
                         break
                     if thinking.content:
-                        thinking_lines.extend(
-                            t.thinking(line)
-                            for line in wrap(thinking.content.rstrip(), inner_width)
-                        )
+                        thinking_parts.append(thinking.content)
                     thinking_idx += 1
+                thinking_text = "".join(thinking_parts).rstrip()
+                thinking_lines = (
+                    render_markdown(
+                        thinking_text,
+                        inner_width,
+                        t.markdown,
+                        preserve_soft_breaks=True,
+                    )
+                    if thinking_text
+                    else []
+                )
+                if thinking_lines:
+                    thinking_lines = [
+                        _apply_nested_style(line, t.thinking) for line in thinking_lines
+                    ]
                 if not thinking_lines:
                     thinking_lines.append(t.thinking(t.thinking_label))
                 thinking_lines = _default_shell_preview(
@@ -506,6 +528,12 @@ class MessageBlock:
                 # element spanning multiple rows otherwise corrupts the diff.
                 if any("\n" in str(c) for c in custom):
                     custom = [seg for c in custom for seg in str(c).split("\n")]
+                if not item.is_error and item.metadata.get("_render_format") == "markdown":
+                    custom = render_markdown(
+                        "\n".join(str(line) for line in custom),
+                        max(1, width - len(_RESULT_INDENT) - 2),
+                        self._theme.markdown,
+                    )
                 if tool.render_shell == "default":
                     t = self._theme
                     color_fn = t.tool_result_err if item.is_error else t.tool_result_ok
@@ -555,6 +583,14 @@ class MessageBlock:
                 inverse=t.diff_inverse,
             )
             rendered = diff_lines or [color_fn("(empty diff)")]
+        elif not item.is_error and item.metadata.get("_render_format") == "markdown":
+            rendered = render_markdown(
+                content,
+                max(1, width - len(_RESULT_INDENT) - 2),
+                t.markdown,
+            )
+            if not rendered:
+                rendered = [color_fn("(no output)")]
         else:
             rendered = [color_fn(all_lines[0])] + [t.dim(line) for line in all_lines[1:]]
         rendered = _default_shell_preview(

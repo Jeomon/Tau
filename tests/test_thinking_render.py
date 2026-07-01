@@ -1,7 +1,7 @@
 from tau.message.types import AssistantMessage, ThinkingContent
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.tui.theme import MessageTheme
-from tau.tui.utils import strip_ansi
+from tau.tui.utils import DIM, ITALIC, strip_ansi
 
 
 def _plain(lines: list[str]) -> list[str]:
@@ -51,3 +51,24 @@ def test_hidden_thinking_stays_hidden() -> None:
     lines = _plain(block.render(80))
     assert all("private thought" not in line for line in lines)
     assert all("ctrl+o" not in line for line in lines)
+
+
+def test_thinking_renders_markdown() -> None:
+    message = AssistantMessage(contents=[ThinkingContent(content="## Plan\n\n- inspect\n- verify")])
+    block = MessageBlock(message, theme=MessageTheme(), tool_result_preview_lines=10)
+
+    rendered = block.render(80)
+    lines = _plain(rendered)
+
+    assert any("Plan" in line and "##" not in line for line in lines)
+    assert any("•" in line and "inspect" in line for line in lines)
+    assert all(DIM in line and ITALIC in line for line in rendered if strip_ansi(line).strip())
+
+
+def test_streaming_incomplete_thinking_markdown_renders() -> None:
+    message = AssistantMessage(contents=[ThinkingContent(content="Working on **partial")])
+    block = MessageBlock(message, streaming=True, theme=MessageTheme())
+
+    lines = _plain(block.render(80))
+
+    assert any("Working on" in line for line in lines)

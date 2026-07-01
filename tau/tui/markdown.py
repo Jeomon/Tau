@@ -73,11 +73,17 @@ class _MdContext(BaseRenderer):
 # ── Public API ────────────────────────────────────────────────────────────────
 
 
-def render_markdown(text: str, width: int, theme: MarkdownTheme) -> list[str]:
+def render_markdown(
+    text: str,
+    width: int,
+    theme: MarkdownTheme,
+    *,
+    preserve_soft_breaks: bool = False,
+) -> list[str]:
     """Render a markdown string to a list of ANSI-coloured terminal lines."""
     with _MdContext():
         doc = Document(text.splitlines(keepends=True))
-        lines = _Renderer(width, theme).render_blocks(doc.children or [])
+        lines = _Renderer(width, theme, preserve_soft_breaks).render_blocks(doc.children or [])
     while lines and lines[-1] == "":
         lines.pop()
     return lines
@@ -87,9 +93,15 @@ def render_markdown(text: str, width: int, theme: MarkdownTheme) -> list[str]:
 
 
 class _Renderer:
-    def __init__(self, width: int, theme: MarkdownTheme) -> None:
+    def __init__(
+        self,
+        width: int,
+        theme: MarkdownTheme,
+        preserve_soft_breaks: bool = False,
+    ) -> None:
         self.width = width
         self.theme = theme
+        self.preserve_soft_breaks = preserve_soft_breaks
 
     # ── Block rendering ───────────────────────────────────────────────────────
 
@@ -338,7 +350,8 @@ class _Renderer:
             if name == "RawText":
                 parts.append(node.content)
             elif name == "LineBreak":
-                parts.append(" " if getattr(node, "soft", True) else "\n")
+                soft = getattr(node, "soft", True)
+                parts.append("\n" if not soft or self.preserve_soft_breaks else " ")
             elif name == "InlineCode":
                 parts.append(self.theme.code_inline(self._raw(node)))
             elif name == "Strong":

@@ -42,10 +42,11 @@ class RetrySettings:
 
 @dataclass
 class ModelRef:
-    """A single ``{id, provider}`` model reference used per modality."""
+    """A selected model and optional model-specific voice."""
 
     id: str | None = None
     provider: str | None = None
+    voice: str | None = None
 
 
 @dataclass

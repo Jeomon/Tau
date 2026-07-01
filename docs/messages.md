@@ -62,6 +62,10 @@ Output from executing a tool.
 }
 ```
 
+Assistant text and thinking content are rendered as Markdown in the interactive
+TUI, including while content is streaming. Tool results remain plain text unless
+the tool explicitly marks a successful result for Markdown rendering.
+
 ### System Message
 
 Context and instructions for the agent. Tau constructs this separately from

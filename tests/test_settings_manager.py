@@ -1,4 +1,5 @@
 """Tests for tau/settings/manager.py — in-memory settings manager."""
+
 from __future__ import annotations
 
 import asyncio
@@ -211,8 +212,9 @@ class TestModelRefSlots:
         assert mgr.get_model_ref("stt") == mgr.get_model_ref("voice")
 
     def test_tts_alias_maps_to_speak(self):
-        mgr = _manager({"model": {"speak": {"id": "tts-1", "provider": "openai"}}})
+        mgr = _manager({"model": {"speak": {"id": "tts-1", "provider": "openai", "voice": "nova"}}})
         assert mgr.get_model_ref("tts") == mgr.get_model_ref("speak")
+        assert _ref(mgr, "speak").voice == "nova"
 
     def test_unset_slot_returns_none(self):
         assert _manager().get_model_ref("video") is None
@@ -244,6 +246,18 @@ class TestModelRefSlots:
         assert _ref(reloaded, "speak").id == "tts-1"
         assert _ref(reloaded, "image").provider == "openai"
         assert reloaded.get_model_ref("video") is None
+
+    def test_set_speak_voice_roundtrip_via_storage(self):
+        mgr = _manager()
+
+        async def _run() -> None:
+            mgr.set_model_ref("speak", "openai", "tts-1", voice="coral")
+            if mgr._write_queue is not None:
+                await mgr._write_queue
+
+        asyncio.run(_run())
+        reloaded = SettingsManager.from_storage(mgr.storage)
+        assert _ref(reloaded, "speak").voice == "coral"
 
     def test_set_one_slot_preserves_others(self):
         mgr = _manager({"model": {"voice": {"id": "whisper-1", "provider": "openai"}}})

@@ -79,8 +79,7 @@ All field names use `snake_case`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `provider` | string | Default provider, e.g. `"anthropic"`, `"openai"` |
-| `model` | string | Default model ID, e.g. `"claude-sonnet-4-6"` |
+| `model` | object | Per-modality model selections: `text`, `voice`, `speak`, `image`, and `video` |
 | `thinking_level` | string | Extended thinking budget level (see below) |
 | `transport` | string | Transport layer override (`"streaming"` or `"polling"`) |
 | `enabled_models` | list[string] | Restrict the model picker to these model IDs |
@@ -88,11 +87,24 @@ All field names use `snake_case`.
 
 ```json
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-6",
+  "model": {
+    "text": {
+      "id": "claude-sonnet-4-6",
+      "provider": "anthropic"
+    },
+    "speak": {
+      "id": "tts-1",
+      "provider": "openai",
+      "voice": "coral"
+    }
+  },
   "thinking_level": "low"
 }
 ```
+
+Each model reference contains `id` and `provider`. The `speak` reference may
+also contain `voice`; `/model` prompts for it after selecting a text-to-speech
+model that declares supported voices.
 
 #### Extended thinking
 
