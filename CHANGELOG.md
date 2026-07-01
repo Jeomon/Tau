@@ -2,6 +2,37 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.4.7 — 2026-07-01
+
+### TUI & model selection
+- Added a voice selector component for TTS-capable models and persist voice
+  selection in model management.
+- Display model context windows and modality mappings in the model selector.
+- Added overlay theming, form overlays, optional overlay backgrounds, dynamic
+  terminal background color configuration via OSC 11, and layout spacing updates.
+- Improved UI interaction styling, settings tab organization, selector navigation,
+  and message truncation summaries.
+
+### Models & extensions
+- Added Claude Sonnet 5 model definitions across Anthropic, Anthropic Claude Code,
+  Anthropic Vertex, and Bedrock providers.
+- Added a watch extension that fetches video metadata and transcripts through
+  `yt-dlp`.
+- Added the `btw` extension module.
+
+### Context & subagents
+- Added ephemeral context injection for transient, non-persistent LLM context via
+  hooks, the engine, and Anthropic inference.
+- Implemented a subagent framework for delegated work, including agent types,
+  manager, runner, task tool, creation workflow, autocomplete support, and an
+  example extension migration.
+- Reworked project context discovery into a hierarchical model and improved system
+  prompt composition.
+
+### Documentation
+- Clarified configuration directory paths and updated web fetch tool output to
+  display prompt labels.
+
 ## 0.4.6 — 2026-06-29
 
 ### Runtime & extensions
