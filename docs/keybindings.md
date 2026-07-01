@@ -50,17 +50,18 @@
 
 ## Customising Keybindings
 
-Pass a `KeyMap` to `App.create()` at startup:
+Tau currently supports programmatic overrides for a limited set of
+application and reusable picker actions. Pass a `KeyMap` to `App.create()` at
+startup:
 
 ```python
 from tau.tui import KeyMap
 
 overrides: KeyMap = {
-    "tui.app.quit": ["ctrl+q"],
-    "tui.input.submit": ["enter"],
-    "app.message.followup": ["alt+enter"],
-    "app.details.toggle": ["ctrl+o"],
-    "app.invocations.toggle": ["ctrl+e"],
+    "app.details.toggle": ["ctrl+t"],
+    "app.invocations.toggle": ["ctrl+r"],
+    "tui.select.up": ["up", "ctrl+k"],
+    "tui.select.down": ["down", "ctrl+j"],
 }
 
 app = await App.create(runtime, keybindings=overrides)
@@ -68,20 +69,12 @@ app = await App.create(runtime, keybindings=overrides)
 
 A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that trigger it.
 
-### Available actions
+### Effective customizable actions
 
 | Action | Default keys | Description |
 |--------|-------------|-------------|
-| `tui.input.submit` | `enter` | Submit the current message |
-| `tui.input.newline` | `shift+enter` | Insert a newline in the editor |
-| `tui.input.clear` | `ctrl+u` | Kill from cursor to start |
-| `tui.input.word_back` | `ctrl+w` | Delete previous word |
-| `app.message.followup` | `alt+enter` | Queue as follow-up message |
-| `app.message.dequeue` | `alt+up` | Restore queued messages into editor |
 | `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result previews |
 | `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
-| `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit tau |
-| `tui.app.abort` | `ctrl+c` | Abort the current turn |
 | `tui.select.up` | `up`, `ctrl+p` | Move selection up |
 | `tui.select.down` | `down`, `ctrl+n` | Move selection down |
 | `tui.select.page_up` | `page_up` | Move up a page |
@@ -90,6 +83,30 @@ A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that
 | `tui.select.bottom` | `end` | Jump to bottom |
 | `tui.select.confirm` | `enter`, `tab` | Confirm selection |
 | `tui.select.dismiss` | `escape` | Dismiss picker |
+
+The `tui.select.*` actions apply to components built on Tau's reusable
+`SelectList`. Some specialized pickers currently handle their keys directly
+and do not honor these overrides.
+
+### Fixed bindings
+
+The editor, message queue, quit, abort, and scroll bindings listed under
+[Default Keybindings](#default-keybindings) are currently fixed in their
+components. Entries for these actions exist in Tau's internal keymap for
+conflict classification, but overriding them does not change their runtime
+behavior:
+
+- `tui.input.*`
+- `app.message.*`
+- `tui.app.quit`
+- `tui.app.abort`
+- `tui.scroll.*`
+
+Extension shortcuts are literal key combinations rather than `KeyMap` actions.
+Tau checks them against the configured map used for conflict classification
+and prevents extensions from replacing reserved editor and application
+bindings. See
+[Keyboard shortcuts](extensions.md#keyboard-shortcuts).
 
 ### Key notation
 
@@ -125,7 +142,10 @@ If a binding doesn't work, choose a different combination.
 
 ## Reloading
 
-Keybinding overrides are applied at startup. To pick up changes, restart tau or run `/reload`.
+`App.create(keybindings=...)` applies overrides at startup. Because these
+overrides are supplied by the embedding application rather than loaded from a
+settings file, `/reload` does not change them. Restart the application with a
+new `KeyMap` to apply different overrides.
 
 ---
 

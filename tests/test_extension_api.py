@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tau.extensions.api import ExtensionAPI, _RuntimeRef
+from tau.extensions.api import ExtensionAPI, ShortcutRegistration, _RuntimeRef
 from tau.extensions.context import ExtensionContext
 from tau.extensions.loader import load_inline_extensions
 from tau.extensions.runtime import ExtensionRuntime
@@ -19,6 +19,8 @@ from tau.hooks.service import Hooks
 from tau.inference.api.text.base import BaseLLMAPI
 from tau.inference.api.text.service import TextLLM
 from tau.inference.provider.types import APIProvider, AuthType, OAuthProvider
+from tau.modes.interactive.app import _resolve_extension_shortcuts
+from tau.tui.input import configure_keybindings
 
 
 def _make_api(runtime_ref: _RuntimeRef | None = None) -> ExtensionAPI:
@@ -117,6 +119,74 @@ def test_inline_extension_reload_does_not_duplicate_handlers(tmp_path: Path) -> 
     second.unsubscribe()
 
     assert calls == 2
+
+
+def test_register_shortcut_records_literal_key_and_source() -> None:
+    api = _make_api()
+
+    @api.register_shortcut("ctrl+g", "Open greeter")
+    async def open_greeter(_ctx: ExtensionContext) -> None:
+        pass
+
+    shortcut = api._extension.shortcuts[0]
+    assert shortcut.key == "ctrl+g"
+    assert shortcut.description == "Open greeter"
+    assert shortcut.handler is open_greeter
+    assert shortcut.extension_path == "test"
+
+
+def _shortcut(key: str, path: str) -> ShortcutRegistration:
+    return ShortcutRegistration(key, None, lambda _ctx: None, path)
+
+
+def test_reserved_tui_shortcut_cannot_be_replaced() -> None:
+    configure_keybindings({})
+
+    resolved, warnings = _resolve_extension_shortcuts([_shortcut("ctrl+c", "extension.py")])
+
+    assert resolved == []
+    assert warnings == [
+        "Extension shortcut 'ctrl+c' from extension.py conflicts with reserved "
+        "TUI action tui.app.abort; skipping."
+    ]
+
+
+def test_non_reserved_tui_shortcut_can_be_replaced() -> None:
+    configure_keybindings({})
+    shortcut = _shortcut("ctrl+o", "extension.py")
+
+    resolved, warnings = _resolve_extension_shortcuts([shortcut])
+
+    assert resolved == [shortcut]
+    assert warnings == [
+        "Extension shortcut 'ctrl+o' from extension.py overrides TUI action app.details.toggle."
+    ]
+
+
+def test_last_extension_shortcut_wins() -> None:
+    configure_keybindings({})
+    first = _shortcut("ctrl+shift+x", "first.py")
+    second = _shortcut("shift+ctrl+x", "second.py")
+
+    resolved, warnings = _resolve_extension_shortcuts([first, second])
+
+    assert resolved == [second]
+    assert warnings == [
+        "Extension shortcut 'shift+ctrl+x' is registered by both first.py and "
+        "second.py; using second.py."
+    ]
+
+
+def test_conflicts_use_effective_user_keymap() -> None:
+    configure_keybindings({"tui.app.abort": ["ctrl+x"]})
+
+    resolved, warnings = _resolve_extension_shortcuts([_shortcut("ctrl+x", "extension.py")])
+
+    assert resolved == []
+    assert warnings == [
+        "Extension shortcut 'ctrl+x' from extension.py conflicts with reserved "
+        "TUI action tui.app.abort; skipping."
+    ]
 
 
 # ── Custom providers ──────────────────────────────────────────────────────────

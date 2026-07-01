@@ -100,11 +100,12 @@ class ExtensionFactory(Protocol):
 
 @dataclass
 class ShortcutRegistration:
-    """A keyboard shortcut registered by an extension."""
+    """A literal keyboard shortcut registered by an extension."""
 
     key: str
     description: str | None
     handler: Callable[[Any], Awaitable[None] | None]
+    extension_path: str
 
 
 @dataclass
@@ -468,11 +469,15 @@ class ExtensionAPI:
             async def handler(ctx): ...
         """
         if handler is not None:
-            self._extension.shortcuts.append(ShortcutRegistration(key, description, handler))
+            self._extension.shortcuts.append(
+                ShortcutRegistration(key, description, handler, self._extension.path)
+            )
             return None
 
         def decorator(fn: Callable) -> Callable:
-            self._extension.shortcuts.append(ShortcutRegistration(key, description, fn))
+            self._extension.shortcuts.append(
+                ShortcutRegistration(key, description, fn, self._extension.path)
+            )
             return fn
 
         return decorator

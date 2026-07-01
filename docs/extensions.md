@@ -656,6 +656,19 @@ def register(tau):
 
 ## Keyboard shortcuts
 
+`register_shortcut` takes a literal key combination. Tau compares extension
+shortcuts with the configured `KeyMap` used for conflict classification.
+Safety-critical editor and application bindings are reserved and cannot be
+replaced by extensions. An extension may replace a non-reserved global
+application binding, with a warning. If multiple extensions register the same
+key, the last loaded extension wins and Tau reports a warning.
+
+The editor and several specialized pickers still handle their bindings
+directly. Registering an extension shortcut does not replace a key already
+consumed by the focused component. See
+[Customising keybindings](keybindings.md#customising-keybindings) for the
+currently effective customizable actions and fixed bindings.
+
 ```python
 def register(tau):
     @tau.register_shortcut("ctrl+g", "Open greeter")
@@ -844,7 +857,7 @@ def register(tau):
 | `tau.register_tool(tool)` | Add a tool the agent can call |
 | `tau.register_command(name, desc, handler, aliases=[], get_argument_completions=None, argument_hint=None, requires_idle=True)` | Add a `/name` slash command; set `requires_idle=False` only for UI-only or read-only handlers safe during an active turn |
 | `tau.on(event, handler)` / `@tau.on(event)` | Subscribe to a lifecycle event |
-| `tau.register_shortcut(key, desc, handler)` | Bind a keyboard shortcut |
+| `tau.register_shortcut(key, desc, handler)` | Bind a literal keyboard shortcut |
 | `tau.append_prompt(text)` | Append text to the system prompt |
 | `tau.register_theme(name, theme)` | Add a named theme to the picker |
 | `tau.register_message_renderer(type, fn)` | Render custom message types in the TUI |

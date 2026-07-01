@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from tau.extensions import ExtensionContext
+from tau.extensions import ExtensionContext, ShortcutRegistration
 from tau.modes.interactive.agent_hooks import AgentHookHandler
 from tau.modes.interactive.commands.context import CommandContext
 from tau.modes.interactive.components.layout import Layout
@@ -16,6 +16,7 @@ from tau.tui.input import (
     KeyMap,
     configure_keybindings,
     get_keybindings,
+    normalize_key_id,
 )
 from tau.tui.theme import LayoutTheme
 from tau.tui.tui import TUI
@@ -25,6 +26,70 @@ if TYPE_CHECKING:
     from tau.runtime.types import RuntimeConfig
 
 _log = logging.getLogger(__name__)
+
+_RESERVED_EXTENSION_SHORTCUT_ACTIONS = frozenset(
+    {
+        "tui.app.quit",
+        "tui.app.abort",
+        "tui.input.submit",
+        "tui.input.newline",
+        "tui.input.clear",
+        "tui.input.word_back",
+        "tui.select.up",
+        "tui.select.down",
+        "tui.select.page_up",
+        "tui.select.page_down",
+        "tui.select.top",
+        "tui.select.bottom",
+        "tui.select.confirm",
+        "tui.select.dismiss",
+        "app.message.followup",
+        "app.message.dequeue",
+        "tui.scroll.up",
+        "tui.scroll.down",
+        "tui.scroll.top",
+        "tui.scroll.bottom",
+    }
+)
+
+
+def _resolve_extension_shortcuts(
+    shortcuts: list[ShortcutRegistration],
+) -> tuple[list[ShortcutRegistration], list[str]]:
+    """Resolve raw extension shortcuts against the effective TUI keymap."""
+    bindings = get_keybindings().effective_map()
+    by_key = {
+        normalize_key_id(key): (action, action in _RESERVED_EXTENSION_SHORTCUT_ACTIONS)
+        for action, keys in bindings.items()
+        for key in keys
+    }
+    resolved: dict[tuple[frozenset[str], str], ShortcutRegistration] = {}
+    warnings: list[str] = []
+
+    for shortcut in shortcuts:
+        signature = normalize_key_id(shortcut.key)
+        builtin = by_key.get(signature)
+        if builtin is not None and builtin[1]:
+            warnings.append(
+                f"Extension shortcut '{shortcut.key}' from {shortcut.extension_path} "
+                f"conflicts with reserved TUI action {builtin[0]}; skipping."
+            )
+            continue
+        if builtin is not None:
+            warnings.append(
+                f"Extension shortcut '{shortcut.key}' from {shortcut.extension_path} "
+                f"overrides TUI action {builtin[0]}."
+            )
+        previous = resolved.get(signature)
+        if previous is not None:
+            warnings.append(
+                f"Extension shortcut '{shortcut.key}' is registered by both "
+                f"{previous.extension_path} and {shortcut.extension_path}; "
+                f"using {shortcut.extension_path}."
+            )
+        resolved[signature] = shortcut
+
+    return list(resolved.values()), warnings
 
 
 class App:
@@ -391,8 +456,8 @@ class App:
             self._layout.set_cwd(sm.cwd)
 
         self._input.bind()
-        self._tui.on_input(self._on_global_key)
         self._register_extension_shortcuts()
+        self._tui.on_input(self._on_global_key)
 
         # Fire tui_ready so extensions can run initial UI setup now that the
         # layout exists (session_start fires earlier, before the layout is set).
@@ -572,22 +637,30 @@ class App:
         for unsub in self._extension_shortcut_unsubs:
             unsub()
         self._extension_shortcut_unsubs.clear()
-        for shortcut in runtime.extension_shortcuts:
+        shortcuts, warnings = _resolve_extension_shortcuts(runtime.extension_shortcuts)
+        for warning in warnings:
+            _log.warning(warning)
+            self._ctx().notify(warning)
+
+        for shortcut in shortcuts:
             key = shortcut.key
             handler = shortcut.handler
 
             def _make_handler(k, h):
-                def on_input(event: object) -> None:
+                def on_input(event: object) -> bool:
                     if not isinstance(event, KeyEvent) or not event.matches(k):
-                        return
+                        return False
                     ctx = ExtensionContext.from_runtime(runtime)
                     result = h(ctx)
                     if asyncio.iscoroutine(result):
                         self._track_task(asyncio.ensure_future(result))  # type: ignore[arg-type]
+                    return True
 
                 return on_input
 
-            self._extension_shortcut_unsubs.append(self._tui.on_input(_make_handler(key, handler)))
+            self._extension_shortcut_unsubs.append(
+                self._tui.on_input(_make_handler(key, handler), prepend=True)
+            )
 
     def _refresh_extension_ui(self) -> None:
         """Replace extension renderers, completions, and shortcuts after reload."""

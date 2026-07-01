@@ -1,4 +1,4 @@
-"""Tests for tau/tui/input.py — KeyEvent, _normalize_keyid, matches_key, Key constants."""
+"""Tests for tau/tui/input.py — key normalization, matching, and Key constants."""
 
 from __future__ import annotations
 
@@ -8,39 +8,39 @@ from tau.tui.input import (
     KeyEvent,
     MouseEvent,
     PasteEvent,
-    _normalize_keyid,
     matches_key,
+    normalize_key_id,
 )
 
 
 class TestNormalizeKeyid:
     def test_simple_key(self):
-        mods, base = _normalize_keyid("up")
+        mods, base = normalize_key_id("up")
         assert mods == frozenset()
         assert base == "up"
 
     def test_ctrl_modifier(self):
-        mods, base = _normalize_keyid("ctrl+p")
+        mods, base = normalize_key_id("ctrl+p")
         assert "ctrl" in mods
         assert base == "p"
 
     def test_ctrl_shift_order_independent(self):
-        m1, b1 = _normalize_keyid("ctrl+shift+x")
-        m2, b2 = _normalize_keyid("shift+ctrl+x")
+        m1, b1 = normalize_key_id("ctrl+shift+x")
+        m2, b2 = normalize_key_id("shift+ctrl+x")
         assert m1 == m2
         assert b1 == b2
 
     def test_alias_control_equals_ctrl(self):
-        m1, _ = _normalize_keyid("ctrl+a")
-        m2, _ = _normalize_keyid("control+a")
+        m1, _ = normalize_key_id("ctrl+a")
+        m2, _ = normalize_key_id("control+a")
         assert m1 == m2
 
     def test_key_alias_escape(self):
-        _, base = _normalize_keyid("esc")
+        _, base = normalize_key_id("esc")
         assert base == "escape"
 
     def test_plus_as_base_key(self):
-        mods, base = _normalize_keyid("ctrl++")
+        mods, base = normalize_key_id("ctrl++")
         assert "ctrl" in mods
         assert base == "+"
 

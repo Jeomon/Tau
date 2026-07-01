@@ -37,7 +37,7 @@ _KEY_ALIASES = {
 }
 
 
-def _normalize_keyid(key_id: str) -> tuple[frozenset[str], str]:
+def normalize_key_id(key_id: str) -> tuple[frozenset[str], str]:
     """Parse a key identifier like 'ctrl+shift+p' into (modifiers, base_key).
 
     Order- and alias-independent. Handles '+' as a base key (e.g. 'ctrl++')."""
@@ -103,7 +103,7 @@ class KeyEvent:
         and 'control+shift+p' all match the same event.
         """
         sig = self._signature()
-        return any(_normalize_keyid(k) == sig for k in keys)
+        return any(normalize_key_id(k) == sig for k in keys)
 
 
 def matches_key(event: KeyEvent, *keys: str) -> bool:
@@ -920,6 +920,10 @@ class KeybindingsManager:
         self._map.setdefault(action, [])
         if key not in self._map[action]:
             self._map[action].append(key)
+
+    def effective_map(self) -> KeyMap:
+        """Return a copy of the effective action-to-keys mapping."""
+        return {action: list(keys) for action, keys in self._map.items()}
 
 
 _keybindings_instance: KeybindingsManager | None = None

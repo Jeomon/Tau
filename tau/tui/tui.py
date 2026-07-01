@@ -894,14 +894,24 @@ class TUI(Container):
         """Ask for a render on the next frame (debounced). Call after state changes."""
         self._request_render()
 
-    def on_input(self, handler: EventHandler) -> Callable[[], None]:
+    def on_input(
+        self,
+        handler: EventHandler,
+        *,
+        prepend: bool = False,
+    ) -> Callable[[], None]:
         """
         Register a global input handler. Returns an unsubscribe callable.
 
         The handler receives every InputEvent after focused components have
-        had a chance to consume it. Handlers are called in registration order.
+        had a chance to consume it. Handlers are called in registration order
+        unless ``prepend`` places a higher-priority handler first. Returning
+        ``True`` consumes the event.
         """
-        self._input_handlers.append(handler)
+        if prepend:
+            self._input_handlers.insert(0, handler)
+        else:
+            self._input_handlers.append(handler)
         return lambda: self._input_handlers.remove(handler)
 
     def on_input_intercept(self, handler: EventHandler) -> Callable[[], None]:
@@ -1233,6 +1243,8 @@ class TUI(Container):
             result = handler(event)
             if asyncio.iscoroutine(result):
                 asyncio.ensure_future(result).add_done_callback(_log_task_exception)
+            elif result is True:
+                return
 
     # -------------------------------------------------------------------------
     # Render scheduling
