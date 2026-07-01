@@ -56,6 +56,7 @@ All settings documented in the reference below are editable from the TUI. Settin
 | `double_escape_action` | Top level — cycles `"clear"` / `"fork"` / `"tree"` / `"none"` |
 | `tree_filter_mode` | Top level — cycles all five modes |
 | `show_hardware_cursor` | Top level — boolean toggle |
+| `cursor_blink` | Top level — boolean toggle |
 | `http_idle_timeout_ms` | Top level — text input |
 | `picker_max_visible` | Top level — text input |
 | `autocomplete_max_visible` | Top level — text input |
@@ -136,6 +137,7 @@ Toggle during a session with `/effort` or the effort picker.
 | `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown |
 | `tool_result_preview_lines` | integer | `5` | Lines shown before thinking or default-shell tool results collapse; values below 1 are clamped |
 | `show_hardware_cursor` | boolean | `false` | Keep the terminal cursor visible while it is repositioned (aids IME input) |
+| `cursor_blink` | boolean | `true` | Blink the input cursor when idle and the terminal window is focused |
 | `editor_padding_x` | integer | `0` | Horizontal padding (spaces) added inside the input editor |
 | `double_escape_action` | string | `"clear"` | What happens when Escape is pressed twice while idle: `"clear"` clears TUI messages, `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
 | `tree_filter_mode` | string | `"default"` | Default message filter when `/tree` opens: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
@@ -143,6 +145,8 @@ Toggle during a session with `/effort` or the effort picker.
 #### Hardware Cursor & Editor Padding
 
 **`show_hardware_cursor`** — Enable this if you're using IME (input method editor) for CJK, Arabic, or other languages. When enabled, the terminal cursor remains visible as it's repositioned for text input, improving the IME experience. Default is `false` for standard keyboard input.
+
+**`cursor_blink`** — Whether the input cursor blinks after a short idle period while the terminal window is focused; it stays solid while actively typing regardless of this setting. Set to `false` for a permanently solid cursor. Default is `true`.
 
 **`editor_padding_x`** — Add horizontal spacing inside the text input area. Useful if you prefer visual breathing room around your typing. Each unit equals one space character. Default is `0` (no padding).
 
@@ -153,6 +157,7 @@ Example with both enabled:
   "show_thinking": false,
   "show_tool_calls": true,
   "show_hardware_cursor": true,
+  "cursor_blink": false,
   "editor_padding_x": 2
 }
 ```

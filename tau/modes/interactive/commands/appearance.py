@@ -119,6 +119,13 @@ def open_settings_panel(ctx: CommandContext) -> None:
             values=["false", "true"],
         ),
         SettingItem(
+            id="cursor_blink",
+            label="Cursor blink",
+            description="Blink the input cursor when idle and focused",
+            current_value="true" if sm.get_cursor_blink() else "false",
+            values=["true", "false"],
+        ),
+        SettingItem(
             id="theme",
             label="Theme",
             description="Color theme for the interface",
@@ -495,6 +502,14 @@ def open_settings_panel(ctx: CommandContext) -> None:
             v = value == "true"
             sm.set_show_images(v)
             ctx.layout.messages.set_show_images(v)
+            ctx.tui.request_render()
+        elif item_id == "cursor_blink":
+            v = value == "true"
+            sm.set_cursor_blink(v)
+            # Optional TextInput-only capability — custom editors (set via
+            # ctx.ui.set_editor_component) may not implement it.
+            if setter := getattr(ctx.layout.input, "set_cursor_blink", None):
+                setter(v)
             ctx.tui.request_render()
         elif item_id == "steering_mode":
             sm.set_steering_mode(SteeringMode(value))

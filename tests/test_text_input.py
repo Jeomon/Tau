@@ -185,3 +185,45 @@ class TestCursorBlink:
         editor = TextInput()
         editor.render(40)
         assert editor._blink_task is None  # noqa: SLF001
+
+    def test_cursor_blink_disabled_never_starts_task_and_stays_solid(self) -> None:
+        editor = TextInput(tui=_FakeTUI(), cursor_blink=False)  # type: ignore[arg-type]
+        set_window_focused(True)
+        editor.render(40)
+        assert editor._blink_task is None  # noqa: SLF001
+
+        cell = editor._effective_cursor_cell()  # noqa: SLF001
+        assert cell("a") != "a"  # still rendered via cursor_block, permanently solid
+
+    def test_set_cursor_blink_disables_live_and_cancels_running_task(self) -> None:
+        editor = TextInput(tui=_FakeTUI())  # type: ignore[arg-type]
+        set_window_focused(True)
+
+        async def scenario() -> None:
+            editor.render(40)  # starts the blink task (needs a running loop)
+            assert editor._blink_task is not None  # noqa: SLF001
+            editor._blink_on = False  # noqa: SLF001 — simulate mid-blink "off" phase
+
+            editor.set_cursor_blink(False)
+
+            assert editor._blink_task is None  # noqa: SLF001
+            assert editor._blink_on is True  # noqa: SLF001 — forced solid immediately
+            editor.render(40)  # must not restart the task while disabled
+            assert editor._blink_task is None  # noqa: SLF001
+
+        asyncio.run(scenario())
+
+    def test_set_cursor_blink_re_enables_and_lazily_restarts(self) -> None:
+        editor = TextInput(tui=_FakeTUI(), cursor_blink=False)  # type: ignore[arg-type]
+        set_window_focused(True)
+
+        async def scenario() -> None:
+            editor.render(40)
+            assert editor._blink_task is None  # noqa: SLF001
+
+            editor.set_cursor_blink(True)
+            editor.render(40)
+            assert editor._blink_task is not None  # noqa: SLF001
+            editor._blink_task.cancel()  # noqa: SLF001
+
+        asyncio.run(scenario())

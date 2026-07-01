@@ -194,11 +194,13 @@ class Layout(Component):
         autocomplete_max_visible: int = 5,
         editor_padding_x: int = 0,
         tool_result_preview_lines: int = 5,
+        cursor_blink: bool = True,
     ) -> None:
         """Initialize layout with TUI instance and default theme."""
         self._tui = tui
         self._theme = theme or LayoutTheme()
         self._picker_max_visible = picker_max_visible
+        self._cursor_blink = cursor_blink
 
         self.messages = MessageList(
             theme=self._theme.message,
@@ -213,6 +215,7 @@ class Layout(Component):
             placeholder=self._theme.input.placeholder,
             padding_x=editor_padding_x,
             tui=tui,
+            cursor_blink=cursor_blink,
         )
 
         # ── Public Container zones ──────────────────────────────────────────
@@ -889,6 +892,7 @@ class Layout(Component):
                 prefix=self._theme.input.prefix,
                 placeholder=self._theme.input.placeholder,
                 tui=self._tui,
+                cursor_blink=self._cursor_blink,
             )
         else:
             new_input = factory(self._theme.input, get_keybindings())

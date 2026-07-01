@@ -85,6 +85,7 @@ class TextInput(Component):
         on_history_transform: Callable[[str], str] | None = None,
         padding_x: int = 0,
         tui: TUI | None = None,
+        cursor_blink: bool = True,
     ) -> None:
         self._prefix = prefix
         self._placeholder = placeholder
@@ -117,7 +118,10 @@ class TextInput(Component):
         # Only meaningful while the terminal window has focus — see
         # _effective_cursor_cell(). Requires `tui` for request_render(); with
         # no tui the cursor just stays solid (no blink task is started).
+        # `cursor_blink=False` (settings: cursor_blink) disables it outright,
+        # leaving a permanently solid cursor.
         self._tui = tui
+        self._cursor_blink_enabled = cursor_blink
         self._blink_on: bool = True
         self._last_activity: float = time.monotonic()
         self._blink_task: asyncio.Task[None] | None = None
@@ -263,6 +267,20 @@ class TextInput(Component):
     def set_placeholder_override(self, text: str | None) -> None:
         """Temporarily replace the placeholder (None restores the configured one)."""
         self._placeholder_override = text
+
+    def set_cursor_blink(self, enabled: bool) -> None:
+        """Enable/disable cursor blinking, applying immediately to the live cursor.
+
+        Disabling cancels any running blink task and forces the cursor solid;
+        re-enabling lets it lazily restart on the next render() (see
+        _ensure_blink_task).
+        """
+        self._cursor_blink_enabled = enabled
+        if not enabled:
+            if self._blink_task is not None:
+                self._blink_task.cancel()
+                self._blink_task = None
+            self._blink_on = True
 
     def focus(self) -> None:
         pass
@@ -433,7 +451,7 @@ class TextInput(Component):
 
     def _ensure_blink_task(self) -> None:
         """Lazily start the blink loop once an event loop is guaranteed to exist."""
-        if self._tui is not None and self._blink_task is None:
+        if self._cursor_blink_enabled and self._tui is not None and self._blink_task is None:
             self._blink_task = asyncio.ensure_future(self._blink_loop())
 
     async def _blink_loop(self) -> None:

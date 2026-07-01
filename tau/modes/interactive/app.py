@@ -222,9 +222,11 @@ class App:
 
         show_hardware_cursor = False
         editor_padding_x = 0
+        cursor_blink = True
         if sm is not None:
             show_hardware_cursor = sm.get_show_hardware_cursor()
             editor_padding_x = sm.get_editor_padding_x()
+            cursor_blink = sm.get_cursor_blink()
 
         tui = TUI(show_hardware_cursor=show_hardware_cursor)
         if resolved_theme.terminal_bg:
@@ -236,6 +238,7 @@ class App:
             autocomplete_max_visible=autocomplete_max_visible,
             editor_padding_x=editor_padding_x,
             tool_result_preview_lines=tool_result_preview_lines,
+            cursor_blink=cursor_blink,
         )
         tui.set_focus(layout)
         app = cls(runtime, tui, layout)

@@ -1100,6 +1100,17 @@ class SettingsManager:
         self._mark_modified("show_hardware_cursor")
         self._save()
 
+    def get_cursor_blink(self) -> bool:
+        """Return whether the input cursor blinks when idle and focused (default: True)."""
+        v = self.settings.cursor_blink
+        return v if v is not None else True
+
+    def set_cursor_blink(self, value: bool) -> None:
+        """Set whether the input cursor blinks and persist to global settings."""
+        self.global_settings.cursor_blink = value
+        self._mark_modified("cursor_blink")
+        self._save()
+
     def get_editor_padding_x(self) -> int:
         """Return the horizontal editor padding in characters (default: 0)."""
         v = self.settings.editor_padding_x

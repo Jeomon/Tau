@@ -215,6 +215,7 @@ class Settings:
     show_hardware_cursor: bool | None = (
         None  # show terminal cursor while positioning (IME support, default: False)
     )
+    cursor_blink: bool | None = None  # blink the input cursor when idle and focused (default: True)
     editor_padding_x: int | None = None  # horizontal padding for the input editor (default: 0)
 
     # Extensions
