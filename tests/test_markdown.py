@@ -180,10 +180,18 @@ class TestImages:
         combined = "\n".join(lines)
         assert "my image" in combined
 
-    def test_image_path_included(self):
-        lines = plain("![alt](photo.png)")
-        combined = "\n".join(lines)
-        assert "photo.png" in combined
+    def test_image_path_hidden(self):
+        assert plain("![alt](photo.png)") == ["[image: alt]"]
+
+    def test_image_placeholder_links_to_local_path(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        combined = "\n".join(render("![alt](photo.png)"))
+        target = (tmp_path / "photo.png").as_uri()
+        assert f"\x1b]8;;{target}\x1b\\" in combined
+
+    def test_image_placeholder_links_to_remote_url(self):
+        combined = "\n".join(render("![alt](https://example.com/photo.png)"))
+        assert "\x1b]8;;https://example.com/photo.png\x1b\\" in combined
 
 
 class TestTable:

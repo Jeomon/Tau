@@ -203,6 +203,7 @@ class Settings:
 
     # Startup
     quiet_startup: bool | None = None  # suppress startup notices (default: False)
+    telemetry: bool | None = None  # anonymous version-only install/update count (default: True)
 
     # UI behaviour
     double_escape_action: Literal["clear", "fork", "tree", "none"] | None = (

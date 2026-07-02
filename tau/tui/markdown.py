@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from mistletoe.base_renderer import BaseRenderer
 from mistletoe.block_token import Document
@@ -374,9 +376,13 @@ class _Renderer:
                 alt = self._render_inline(node.children or [])
                 url = getattr(node, "src", "") or getattr(node, "target", "")
                 label = f"[image: {alt}]" if alt else "[image]"
-                parts.append(self.theme.italic(label))
-                if url:
-                    parts.append(" " + self.theme.link_url(f"({url})"))
+                styled_label = self.theme.italic(label)
+                target = self._image_link_target(url)
+                parts.append(
+                    f"\x1b]8;;{target}\x1b\\{styled_label}\x1b]8;;\x1b\\"
+                    if target
+                    else styled_label
+                )
             elif name in ("HTMLSpan", "HtmlSpan"):
                 parts.append(getattr(node, "content", ""))
             elif name == "EscapeSequence":
@@ -403,6 +409,14 @@ class _Renderer:
         return "".join(
             char for char in target if ord(char) >= 0x20 and not 0x7F <= ord(char) <= 0x9F
         )
+
+    @classmethod
+    def _image_link_target(cls, target: str) -> str:
+        """Return a clickable URI for a remote URL or local image path."""
+        safe_target = cls._safe_link_target(target)
+        if not safe_target or urlsplit(safe_target).scheme:
+            return safe_target
+        return Path(safe_target).expanduser().resolve().as_uri()
 
 
 # ---------------------------------------------------------------------------

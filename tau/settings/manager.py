@@ -493,6 +493,21 @@ class SettingsManager:
         self._mark_modified("quiet_startup")
         self._save()
 
+    def get_telemetry(self) -> bool:
+        """Return whether anonymous install/update telemetry is enabled.
+
+        This is intentionally global-only so project settings cannot re-enable
+        telemetry after a user has disabled it.
+        """
+        value = self.global_settings.telemetry
+        return value if value is not None else True
+
+    def set_telemetry(self, value: bool) -> None:
+        """Enable or disable version-only telemetry in global settings."""
+        self.global_settings.telemetry = value
+        self._mark_modified("telemetry")
+        self._save()
+
     def get_picker_max_visible(self) -> int:
         """Return the maximum number of visible picker items (default: 8)."""
         v = self.settings.picker_max_visible

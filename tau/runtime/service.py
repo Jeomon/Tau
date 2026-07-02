@@ -70,6 +70,7 @@ class Runtime:
         self._reload_pending: bool = False
         self._reload_task: asyncio.Task[None] | None = None
         self.version_check_task: asyncio.Task[str | None] | None = None
+        self.telemetry_task: asyncio.Task[None] | None = None
         if context.agent is not None:
             context.agent._runtime = self
         # Bind runtime ref so (event, ctx) handlers resolve live state
@@ -99,6 +100,7 @@ class Runtime:
         )
         runtime = cls(context=context, config=runtime_config)
         runtime._start_version_check()
+        runtime._start_telemetry()
         await runtime._emit_session_start(SessionStartReason.Startup)
         # Runtime is now fully wired (engine, agent, tools, extensions) and the
         # session has started, but no mode-specific loop (TUI/print/rpc) has begun.
@@ -148,6 +150,17 @@ class Runtime:
         from tau.utils.version_check import check_for_new_version
 
         self.version_check_task = asyncio.ensure_future(check_for_new_version(get_app_version()))
+
+    def _start_telemetry(self) -> None:
+        """Start the best-effort version-only telemetry ping when enabled."""
+        settings = self.settings_manager
+        if settings is None or not settings.get_telemetry():
+            return
+
+        from tau.settings.paths import get_app_version
+        from tau.utils.telemetry import report_install
+
+        self.telemetry_task = asyncio.ensure_future(report_install(get_app_version()))
 
     # -------------------------------------------------------------------------
     # Public properties
@@ -1067,6 +1080,11 @@ class Runtime:
             self.version_check_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.version_check_task
+        telemetry_task = getattr(self, "telemetry_task", None)
+        if telemetry_task is not None and not telemetry_task.done():
+            telemetry_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await telemetry_task
         await self._context.hooks.emit(RuntimeStopEvent())
         if self._context.ext_runtime is not None:
             self._context.ext_runtime.unsubscribe()

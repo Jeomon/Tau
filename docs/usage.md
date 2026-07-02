@@ -13,6 +13,8 @@ Run `tau` to open the terminal UI. The interface has three areas:
 Named Markdown links display their label without repeating the destination URL.
 In terminals with OSC 8 support, use the terminal's link gesture (commonly
 Alt+click or Cmd+click) to open the destination. Autolinks remain visible as URLs.
+Markdown images render as linked placeholders when inline image display is not
+available; local image paths link through an absolute `file://` URI.
 
 ## Editor Features
 

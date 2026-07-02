@@ -53,6 +53,7 @@ All settings documented in the reference below are editable from the TUI. Settin
 | Setting | Panel location |
 |---------|----------------|
 | `project_trust` | Top level — cycles `"ask"` / `"always"` / `"never"` |
+| `telemetry` | Top level — boolean toggle |
 | `double_escape_action` | Top level — cycles `"clear"` / `"fork"` / `"tree"` / `"none"` |
 | `tree_filter_mode` | Top level — cycles all five modes |
 | `show_hardware_cursor` | Top level — boolean toggle |
@@ -141,6 +142,28 @@ Toggle during a session with `/effort` or the effort picker.
 | `editor_padding_x` | integer | `0` | Horizontal padding (spaces) added inside the input editor |
 | `double_escape_action` | string | `"clear"` | What happens when Escape is pressed twice while idle: `"clear"` clears TUI messages, `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
 | `tree_filter_mode` | string | `"default"` | Default message filter when `/tree` opens: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
+
+### Telemetry
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `telemetry` | boolean | `true` | Send one anonymous version-only install/update count |
+
+Telemetry sends only the installed Tau version to Tau's Cloudflare Worker once
+per version. Tau does not persist identifiers or IP addresses and does not send
+prompts, paths, models, authentication state, session data, or tool activity.
+As with any HTTP request, Cloudflare necessarily processes the source IP under
+its own privacy policy. Failed requests are ignored and never block startup.
+
+This is a global preference: project settings cannot enable telemetry after it
+has been disabled globally. Disable it in `/settings` or in
+`~/.tau/settings.json`:
+
+```json
+{
+  "telemetry": false
+}
+```
 
 #### Hardware Cursor & Editor Padding
 

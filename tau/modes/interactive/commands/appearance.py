@@ -74,6 +74,13 @@ def open_settings_panel(ctx: CommandContext) -> None:
             values=["false", "true"],
         ),
         SettingItem(
+            id="telemetry",
+            label="Telemetry",
+            description="Send one anonymous version-only ping after install or update",
+            current_value="true" if sm.get_telemetry() else "false",
+            values=["true", "false"],
+        ),
+        SettingItem(
             id="show_thinking",
             label="Show thinking",
             description="Display extended reasoning blocks in responses",
@@ -443,6 +450,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
 
     boolean_setters = {
         "quiet_startup": sm.set_quiet_startup,
+        "telemetry": sm.set_telemetry,
         "show_thinking": sm.set_show_thinking,
         "show_tool_calls": sm.set_show_tool_calls,
         "image_auto_resize": sm.set_image_auto_resize,

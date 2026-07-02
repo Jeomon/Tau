@@ -98,6 +98,13 @@ class TestSeedData:
         mgr = _manager({"quiet_startup": True})
         assert mgr.get_quiet_startup() is True
 
+    def test_telemetry_defaults_enabled(self):
+        assert _manager().get_telemetry() is True
+
+    def test_seeded_telemetry_disabled(self):
+        mgr = _manager({"telemetry": False})
+        assert mgr.get_telemetry() is False
+
     def test_seeded_show_thinking(self):
         mgr = _manager({"show_thinking": False})
         assert mgr.get_show_thinking() is False
