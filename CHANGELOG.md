@@ -2,6 +2,53 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.1 — 2026-07-02
+
+### Extensions
+- Added **VCC** (`examples/extensions/vcc/`) — an algorithmic, no-LLM conversation
+  compactor. It hooks `before_compaction` and returns a deterministic
+  `CompactionResult` built by extraction and formatting (session goal, files &
+  changes, commits, outstanding context, user preferences, plus a rolling brief
+  transcript), reusing tau's own cut point. Repeat compactions merge into the
+  previous summary. Ships `/vcc` (compact on demand), `/vcc-recall`, and a
+  `vcc_recall` tool for lossless, regex-ranked search over pre-compaction history.
+  Opt-in by default (`override_default_compaction`); any failure falls back to the
+  built-in summarizer.
+- Reorganized the `ask_user` extension into a package directory, and open
+  freeform-only `ask_user` prompts straight into the editor.
+- Exposed the documented semantic colour roles on the tool-render theme so
+  extension renderers can style output consistently.
+
+### Themes
+- Added a bundled set of example themes (`examples/themes/`): ayu-dark,
+  catppuccin, dracula, everforest, gruvbox, horizon, and more.
+
+### TUI
+- Prevented autocomplete pickers from consuming modified keys, and added
+  render-exception handling so a failing renderer can no longer freeze the UI.
+- Added comprehensive lifecycle management (dispose methods) for TUI components
+  and terminal state; made the TUI standalone.
+- Added support for Alt+navigation sequences prefixed with an extra ESC byte.
+- Corrected the `_do_render` exception-logging call.
+
+### Terminal
+- Improved terminal output streaming.
+- Hardened terminal process resource management with context-manager support and
+  robust `OutputAccumulator` cleanup.
+
+### Inference
+- Enabled the chat-template thinking format for diffusiongemma, with a
+  validation test.
+
+### LSP
+- Resolved LSP roots to absolute paths so `as_uri()` can no longer fail.
+
+### Refactors & Docs
+- Renamed `Agent` to `Engine`, unifying terminology via `EngineContext` with
+  public compatibility aliases.
+- Added `docs/creating-tools.md` and inference-subsystem documentation to the
+  sidebar.
+
 ## 0.5.0 — 2026-07-02
 
 ### Providers
