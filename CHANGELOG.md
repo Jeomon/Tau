@@ -2,6 +2,21 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.4.9 — 2026-07-02
+
+### Docs
+- Corrected numerous stale and fabricated claims across README.md, AGENTS.md,
+  CONTRIBUTING.md, SECURITY.md, and `docs/*.md`, including: nonexistent
+  providers/themes (Azure OpenAI, dracula/nord/etc.), wrong CLI flags and RPC
+  command names (`bash` → `terminal`), a nonexistent `InferenceClient` class
+  and `--list-models` flag, wrong Python version requirements, a fabricated
+  vulnerability list in SECURITY.md, broken httpx proxy code examples (pinned
+  httpx 0.28 removed the `proxies=` kwarg), a wrong `SettingItem` import path,
+  fabricated test filenames and a nonexistent `Agent(client=...).run()` API
+  example, and incorrect session filename/ID formats.
+- Fixed the corresponding `proxies=` usage in the `get_proxies_for_client()`
+  docstring in `tau/utils/http_proxy.py` to match httpx 0.28's `mounts=` API.
+
 ## 0.4.8 — 2026-07-02
 
 ### Tools
