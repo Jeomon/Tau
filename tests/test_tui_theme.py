@@ -227,3 +227,30 @@ class TestLayoutTheme:
         t2 = LayoutTheme()
         t1.input.prefix = "modified"
         assert t2.input.prefix != "modified"
+
+
+# The semantic roles documented on ToolRenderOptions.theme (tau/tool/types.py)
+# must exist on the MessageTheme that tool render_result() callbacks actually
+# receive — otherwise a renderer following the docs raises AttributeError inside
+# the render callback and silently freezes the TUI.
+_TOOL_RENDER_ROLES = ["muted", "emphasis", "success", "error", "warning", "accent"]
+
+
+class TestToolRenderThemeContract:
+    def test_message_theme_exposes_documented_roles(self):
+        m = MessageTheme()
+        for role in _TOOL_RENDER_ROLES:
+            fn = getattr(m, role)
+            assert callable(fn)
+            assert "x" in str(fn("x"))
+
+    def test_layout_theme_message_exposes_documented_roles(self):
+        m = LayoutTheme().message
+        for role in _TOOL_RENDER_ROLES:
+            assert callable(getattr(m, role))
+
+    def test_custom_layout_role_propagates_to_message(self):
+        t = LayoutTheme(muted=lambda s: "<M>" + s + "</M>")
+        # LayoutTheme.__post_init__ mirrors layout roles onto .message so tool
+        # renderers pick up a custom theme's colours.
+        assert t.message.muted("hi") == "<M>hi</M>"
