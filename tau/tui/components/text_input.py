@@ -255,6 +255,42 @@ class TextInput(Component):
     def insert_at_cursor(self, text: str) -> None:
         self._insert(text)
 
+    def move_cursor_to_visual(self, row: int, column: int) -> bool:
+        """Move the caret to a zero-based row and column from the latest render.
+
+        Coordinates include the rendered prefix and horizontal padding. Returns
+        ``False`` when the row is outside the editor.
+        """
+        display_text = self._text[self._visual_strip :] if self._visual_strip else self._text
+        lines = display_text.split("\n")
+        starts_per_line = [_wrap_row_starts(line, self._last_available) for line in lines]
+        total_rows = sum(len(starts) for starts in starts_per_line)
+        if row < 0 or row >= total_rows:
+            return False
+
+        remaining = row
+        line_idx = 0
+        row_idx = 0
+        for candidate_idx, starts in enumerate(starts_per_line):
+            if remaining < len(starts):
+                line_idx = candidate_idx
+                row_idx = remaining
+                break
+            remaining -= len(starts)
+
+        starts = starts_per_line[line_idx]
+        row_start = starts[row_idx]
+        row_end = starts[row_idx + 1] if row_idx + 1 < len(starts) else len(lines[line_idx])
+        text_column = max(0, column - visible_width(self._prefix) - self._padding_x)
+        index = _index_at_visual_column(lines[line_idx], row_start, row_end, text_column)
+
+        display_offset = self._line_offset(line_idx, lines) + index
+        self._cursor = min(len(self._text), display_offset + self._visual_strip)
+        self._last_edit = None
+        self._history_idx = -1
+        self._mark_activity()
+        return True
+
     def backspace(self) -> None:
         """Delete the token/grapheme immediately before the cursor.
 
@@ -826,6 +862,24 @@ def _wrap_row_starts(text: str, available: int) -> list[int]:
             col = 0
         col += w
     return starts
+
+
+def _index_at_visual_column(text: str, start: int, end: int, column: int) -> int:
+    """Return a grapheme-safe character index nearest a visual column."""
+    index = start
+    visual_column = 0
+    clusters = grapheme.graphemes(text[start:end])
+    if clusters is None:
+        return end
+    for cluster in clusters:
+        if cluster is None:
+            continue
+        cluster_width = sum(_char_width(ch) for ch in cluster)
+        if column < visual_column + max(1, cluster_width):
+            return index
+        visual_column += cluster_width
+        index += len(cluster)
+    return end
 
 
 def _render_line_wrapped(

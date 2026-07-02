@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component, Container, Focusable
-from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent
+from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent, MouseEvent
 from tau.tui.terminal import Terminal
 from tau.tui.utils import set_window_focused
 
@@ -821,6 +821,10 @@ class TUI(Container):
 
         # Explicit focus target for non-overlay components
         self._focused: Component | None = None
+        # Logical row occupied by each direct child during the latest render.
+        # Mouse-aware children use this to translate terminal coordinates into
+        # coordinates relative to their own rendered content.
+        self._child_rows: dict[int, int] = {}
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -838,6 +842,24 @@ class TUI(Container):
     # -------------------------------------------------------------------------
     # Container overrides — request render after structural changes
     # -------------------------------------------------------------------------
+
+    def render(self, width: int) -> list[str]:
+        """Render children and record their logical starting rows."""
+        lines: list[str] = []
+        self._child_rows = {}
+        for child in self.children:
+            self._child_rows[id(child)] = len(lines)
+            lines.extend(child.render(width))
+        return lines
+
+    def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
+        """Return a mouse event as zero-based coordinates relative to a direct child."""
+        start = self._child_rows.get(id(component))
+        if start is None:
+            return None
+        logical_row = self._renderer._viewport_top + event.y - 1
+        # Mouse columns are one-based and the renderer reserves one left column.
+        return logical_row - start, event.x - _LEFT_PAD - 1
 
     def add_child(self, component: Component) -> None:
         """Append a component to the layout and request a render."""
@@ -878,6 +900,7 @@ class TUI(Container):
             self._terminal.disable_autowrap()
             self._terminal.enable_bracketed_paste()
             self._terminal.enable_focus_reporting()
+            self._terminal.enable_mouse_tracking()
             if self.terminal_bg:
                 self._terminal.set_background_color(self.terminal_bg)
             self._renderer.reset()
@@ -920,6 +943,7 @@ class TUI(Container):
                 self._terminal.disable_kitty_keyboard()
                 self._terminal.disable_bracketed_paste()
                 self._terminal.disable_focus_reporting()
+                self._terminal.disable_mouse_tracking()
                 self._terminal.enable_autowrap()
                 if self.terminal_bg:
                     self._terminal.reset_background_color()

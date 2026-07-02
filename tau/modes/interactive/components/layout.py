@@ -272,6 +272,8 @@ class Layout(Component):
         self._settings_panel: list[str] | None = None
         self._prompt = TextPrompt()
         self._oauth_status_lines: list[str] | None = None
+        self._editor_row = 0
+        self._editor_row_count = 0
 
         # Model palette — inline filtered model list for '/model <name> <provider>'
 
@@ -366,6 +368,7 @@ class Layout(Component):
         content.append(_divider("─" * width))
 
         if any_modal:
+            self._editor_row_count = 0
             # Modal replaces the input between the two dividers
             if self._selectors.is_active:
                 content.extend(self._selectors.render(width))
@@ -377,7 +380,10 @@ class Layout(Component):
                 content.extend(self._oauth_status_lines)
         else:
             # Normal: show the input editor
-            content.extend(self.input.render(width))
+            self._editor_row = len(content)
+            editor_lines = self.input.render(width)
+            self._editor_row_count = len(editor_lines)
+            content.extend(editor_lines)
 
         content.append(_divider("─" * width))
 
@@ -407,6 +413,20 @@ class Layout(Component):
         so this method deals only with editor and picker navigation.
         """
         if isinstance(event, MouseEvent):
+            if not event.pressed or event.button != 0:
+                return False
+            position = self._tui.mouse_position_for(self, event)
+            if position is None:
+                return False
+            row, column = position
+            editor_row = row - self._editor_row
+            if (
+                0 <= editor_row < self._editor_row_count
+                and isinstance(self.input, TextInput)
+                and self.input.move_cursor_to_visual(editor_row, column)
+            ):
+                self._tui.request_render()
+                return True
             return False
 
         if self._selectors.handle_input(event):

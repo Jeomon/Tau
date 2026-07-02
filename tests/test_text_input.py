@@ -129,6 +129,40 @@ class TestUpDownSoftWrap:
         assert editor.text == "prior"
 
 
+class TestMouseCursorMovement:
+    def test_click_moves_cursor_across_hard_lines(self) -> None:
+        editor = TextInput(prefix="> ")
+        editor.set_text("first\nsecond")
+        editor.render(40)
+
+        assert editor.move_cursor_to_visual(1, 5) is True
+        assert editor.cursor == len("first\nsec")
+
+    def test_click_moves_cursor_across_soft_wrapping(self) -> None:
+        editor = TextInput(prefix="> ")
+        editor.set_text("abcdefgh")
+        editor.render(6)  # Four text columns after the prefix.
+
+        assert editor.move_cursor_to_visual(1, 4) is True
+        assert editor.cursor == 6
+
+    def test_click_clamps_to_end_of_visual_row(self) -> None:
+        editor = TextInput(prefix="> ")
+        editor.set_text("abc")
+        editor.render(40)
+
+        assert editor.move_cursor_to_visual(0, 30) is True
+        assert editor.cursor == 3
+
+    def test_click_outside_editor_is_ignored(self) -> None:
+        editor = TextInput()
+        editor.set_text("abc")
+        editor.render(40)
+
+        assert editor.move_cursor_to_visual(2, 2) is False
+        assert editor.cursor == 3
+
+
 class _FakeTUI:
     def __init__(self) -> None:
         self.render_requests = 0

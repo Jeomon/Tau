@@ -122,6 +122,9 @@ Input is normalized into typed events:
 - `BgColorEvent`
 
 Use `KeyEvent.matches()` instead of comparing raw escape sequences.
+Mouse reporting is enabled while the TUI runs. The stock interactive
+`TextInput` moves its caret to the clicked text position, including across
+hard newlines and soft-wrapped rows.
 
 ## Overlays
 
