@@ -15,14 +15,11 @@ import asyncio
 import base64
 import json
 import re
-import ssl
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-
-import certifi
 
 from tau.inference.provider.oauth.types import (
     AbortSignal,
@@ -31,11 +28,10 @@ from tau.inference.provider.oauth.types import (
     OAuthLoginCallbacks,
     OAuthPrompt,
 )
+from tau.inference.provider.oauth.utils import get_oauth_ssl_context
 from tau.inference.provider.types import OAuthProvider
 
 __all__ = ["GitHubCopilotOAuthProvider", "get_copilot_base_url"]
-
-_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 _RAW_CLIENT_ID = "SXYxLmI1MDdhMDhjODdlY2ZlOTg="
 CLIENT_ID = base64.b64decode(_RAW_CLIENT_ID).decode()
@@ -101,7 +97,7 @@ def _fetch_json(url: str, *, method: str = "GET", headers: dict, body: bytes | N
     """
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=30) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context(), timeout=30) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
@@ -177,7 +173,7 @@ def _enable_model(copilot_token: str, model_id: str, enterprise_domain: str | No
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=10) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context(), timeout=10) as resp:
             return resp.status == 200
     except Exception:
         return False

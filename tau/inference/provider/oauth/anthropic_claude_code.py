@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import ssl
 import subprocess
 import sys
 import time
@@ -18,8 +17,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-
-import certifi
 
 from tau.inference.provider.oauth.pkce import generate_pkce
 from tau.inference.provider.oauth.types import (
@@ -31,14 +28,13 @@ from tau.inference.provider.oauth.types import (
 )
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
+    get_oauth_ssl_context,
     parse_authorization_input,
     start_oauth_callback_server,
 )
 from tau.inference.provider.types import OAuthProvider
 
 __all__ = ["AnthropicClaudeCodeOAuthProvider"]
-
-_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 _RAW_CLIENT_ID = "OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl"
 CLIENT_ID = base64.b64decode(_RAW_CLIENT_ID).decode()
@@ -87,7 +83,7 @@ def _post_json(url: str, body: dict) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=30) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context(), timeout=30) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
@@ -134,7 +130,7 @@ def _validate_token_sync(access_token: str) -> bool:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT, timeout=10) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context(), timeout=10) as resp:
             return resp.status == 200
     except urllib.error.HTTPError as e:
         # 401/403 mean the token is genuinely invalid; other codes may be transient

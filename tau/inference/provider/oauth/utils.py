@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import urllib.parse
+from functools import lru_cache
 
 from tau.inference.provider.oauth.types import OAuthLoginCallbacks
 
@@ -13,10 +15,24 @@ _log = logging.getLogger(__name__)
 __all__ = [
     "OAUTH_SUCCESS_HTML",
     "OAUTH_ERROR_HTML",
+    "get_oauth_ssl_context",
     "parse_authorization_input",
     "start_oauth_callback_server",
     "await_oauth_code",
 ]
+
+
+@lru_cache(maxsize=1)
+def get_oauth_ssl_context() -> ssl.SSLContext:
+    """Build (once, on first use) the shared SSL context for OAuth HTTP calls.
+
+    Loading the certifi CA bundle takes ~150-200ms; deferring it until an
+    OAuth provider is actually used (rather than at module import time)
+    keeps that cost off the startup path for users who aren't using OAuth.
+    """
+    import certifi
+
+    return ssl.create_default_context(cafile=certifi.where())
 
 OAUTH_SUCCESS_HTML = b"""<!DOCTYPE html><html><head><title>Auth complete</title></head><body>
 <h2>Authentication successful!</h2>

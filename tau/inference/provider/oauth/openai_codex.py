@@ -11,15 +11,12 @@ import asyncio
 import base64
 import json
 import secrets
-import ssl
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-
-import certifi
 
 from tau.inference.provider.oauth.pkce import generate_pkce
 from tau.inference.provider.oauth.types import (
@@ -31,12 +28,11 @@ from tau.inference.provider.oauth.types import (
 )
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
+    get_oauth_ssl_context,
     parse_authorization_input,
     start_oauth_callback_server,
 )
 from tau.inference.provider.types import OAuthProvider
-
-_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 __all__ = ["OpenAICodexOAuthProvider"]
 
@@ -113,7 +109,7 @@ def _post_token(body: dict[str, str]) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context()) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
@@ -159,7 +155,7 @@ def _revoke_token_sync(token: str) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT):
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context()):
             pass
     except urllib.error.HTTPError:
         # best-effort; treat any error as revocation attempt done
@@ -174,7 +170,7 @@ def _validate_token_sync(access_token: str) -> bool:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, context=_SSL_CONTEXT) as resp:
+        with urllib.request.urlopen(req, context=get_oauth_ssl_context()) as resp:
             return resp.status == 200
     except urllib.error.HTTPError:
         return False
