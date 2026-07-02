@@ -48,7 +48,11 @@ class ServerStatus:
 
 class LSP:
     def __init__(self, cwd: Path, extra_servers: list[ServerDefinition] | None = None) -> None:
-        self._cwd = str(cwd)
+        # Resolve to an absolute path: server roots and document URIs are built
+        # via Path(...).as_uri(), which raises "relative path can't be expressed
+        # as a file URI" for any relative path. The prewarm/index walk derives
+        # file paths from self._cwd, so a relative cwd here breaks every spawn.
+        self._cwd = str(Path(cwd).resolve())
         self._servers: dict[str, ServerDefinition] = {s.id: s for s in BUILTIN_SERVERS}
         for s in extra_servers or []:
             self._servers[s.id] = s
