@@ -310,7 +310,7 @@ def _split_at_columns(text: str, width: int, tracker: _AnsiStateTracker) -> tupl
         taken = last_wb_taken
         i = last_wb_i
 
-    head = prefix + taken + (RESET if tracker.has_state() else "")
+    head = prefix + taken + tracker.closing_codes()
     tail = text[i:]
     return head, tail
 
@@ -351,8 +351,13 @@ class _AnsiStateTracker:
         self._underline = False
         self._fg: str | None = None
         self._bg: str | None = None
+        self._link: str | None = None
 
     def process(self, code: str) -> None:
+        link = re.match(r"\x1b\]8;;(.*?)(?:\x07|\x1b\\)$", code)
+        if link:
+            self._link = link.group(1) or None
+            return
         m = re.match(r"\x1b\[([\d;]*)m$", code)
         if not m:
             return
@@ -403,14 +408,36 @@ class _AnsiStateTracker:
         self._fg = self._bg = None
 
     def snapshot(self) -> tuple:
-        return (self._bold, self._dim, self._italic, self._underline, self._fg, self._bg)
+        return (
+            self._bold,
+            self._dim,
+            self._italic,
+            self._underline,
+            self._fg,
+            self._bg,
+            self._link,
+        )
 
     def restore(self, snap: tuple) -> None:
-        self._bold, self._dim, self._italic, self._underline, self._fg, self._bg = snap
+        (
+            self._bold,
+            self._dim,
+            self._italic,
+            self._underline,
+            self._fg,
+            self._bg,
+            self._link,
+        ) = snap
 
     def has_state(self) -> bool:
         return bool(
-            self._bold or self._dim or self._italic or self._underline or self._fg or self._bg
+            self._bold
+            or self._dim
+            or self._italic
+            or self._underline
+            or self._fg
+            or self._bg
+            or self._link
         )
 
     def active_codes(self) -> str:
@@ -429,7 +456,16 @@ class _AnsiStateTracker:
             parts.append(self._fg)
         if self._bg:
             parts.append(self._bg)
+        if self._link:
+            parts.append(f"\x1b]8;;{self._link}\x1b\\")
         return "".join(parts)
+
+    def closing_codes(self) -> str:
+        """Return codes that safely suspend active state at a line boundary."""
+        codes = "\x1b]8;;\x1b\\" if self._link else ""
+        if self._bold or self._dim or self._italic or self._underline or self._fg or self._bg:
+            codes += RESET
+        return codes
 
 
 # ── Project utilities ─────────────────────────────────────────────────────────

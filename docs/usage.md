@@ -10,6 +10,10 @@ Run `tau` to open the terminal UI. The interface has three areas:
 - **Messages** — conversation history, tool calls, results
 - **Editor** — where you type prompts
 
+Named Markdown links display their label without repeating the destination URL.
+In terminals with OSC 8 support, use the terminal's link gesture (commonly
+Alt+click or Cmd+click) to open the destination. Autolinks remain visible as URLs.
+
 ## Editor Features
 
 | Feature | How |

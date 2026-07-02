@@ -25,12 +25,14 @@ Sessions are stored per-project. The working directory is encoded into a safe su
 ```text
 ~/.tau/sessions/
 ├── --Users-alice-projects-myapp--/
-│   ├── 2024-01-15_10-30-45_abc123.jsonl
-│   ├── 2024-01-15_14-22-19_def456.jsonl
-│   └── 2024-01-16_09-15-33_ghi789.jsonl
+│   ├── 2024-01-15T10-30-45-123456_01912e4a-6b3f-7a21-9c88-4f2e6d1a9b3c.jsonl
+│   ├── 2024-01-15T14-22-19-654321_01912e6f-2c1a-70e3-8a4d-9b1e5c7f2d0a.jsonl
+│   └── 2024-01-16T09-15-33-789012_01912ea3-5d8b-71f4-b2c3-6a9e4f0d1c8b.jsonl
 └── --Users-alice-projects-other--/
-    └── 2024-01-16_11-45-22_jkl012.jsonl
+    └── 2024-01-16T11-45-22-345678_01912ec1-9a4f-72b5-c3d6-8e1a5b0f4d2c.jsonl
 ```
+
+Each filename is `<timestamp>_<session-id>.jsonl`, where the timestamp is `strftime("%Y-%m-%dT%H-%M-%S-%f")` and the session ID is a UUIDv7.
 
 The subdirectory name is derived from the absolute path of the working directory (`/Users/alice/projects/myapp` → `--Users-alice-projects-myapp--`). This keeps sessions from different projects completely separate, so browsing with `/resume` always shows only the sessions relevant to the current project.
 
@@ -200,7 +202,7 @@ Shows a read-only overlay (Esc to close) with:
 To delete a session, remove the session file:
 
 ```bash
-rm ~/.tau/sessions/path_to_project/2024-01-15_10-30-45_abc123.jsonl
+rm ~/.tau/sessions/path_to_project/2024-01-15T10-30-45-123456_01912e4a-6b3f-7a21-9c88-4f2e6d1a9b3c.jsonl
 ```
 
 ## Backup Sessions
@@ -218,7 +220,7 @@ Session files are JSONL — one JSON object per line. The first line is always a
 ### Header
 
 ```json
-{"type": "session", "version": 3, "id": "abc12345", "cwd": "/home/user/project", "timestamp": 1718000000.0}
+{"type": "session", "version": 3, "id": "01912e4a-6b3f-7a21-9c88-4f2e6d1a9b3c", "cwd": "/home/user/project", "timestamp": 1718000000.0}
 ```
 
 ### Entry types
@@ -241,7 +243,7 @@ All entries share `id`, `timestamp`, and `parent_id` fields. `parent_id` is null
 ### Example
 
 ```jsonl
-{"type": "session", "version": 3, "id": "a1b2c3d4", "cwd": "/home/user/myproject", "timestamp": 1718000000.0}
+{"type": "session", "version": 3, "id": "01912e4a-6b3f-7a21-9c88-4f2e6d1a9b3c", "cwd": "/home/user/myproject", "timestamp": 1718000000.0}
 {"type": "message", "id": "e5f6g7h8", "parent_id": null, "timestamp": 1718000001.0, "message": {"role": "user", ...}}
 {"type": "message", "id": "i9j0k1l2", "parent_id": "e5f6g7h8", "timestamp": 1718000005.0, "message": {"role": "assistant", ...}}
 {"type": "compaction", "id": "m3n4o5p6", "parent_id": "i9j0k1l2", "summary": "## Goal\n...", "first_kept_entry_id": "i9j0k1l2", "tokens_before": 94000, "timestamp": 1718000010.0}

@@ -134,33 +134,24 @@ ruff format tau/
 
 ### Test Structure
 
-Tests are organized by module:
+Tests are organized by module, with granular filenames per submodule:
 
 ```text
 tests/
-├── test_agent.py
-├── test_inference.py
-├── test_engine.py
-└── test_tui.py
+├── test_agent_compaction.py
+├── test_agent_prompt.py
+├── test_agent_types.py
+├── test_inference_dialect.py
+├── test_inference_types.py
+├── test_engine_execution.py
+├── test_engine_steering.py
+├── test_tui_renderer.py
+└── ...
 ```
 
 ### Writing Tests
 
-Use pytest:
-
-```python
-import pytest
-from tau.agent import Agent
-
-def test_agent_creation():
-    agent = Agent(client=MockClient())
-    assert agent is not None
-
-def test_agent_run():
-    agent = Agent(client=MockClient())
-    result = agent.run("test prompt")
-    assert "result" in result.lower()
-```
+Use pytest, following the existing patterns in `tests/`.
 
 ### Running Tests
 
@@ -171,11 +162,8 @@ python -m pytest
 # Run with verbose output
 python -m pytest -v
 
-# Run with coverage
-python -m pytest --cov=tau
-
-# Run specific test file
-python -m pytest tests/test_agent.py
+# Run a specific module's tests
+python -m pytest tests/test_agent_compaction.py
 ```
 
 ## Debugging

@@ -360,13 +360,16 @@ class _Renderer:
                 parts.append(self.theme.italic(self._render_inline(node.children or [])))
             elif name == "Strikethrough":
                 parts.append(self.theme.strikethrough(self._render_inline(node.children or [])))
-            elif name in ("Link", "AutoLink"):
+            elif name == "Link":
                 inner = self._render_inline(node.children or []) or getattr(node, "target", "")
-                parts.append(
-                    self.theme.link_text(inner)
-                    + " "
-                    + self.theme.link_url(f"({getattr(node, 'target', '')})")
-                )
+                target = self._safe_link_target(getattr(node, "target", ""))
+                label = self.theme.link_text(inner)
+                parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
+            elif name == "AutoLink":
+                target = self._safe_link_target(getattr(node, "target", ""))
+                inner = self._render_inline(node.children or []) or target
+                label = self.theme.link_url(inner)
+                parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
             elif name == "Image":
                 alt = self._render_inline(node.children or [])
                 url = getattr(node, "src", "") or getattr(node, "target", "")
@@ -393,6 +396,13 @@ class _Renderer:
         if children:
             return "".join(getattr(c, "content", "") for c in children)
         return getattr(node, "content", "")
+
+    @staticmethod
+    def _safe_link_target(target: str) -> str:
+        """Remove control characters that could terminate an OSC 8 hyperlink."""
+        return "".join(
+            char for char in target if ord(char) >= 0x20 and not 0x7F <= ord(char) <= 0x9F
+        )
 
 
 # ---------------------------------------------------------------------------

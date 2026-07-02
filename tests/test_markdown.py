@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import re
-
 from tau.tui.markdown import render_markdown
 from tau.tui.theme import MarkdownTheme
+from tau.tui.utils import strip_ansi
 
 
 def _theme() -> MarkdownTheme:
     return MarkdownTheme()
-
-
-def strip_ansi(text: str) -> str:
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def render(md: str, width: int = 80) -> list[str]:
@@ -160,10 +155,23 @@ class TestLinks:
         combined = "\n".join(lines)
         assert "click here" in combined
 
-    def test_link_url_included(self):
-        lines = plain("[link](https://example.com)")
-        combined = "\n".join(lines)
-        assert "https://example.com" in combined
+    def test_named_link_hides_url(self):
+        assert plain("[link](https://example.com)") == ["link"]
+
+    def test_named_link_uses_osc8_hyperlink(self):
+        combined = "\n".join(render("[link](https://example.com)"))
+        assert "\x1b]8;;https://example.com\x1b\\" in combined
+        assert combined.endswith("\x1b]8;;\x1b\\")
+
+    def test_autolink_displays_url_once(self):
+        combined = "\n".join(plain("<https://example.com>"))
+        assert combined == "https://example.com"
+
+    def test_wrapped_link_closes_and_reopens_hyperlink(self):
+        lines = render("[a long link label](https://example.com)", width=8)
+        assert len(lines) == 3
+        assert all("\x1b]8;;\x1b\\" in line for line in lines)
+        assert all(line.count("\x1b]8;;https://example.com\x1b\\") == 1 for line in lines)
 
 
 class TestImages:
