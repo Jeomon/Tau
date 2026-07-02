@@ -197,6 +197,7 @@ async def run_bounded_lines(
     """Run a subprocess, retaining at most max_lines plus one truncation sentinel."""
     process = await asyncio.create_subprocess_exec(
         *command,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

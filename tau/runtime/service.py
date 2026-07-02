@@ -396,6 +396,7 @@ class Runtime:
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd.strip(),
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=PIPE,
                 stderr=STDOUT,
                 cwd=cwd,

@@ -100,6 +100,7 @@ async def _fetch(url: str) -> dict[str, str]:
             "-o",
             out_tmpl,
             url,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

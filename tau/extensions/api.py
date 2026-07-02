@@ -1025,6 +1025,7 @@ class ExtensionAPI:
         proc = await _asyncio.create_subprocess_exec(
             cmd,
             *(args or []),
+            stdin=_asyncio.subprocess.DEVNULL,
             stdout=PIPE,
             stderr=PIPE,
             cwd=resolved_cwd,
