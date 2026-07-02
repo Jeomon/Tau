@@ -39,3 +39,9 @@ class PromptOptions(BaseModel):
 
     # Preloaded context files. None keeps direct PromptBuilder auto-discovery.
     context_files: tuple[ContextFile, ...] | None = None
+
+    # Precomputed git snapshot (see builder._git_status). None keeps direct,
+    # synchronous computation inside the builder; callers that can compute it
+    # concurrently with other startup work (e.g. RuntimeContext.create) pass
+    # the already-awaited result here to avoid blocking on it a second time.
+    git_snapshot: str | None = None

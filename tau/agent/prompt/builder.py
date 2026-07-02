@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import sys
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -163,15 +164,39 @@ _GIT_LOG_COUNT = 5
 
 
 def _detect_os() -> str:
-    """Return a human-readable OS name and version."""
+    """Return a human-readable OS name and version.
+
+    On Windows, ``platform.system()``/``platform.release()`` call
+    ``platform.uname()``, which shells out to two separate WMI COM queries
+    (~150-200ms combined) to determine the release name. ``sys.getwindowsversion()``
+    reads the same information directly from the OS with no WMI round-trip, so we
+    use it here and derive the release name (10 vs 11) from the build number using
+    the same >=22000 heuristic Windows itself uses.
+    """
+    if sys.platform == "win32":
+        v = sys.getwindowsversion()
+        release = "11" if v.build >= 22000 else str(v.major)
+        return f"Windows {release}"
     system = platform.system()
     if system == "Darwin":
         return f"macOS {platform.mac_ver()[0] or platform.release()}"
     if system == "Linux":
         return f"Linux {platform.release()}"
-    if system == "Windows":
-        return f"Windows {platform.release()}"
     return f"{system} {platform.release()}".strip()
+
+
+def _detect_machine() -> str:
+    """Return the machine architecture (e.g. 'x86_64', 'AMD64').
+
+    ``platform.machine()`` is a thin wrapper around ``platform.uname()``, which
+    is expensive on Windows (see ``_detect_os``). ``PROCESSOR_ARCHITECTURE`` is
+    always set by the OS and gives the same value without the WMI round-trip.
+    """
+    if sys.platform == "win32":
+        arch = os.environ.get("PROCESSOR_ARCHITECTURE")
+        if arch:
+            return arch
+    return platform.machine()
 
 
 def _detect_shell() -> str:
@@ -198,7 +223,6 @@ def _git_status(cwd: Path) -> str:
     except ImportError:
         return ""
 
-    repo = None
     try:
         repo = Repo(cwd, search_parent_directories=True)
 
@@ -233,9 +257,12 @@ def _git_status(cwd: Path) -> str:
         return ""
     except GitError:
         return ""
-    finally:
-        if repo is not None:
-            repo.close()
+    # No explicit repo.close() here: GitPython's Repo.__del__ already calls it,
+    # and close() forces two gc.collect() passes on Windows (its own workaround
+    # for tempfile handles). Closing explicitly *and* via __del__ paid for that
+    # gc.collect() pass twice for no benefit — we don't touch the object database
+    # in the common (attached-branch) path, so there's nothing time-sensitive to
+    # release synchronously.
 
     parts = [
         "\n\ngitStatus: snapshot taken at session start; it is not updated during the "
@@ -440,6 +467,8 @@ class PromptBuilder:
         """
         if self._opts.project_trusted is False:
             return ""
+        if self._opts.git_snapshot is not None:
+            return self._opts.git_snapshot
         return _git_status(self._opts.cwd)
 
     def _footer(self) -> str:
@@ -449,7 +478,7 @@ class PromptBuilder:
             "\n\n# Environment\n"
             f"Current working directory: {cwd}\n"
             f"OS: {_detect_os()}\n"
-            f"Architecture: {platform.machine()}\n"
+            f"Architecture: {_detect_machine()}\n"
             f"Shell: {_detect_shell()}\n"
             f"Date: {today}"
         )

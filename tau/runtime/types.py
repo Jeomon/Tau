@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from tau.agent.prompt.builder import build_prompt
+from tau.agent.prompt.builder import _git_status, build_prompt
 from tau.agent.prompt.types import PromptOptions
 from tau.agent.service import Agent
 from tau.agent.types import AgentConfig
@@ -207,6 +208,16 @@ class RuntimeContext:
                 )
             )
 
+        # Kick off the git-status snapshot now (needed later for the system prompt)
+        # so its subprocess calls run in a background thread concurrently with the
+        # rest of startup (settings, extension loading, resource discovery) instead
+        # of blocking the event loop right before the prompt is built.
+        git_task: asyncio.Task[str] | None = (
+            asyncio.create_task(asyncio.to_thread(_git_status, cwd))
+            if project_trusted and not config.system_prompt
+            else None
+        )
+
         # ── LLM ───────────────────────────────────────────────────────────────
         text_ref = settings_manager.get_model_ref("text")
         model_id = config.model_id or (text_ref.id if text_ref else None) or _DEFAULT_MODEL
@@ -351,6 +362,7 @@ class RuntimeContext:
         skills = skill_registry.list()
 
         # ── System prompt ─────────────────────────────────────────────────────
+        git_snapshot = await git_task if git_task is not None else None
         system_prompt = (
             config.system_prompt
             or resources.system_prompt
@@ -363,6 +375,7 @@ class RuntimeContext:
                     disable_context_files=config.disable_context_files,
                     project_trusted=project_trusted,
                     context_files=resources.context_files,
+                    git_snapshot=git_snapshot,
                 )
             )
         )
