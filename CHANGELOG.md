@@ -2,6 +2,54 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.4.8 — 2026-07-02
+
+### Tools
+- Added `ast-grep` integration to the `grep` tool: an `ast` mode for structural,
+  AST-aware pattern matching (as an alternative to ripgrep regex), and a `rule`
+  parameter for `ast-grep scan` YAML rules (relational, composite, and
+  kind-based queries) for structural searches a single pattern can't express.
+- Added `ast-grep-cli` to the `tools` optional dependency group.
+
+### TUI
+- Implemented an `ask_user` TUI tool for interactive decision gating, with
+  selector focus tracking and multi-line text editor support in the `AskUser`
+  extension.
+- Added configurable and idle-based cursor blinking to the terminal input
+  interface.
+- Implemented visual row navigation in `TextInput` for soft-wrapped text and
+  preserved leading indentation when wrapping lines.
+- Added a "clear" action for double-Escape, set as the default behavior.
+- Enabled text pasting for prompts and disabled API key masking for
+  visibility.
+- Repaired extension shortcut registration with TUI conflict resolution and
+  validation.
+- Formalized all input, navigation, and application actions into the
+  configurable KeyMap system.
+
+### Models & providers
+- Added model-specific "thinking dialect" support to standardize reasoning
+  configuration and replay across diverse OpenAI-compatible providers.
+- Enabled thinking support for Kimi K2.6, with reasoning field replay for Qwen
+  chat templates, and enabled thinking capability for selected Mistral and
+  Nemotron models.
+- Updated OpenRouter reasoning request params to support the `enabled` flag
+  and removed the redundant `include_reasoning` option.
+- Reduced `max_output_tokens` for `openai/gpt-oss-120b` and normalized model
+  pricing and max output tokens across OpenRouter models.
+
+### Tool results & diagnostics
+- Added support for `_display_content` and per-block `preview_lines` in tool
+  results, and updated LSP diagnostic metadata to include preview lines and
+  original display content.
+
+### Documentation & cleanup
+- Simplified inference provider documentation and updated core configuration
+  and directory structure references.
+- Standardized module imports, formatting, and codebase-wide code style.
+- Simplified session selector logic and removed unused imports in the engine
+  service.
+
 ## 0.4.7 — 2026-07-01
 
 ### TUI & model selection
