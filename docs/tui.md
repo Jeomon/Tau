@@ -68,6 +68,11 @@ asyncio.run(main())
 `TUI.run()` enters terminal raw mode and runs until `stop()` is called. It uses
 the main terminal buffer, preserving native scrollback.
 
+Call `dispose()` when embedding a TUI without Tau's interactive application.
+It releases component background tasks, render caches, input handlers, and
+terminal resize subscriptions. Tau's interactive application does this
+automatically during shutdown.
+
 ## Components
 
 Subclass `Component` to create a reusable view:
@@ -155,3 +160,8 @@ third-party rendering/input dependencies, and other `tau.tui` modules.
 Runtime-aware behavior belongs in `tau.modes.interactive`.
 
 This boundary is enforced by `tests/test_tui_public_api.py`.
+
+The renderer retains only the current transcript frame and its current
+line-wrapping cache. Unchanged lines reuse width calculations across frames so
+streaming updates do not repeatedly parse ANSI styling across the complete
+session.

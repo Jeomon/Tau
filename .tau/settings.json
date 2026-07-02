@@ -22,6 +22,12 @@
       {
         "path": ".tau/extensions/ask_user",
         "settings": {}
+      },
+      {
+        "path": ".tau/extensions/vcc.py",
+        "settings": {
+          "debug": true
+        }
       }
     ]
   }

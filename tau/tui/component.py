@@ -52,6 +52,9 @@ class Component(ABC):
         needs to be fully re-rendered on the next frame.
         """
 
+    def dispose(self) -> None:  # noqa: B027
+        """Release background tasks or subscriptions owned by the component."""
+
 
 class Focusable:
     """
@@ -124,6 +127,10 @@ class Container(Component):
     def invalidate(self) -> None:
         for child in self.children:
             child.invalidate()
+
+    def dispose(self) -> None:
+        for child in self.children:
+            child.dispose()
 
 
 class StaticComponent(Component):
@@ -199,6 +206,10 @@ class Column(Component):
     def invalidate(self) -> None:
         for child in self.children:
             child.invalidate()
+
+    def dispose(self) -> None:
+        for child in self.children:
+            child.dispose()
 
 
 # Backwards-compatible alias

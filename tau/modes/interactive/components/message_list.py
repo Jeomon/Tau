@@ -326,6 +326,10 @@ class MessageBlock:
                     if thinking_text
                     else []
                 )
+                # Thinking is a compact diagnostic stream. Markdown paragraph
+                # separators otherwise introduce empty rows in the middle of
+                # reasoning, making short thoughts consume excessive height.
+                thinking_lines = [line for line in thinking_lines if line.strip()]
                 if thinking_lines:
                     thinking_lines = [
                         _apply_nested_style(line, t.thinking) for line in thinking_lines

@@ -788,6 +788,7 @@ class App:
         if self._pending_tasks:
             await asyncio.gather(*self._pending_tasks, return_exceptions=True)
         self._pending_tasks.clear()
+        self._tui.dispose()
         sm = self._runtime.settings_manager
         if sm is not None:
             await sm.flush()

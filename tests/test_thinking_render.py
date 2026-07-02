@@ -72,3 +72,24 @@ def test_streaming_incomplete_thinking_markdown_renders() -> None:
     lines = _plain(block.render(80))
 
     assert any("Working on" in line for line in lines)
+
+
+def test_thinking_removes_internal_blank_lines() -> None:
+    message = AssistantMessage(
+        contents=[
+            ThinkingContent(
+                content=(
+                    'The user just said "hi" which is a simple greeting.\n\n'
+                    "This does not match any available skill.\n\n"
+                    "I should answer concisely."
+                )
+            )
+        ]
+    )
+    block = MessageBlock(message, theme=MessageTheme(), tool_result_preview_lines=10)
+
+    lines = _plain(block.render(80))
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    assert all(line.strip() for line in lines)

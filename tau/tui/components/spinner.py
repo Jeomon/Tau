@@ -112,6 +112,14 @@ class Spinner(Component):
         self._sync_task()
         self._tui.request_render()
 
+    def dispose(self) -> None:
+        """Stop animation and release transient reason state."""
+        self._active = False
+        self._reasons.clear()
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
+
     def _sync_task(self) -> None:
         """Start or stop the animation task to match the combined active state."""
         if self.active:

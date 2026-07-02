@@ -97,6 +97,12 @@ class AgentHookHandler:
         ]
 
     def unsubscribe(self) -> None:
+        if self._pending_flush_handle is not None:
+            self._pending_flush_handle.cancel()
+            self._pending_flush_handle = None
+        self._pending_msg = None
+        self._current_block = None
+        self._current_terminal_block = None
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()

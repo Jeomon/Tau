@@ -668,6 +668,17 @@ class Layout(Component):
         self.messages.clear()
         self._pending_lines.lines = []
 
+    def dispose(self) -> None:
+        """Release message caches, widgets, and editor animation."""
+        self.input.dispose()
+        self.spinner.dispose()
+        self.messages.clear()
+        self.header.clear()
+        self.footer.clear()
+        self.status.clear()
+        self.widgets_above.clear()
+        self.widgets_below.clear()
+
     def on_submit(self, callback: Callable[[str], None]) -> None:
         """Register callback for user submission."""
         self._stored_submit_cb = callback

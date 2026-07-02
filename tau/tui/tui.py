@@ -376,6 +376,7 @@ class Renderer:
         self._clamp_cache: dict[str, list[str]] = {}
         self._clamp_cache_width: int = 0
         self._unsub_resize = terminal.on_resize(self._on_resize)
+        self._disposed = False
 
     # -------------------------------------------------------------------------
     # Public API
@@ -399,13 +400,7 @@ class Renderer:
         for line in new_lines:
             wrapped = prev_clamp.get(line)
             if wrapped is None:
-                if visible_width(line) > width:
-                    wrapped = _wrap(line, width)
-                    clamp[line] = wrapped
-                    clamped.extend(wrapped)
-                else:
-                    clamped.append(line)
-                continue
+                wrapped = _wrap(line, width) if visible_width(line) > width else [line]
             clamp[line] = wrapped
             clamped.extend(wrapped)
         self._clamp_cache = clamp
@@ -553,6 +548,7 @@ class Renderer:
         self._hw_cursor_row = 0
         self._viewport_top = 0
         self._max_lines = 0
+        self._clamp_cache.clear()
 
     def reset(self) -> None:
         """Force a full re-render on the next frame without clearing the screen."""
@@ -560,6 +556,16 @@ class Renderer:
         self._cursor_row = 0
         self._hw_cursor_row = 0
         self._viewport_top = 0
+        self._clamp_cache.clear()
+
+    def dispose(self) -> None:
+        """Release terminal subscriptions and retained render state."""
+        if self._disposed:
+            return
+        self._disposed = True
+        self._unsub_resize()
+        self._prev_lines.clear()
+        self._clamp_cache.clear()
 
     def reset_with_clear(self) -> None:
         """Force a full clear-and-redraw on the next frame.
@@ -818,6 +824,7 @@ class TUI(Container):
         self.terminal_bg: str | None = None
         self._bg_color_future: asyncio.Future | None = None
         self.on_background_color: Callable[[tuple[int, int, int] | None], None] | None = None
+        self._disposed = False
 
         # Wire resize → immediate full re-render (bypasses the streaming throttle)
         self._unsub_resize = self._terminal.on_resize(self._on_terminal_resize)
@@ -909,6 +916,26 @@ class TUI(Container):
         """Request the run loop to exit cleanly."""
         self._running = False
         self._stop_event.set()
+
+    def dispose(self) -> None:
+        """Release components, overlays, timers, handlers, and terminal callbacks."""
+        if self._disposed:
+            return
+        self._disposed = True
+        self._cancel_timers()
+        for entry in self._overlays:
+            entry.component.dispose()
+        self._overlays.clear()
+        for child in self.children:
+            child.dispose()
+        self.children.clear()
+        self._focused = None
+        self._focused_overlay = None
+        self.on_background_color = None
+        self._input_handlers.clear()
+        self._intercept_handlers.clear()
+        self._unsub_resize()
+        self._renderer.dispose()
 
     def request_render(self) -> None:
         """Ask for a render on the next frame (debounced). Call after state changes."""

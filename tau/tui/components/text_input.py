@@ -279,8 +279,15 @@ class TextInput(Component):
         if not enabled:
             if self._blink_task is not None:
                 self._blink_task.cancel()
-                self._blink_task = None
+            self._blink_task = None
             self._blink_on = True
+
+    def dispose(self) -> None:
+        """Stop cursor animation and release the owning TUI reference."""
+        if self._blink_task is not None:
+            self._blink_task.cancel()
+            self._blink_task = None
+        self._tui = None
 
     def focus(self) -> None:
         pass

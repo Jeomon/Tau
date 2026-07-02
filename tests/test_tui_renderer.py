@@ -7,8 +7,9 @@ first_changed and below last_changed untouched.
 
 from __future__ import annotations
 
-from tau.tui.component import StaticComponent
-from tau.tui.tui import Renderer
+from tau.tui import tui as tui_module
+from tau.tui.component import Component, StaticComponent
+from tau.tui.tui import TUI, Renderer
 
 
 class FakeTerminal:
@@ -18,6 +19,7 @@ class FakeTerminal:
         self.width = width
         self.height = height
         self.writes: list[str] = []
+        self.resize_callbacks: list[object] = []
 
     def begin_sync(self) -> str:
         return ""
@@ -31,8 +33,13 @@ class FakeTerminal:
     def write_flush(self, data: str) -> None:
         self.writes.append(data)
 
-    def on_resize(self, callback: object) -> object:  # noqa: ARG002
-        return lambda: None
+    def on_resize(self, callback: object) -> object:
+        self.resize_callbacks.append(callback)
+
+        def unsubscribe() -> None:
+            self.resize_callbacks.remove(callback)
+
+        return unsubscribe
 
 
 def _content_writes(term: FakeTerminal) -> list[str]:
@@ -148,3 +155,52 @@ class TestRendererDifferentialUpdate:
         assert "line 15" in content[0]
         assert "offscreen" not in content[0]
         assert "\x1b[2J" not in content[0]
+
+    def test_unchanged_lines_reuse_width_calculation(self, monkeypatch):
+        term = FakeTerminal(width=100, height=24)
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        lines = [f"\x1b[2mline {index}\x1b[0m" for index in range(10_000)]
+        renderer.render(StaticComponent(lines))
+
+        calls = 0
+        original = tui_module.visible_width
+
+        def counted(text: str) -> int:
+            nonlocal calls
+            calls += 1
+            return original(text)
+
+        monkeypatch.setattr(tui_module, "visible_width", counted)
+        changed = list(lines)
+        changed[-1] = "\x1b[2mchanged\x1b[0m"
+
+        renderer.render(StaticComponent(changed))
+
+        assert calls == 1
+
+
+class _DisposableComponent(Component):
+    def __init__(self) -> None:
+        self.disposed = False
+
+    def render(self, width: int) -> list[str]:  # noqa: ARG002
+        return []
+
+    def dispose(self) -> None:
+        self.disposed = True
+
+
+def test_tui_dispose_releases_components_and_resize_callbacks() -> None:
+    terminal = FakeTerminal()
+    tui = TUI(terminal=terminal)  # type: ignore[arg-type]
+    component = _DisposableComponent()
+    tui.children.append(component)
+
+    assert len(terminal.resize_callbacks) == 2
+
+    tui.dispose()
+    tui.dispose()
+
+    assert component.disposed
+    assert terminal.resize_callbacks == []
+    assert tui.children == []

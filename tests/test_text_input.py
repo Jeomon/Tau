@@ -227,3 +227,20 @@ class TestCursorBlink:
             editor._blink_task.cancel()  # noqa: SLF001
 
         asyncio.run(scenario())
+
+    def test_dispose_cancels_cursor_blink_task(self) -> None:
+        editor = TextInput(tui=_FakeTUI())  # type: ignore[arg-type]
+
+        async def scenario() -> None:
+            editor.render(40)
+            task = editor._blink_task  # noqa: SLF001
+            assert task is not None
+
+            editor.dispose()
+            await asyncio.sleep(0)
+
+            assert editor._blink_task is None  # noqa: SLF001
+            assert task.cancelled() or task.done()
+            assert editor._tui is None  # noqa: SLF001
+
+        asyncio.run(scenario())
