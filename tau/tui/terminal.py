@@ -4,6 +4,7 @@ import asyncio
 import os
 import signal
 import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -17,6 +18,9 @@ _IS_WINDOWS = sys.platform == "win32"
 if sys.platform != "win32":
     import termios
     import tty
+
+# Windows has no SIGWINCH, so resize is detected by polling the console size.
+_WIN_RESIZE_POLL_INTERVAL = 0.25
 
 # ── Terminal Capabilities ─────────────────────────────────────────────────────
 
@@ -189,6 +193,10 @@ class Terminal:
         # Saved Windows console modes (restored on exit); unused on POSIX.
         self._win_stdin_mode: int | None = None
         self._win_stdout_mode: int | None = None
+        # Windows resize poller (no SIGWINCH there); unused on POSIX.
+        self._win_resize_thread: threading.Thread | None = None
+        self._win_resize_stop: threading.Event | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.width, self.height = self._get_size()
 
     # -------------------------------------------------------------------------
@@ -288,12 +296,16 @@ class Terminal:
                 | self._WIN_ENABLE_VIRTUAL_TERMINAL_PROCESSING,
             )
 
+        self._start_resize_poller_windows()
+
     def _exit_raw_mode_windows(self) -> None:
         """Restore the Windows console modes saved by _enter_raw_mode_windows."""
         import ctypes
 
         if sys.platform != "win32":  # pragma: no cover - keeps type checkers on win32 stubs
             return
+
+        self._stop_resize_poller_windows()
 
         k32 = ctypes.windll.kernel32
         if self._win_stdin_mode is not None:
@@ -302,6 +314,51 @@ class Terminal:
         if self._win_stdout_mode is not None:
             k32.SetConsoleMode(k32.GetStdHandle(self._WIN_STD_OUTPUT_HANDLE), self._win_stdout_mode)
             self._win_stdout_mode = None
+
+    def _start_resize_poller_windows(self) -> None:
+        """Start a daemon thread that polls the console size (Windows has no SIGWINCH).
+
+        Windows delivers no resize signal, so a background thread samples
+        ``_get_size()`` on an interval and fires the registered resize callbacks
+        (on the event loop thread) whenever the dimensions change.
+        """
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+        self._win_resize_stop = threading.Event()
+        self._win_resize_thread = threading.Thread(
+            target=self._win_resize_poll_loop,
+            args=(self._win_resize_stop,),
+            name="tau-tui-resize",
+            daemon=True,
+        )
+        self._win_resize_thread.start()
+
+    def _stop_resize_poller_windows(self) -> None:
+        if self._win_resize_stop is not None:
+            self._win_resize_stop.set()
+        self._win_resize_thread = None
+        self._win_resize_stop = None
+        self._loop = None
+
+    def _win_resize_poll_loop(self, stop: threading.Event) -> None:
+        """Poll the terminal size and fire callbacks on change until ``stop`` is set."""
+        while not stop.wait(_WIN_RESIZE_POLL_INTERVAL):
+            new_size = self._get_size()
+            if new_size == (self.width, self.height):
+                continue
+            self.width, self.height = new_size
+            loop = self._loop
+            if loop is None:
+                for cb in list(self._resize_callbacks):
+                    cb()
+                continue
+            for cb in list(self._resize_callbacks):
+                try:
+                    loop.call_soon_threadsafe(cb)
+                except RuntimeError:
+                    return  # event loop already closed
 
     def enter_alt_screen(self) -> None:
         """
