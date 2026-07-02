@@ -2,6 +2,24 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.0 — 2026-07-02
+
+### Providers
+- Added Z.ai as a built-in provider across all four modalities:
+  - Text: 19 GLM chat/vision models (glm-4.6, glm-4.7, glm-5, glm-5.1, glm-5.2,
+    glm-5-turbo, flash/flashx/x/air/airx variants, glm-4-32b, and the
+    glm-*v vision-language models), wired through the existing OpenAI-compatible
+    dialect with a `zai` thinking-format for reasoning requests.
+  - Image: CogView-4 and GLM-Image via the existing `openai-image` adapter.
+  - Audio: GLM-ASR-2512 transcription via the existing `openai-audio` adapter
+    (Z.ai does not offer a text-to-speech endpoint).
+  - Video: CogVideoX-3 and the Vidu Q1 / Vidu 2 model families via a new
+    `zai-video` adapter implementing Z.ai's async submit/poll job API.
+- Model IDs, context windows, output caps, thinking support, and pricing were
+  individually verified against Z.ai's official API docs and pricing page;
+  live API calls confirmed the image-generation and chat-completion endpoints
+  behave as documented.
+
 ## 0.4.9 — 2026-07-02
 
 ### Docs
