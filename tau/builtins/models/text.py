@@ -611,6 +611,7 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        thinking_format="chat-template",
         context_window=262_144,
         max_output_tokens=4096,
         input=_TEXT_IMAGE_VIDEO,
