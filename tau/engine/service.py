@@ -14,6 +14,7 @@ from tau.engine.types import (
     AgentEvent,
     AgentStartEvent,
     EmitEvent,
+    EngineContext,
     EngineOptions,
     EngineState,
     FollowupQueue,
@@ -60,7 +61,6 @@ from tau.message.types import (
 from tau.tool.types import ToolContext, ToolExecutionMode, ToolInvocation, ToolResult
 
 if TYPE_CHECKING:
-    from tau.agent.types import AgentContext
     from tau.inference.api.text.service import TextLLM as LLM
     from tau.settings.manager import SettingsManager
     from tau.tool.types import Tool
@@ -74,7 +74,7 @@ class Engine:
 
     Knows nothing about sessions, extensions, or compaction — those concerns
     belong to Agent.  Callers drive it via run() / run_continue() and observe
-    results through the event callbacks wired in Options.
+    results through event subscribers, hooks, and EngineOptions callbacks.
 
     Workflow:
 
@@ -85,16 +85,18 @@ class Engine:
 
     Example Usage::
 
-        from tau.engine import Agent, AgentState, Options
+        from tau.engine import Engine, EngineContext
+        from tau.message.types import UserMessage
 
-        # Initialize
-        agent = Agent(cwd=Path("/path"), llm=llm, tools=tools)
-
-        # Run
-        await agent.run(ctx=AgentContext(messages=[...]))
-
-        # Handle events
-        await agent.subscribe(lambda event: print(event))
+        engine = Engine(cwd=Path("/path"), llm=llm, tools=tools)
+        await engine.subscribe(lambda event: print(event))
+        await engine.run(
+            EngineContext(
+                system_prompt="You are helpful.",
+                messages=[UserMessage.from_text("Hello")],
+                tools=tools,
+            )
+        )
     """
 
     def __init__(
@@ -814,7 +816,7 @@ class Engine:
         _log.debug("agent loop ended: reason=%s", end_reason.value)
         await emit(AgentEndEvent(messages=messages, reason=end_reason))
 
-    async def run(self, ctx: AgentContext, signal: AbortSignal | None = None) -> None:
+    async def run(self, ctx: EngineContext, signal: AbortSignal | None = None) -> None:
         """Apply context and start a fresh loop. Uses the provided signal or creates one."""
         self._signal = signal or asyncio.Event()
         self.state.error_message = None
@@ -862,8 +864,6 @@ class Engine:
         Raises:
             RuntimeError: If the engine is currently streaming or has no messages.
         """
-        from tau.agent.types import AgentContext
-
         if self.state.is_streaming:
             raise RuntimeError(
                 "Agent is already processing. Wait for completion before continuing."
@@ -880,7 +880,7 @@ class Engine:
                     )
                 )
                 await self.run(
-                    AgentContext(
+                    EngineContext(
                         system_prompt=self.state.system_prompt or "",
                         messages=follow_up_messages,
                     ),
@@ -896,7 +896,7 @@ class Engine:
                     steering_messages = await self.state.steering_queue.dequeue()
                     await self._inject_queued("steering", steering_messages)
                     await self.run(
-                        AgentContext(
+                        EngineContext(
                             system_prompt=self.state.system_prompt or "",
                             messages=list(self.state.messages),
                         ),
@@ -908,7 +908,7 @@ class Engine:
                     follow_up_messages = await self.state.follow_up_queue.dequeue()
                     await self._inject_queued("followup", follow_up_messages)
                     await self.run(
-                        AgentContext(
+                        EngineContext(
                             system_prompt=self.state.system_prompt or "",
                             messages=list(self.state.messages),
                         ),

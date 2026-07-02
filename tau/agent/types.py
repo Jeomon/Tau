@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel
 
-from tau.message.types import LLMMessage
+from tau.engine.types import EngineContext
 from tau.session.compaction import DEFAULT_COMPACTION_SETTINGS, CompactionSettings
 from tau.session.types import MessageMeta
-
-if TYPE_CHECKING:
-    from tau.tool.types import Tool
 
 
 class AgentPhase(StrEnum):
@@ -24,13 +21,8 @@ class AgentPhase(StrEnum):
     BRANCH_SUMMARY = "branch_summary"
 
 
-@dataclass
-class AgentContext:
-    """Snapshot of everything the LLM receives for one turn."""
-
-    system_prompt: str
-    messages: list[LLMMessage]
-    tools: list[Tool] = field(default_factory=list)
+# Compatibility alias. Turn inputs belong to the standalone engine package.
+AgentContext = EngineContext
 
 
 class AgentConfig(BaseModel):

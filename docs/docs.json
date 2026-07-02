@@ -33,6 +33,10 @@
           "path": "inference.md"
         },
         {
+          "title": "Engine",
+          "path": "engine.md"
+        },
+        {
           "title": "Inference Providers",
           "path": "inference-providers.md"
         },

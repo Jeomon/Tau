@@ -61,7 +61,7 @@ User input flows through these stages:
 | `console/` | CLI entry point, argument parsing |
 | `runtime/` | Orchestrates agent, session, engine, extensions |
 | `agent/` | Processes message turns, calls inference |
-| `engine/` | Executes tool calls and collects results |
+| `engine/` | Standalone inference and tool-execution loop |
 | `inference/` | Unified interface to LLM providers |
 
 ### Data & State
@@ -224,6 +224,9 @@ Tools are executed in a sandboxed environment:
 Built-in tools (terminal, read, write, edit, glob, grep, ls) are enabled by default.
 `RuntimeConfig` can allow or exclude tools by name. Custom tools are registered
 via extensions or passed directly to the runtime.
+
+The engine can also be embedded without the session-aware agent or runtime.
+See [Engine](engine.md) for its public API and dependency boundary.
 
 Programmatic runtimes can replace constructed services through
 `RuntimeDependencies`. Typed factories cover settings, LLM/model/auth wiring,

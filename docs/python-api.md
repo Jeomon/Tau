@@ -457,7 +457,7 @@ Browser and computer-use agents can inject current state before every model
 request without persisting it in the session by configuring the engine:
 
 ```python
-from tau.engine import Agent as Engine, Options as EngineOptions
+from tau.engine import Engine, EngineOptions
 from tau.message.types import UserMessage
 
 async def current_browser_state() -> list[UserMessage]:
@@ -475,6 +475,8 @@ The callback runs after context transformation and before each inference,
 including inference after tool execution. Failures are logged and ignored.
 Injected messages are appended only to the request copy. Anthropic prompt-cache
 breakpoints exclude this transient tail.
+
+For direct engine construction and execution, see [Engine](engine.md).
 
 ## Example: Batch Processing
 

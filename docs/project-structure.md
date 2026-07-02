@@ -104,10 +104,11 @@ CLI argument parsing and initialization.
 
 ### `engine/` - Tool Execution
 
-Executes tools with sandboxing and result collection.
+Standalone text-inference and tool-execution loop. See [Engine](engine.md) for
+its public API and dependency boundary.
 
 - `service.py` - Main tool execution engine
-- `types.py` - Tool execution data structures
+- `types.py` - Run context, options, state, queues, and lifecycle events
 
 ### `extensions/` - Plugin System
 

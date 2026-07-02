@@ -17,6 +17,23 @@ def _engine(options: EngineOptions | None = None) -> Any:
     return Engine(cwd=Path("."), llm=llm, tools=[], options=options)  # type: ignore[arg-type]
 
 
+def test_public_engine_api_and_compatibility_aliases() -> None:
+    from tau.agent.types import AgentContext
+    from tau.engine import (
+        Agent,
+        AgentOptions,
+        AgentState,
+        EngineContext,
+        EngineOptions,
+        EngineState,
+    )
+
+    assert Agent is Engine
+    assert AgentState is EngineState
+    assert AgentOptions is EngineOptions
+    assert AgentContext is EngineContext
+
+
 def test_default_execution_runs_all_parallel_tools_concurrently() -> None:
     engine = _engine()
     calls = [

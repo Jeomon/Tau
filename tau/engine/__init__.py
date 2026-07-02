@@ -1,10 +1,15 @@
-from tau.engine.service import Engine as Agent
+"""Standalone LLM streaming and tool-execution engine."""
+
+from tau.engine.service import Engine
 from tau.engine.types import (
     AgentEndEvent,
     AgentErrorEvent,
     AgentEvent,
     AgentEventType,
     AgentStartEvent,
+    EngineContext,
+    EngineOptions,
+    EngineState,
     FollowupMode,
     FollowupQueue,
     MessageEndEvent,
@@ -18,18 +23,21 @@ from tau.engine.types import (
     TurnEndEvent,
     TurnStartEvent,
 )
-from tau.engine.types import (
-    EngineOptions as Options,
-)
-from tau.engine.types import (
-    EngineState as AgentState,
-)
 from tau.tool.types import ToolExecutionMode
 
+# Compatibility aliases for the original public names.
+Agent = Engine
+AgentState = EngineState
+AgentOptions = EngineOptions
+
 __all__ = [
+    "Engine",
+    "EngineContext",
+    "EngineState",
+    "EngineOptions",
     "Agent",
     "AgentState",
-    "Options",
+    "AgentOptions",
     "AgentEvent",
     "AgentEventType",
     "AgentStartEvent",

@@ -17,9 +17,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from tau.agent.types import AgentContext
 from tau.engine.service import Engine
-from tau.hooks.engine import ContextEventResult
+from tau.engine.types import EngineContext, EngineOptions
 from tau.inference.types import (
     EndEvent,
     StopReason,
@@ -112,19 +111,24 @@ def _queue_updates(events: list, queue: str) -> list:
     return [e for e in events if getattr(e, "type", None) == "queue_update" and e.queue == queue]
 
 
-def test_context_hook_rewrites_and_appends_ephemeral_messages() -> None:
+def test_context_callbacks_rewrite_and_append_ephemeral_messages() -> None:
     history: list[LLMMessage] = [UserMessage.from_text("original")]
     engine, llm, _events = _make_engine([_text_turn()])
 
-    engine.hooks.register(
-        "context",
-        lambda _event: ContextEventResult(
-            messages=[UserMessage.from_text("rewritten")],
-            ephemeral_messages=[UserMessage.from_text("browser state")],
-        ),
+    async def transform_context(
+        _messages: list[LLMMessage], _signal: asyncio.Event | None
+    ) -> list[LLMMessage]:
+        return [UserMessage.from_text("rewritten")]
+
+    async def ephemeral_injection() -> list[UserMessage]:
+        return [UserMessage.from_text("browser state")]
+
+    engine.options = EngineOptions(
+        transform_context=transform_context,
+        ephemeral_injection=ephemeral_injection,
     )
 
-    run(engine.run(AgentContext(system_prompt="", messages=history)))
+    run(engine.run(EngineContext(system_prompt="", messages=history)))
 
     assert [_texts(message) for message in llm.contexts[0]] == [
         "rewritten",
@@ -155,7 +159,7 @@ class TestSteeringAtStop:
         llm.on_turn = [steer_mid_turn]
 
         async def _test():
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
 
         run(_test())
 
@@ -177,7 +181,7 @@ class TestSteeringAtStop:
         llm.on_turn = [steer_mid_turn]
 
         async def _test():
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
 
         run(_test())
 
@@ -191,7 +195,7 @@ class TestSteeringAtStop:
         engine, _, _ = _make_engine([_text_turn()])
         engine.state.error_message = "stale failure"
 
-        run(engine.run(AgentContext(system_prompt="", messages=history)))
+        run(engine.run(EngineContext(system_prompt="", messages=history)))
 
         assert engine.state.error_message is None
 
@@ -211,7 +215,7 @@ class TestSteeringAtToolCalls:
         llm.on_turn = [steer_mid_turn]
 
         async def _test():
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
 
         run(_test())
 
@@ -231,7 +235,7 @@ class TestFollowupAtStop:
 
         async def _test():
             await engine.follow_up(UserMessage.from_text("and then this"))
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
 
         run(_test())
 
@@ -258,7 +262,7 @@ class TestRunContinueDrainsLateSteering:
 
         async def _test():
             # Turn 1 runs to completion with nothing queued.
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
             assert llm.calls == 1
             # Steer lands *after* the turn stopped (the race the fix targets).
             await engine.steer(UserMessage.from_text("also in kochi"))
@@ -302,7 +306,7 @@ class TestNoQueuedMessages:
         engine, llm, events = _make_engine([_text_turn()])
 
         async def _test():
-            await engine.run(AgentContext(system_prompt="", messages=history))
+            await engine.run(EngineContext(system_prompt="", messages=history))
 
         run(_test())
 

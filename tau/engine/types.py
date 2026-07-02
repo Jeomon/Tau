@@ -93,6 +93,16 @@ AgentEvent = (
     | AgentErrorEvent
 )
 
+
+@dataclass
+class EngineContext:
+    """Inputs for one standalone engine run."""
+
+    system_prompt: str
+    messages: list[LLMMessage]
+    tools: list[Tool] = field(default_factory=list)
+
+
 AfterToolCallCallback = Callable[
     [ToolInvocation, ToolResult, AbortSignal | None], Awaitable[ToolResult | None]
 ]

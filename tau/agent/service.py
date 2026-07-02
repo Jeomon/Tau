@@ -5,7 +5,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau.agent.types import AgentConfig, AgentContext, AgentPhase, ContextUsage, PromptOptions
+from tau.agent.types import AgentConfig, AgentPhase, ContextUsage, PromptOptions
+from tau.engine.types import EngineContext
 from tau.hooks.engine import CompactionReason as _CompactionReason
 from tau.hooks.engine import MessageEndEvent, MessageRollbackEvent, SavePointEvent, SettledEvent
 from tau.hooks.service import Hooks
@@ -690,18 +691,18 @@ class Agent:
         finally:
             self._idle_event.set()
 
-    def _build_turn_context(self) -> AgentContext:
+    def _build_turn_context(self) -> EngineContext:
         """Build the LLM context for a turn from the current (possibly compacted) session."""
         session_ctx = self._session_manager.build_session_context()
         llm_messages = _to_llm_messages(session_ctx.messages)
         llm_messages = strip_unusable_trailing_assistant(llm_messages, self._session_manager)
-        return AgentContext(
+        return EngineContext(
             system_prompt=self._system_prompt,
             messages=llm_messages,
             tools=self._engine.tools,
         )
 
-    async def _run(self, ctx: AgentContext) -> None:
+    async def _run(self, ctx: EngineContext) -> None:
         unsubscribe = self.hooks.register(
             "message_end",
             lambda event: self._on_message_end(event),
