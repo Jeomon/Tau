@@ -54,6 +54,9 @@ You will be prompted to select a model from your configured providers. By defaul
 - `write` - create or overwrite files
 - `edit` - patch files
 - `terminal` - run shell commands
+- `glob` - find files by pattern
+- `grep` - search file contents
+- `ls` - list directory contents
 
 Type a prompt and press Enter:
 

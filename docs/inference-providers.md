@@ -159,44 +159,33 @@ Use a specific provider for a single session:
 ```bash
 tau --provider anthropic
 tau --model openai/gpt-4o
-tau --provider ollama/mistral
+tau --model ollama/mistral
 ```
 
 ### Interactive
 
-Press **Ctrl+L** during a session to switch models.
+Use the `/model` slash command during a session to switch models.
 
 ### Default
 
-Set your default provider in `~/.tau/settings.json`:
+Set your default provider and model in `~/.tau/settings.json`:
 
 ```json
 {
-  "defaultProvider": "anthropic",
-  "defaultModel": "claude-3-5-sonnet"
+  "model": {
+    "text": {
+      "provider": "anthropic",
+      "id": "claude-sonnet-4-6"
+    }
+  }
 }
-```
-
-## Model Listing
-
-List all available models:
-
-```bash
-tau --list-models
-```
-
-Filter by provider:
-
-```bash
-tau --list-models anthropic
-tau --list-models openai
 ```
 
 ## Troubleshooting
 
 ### Provider Not Found
 
-If a provider is not listed in `tau --list-models`, check:
+If a provider isn't picking up credentials, check:
 
 1. **API key is set**: `env | grep API_KEY`
 2. **Provider is supported**: Verify it's in the list above

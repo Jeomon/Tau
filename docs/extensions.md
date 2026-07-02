@@ -1328,7 +1328,7 @@ ctx.ui.paste_to_editor("@file.py ")      # insert at cursor position
 
 ```python
 names = ctx.ui.get_all_themes()          # list[str] of theme names
-ok = ctx.ui.set_theme("dracula")         # True on success, False if unknown
+ok = ctx.ui.set_theme("dark")            # True on success, False if unknown
 theme = ctx.ui.theme                     # LayoutTheme — current active theme
 ```
 

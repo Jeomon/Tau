@@ -128,7 +128,6 @@ ruff format tau/
 4. Test manually:
    ```bash
    tau -p "test prompt"
-   tau --list-models
    ```
 
 ## Testing

@@ -20,6 +20,17 @@ Skills are loaded from three sources:
 
 Higher-priority skills override lower-priority ones with the same name.
 
+## Built-in Skills
+
+Tau includes these skills:
+
+| Skill | Purpose |
+|-------|---------|
+| `code-review` | Review code for correctness, security, and maintainability |
+| `debug` | Diagnose failures systematically and verify fixes |
+| `git-commit` | Prepare focused commits with conventional messages |
+| `skill-creator` | Create or update Tau skills and reusable resources |
+
 ## Creating a Skill
 
 ### Single-file skill

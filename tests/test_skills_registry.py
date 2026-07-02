@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from tau.settings.paths import get_builtins_dir
 from tau.skills.registry import SkillRegistry
 from tau.skills.types import Skill
 
@@ -126,3 +129,14 @@ class TestSkillRegistryRegisterGet:
     def test_get_unknown_returns_none(self):
         r = _registry()
         assert r.get("unknown") is None
+
+
+def test_skill_creator_is_bundled() -> None:
+    registry = SkillRegistry()
+
+    skill = registry.get("skill-creator")
+
+    assert skill is not None
+    assert "Create or update Tau skills" in skill.description
+    assert Path(skill.base_dir) == get_builtins_dir() / "skills" / "skill-creator"
+    assert (Path(skill.base_dir) / "LICENSE.txt").is_file()

@@ -5,7 +5,7 @@
 **Tau** is a Python CLI framework for building interactive agent applications. It provides:
 
 - **Terminal UI**: Multi-line editor, message history, inline pickers, markdown rendering
-- **Multi-provider**: Anthropic Claude, OpenAI GPT, Google Gemini, Mistral, Ollama, Azure OpenAI
+- **Multi-provider**: Anthropic, OpenAI, Google Gemini, Mistral, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code, and Vertex AI variants
 - **Session management**: Persistent JSONL-based sessions with branching, forking, resumption
 - **Tool execution**: Built-in tools (terminal, read, write, edit, glob, grep, ls) + extensible custom tools
 - **Plugin system**: Custom tools, slash commands (`/model`, `/theme`, etc.), hooks, themes, skills, prompts
@@ -74,7 +74,7 @@ If you are unsure whether a change is doc-worthy, err on the side of updating. A
 
 - Use type hints in all code
 - Follow PEP 8 style guide
-- Python 3.13+ features are preferred
+- Target Python 3.12+ (see `requires-python` in `pyproject.toml`)
 - Keep functions focused and testable
 - Add docstrings for public APIs
 
@@ -126,7 +126,7 @@ The codebase is organized by function, not by feature:
 | Module | Purpose |
 |--------|---------|
 | `tau.agent` | Agent execution logic and phase state machine |
-| `tau.inference` | LLM provider abstraction (Anthropic, OpenAI, Gemini, Mistral, Ollama, Azure) |
+| `tau.inference` | LLM provider abstraction (Anthropic, OpenAI, Gemini, Mistral, Ollama, Groq, Bedrock, and more) |
 | `tau.engine` | Tool execution engine |
 | `tau.tui` | Terminal UI — renderer, input editor, theme, keybindings |
 | `tau.session` | Session JSONL storage, context building, compaction, branch summarization |
@@ -189,12 +189,12 @@ Tau supports multiple LLM providers:
 
 - Anthropic (Claude)
 - OpenAI (GPT)
-- Google Gemini
+- Google Gemini (incl. Vertex AI)
 - Mistral AI
 - Ollama (local)
-- Azure OpenAI
+- Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code
 
-All providers are abstracted behind `tau.inference.InferenceClient`. See `docs/inference-providers.md` for setup.
+All providers are abstracted behind `tau.inference.api.text.service.TextLLM`. See `docs/inference-providers.md` for setup.
 
 ## Sessions
 
@@ -214,7 +214,7 @@ Settings files are JSON only (not YAML) — they are both read and written by ta
 
 ## Themes
 
-Themes are YAML files (`.yaml` / `.yml`) stored in `~/.tau/themes/` or `.tau/themes/`. Tau includes 16 built-in themes: `default`, `dracula`, `nord`, `gruvbox`, `catppuccin`, `ayu-dark`, `everforest`, `horizon`, `kanagawa`, `material-ocean`, `monokai`, `night-owl`, `one-dark`, `rose-pine`, `solarized-dark`, `tokyo-night`, plus `dark` and `light` base themes for extending. See `docs/themes.md`.
+Themes are YAML files (`.yaml` / `.yml`) stored in `~/.tau/themes/` or `.tau/themes/`. Tau ships two built-in themes, `dark` and `light`, which can be extended or overridden. See `docs/themes.md`.
 
 ## Tool Sources
 

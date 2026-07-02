@@ -4,7 +4,7 @@ Thanks for your interest in contributing. This document covers the practical ste
 
 ## Prerequisites
 
-- Python 3.13 or higher
+- Python 3.12 or higher
 - git
 - pip or uv
 

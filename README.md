@@ -41,7 +41,7 @@ tau                                           # Interactive mode
 tau --resume                                  # Resume most recent session
 tau --model claude-sonnet-4-6                 # Use specific model
 tau --print "Summarize this repo"             # One-shot mode
-tau -p anthropic --print "Explain this code"  # Print mode with provider
+tau --provider anthropic --print "Explain this code"  # Print mode with provider
 tau --mode rpc                                # RPC mode for IDE extensions
 ```
 
@@ -49,13 +49,13 @@ tau --mode rpc                                # RPC mode for IDE extensions
 
 ## Features
 
-- **Multi-provider LLM support** — Anthropic Claude, OpenAI GPT, Google Gemini, Mistral AI, Ollama, Azure OpenAI
+- **Multi-provider LLM support** — Anthropic, OpenAI, Google Gemini, Mistral AI, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, and more
 - **Terminal UI** — Built-in chat interface with syntax highlighting, markdown rendering, and keyboard navigation
 - **Rich media support** — Work with text files, images, audio files, and video files via file references or clipboard input
 - **Session management** — Persistent sessions with branching, forking, and resuming capabilities
-- **Tool execution** — Built-in tools (terminal, file I/O, web fetch) with sandboxed execution and extensibility
+- **Tool execution** — Built-in tools (terminal, file I/O, search) with full user permissions and extensibility
 - **Plugin system** — Add custom tools, slash commands, hooks, themes, and skills without modifying core code
-- **16 built-in themes** — Dark and light themes including dracula, nord, gruvbox, catppuccin, ayu-dark, tokyo-night, rose-pine, and more
+- **Themes** — Dark and light base themes, customizable and extensible via YAML
 - **Context management** — Automatic context compaction and branch summarization for long conversations
 - **Python API** — Embed Tau in your own applications programmatically
 - **Multiple run modes** — Interactive TUI, print mode (one-shot), JSON event stream, and JSON-RPC for IDE integration
@@ -140,7 +140,7 @@ See [SECURITY.md](SECURITY.md) for detailed practices and vulnerability reportin
 ```bash
 python -m pytest              # Run tests
 pyright tau/                   # Type checking
-python -m tau --mode tui       # Launch from source
+python -m tau                  # Launch from source
 ```
 
 See [Development Setup](docs/development.md) for detailed instructions.

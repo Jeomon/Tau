@@ -11,9 +11,9 @@ tau/                                # Main package
 ├── agent/                          # Agent execution service
 ├── auth/                           # Authentication & credential management
 ├── builtins/                       # Built-in tools, commands, themes, skills
-│   ├── tools/                      # Pre-installed tools (bash, read, write, etc.)
+│   ├── tools/                      # Pre-installed tools (terminal, read, write, etc.)
 │   ├── commands/                   # Built-in slash commands
-│   ├── themes/                     # Default themes (dracula, nord, etc.)
+│   ├── themes/                     # Default themes (dark, light)
 │   ├── providers/                  # Built-in LLM provider configurations
 │   ├── prompts/                    # Built-in prompt templates
 │   └── skills/                     # Built-in skills
@@ -113,7 +113,7 @@ Executes tools with sandboxing and result collection.
 
 Loading and API for custom extensions.
 
-- `api.py` - Extension API (35 KB, main extension interface)
+- `api.py` - Extension API (main extension interface)
 - `loader.py` - Extension discovery and loading
 - `context.py` - Extension runtime context
 - `runtime.py` - Runtime context management
@@ -179,7 +179,7 @@ Prompt loading and variable substitution.
 - `expand.py` - Argument substitution
 - `types.py` - Prompt types
 
-### `rpc/` - JSON-RPC Protocol
+### `modes/rpc/` - JSON-RPC Protocol
 
 JSON-RPC server for IDE integration.
 
@@ -408,10 +408,10 @@ See [Extensions Guide](extensions.md) for detailed examples.
 
 ## Code Statistics
 
-- **Total modules**: 205 Python files
+- **Total modules**: 235 Python files
 - **Main package**: tau/ (25 subpackages)
 - **Test coverage**: tests/ directory
-- **Lines of code**: ~8,000 LOC (excluding tests and docs)
+- **Lines of code**: ~58,000 LOC (excluding tests and docs)
 - **Type hints**: Full type coverage with mypy/pyright
 
 ## Next Steps
