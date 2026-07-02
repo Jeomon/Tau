@@ -2,6 +2,14 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.2 — 2026-07-02
+
+### Terminal
+
+- Fixed console size polling for resize on Windows.
+- Fixed TUI stdin pumping from a thread on Windows.
+- Fixed Windows compatibility by guarding POSIX-only terminal APIs.
+
 ## 0.5.1 — 2026-07-02
 
 ### Extensions
