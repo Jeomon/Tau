@@ -20,6 +20,7 @@ from tau.tui.input import (
 )
 from tau.tui.theme import LayoutTheme
 from tau.tui.tui import TUI
+from tau.tui.utils import project_name
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -228,7 +229,10 @@ class App:
             editor_padding_x = sm.get_editor_padding_x()
             cursor_blink = sm.get_cursor_blink()
 
-        tui = TUI(show_hardware_cursor=show_hardware_cursor)
+        tui = TUI(
+            show_hardware_cursor=show_hardware_cursor,
+            title=f"τ - {project_name()}",
+        )
         if resolved_theme.terminal_bg:
             tui.terminal_bg = resolved_theme.terminal_bg
         layout = Layout(

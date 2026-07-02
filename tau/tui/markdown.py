@@ -424,13 +424,8 @@ class _Renderer:
 # ---------------------------------------------------------------------------
 
 from collections.abc import Callable  # noqa: E402
-from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
-if _TYPE_CHECKING:
-    from tau.message.types import CustomMessage
-    from tau.tui.theme import MessageTheme
-
-RendererFn = Callable[["CustomMessage", "MessageTheme", int], list[str]]
+RendererFn = Callable[[Any, Any, int], list[str]]
 
 
 class MessageRendererRegistry:
@@ -446,8 +441,8 @@ class MessageRendererRegistry:
 
     def render(
         self,
-        message: CustomMessage,
-        theme: MessageTheme,
+        message: Any,
+        theme: Any,
         width: int,
     ) -> list[str] | None:
         fn = self._registry.get(message.custom_type)

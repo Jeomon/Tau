@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tau.tui.ui_context import UIContext
+from tau.modes.interactive.ui_context import UIContext
 
 
 class _Input:

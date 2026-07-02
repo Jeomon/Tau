@@ -3,16 +3,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.utils import fuzzy_filter, visible_width
 
 if TYPE_CHECKING:
-    from tau.commands.types import CommandInfo
     from tau.tui.theme import SelectListTheme
 
 _log = logging.getLogger(__name__)
@@ -51,6 +50,27 @@ class AutocompleteRegistration:
         list[AutocompleteItem] | Awaitable[list[AutocompleteItem]],
     ]
     description: str = ""
+
+
+class CommandCompletion(Protocol):
+    """Command metadata required by the generic autocomplete controller."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def aliases(self) -> list[str]: ...
+
+    @property
+    def get_argument_completions(
+        self,
+    ) -> (
+        Callable[
+            [str],
+            list[AutocompleteItem] | Awaitable[list[AutocompleteItem]],
+        ]
+        | None
+    ): ...
 
 
 # ── AutocompletePicker ────────────────────────────────────────────────────────
@@ -275,7 +295,7 @@ class AutocompleteManager:
         self._ac_trigger_pos = -1
         self._cmd_arg_active = ""
 
-    def sync(self, text: str, cursor: int, all_commands: list[CommandInfo]) -> None:
+    def sync(self, text: str, cursor: int, all_commands: Sequence[CommandCompletion]) -> None:
         """
         Called after every keystroke when neither the file picker nor the
         command palette is active.  Updates whichever picker applies.
@@ -425,7 +445,7 @@ class AutocompleteManager:
             self._ac_picker.set_items(result)  # type: ignore[arg-type]
             self._ac_picker.set_query(query)
 
-    def _start_cmd_arg(self, cmd: CommandInfo, prefix: str) -> None:
+    def _start_cmd_arg(self, cmd: CommandCompletion, prefix: str) -> None:
         if cmd.get_argument_completions is None:
             return
         if self._cmd_arg_pending_task is not None:

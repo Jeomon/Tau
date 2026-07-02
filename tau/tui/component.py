@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -136,6 +137,39 @@ class StaticComponent(Component):
 
     def render(self, width: int) -> list[str]:  # noqa: ARG002
         return self._lines
+
+
+class Text(Component):
+    """Mutable width-aware text component.
+
+    Hard newlines are preserved and long lines wrap to the available terminal
+    width. An optional style function can apply ANSI formatting.
+    """
+
+    def __init__(
+        self,
+        text: str = "",
+        style: Callable[[str], str] | None = None,
+    ) -> None:
+        self._text = text
+        self._style = style
+
+    @property
+    def text(self) -> str:
+        """Return the current text."""
+        return self._text
+
+    def set_text(self, text: str) -> None:
+        """Replace the rendered text."""
+        self._text = text
+
+    def render(self, width: int) -> list[str]:
+        from tau.tui.utils import wrap
+
+        lines = wrap(self._text, width)
+        if self._style is None:
+            return lines
+        return [self._style(line) for line in lines]
 
 
 class Column(Component):

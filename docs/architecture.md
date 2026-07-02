@@ -79,7 +79,7 @@ User input flows through these stages:
 
 | Module | Purpose |
 |--------|---------|
-| `tui/` | Terminal UI (22 modules) |
+| `tui/` | Standalone terminal rendering and component framework |
 | `extensions/` | Plugin system API |
 | `hooks/` | Event system for extensions |
 | `commands/` | Slash command registry |
@@ -141,6 +141,9 @@ Each agent turn follows this sequence:
 TUI overlays participate in focus lifecycle. Hiding or closing a capturing
 overlay restores the next visible overlay or its previous focus target.
 Components exposing `dispose()` are disposed when their overlay closes.
+The reusable renderer, terminal, input, and component APIs are documented in
+[Terminal UI](tui.md); runtime-aware composition lives in
+`modes/interactive/`.
 
 Slash commands declare whether they require an idle agent. Idle-only commands
 are deferred until the current turn settles; UI-only and read-only commands may

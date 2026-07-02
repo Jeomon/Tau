@@ -41,7 +41,7 @@ tau/                                # Main package
 ├── themes/                         # Theme loading and registry
 ├── tool/                           # Tool abstractions and registry
 ├── trust/                          # Trust and permission system
-├── tui/                            # Terminal user interface
+├── tui/                            # Standalone terminal UI framework
 └── utils/                          # Shared utilities
 
 docs/                              # Documentation
@@ -251,8 +251,9 @@ Trust and permission system for tool execution.
 
 ### `tui/` - Terminal UI Primitives
 
-Reusable terminal parsing, differential rendering, components, themes, and
-keybindings.
+Standalone terminal parsing, differential rendering, components, layouts,
+overlays, themes, and keybindings. See [Terminal UI](tui.md) for its public API
+and dependency boundary.
 
 - `tui.py` - Main event loop, focus, overlays, and differential rendering
 - `terminal.py` - Terminal control and capability detection
@@ -262,7 +263,6 @@ keybindings.
 - `autocomplete.py` - Generic autocomplete management
 - `markdown.py` - Markdown-to-ANSI rendering
 - `theme.py` - TUI theme types
-- `ui_context.py` - Extension-facing UI context
 
 ### `modes/interactive/` - Interactive Application
 
@@ -276,7 +276,7 @@ Interactive runtime orchestration and Tau-specific UI composition.
 - `components/message_list.py` - Message and tool-result rendering
 - `components/selector_controller.py` - Inline selector lifecycle and input routing
 - `components/overlays.py` - Interactive dialogs and editors
-- `ui_context.py` - UI state context
+- `ui_context.py` - Extension-facing runtime UI customization
 
 ## Key Types and Classes
 

@@ -392,7 +392,10 @@ class UIContext:
         component = factory(layout._tui, layout._theme, get_keybindings(), _done)
 
         if opts.on_handle is not None:
-            component = _InterceptComponent(component, opts.on_handle)  # type: ignore[assignment]
+            component = _InterceptComponent(
+                component,
+                opts.on_handle,  # type: ignore[arg-type]
+            )  # type: ignore[assignment]
 
         overlay_opts = opts.overlay_options
         handle_ref[0] = layout._tui.show_overlay(component, overlay_opts)  # type: ignore[arg-type]
@@ -490,7 +493,7 @@ class UIContext:
         from tau.message.types import CustomMessage, ImageContent, LinesContent, TextContent
 
         custom_type = "tool" if type == "tool" else "system"
-        _contents = (
+        _contents: list[TextContent | ImageContent | LinesContent] = (
             [LinesContent(lines=message, notify_type=type)]
             if isinstance(message, list)
             else [TextContent(content=message)]

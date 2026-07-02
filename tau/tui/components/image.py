@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import random
 from collections.abc import Callable
@@ -40,6 +41,17 @@ def _get_image_dimensions(data: bytes, mime_type: str) -> ImageDimensions | None
         return ImageDimensions(width_px=img.width, height_px=img.height)
     except Exception:
         return None
+
+
+def _convert_to_png(data: bytes) -> bytes:
+    """Convert supported image bytes to PNG for the Kitty protocol."""
+    from PIL import Image as PILImage
+    from PIL import ImageOps
+
+    image = ImageOps.exif_transpose(PILImage.open(io.BytesIO(data)))
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
 
 
 def _calculate_cell_size(
@@ -162,9 +174,7 @@ class Image(Component):
             b64 = self._b64
             if self._mime != "image/png":
                 try:
-                    from tau.utils.image_processing import convert_to_png
-
-                    b64 = base64.b64encode(convert_to_png(self._raw)).decode()
+                    b64 = base64.b64encode(_convert_to_png(self._raw)).decode()
                     self._b64 = b64
                     self._mime = "image/png"
                 except Exception:

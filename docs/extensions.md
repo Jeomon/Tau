@@ -1190,7 +1190,7 @@ def my_footer(tui, theme):
     return StaticComponent([f"  {theme.primary}Custom footer{RESET}  "])
 
 # With TUI + theme + live data (recommended)
-from tau.tui.ui_context import FooterData
+from tau.modes.interactive.ui_context import FooterData
 
 def my_footer(tui, theme, data: FooterData):
     branch = data.git_branch or "detached"

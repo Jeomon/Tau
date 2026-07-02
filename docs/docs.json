@@ -37,6 +37,10 @@
           "path": "engine.md"
         },
         {
+          "title": "Terminal UI",
+          "path": "tui.md"
+        },
+        {
           "title": "Inference Providers",
           "path": "inference-providers.md"
         },

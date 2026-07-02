@@ -25,6 +25,7 @@ Tau allows you to:
 
 - [Inference](inference.md) - Standalone inference clients, types, and architecture
 - [Engine](engine.md) - Standalone inference and tool-execution loop
+- [Terminal UI](tui.md) - Standalone terminal rendering and component framework
 - [Messages & Context](messages.md) - How messages flow and context is managed
 - [Sessions](sessions.md) - Session persistence, branching, compaction, JSONL format
 - [Inference Providers](inference-providers.md) - Supported LLMs and provider setup

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Literal
 from tau.tui.component import Component, Container, Focusable
 from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent
 from tau.tui.terminal import Terminal
-from tau.tui.utils import project_name, set_window_focused
+from tau.tui.utils import set_window_focused
 
 _log = logging.getLogger(__name__)
 
@@ -780,11 +780,18 @@ class TUI(Container):
         await tui.run()
     """
 
-    def __init__(self, show_hardware_cursor: bool = False) -> None:
+    def __init__(
+        self,
+        show_hardware_cursor: bool = False,
+        *,
+        terminal: Terminal | None = None,
+        title: str | None = None,
+    ) -> None:
         super().__init__()
-        self._terminal = Terminal()
+        self._terminal = terminal or Terminal()
         self._renderer = Renderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
         self._parser = _make_parser()
+        self._title = title
 
         self._running = False
         self._stop_event: asyncio.Event = asyncio.Event()
@@ -852,7 +859,8 @@ class TUI(Container):
         self._stop_event.clear()
 
         with self._terminal:
-            self._terminal.set_title(f"τ - {project_name()}")
+            if self._title is not None:
+                self._terminal.set_title(self._title)
             self._terminal.hide_cursor()
             self._terminal.disable_autowrap()
             self._terminal.enable_bracketed_paste()

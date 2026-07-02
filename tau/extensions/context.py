@@ -10,11 +10,11 @@ from tau.agent.types import AgentPhase
 
 if TYPE_CHECKING:
     from tau.message.types import AssistantMessage, LLMMessage
+    from tau.modes.interactive.ui_context import UIContext
     from tau.runtime.service import Runtime
     from tau.session.manager import SessionManager
     from tau.session.types import SessionEntry
     from tau.settings.manager import SettingsManager
-    from tau.tui.ui_context import UIContext
 
 _log = logging.getLogger(__name__)
 
@@ -246,7 +246,7 @@ class ExtensionContext:
         self._assert_active()
         if self._layout is None:
             return None
-        from tau.tui.ui_context import UIContext
+        from tau.modes.interactive.ui_context import UIContext
 
         return UIContext(self._layout, settings=self._settings)  # type: ignore[arg-type]
 
