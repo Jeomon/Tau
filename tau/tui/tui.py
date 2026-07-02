@@ -900,7 +900,6 @@ class TUI(Container):
             self._terminal.disable_autowrap()
             self._terminal.enable_bracketed_paste()
             self._terminal.enable_focus_reporting()
-            self._terminal.enable_mouse_tracking()
             if self.terminal_bg:
                 self._terminal.set_background_color(self.terminal_bg)
             self._renderer.reset()

@@ -122,9 +122,11 @@ Input is normalized into typed events:
 - `BgColorEvent`
 
 Use `KeyEvent.matches()` instead of comparing raw escape sequences.
-Mouse reporting is enabled while the TUI runs. The stock interactive
-`TextInput` moves its caret to the clicked text position, including across
-hard newlines and soft-wrapped rows.
+Mouse reporting is not enabled by the TUI — terminals only offer clicks and
+wheel-scroll as a single reporting mode, so requesting it would take over the
+terminal's native wheel-scroll and click-drag copy for the whole session.
+`MouseEvent` remains available for embedders that want to opt into that
+trade-off themselves via `Terminal.enable_mouse_tracking()`.
 
 ## Overlays
 
