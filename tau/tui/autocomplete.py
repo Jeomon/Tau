@@ -356,7 +356,14 @@ class AutocompleteManager:
         if not isinstance(event, KeyEvent):
             return False, None
 
-        if self._ac_picker.active:
+        # Pickers navigate/accept on unmodified keys only. A modified arrow or
+        # enter (e.g. alt+up for dequeue, alt+enter for follow-up, shift+enter
+        # for newline) must fall through to the editor instead of being consumed
+        # here — otherwise those bindings silently stop working whenever a
+        # completion picker happens to be open.
+        plain = not (event.alt or event.ctrl or event.meta or event.shift)
+
+        if self._ac_picker.active and plain:
             match event.key:
                 case "up":
                     self._ac_picker.move_up()
@@ -370,7 +377,7 @@ class AutocompleteManager:
                     self._ac_picker.clear()
                     return True, None
 
-        if self._cmd_arg_picker.active:
+        if self._cmd_arg_picker.active and plain:
             match event.key:
                 case "up":
                     self._cmd_arg_picker.move_up()

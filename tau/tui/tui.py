@@ -1337,7 +1337,16 @@ class TUI(Container):
         """Render all children into the scrollback buffer."""
         self._render_timer = None
         self._render_requested = False
-        self._renderer.render(self, self._overlays or None)
+        try:
+            self._renderer.render(self, self._overlays or None)
+        except Exception as e:
+            # A single component raising during render must not permanently
+            # freeze the UI. This callback runs via loop.call_later(), so an
+            # unhandled exception is swallowed by asyncio's exception handler
+            # and no further frames are painted — the screen appears stuck even
+            # though the event loop (and the agent's coroutines) keep running.
+            # Log the traceback and carry on so the next request_render() repaints.
+            _log.exception("render failed",e)
         self._last_render_at = time.monotonic()
 
     # -------------------------------------------------------------------------

@@ -181,7 +181,7 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
             hidden_total += hidden
         for line in displayed:
             if isinstance(line, str):
-                muted = opts.theme.muted(line) if opts.theme is not None else line
+                muted = opts.theme.dim(line) if opts.theme is not None else line
                 result.append(muted)
                 continue
             char, ol, nl, text = line
