@@ -247,26 +247,37 @@ class TerminalTool(Tool):
                 await _schedule_update()
 
         try:
-            if tool_execution_update_callback is not None:
-                await _emit_update(force=True)
-            await asyncio.wait_for(_read_loop(), timeout=params.timeout)
-        except TimeoutError:
-            timed_out = True
-        finally:
-            if proc.returncode is None and (timed_out or cancelled):
-                await _terminate_process_tree(proc)
-            if proc.stdout is not None and (timed_out or cancelled):
-                with contextlib.suppress(Exception):
-                    remaining = await asyncio.wait_for(proc.stdout.read(), timeout=1)
-                    if remaining:
-                        output.append(remaining)
-            await proc.wait()
+            try:
+                if tool_execution_update_callback is not None:
+                    await _emit_update(force=True)
+                await asyncio.wait_for(_read_loop(), timeout=params.timeout)
+            except TimeoutError:
+                timed_out = True
+            finally:
+                if proc.returncode is None and (timed_out or cancelled):
+                    await _terminate_process_tree(proc)
+                if proc.stdout is not None and (timed_out or cancelled):
+                    with contextlib.suppress(Exception):
+                        remaining = await asyncio.wait_for(proc.stdout.read(), timeout=1)
+                        if remaining:
+                            output.append(remaining)
+                await proc.wait()
 
-        if update_task is not None:
-            update_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await update_task
-        snapshot = output.finish()
+            if update_task is not None:
+                update_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await update_task
+            snapshot = output.finish()
+        finally:
+            # Guarantee resource release even if _read_loop raised something
+            # other than TimeoutError (e.g. CancelledError): finish() above is
+            # skipped on that path, so close the spill fd/temp file and cancel
+            # any dangling update task here.
+            if update_task is not None and not update_task.done():
+                update_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await update_task
+            output.close()
         output_text = _display_content(snapshot)
         metadata = {
             **_metadata(snapshot, running=False),

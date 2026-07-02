@@ -52,6 +52,27 @@ class OutputAccumulator:
         self._path = Path(temp_name)
         self._finished = False
 
+    def __enter__(self) -> OutputAccumulator:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        """Release the spill file descriptor, discarding the file if unfinished.
+
+        Idempotent. If ``finish()`` already ran, the file was disposed of
+        according to truncation and this is a no-op. Otherwise no snapshot ever
+        escaped, so the fd is closed and the temp file removed.
+        """
+        if self._finished:
+            return
+        if self._stream is not None:
+            self._stream.close()
+            self._stream = None
+        self._path.unlink(missing_ok=True)
+        self._finished = True
+
     def append(self, data: bytes) -> None:
         """Append one raw subprocess output chunk."""
         if self._finished:
