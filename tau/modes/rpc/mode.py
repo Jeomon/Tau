@@ -790,11 +790,16 @@ async def run_rpc_mode(runtime: Runtime) -> None:
 
     import signal as _signal
 
-    try:
-        loop.add_signal_handler(_signal.SIGTERM, _on_signal)
-        loop.add_signal_handler(_signal.SIGHUP, _on_signal)
-    except (NotImplementedError, OSError):
-        pass  # Windows
+    # SIGHUP does not exist on Windows (AttributeError), and add_signal_handler
+    # is unsupported on the Proactor loop (NotImplementedError). Skip whatever the
+    # platform lacks instead of failing.
+    for _sig_name in ("SIGTERM", "SIGHUP"):
+        _sig = getattr(_signal, _sig_name, None)
+        if _sig is None:
+            continue
+        # Windows / unsupported event loop → add_signal_handler raises.
+        with contextlib.suppress(NotImplementedError, OSError):
+            loop.add_signal_handler(_sig, _on_signal)
 
     # ── Announce ready ───────────────────────────────────────────────────────
     sm = runtime.session_manager

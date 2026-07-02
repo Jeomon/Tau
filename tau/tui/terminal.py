@@ -4,11 +4,19 @@ import asyncio
 import os
 import signal
 import sys
-import termios
-import tty
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
+
+# termios/tty are POSIX-only. On Windows the console is driven through the
+# Win32 console API instead (see the _*_windows helpers on Terminal).
+# The guard tests ``sys.platform`` directly so type checkers can statically
+# narrow the import as bound on POSIX targets.
+_IS_WINDOWS = sys.platform == "win32"
+
+if sys.platform != "win32":
+    import termios
+    import tty
 
 # ── Terminal Capabilities ─────────────────────────────────────────────────────
 
@@ -178,6 +186,9 @@ class Terminal:
         self._original_termios: list | None = None
         self._resize_callbacks: list[Callable[[], None]] = []
         self._prev_sigwinch: Any = None
+        # Saved Windows console modes (restored on exit); unused on POSIX.
+        self._win_stdin_mode: int | None = None
+        self._win_stdout_mode: int | None = None
         self.width, self.height = self._get_size()
 
     # -------------------------------------------------------------------------
@@ -192,6 +203,9 @@ class Terminal:
         Characters are sent immediately without waiting for Enter.
         Also saves the original terminal settings and signal handlers for later restoration.
         """
+        if _IS_WINDOWS:
+            self._enter_raw_mode_windows()
+            return
         fd = sys.stdin.fileno()
         self._original_termios = termios.tcgetattr(fd)  # Save original settings
         tty.setraw(fd)  # Switch to raw mode (no echo, no buffering)
@@ -207,6 +221,9 @@ class Terminal:
         - Restores original terminal settings (echo, buffering, signals re-enabled)
         - Restores the original signal handler for terminal resize events
         """
+        if _IS_WINDOWS:
+            self._exit_raw_mode_windows()
+            return
         if self._original_termios is not None:
             # TCSADRAIN: wait for pending output to finish before restoring
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._original_termios)
@@ -215,6 +232,76 @@ class Terminal:
             # Restore the previous resize signal handler
             signal.signal(signal.SIGWINCH, self._prev_sigwinch)
             self._prev_sigwinch = None
+
+    # -------------------------------------------------------------------------
+    # Windows console backend
+    # -------------------------------------------------------------------------
+
+    # Win32 console-mode flags (see docs.microsoft.com SetConsoleMode).
+    _WIN_ENABLE_PROCESSED_INPUT = 0x0001
+    _WIN_ENABLE_LINE_INPUT = 0x0002
+    _WIN_ENABLE_ECHO_INPUT = 0x0004
+    _WIN_ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
+    _WIN_ENABLE_PROCESSED_OUTPUT = 0x0001
+    _WIN_ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+    _WIN_STD_INPUT_HANDLE = -10
+    _WIN_STD_OUTPUT_HANDLE = -11
+
+    def _enter_raw_mode_windows(self) -> None:
+        """Put the Windows console into raw + VT mode via the Win32 console API.
+
+        termios/tty/SIGWINCH do not exist on Windows, so instead we clear the
+        console's line-input/echo/processing flags (raw keyboard input) and turn
+        on virtual-terminal processing so ANSI escape sequences are honoured on
+        both input and output. Resize is not delivered as a signal on Windows;
+        the size is re-read lazily by ``_get_size()``.
+        """
+        import ctypes
+
+        if sys.platform != "win32":  # pragma: no cover - keeps type checkers on win32 stubs
+            return
+
+        k32 = ctypes.windll.kernel32
+        hin = k32.GetStdHandle(self._WIN_STD_INPUT_HANDLE)
+        hout = k32.GetStdHandle(self._WIN_STD_OUTPUT_HANDLE)
+
+        in_mode = ctypes.c_uint32()
+        if k32.GetConsoleMode(hin, ctypes.byref(in_mode)):
+            self._win_stdin_mode = in_mode.value
+            new_in = (
+                in_mode.value
+                & ~(
+                    self._WIN_ENABLE_PROCESSED_INPUT
+                    | self._WIN_ENABLE_LINE_INPUT
+                    | self._WIN_ENABLE_ECHO_INPUT
+                )
+            ) | self._WIN_ENABLE_VIRTUAL_TERMINAL_INPUT
+            k32.SetConsoleMode(hin, new_in)
+
+        out_mode = ctypes.c_uint32()
+        if k32.GetConsoleMode(hout, ctypes.byref(out_mode)):
+            self._win_stdout_mode = out_mode.value
+            k32.SetConsoleMode(
+                hout,
+                out_mode.value
+                | self._WIN_ENABLE_PROCESSED_OUTPUT
+                | self._WIN_ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+            )
+
+    def _exit_raw_mode_windows(self) -> None:
+        """Restore the Windows console modes saved by _enter_raw_mode_windows."""
+        import ctypes
+
+        if sys.platform != "win32":  # pragma: no cover - keeps type checkers on win32 stubs
+            return
+
+        k32 = ctypes.windll.kernel32
+        if self._win_stdin_mode is not None:
+            k32.SetConsoleMode(k32.GetStdHandle(self._WIN_STD_INPUT_HANDLE), self._win_stdin_mode)
+            self._win_stdin_mode = None
+        if self._win_stdout_mode is not None:
+            k32.SetConsoleMode(k32.GetStdHandle(self._WIN_STD_OUTPUT_HANDLE), self._win_stdout_mode)
+            self._win_stdout_mode = None
 
     def enter_alt_screen(self) -> None:
         """
