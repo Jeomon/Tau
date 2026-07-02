@@ -1339,14 +1339,17 @@ class TUI(Container):
         self._render_requested = False
         try:
             self._renderer.render(self, self._overlays or None)
-        except Exception as e:
+        except Exception:
             # A single component raising during render must not permanently
             # freeze the UI. This callback runs via loop.call_later(), so an
             # unhandled exception is swallowed by asyncio's exception handler
             # and no further frames are painted — the screen appears stuck even
             # though the event loop (and the agent's coroutines) keep running.
             # Log the traceback and carry on so the next request_render() repaints.
-            _log.exception("render failed",e)
+            # NOTE: no extra args — exception() already captures exc_info; passing
+            # the exception would make logging attempt "render failed" % (e,) and
+            # raise a formatting error that ends up written to stderr.
+            _log.exception("render failed")
         self._last_render_at = time.monotonic()
 
     # -------------------------------------------------------------------------
