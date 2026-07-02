@@ -394,6 +394,16 @@ class TestInputParser:
         assert e.ctrl is True
         assert e.shift is True
 
+    def test_alt_arrow_xterm(self):
+        e = self._key("\x1b[1;3A")
+        assert e.key == "up"
+        assert e.alt is True
+
+    def test_alt_arrow_escape_prefixed(self):
+        e = self._key("\x1b\x1b[A")
+        assert e.key == "up"
+        assert e.alt is True
+
     def test_kitty_simple(self):
         assert self._key("\x1b[97u").key == "a"
 

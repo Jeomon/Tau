@@ -426,6 +426,12 @@ def _complete_prefix_len(buf: str) -> int | None:
 
     second = buf[1]
 
+    # Some terminals encode Alt+navigation as an ESC prefix followed by the
+    # ordinary escape sequence (for example Alt+Up is ESC ESC [ A).
+    if second == "\x1b":
+        inner_len = _complete_prefix_len(buf[1:])
+        return inner_len + 1 if inner_len is not None else None
+
     # SS3: ESC O <char>
     if second == "O":
         return 3 if len(buf) >= 3 else None
@@ -566,6 +572,15 @@ class InputParser:
             return KeyEvent(key="escape", char=None, raw=raw)
 
         second = raw[1] if len(raw) > 1 else ""
+
+        # ── Alt + escape sequence: ESC ESC [...] ──────────────────────────────
+        if raw.startswith("\x1b\x1b"):
+            inner = self._parse_one(raw[1:])
+            if isinstance(inner, KeyEvent):
+                inner.alt = True
+                inner.raw = raw
+                return inner
+            return None
 
         # ── Alt + char: ESC <char> ────────────────────────────────────────────
         if len(raw) == 2 and second not in ("[", "O", "_", "]", "P", "X", "^"):
