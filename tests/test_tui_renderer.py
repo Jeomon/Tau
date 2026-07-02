@@ -115,3 +115,36 @@ class TestRendererDifferentialUpdate:
         assert "d" in content[0]
         # Lines outside the span (before first_changed) are never touched.
         assert "a" not in content[0]
+
+    def test_stable_height_offscreen_change_does_not_redraw(self):
+        term = FakeTerminal(width=20, height=5)
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(StaticComponent(lines))
+        term.writes.clear()
+
+        changed = list(lines)
+        changed[0] = "offscreen"
+        renderer.render(StaticComponent(changed))
+
+        assert _content_writes(term) == []
+        assert renderer._prev_lines[0].strip() == "offscreen"
+
+    def test_stable_height_change_clamps_redraw_to_viewport(self):
+        term = FakeTerminal(width=20, height=5)
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(StaticComponent(lines))
+        term.writes.clear()
+
+        changed = list(lines)
+        changed[0] = "offscreen"
+        changed[19] = "visible"
+        renderer.render(StaticComponent(changed))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "visible" in content[0]
+        assert "line 15" in content[0]
+        assert "offscreen" not in content[0]
+        assert "\x1b[2J" not in content[0]

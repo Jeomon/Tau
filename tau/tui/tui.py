@@ -463,10 +463,22 @@ class Renderer:
             self._prev_height = height
             return
 
-        # Changed line is above the visible viewport — full redraw.
+        # Stable-height changes above the viewport do not shift visible rows.
+        # Skip an entirely off-screen repaint, or clamp a mixed repaint to the
+        # first visible row. Height changes still require a full redraw because
+        # they may move every subsequent logical row.
         if first_changed < self._viewport_top:
-            self._full_render(new_lines, cursor_pos, width, height, clear=True)
-            return
+            if len(new_lines) == len(prev):
+                if last_changed < self._viewport_top:
+                    self._prev_lines = new_lines
+                    self._prev_width = width
+                    self._prev_height = height
+                    self._position_hw_cursor(cursor_pos, new_lines)
+                    return
+                first_changed = self._viewport_top
+            else:
+                self._full_render(new_lines, cursor_pos, width, height, clear=True)
+                return
 
         # === Differential render ===
         buf = self._terminal.begin_sync()
