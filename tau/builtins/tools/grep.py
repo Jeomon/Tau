@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,11 @@ class GrepParams(BaseModel):
     """Parameters for the grep tool."""
 
     pattern: str = Field(
-        description="Regular expression to search for.",
+        description=(
+            "Regular expression to search for. If ast is true, this is instead an ast-grep "
+            "structural pattern using $VAR-style meta-variables (e.g. '$A && $A()'), not a "
+            "regex."
+        ),
         examples=["def parse_config", "class UserService", "TODO|FIXME"],
     )
     path: str = Field(
@@ -80,7 +85,20 @@ class GrepParams(BaseModel):
     )
     case_sensitive: bool = Field(
         default=True,
-        description="Whether the pattern is case-sensitive.",
+        description="Whether the pattern is case-sensitive. Ignored when ast is true.",
+        examples=[True, False],
+    )
+    ast: bool = Field(
+        default=False,
+        description=(
+            "Use ast-grep for structural, AST-aware pattern matching instead of ripgrep "
+            "regex search. Best for finding code shapes across formatting/variable-name "
+            "variations (e.g. all calls matching '$A && $A()'). Requires pattern to be an "
+            "ast-grep pattern, not a regex. The target language is inferred per-file from "
+            "its extension. Compound statements (for/if/while/def/etc.) must include their "
+            "body as '$$$BODY' or the pattern won't parse and will silently match nothing, "
+            "e.g. use 'for $ITEM in $LIST:\\n    $$$BODY' rather than 'for $ITEM in $LIST:'."
+        ),
         examples=[True, False],
     )
 
@@ -94,7 +112,9 @@ class GrepTool(Tool):
             description=(
                 "Search for a regex pattern in files. Returns matches as 'file:line: content', "
                 f"up to {_MAX_MATCHES} matches. Directory searches are recursive and use "
-                "ripgrep's default filtering, which excludes hidden and ignored files."
+                "ripgrep's default filtering, which excludes hidden and ignored files. Set "
+                "ast=true to instead do structural AST pattern matching with ast-grep, useful "
+                "for finding code shapes regardless of formatting or naming."
             ),
             schema=GrepParams,
             kind=ToolKind.Read,
@@ -103,8 +123,16 @@ class GrepTool(Tool):
             render_call=_render_grep_call,
             render_shell="default",
             prompt_guidelines=(
-                "Prefer over read when searching for a symbol, function,"
-                " or pattern across the codebase."
+                "Prefer over read when searching for a symbol, function, or pattern across "
+                "the codebase. Use ast=true with an ast-grep structural pattern (e.g. "
+                "'$A && $A()') when searching for a code structure that may vary in "
+                "formatting or naming; otherwise use the default regex mode. For compound "
+                "statements (for/if/while/def/etc.) include the body as '$$$BODY', e.g. "
+                "'for $ITEM in $LIST:\\n    $$$BODY' — omitting it makes the pattern fail to "
+                "parse and silently match nothing. If an ast search unexpectedly finds "
+                "nothing, don't assume the code isn't there: run "
+                "`ast-grep run --pattern '<pattern>' --lang <lang> --debug-query=pattern` via "
+                "the shell tool to see how ast-grep parsed the pattern, and adjust it."
             ),
         )
 
@@ -124,7 +152,11 @@ class GrepTool(Tool):
         if not target.exists():
             return ToolResult.error(invocation.id, f"Path not found: {target}")
 
-        result = await self._rg(params, target, signal)
+        result = (
+            await self._ast_grep(params, target, signal)
+            if params.ast
+            else await self._rg(params, target, signal)
+        )
         if result.get("error"):
             return ToolResult.error(invocation.id, result["output"])
         if result["matches"]:
@@ -176,3 +208,58 @@ class GrepTool(Tool):
         if truncated:
             output += f"\n\n[Results truncated at {_MAX_MATCHES} matches.]"
         return {"matches": lines, "output": output, "metadata": metadata}
+
+    async def _ast_grep(
+        self, params: GrepParams, target: Path, signal: AbortSignal | None
+    ) -> dict:
+        cmd = ["ast-grep", "run", "--pattern", params.pattern, "--json=stream"]
+        if params.include:
+            cmd += ["--globs", params.include]
+        cmd += [str(target)]
+        try:
+            returncode, lines, cancelled = await run_bounded_lines(
+                cmd, max_lines=_MAX_MATCHES, signal=signal
+            )
+        except FileNotFoundError:
+            return {
+                "matches": [],
+                "output": "ast-grep is required but was not found.",
+                "metadata": {},
+                "error": True,
+            }
+        if cancelled:
+            return {"matches": [], "output": "Search cancelled.", "metadata": {}, "error": True}
+        if returncode not in (0, 1) and len(lines) <= _MAX_MATCHES:
+            error = "\n".join(lines).strip() or f"ast-grep exited with status {returncode}."
+            return {
+                "matches": [],
+                "output": error,
+                "metadata": {},
+                "error": True,
+            }
+
+        truncated = len(lines) > _MAX_MATCHES
+        lines = lines[:_MAX_MATCHES]
+        formatted: list[str] = []
+        files_seen: set[str] = set()
+        for line in lines:
+            try:
+                match = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            file_path = match.get("file", "")
+            files_seen.add(file_path)
+            line_no = match.get("range", {}).get("start", {}).get("line", 0) + 1
+            text = match.get("lines", match.get("text", "")).strip()
+            formatted.append(f"{file_path}:{line_no}: {text}")
+
+        metadata = {
+            "pattern": params.pattern,
+            "files_searched": len(files_seen),
+            "match_count": len(formatted),
+            "truncated": truncated,
+        }
+        output = "\n".join(formatted)
+        if truncated:
+            output += f"\n\n[Results truncated at {_MAX_MATCHES} matches.]"
+        return {"matches": formatted, "output": output, "metadata": metadata}

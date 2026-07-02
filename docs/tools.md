@@ -81,12 +81,30 @@ rules.
 
 Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
 
+Set `ast: true` to search with [ast-grep](https://ast-grep.github.io) instead,
+matching code structurally (via `$VAR`-style meta-variables) rather than by
+regex. This is useful for finding a code shape regardless of formatting or
+naming, e.g. pattern `$A && $A()`. In this mode `pattern` must be an ast-grep
+pattern, not a regex, `case_sensitive` is ignored, and the target language is
+inferred per-file from its extension. Requires `ast-grep` (install via the
+`tools` optional dependency group); the tool returns an error when it's
+unavailable.
+
+Compound statements (`for`/`if`/`while`/`def`/etc.) need their body included
+as `$$$BODY` (e.g. `for $ITEM in $LIST:\n    $$$BODY`) — an incomplete
+pattern fails to parse and silently returns no matches rather than an error.
+If a search unexpectedly finds nothing, run
+`ast-grep run --pattern '<pattern>' --lang <lang> --debug-query=pattern`
+directly to see how ast-grep parsed the pattern before assuming the code
+isn't there.
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pattern` | string | Yes | — | Regular expression to search for |
+| `pattern` | string | Yes | — | Regular expression to search for (an ast-grep pattern when `ast` is true) |
 | `path` | string | No | cwd | File or directory; relative values use Tau's process working directory |
 | `include` | string | No | `""` | Glob filter for files, e.g. `*.py` (only applies when `path` is a directory) |
-| `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive |
+| `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive (ignored when `ast` is true) |
+| `ast` | boolean | No | `false` | Use ast-grep structural matching instead of ripgrep regex |
 
 ### ls
 
