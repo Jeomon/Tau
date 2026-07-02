@@ -93,6 +93,12 @@ api_providers = [
         options=LLMOptions(base_url="https://api.deepseek.com"),
     ),
     APIProvider(
+        id="zai",
+        name="Z.ai",
+        api="openai_completions",
+        options=LLMOptions(base_url="https://api.z.ai/api/paas/v4"),
+    ),
+    APIProvider(
         id="kilocode",
         name="Kilo Code",
         api="openai_completions",

@@ -257,4 +257,14 @@ models = [
         output=_TEXT,
         api="openai-audio",
     ),
+    # Z.ai STT (no TTS/voice-generation endpoint offered)
+    Model(
+        id="glm-asr-2512",
+        name="GLM-ASR-2512",
+        provider="zai",
+        cost=Cost(input=0.03),
+        input=_AUDIO,
+        output=_TEXT,
+        api="openai-audio",
+    ),
 ]

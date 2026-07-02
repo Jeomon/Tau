@@ -49,7 +49,7 @@ tau --mode rpc                                # RPC mode for IDE extensions
 
 ## Features
 
-- **Multi-provider LLM support** — Anthropic, OpenAI, Google Gemini, Mistral AI, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, and more
+- **Multi-provider LLM support** — Anthropic, OpenAI, Google Gemini, Mistral AI, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Z.ai, and more
 - **Terminal UI** — Built-in chat interface with syntax highlighting, markdown rendering, and keyboard navigation
 - **Rich media support** — Work with text files, images, audio files, and video files via file references or clipboard input
 - **Session management** — Persistent sessions with branching, forking, and resuming capabilities

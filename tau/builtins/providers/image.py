@@ -28,4 +28,10 @@ providers = [
         api="gemini-image",
         base_url="https://generativelanguage.googleapis.com",
     ),
+    ImageProvider(
+        id="zai",
+        name="Z.ai",
+        api="openai-image",
+        base_url="https://api.z.ai/api/paas/v4",
+    ),
 ]

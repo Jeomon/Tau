@@ -5,7 +5,7 @@
 **Tau** is a Python CLI framework for building interactive agent applications. It provides:
 
 - **Terminal UI**: Multi-line editor, message history, inline pickers, markdown rendering
-- **Multi-provider**: Anthropic, OpenAI, Google Gemini, Mistral, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code, and Vertex AI variants
+- **Multi-provider**: Anthropic, OpenAI, Google Gemini, Mistral, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Z.ai, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code, and Vertex AI variants
 - **Session management**: Persistent JSONL-based sessions with branching, forking, resumption
 - **Tool execution**: Built-in tools (terminal, read, write, edit, glob, grep, ls) + extensible custom tools
 - **Plugin system**: Custom tools, slash commands (`/model`, `/theme`, etc.), hooks, themes, skills, prompts
@@ -192,7 +192,7 @@ Tau supports multiple LLM providers:
 - Google Gemini (incl. Vertex AI)
 - Mistral AI
 - Ollama (local)
-- Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code
+- Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Z.ai, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code
 
 All providers are abstracted behind `tau.inference.api.text.service.TextLLM`. See `docs/inference-providers.md` for setup.
 

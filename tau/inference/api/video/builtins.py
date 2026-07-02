@@ -4,4 +4,5 @@
 VIDEO_APIS: list[tuple[str, str]] = [
     ("fal-video", "tau.inference.api.video.fal_video:FalVideoAPI"),
     ("openrouter-video", "tau.inference.api.video.openrouter_video:OpenRouterVideoAPI"),
+    ("zai-video", "tau.inference.api.video.zai_video:ZaiVideoAPI"),
 ]

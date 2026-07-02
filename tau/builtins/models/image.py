@@ -225,4 +225,23 @@ models = [
         input=_TEXT_IMAGE,
         output=_IMAGE,
     ),
+    # Z.ai — cost is flat $/image (0.01 / 0.015), not per-million-token
+    Model(
+        id="cogview-4-250304",
+        name="CogView-4",
+        provider="zai",
+        cost=Cost(input=0.01),
+        input=_TEXT,
+        output=_IMAGE,
+        api="openai-image",
+    ),
+    Model(
+        id="glm-image",
+        name="GLM-Image",
+        provider="zai",
+        cost=Cost(input=0.015),
+        input=_TEXT,
+        output=_IMAGE,
+        api="openai-image",
+    ),
 ]

@@ -1,11 +1,5 @@
 """ask_user extension — interactive decision-gating tool for the agent.
 
-Registers an `ask_user` tool the agent can call to pause and collect a
-structured decision (single/multi-select, optional freeform) from the human
-via a floating TUI overlay. Modeled on the `ask_user` tool shipped by the
-`pi-ask-user` package (https://github.com/edlsh/pi-ask-user), adapted to
-Tau's own overlay/component primitives.
-
 Outside an interactive TUI session (headless / RPC mode) the tool returns a
 clear error instead of hanging, since there is nowhere to render the prompt.
 """

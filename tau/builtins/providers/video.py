@@ -8,4 +8,10 @@ providers = [
         api="openrouter-video",
         base_url="https://openrouter.ai/api/v1",
     ),
+    VideoProvider(
+        id="zai",
+        name="Z.ai",
+        api="zai-video",
+        base_url="https://api.z.ai/api/paas/v4",
+    ),
 ]

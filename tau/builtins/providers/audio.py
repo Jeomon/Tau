@@ -19,4 +19,10 @@ providers = [
         api="elevenlabs-audio",
         base_url="https://api.elevenlabs.io",
     ),
+    AudioProvider(
+        id="zai",
+        name="Z.ai",
+        api="openai-audio",
+        base_url="https://api.z.ai/api/paas/v4",
+    ),
 ]

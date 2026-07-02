@@ -8,7 +8,7 @@ Tau supports the following inference providers:
 
 Built-in API-key providers are `openai`, `anthropic`, `google`, `nvidia`,
 `groq`, `openrouter`, `perplexity`, `xai`, `bedrock`, `kimi`, `minimax`,
-`cerebras`, `deepseek`, `kilocode`, `fireworks`, and `mistral`.
+`cerebras`, `deepseek`, `zai`, `kilocode`, `fireworks`, and `mistral`.
 
 Tau also includes local `ollama`, Google/Anthropic/OpenAI-compatible Vertex AI
 providers, and OAuth providers for OpenAI Codex, Claude Code, GitHub Copilot,
