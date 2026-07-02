@@ -70,7 +70,7 @@ tau = [
 testpaths = ["tests"]
 
 [project.optional-dependencies]
-tools = ["ripgrep>=14.0.0"]
+tools = ["ripgrep>=14.0.0", "ast-grep-cli>=0.44.0"]
 
 [dependency-groups]
 dev = [
