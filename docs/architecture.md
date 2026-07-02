@@ -204,7 +204,9 @@ class BaseAPI:
         ...
 ```
 
-The inference module handles provider-specific details (API keys, endpoints, format conversions).
+The inference module handles provider-specific details (API keys, endpoints,
+format conversions) and can also be used independently of the agent runtime.
+See [Inference](inference.md) for its package boundaries and public clients.
 
 ## Tool Execution Model
 

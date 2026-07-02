@@ -134,16 +134,18 @@ Modular event system for reacting to lifecycle events.
 
 ### `inference/` - LLM Provider Abstraction
 
-Unified interface to multiple LLM providers.
+Standalone interface to text, image, audio, and video inference providers. See
+[Inference](inference.md) for its architecture and public clients.
 
-- `types.py` - Inference types (models, responses, streaming)
-- `utils.py` - Provider utilities
-- **api/** - Provider API abstractions
-- **provider/** - Provider implementations
+- `__init__.py` - Public clients and shared inference types
+- `types.py` - Contexts, options, results, and streaming events
+- `utils.py` - Error classification and retry utilities
+- **api/** - Modality-specific API adapters and client services
+- **provider/** - Provider descriptors, registries, and OAuth implementations
   - `registry.py` - Provider registry
   - `types.py` - Provider types
   - `oauth/` - OAuth flow implementations
-- **model/** - Model registry and enumeration
+- **model/** - Model descriptors and registries
 
 ### `message/` - Message Types
 

@@ -29,6 +29,10 @@
       "title": "Core Concepts",
       "items": [
         {
+          "title": "Inference",
+          "path": "inference.md"
+        },
+        {
           "title": "Inference Providers",
           "path": "inference-providers.md"
         },
