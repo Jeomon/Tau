@@ -15,7 +15,9 @@ def _nearest_root(markers: list[str], exclude_markers: list[str] | None = None) 
     """
 
     async def find(file: str) -> str | None:
-        start = Path(file).parent
+        # Resolve to absolute: the returned root becomes an LSP rootUri via
+        # Path(root).as_uri(), which rejects relative paths.
+        start = Path(file).resolve().parent
         current = start
 
         while True:
