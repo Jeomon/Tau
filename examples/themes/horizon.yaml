@@ -1,0 +1,46 @@
+name: horizon
+
+colors:
+  # UI chrome
+  divider:          "#232530"
+  spinner_frame:    "#25b2bc"
+  spinner_label:    "#6c6f93"
+
+  # Markdown
+  heading:          { color: "#b877db", bold: true }
+  code_inline:      "#fac29a"
+  code_block:       "#09f7a0"
+  code_block_border: "#2e303e"
+  quote:            { color: "#6c6f93", italic: true }
+  quote_border:     "#2e303e"
+  hr:               "#2e303e"
+  list_bullet:      "#0bc5ea"
+  link_text:        "#0bc5ea"
+  link_url:         "#6c6f93"
+
+  # Messages
+  you_label:        { color: "#25b2bc", bold: true }
+  assistant_label:  { color: "#09f7a0", bold: true }
+  tool_arrow:       "#fab795"
+  tool_result_ok:   "#6c6f93"
+  tool_result_err:  "#e95678"
+  thinking:         { color: "#6c6f93", italic: true }
+  error_label:      { color: "#e95678", bold: true }
+  dim:              "#6c6f93"
+  stream_cursor:    "#d5d8da"
+
+  # Select list
+  selected_label:   { color: "#b877db", bold: true }
+  selected_desc:    "#0bc5ea"
+  normal_label:     "#d5d8da"
+  normal_desc:      "#6c6f93"
+  indicator:        "#6c6f93"
+  empty:            "#6c6f93"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["▖", "▘", "▝", "▗"]
+  interval_ms: 120

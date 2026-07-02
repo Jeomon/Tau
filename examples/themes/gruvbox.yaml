@@ -1,0 +1,46 @@
+name: gruvbox
+
+colors:
+  # UI chrome
+  divider:          "#92836e"
+  spinner_frame:    "#d79921"
+  spinner_label:    "#92836e"
+
+  # Markdown
+  heading:          { color: "#d79921", bold: true }
+  code_inline:      "#fabd2f"
+  code_block:       "#98971a"
+  code_block_border: "#92836e"
+  quote:            { color: "#92836e", italic: true }
+  quote_border:     "#92836e"
+  hr:               "#92836e"
+  list_bullet:      "#d65d0e"
+  link_text:        "#458588"
+  link_url:         "#92836e"
+
+  # Messages
+  you_label:        { color: "#d79921", bold: true }
+  assistant_label:  { color: "#98971a", bold: true }
+  tool_arrow:       "#d65d0e"
+  tool_result_ok:   "#92836e"
+  tool_result_err:  "#cc241d"
+  thinking:         { color: "#92836e", italic: true }
+  error_label:      { color: "#cc241d", bold: true }
+  dim:              "#92836e"
+  stream_cursor:    "#d79921"
+
+  # Select list
+  selected_label:   { color: "#d79921", bold: true }
+  selected_desc:    "#458588"
+  normal_label:     "#92836e"
+  normal_desc:      "#92836e"
+  indicator:        "#92836e"
+  empty:            "#92836e"
+
+input:
+  prefix:      "» "
+  placeholder: ""
+
+spinner:
+  frames:      ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+  interval_ms: 80

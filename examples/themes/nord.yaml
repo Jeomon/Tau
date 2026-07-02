@@ -1,0 +1,46 @@
+name: nord
+
+colors:
+  # UI chrome
+  divider:          "#4c5666"
+  spinner_frame:    "#88c0d0"
+  spinner_label:    "#4c5666"
+
+  # Markdown
+  heading:          { color: "#88c0d0", bold: true }
+  code_inline:      "#ebcb8b"
+  code_block:       "#a3be8c"
+  code_block_border: "#4c5666"
+  quote:            { color: "#4c5666", italic: true }
+  quote_border:     "#4c5666"
+  hr:               "#4c5666"
+  list_bullet:      "#88c0d0"
+  link_text:        "#8fbcbb"
+  link_url:         "#4c5666"
+
+  # Messages
+  you_label:        { color: "#88c0d0", bold: true }
+  assistant_label:  { color: "#a3be8c", bold: true }
+  tool_arrow:       "#d0876f"
+  tool_result_ok:   "#4c5666"
+  tool_result_err:  "#bf616a"
+  thinking:         { color: "#4c5666", italic: true }
+  error_label:      { color: "#bf616a", bold: true }
+  dim:              "#4c5666"
+  stream_cursor:    "#88c0d0"
+
+  # Select list
+  selected_label:   { color: "#88c0d0", bold: true }
+  selected_desc:    "#8fbcbb"
+  normal_label:     "#4c5666"
+  normal_desc:      "#4c5666"
+  indicator:        "#4c5666"
+  empty:            "#4c5666"
+
+input:
+  prefix:      "→ "
+  placeholder: ""
+
+spinner:
+  frames:      ["◐", "◓", "◑", "◒"]
+  interval_ms: 100

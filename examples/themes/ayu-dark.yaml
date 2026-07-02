@@ -1,0 +1,46 @@
+name: ayu-dark
+
+colors:
+  # UI chrome
+  divider:          "#151720"
+  spinner_frame:    "#59c2ff"
+  spinner_label:    "#686868"
+
+  # Markdown
+  heading:          { color: "#ffb454", bold: true }
+  code_inline:      "#f9af4f"
+  code_block:       "#aad94c"
+  code_block_border: "#1d2030"
+  quote:            { color: "#686868", italic: true }
+  quote_border:     "#1d2030"
+  hr:               "#1d2030"
+  list_bullet:      "#59c2ff"
+  link_text:        "#95e6cb"
+  link_url:         "#686868"
+
+  # Messages
+  you_label:        { color: "#59c2ff", bold: true }
+  assistant_label:  { color: "#aad94c", bold: true }
+  tool_arrow:       "#ff8f40"
+  tool_result_ok:   "#686868"
+  tool_result_err:  "#f07178"
+  thinking:         { color: "#686868", italic: true }
+  error_label:      { color: "#ea6c73", bold: true }
+  dim:              "#686868"
+  stream_cursor:    "#bfbdb6"
+
+  # Select list
+  selected_label:   { color: "#d2a6ff", bold: true }
+  selected_desc:    "#95e6cb"
+  normal_label:     "#bfbdb6"
+  normal_desc:      "#686868"
+  indicator:        "#686868"
+  empty:            "#686868"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["▖", "▘", "▝", "▗"]
+  interval_ms: 120

@@ -1,0 +1,46 @@
+name: solarized-dark
+
+colors:
+  # UI chrome
+  divider:          "#073642"
+  spinner_frame:    "#268bd2"
+  spinner_label:    "#586e75"
+
+  # Markdown
+  heading:          { color: "#268bd2", bold: true }
+  code_inline:      "#b58900"
+  code_block:       "#859900"
+  code_block_border: "#073642"
+  quote:            { color: "#586e75", italic: true }
+  quote_border:     "#073642"
+  hr:               "#073642"
+  list_bullet:      "#2aa198"
+  link_text:        "#2aa198"
+  link_url:         "#586e75"
+
+  # Messages
+  you_label:        { color: "#268bd2", bold: true }
+  assistant_label:  { color: "#859900", bold: true }
+  tool_arrow:       "#cb4b16"
+  tool_result_ok:   "#586e75"
+  tool_result_err:  "#dc322f"
+  thinking:         { color: "#586e75", italic: true }
+  error_label:      { color: "#dc322f", bold: true }
+  dim:              "#586e75"
+  stream_cursor:    "#93a1a1"
+
+  # Select list
+  selected_label:   { color: "#268bd2", bold: true }
+  selected_desc:    "#2aa198"
+  normal_label:     "#839496"
+  normal_desc:      "#586e75"
+  indicator:        "#586e75"
+  empty:            "#586e75"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["◐", "◓", "◑", "◒"]
+  interval_ms: 100

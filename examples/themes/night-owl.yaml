@@ -1,0 +1,46 @@
+name: night-owl
+
+colors:
+  # UI chrome
+  divider:          "#0d2137"
+  spinner_frame:    "#82aaff"
+  spinner_label:    "#637777"
+
+  # Markdown
+  heading:          { color: "#c792ea", bold: true }
+  code_inline:      "#ffeb95"
+  code_block:       "#addb67"
+  code_block_border: "#1d3a52"
+  quote:            { color: "#637777", italic: true }
+  quote_border:     "#1d3a52"
+  hr:               "#1d3a52"
+  list_bullet:      "#7fdbca"
+  link_text:        "#7fdbca"
+  link_url:         "#637777"
+
+  # Messages
+  you_label:        { color: "#82aaff", bold: true }
+  assistant_label:  { color: "#addb67", bold: true }
+  tool_arrow:       "#f78c6c"
+  tool_result_ok:   "#637777"
+  tool_result_err:  "#ff5874"
+  thinking:         { color: "#637777", italic: true }
+  error_label:      { color: "#ff5874", bold: true }
+  dim:              "#637777"
+  stream_cursor:    "#d6deeb"
+
+  # Select list
+  selected_label:   { color: "#c792ea", bold: true }
+  selected_desc:    "#7fdbca"
+  normal_label:     "#d6deeb"
+  normal_desc:      "#637777"
+  indicator:        "#637777"
+  empty:            "#637777"
+
+input:
+  prefix:      "🦉 "
+  placeholder: ""
+
+spinner:
+  frames:      ["◐", "◓", "◑", "◒"]
+  interval_ms: 100

@@ -1,0 +1,46 @@
+name: dracula
+
+colors:
+  # UI chrome
+  divider:          "#626272"
+  spinner_frame:    "#ff79c6"
+  spinner_label:    "#626272"
+
+  # Markdown
+  heading:          { color: "#bd93f9", bold: true }
+  code_inline:      "#f1fa8c"
+  code_block:       "#50fa7b"
+  code_block_border: "#626272"
+  quote:            { color: "#626272", italic: true }
+  quote_border:     "#626272"
+  hr:               "#626272"
+  list_bullet:      "#bd93f9"
+  link_text:        "#50fa7b"
+  link_url:         "#626272"
+
+  # Messages
+  you_label:        { color: "#bd93f9", bold: true }
+  assistant_label:  { color: "#50fa7b", bold: true }
+  tool_arrow:       "#ffb86c"
+  tool_result_ok:   "#626272"
+  tool_result_err:  "#ff5555"
+  thinking:         { color: "#626272", italic: true }
+  error_label:      { color: "#ff5555", bold: true }
+  dim:              "#626272"
+  stream_cursor:    "#ff79c6"
+
+  # Select list
+  selected_label:   { color: "#bd93f9", bold: true }
+  selected_desc:    "#50fa7b"
+  normal_label:     "#626272"
+  normal_desc:      "#626272"
+  indicator:        "#626272"
+  empty:            "#626272"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["▖", "▘", "▝", "▗"]
+  interval_ms: 110

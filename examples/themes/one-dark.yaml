@@ -1,0 +1,46 @@
+name: one-dark
+
+colors:
+  # UI chrome
+  divider:          "#3e4451"
+  spinner_frame:    "#61afef"
+  spinner_label:    "#5c6370"
+
+  # Markdown
+  heading:          { color: "#c678dd", bold: true }
+  code_inline:      "#e5c07b"
+  code_block:       "#98c379"
+  code_block_border: "#3e4451"
+  quote:            { color: "#5c6370", italic: true }
+  quote_border:     "#3e4451"
+  hr:               "#3e4451"
+  list_bullet:      "#61afef"
+  link_text:        "#56b6c2"
+  link_url:         "#5c6370"
+
+  # Messages
+  you_label:        { color: "#61afef", bold: true }
+  assistant_label:  { color: "#98c379", bold: true }
+  tool_arrow:       "#d19a66"
+  tool_result_ok:   "#5c6370"
+  tool_result_err:  "#e06c75"
+  thinking:         { color: "#5c6370", italic: true }
+  error_label:      { color: "#e06c75", bold: true }
+  dim:              "#5c6370"
+  stream_cursor:    "#abb2bf"
+
+  # Select list
+  selected_label:   { color: "#c678dd", bold: true }
+  selected_desc:    "#56b6c2"
+  normal_label:     "#abb2bf"
+  normal_desc:      "#5c6370"
+  indicator:        "#5c6370"
+  empty:            "#5c6370"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+  interval_ms: 80

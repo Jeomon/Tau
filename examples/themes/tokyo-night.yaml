@@ -1,0 +1,46 @@
+name: tokyo-night
+
+colors:
+  # UI chrome
+  divider:          "#292e42"
+  spinner_frame:    "#7aa2f7"
+  spinner_label:    "#565f89"
+
+  # Markdown
+  heading:          { color: "#bb9af7", bold: true }
+  code_inline:      "#e0af68"
+  code_block:       "#9ece6a"
+  code_block_border: "#3b4261"
+  quote:            { color: "#565f89", italic: true }
+  quote_border:     "#3b4261"
+  hr:               "#3b4261"
+  list_bullet:      "#7aa2f7"
+  link_text:        "#7dcfff"
+  link_url:         "#565f89"
+
+  # Messages
+  you_label:        { color: "#7aa2f7", bold: true }
+  assistant_label:  { color: "#9ece6a", bold: true }
+  tool_arrow:       "#ff9e64"
+  tool_result_ok:   "#565f89"
+  tool_result_err:  "#f7768e"
+  thinking:         { color: "#565f89", italic: true }
+  error_label:      { color: "#f7768e", bold: true }
+  dim:              "#565f89"
+  stream_cursor:    "#c0caf5"
+
+  # Select list
+  selected_label:   { color: "#bb9af7", bold: true }
+  selected_desc:    "#7dcfff"
+  normal_label:     "#a9b1d6"
+  normal_desc:      "#565f89"
+  indicator:        "#565f89"
+  empty:            "#565f89"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["◐", "◓", "◑", "◒"]
+  interval_ms: 100

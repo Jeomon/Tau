@@ -1,0 +1,46 @@
+name: monokai
+
+colors:
+  # UI chrome
+  divider:          "#3e3d32"
+  spinner_frame:    "#66d9ef"
+  spinner_label:    "#75715e"
+
+  # Markdown
+  heading:          { color: "#ae81ff", bold: true }
+  code_inline:      "#e6db74"
+  code_block:       "#a6e22e"
+  code_block_border: "#3e3d32"
+  quote:            { color: "#75715e", italic: true }
+  quote_border:     "#3e3d32"
+  hr:               "#3e3d32"
+  list_bullet:      "#66d9ef"
+  link_text:        "#66d9ef"
+  link_url:         "#75715e"
+
+  # Messages
+  you_label:        { color: "#66d9ef", bold: true }
+  assistant_label:  { color: "#a6e22e", bold: true }
+  tool_arrow:       "#fd971f"
+  tool_result_ok:   "#75715e"
+  tool_result_err:  "#f92672"
+  thinking:         { color: "#75715e", italic: true }
+  error_label:      { color: "#f92672", bold: true }
+  dim:              "#75715e"
+  stream_cursor:    "#f8f8f2"
+
+  # Select list
+  selected_label:   { color: "#ae81ff", bold: true }
+  selected_desc:    "#66d9ef"
+  normal_label:     "#f8f8f2"
+  normal_desc:      "#75715e"
+  indicator:        "#75715e"
+  empty:            "#75715e"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["▖", "▘", "▝", "▗"]
+  interval_ms: 120

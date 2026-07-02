@@ -1,0 +1,46 @@
+name: kanagawa
+
+colors:
+  # UI chrome
+  divider:          "#363646"
+  spinner_frame:    "#7e9cd8"
+  spinner_label:    "#54546d"
+
+  # Markdown
+  heading:          { color: "#957fb8", bold: true }
+  code_inline:      "#e6c384"
+  code_block:       "#76946a"
+  code_block_border: "#363646"
+  quote:            { color: "#54546d", italic: true }
+  quote_border:     "#363646"
+  hr:               "#363646"
+  list_bullet:      "#7e9cd8"
+  link_text:        "#7aa89f"
+  link_url:         "#54546d"
+
+  # Messages
+  you_label:        { color: "#7fb4ca", bold: true }
+  assistant_label:  { color: "#76946a", bold: true }
+  tool_arrow:       "#ffa066"
+  tool_result_ok:   "#54546d"
+  tool_result_err:  "#e46876"
+  thinking:         { color: "#54546d", italic: true }
+  error_label:      { color: "#c34043", bold: true }
+  dim:              "#54546d"
+  stream_cursor:    "#dcd7ba"
+
+  # Select list
+  selected_label:   { color: "#957fb8", bold: true }
+  selected_desc:    "#7aa89f"
+  normal_label:     "#c8c093"
+  normal_desc:      "#54546d"
+  indicator:        "#54546d"
+  empty:            "#54546d"
+
+input:
+  prefix:      "波 "
+  placeholder: ""
+
+spinner:
+  frames:      ["◐", "◓", "◑", "◒"]
+  interval_ms: 100

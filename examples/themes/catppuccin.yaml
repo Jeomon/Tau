@@ -1,0 +1,46 @@
+name: catppuccin
+
+colors:
+  # UI chrome
+  divider:          "#585b70"
+  spinner_frame:    "#cba6f7"
+  spinner_label:    "#585b70"
+
+  # Markdown
+  heading:          { color: "#cba6f7", bold: true }
+  code_inline:      "#f9e2af"
+  code_block:       "#a6e3a1"
+  code_block_border: "#585b70"
+  quote:            { color: "#585b70", italic: true }
+  quote_border:     "#585b70"
+  hr:               "#585b70"
+  list_bullet:      "#cba6f7"
+  link_text:        "#94e2d5"
+  link_url:         "#585b70"
+
+  # Messages
+  you_label:        { color: "#cba6f7", bold: true }
+  assistant_label:  { color: "#a6e3a1", bold: true }
+  tool_arrow:       "#fab387"
+  tool_result_ok:   "#585b70"
+  tool_result_err:  "#f38ba8"
+  thinking:         { color: "#585b70", italic: true }
+  error_label:      { color: "#f38ba8", bold: true }
+  dim:              "#585b70"
+  stream_cursor:    "#89b4fa"
+
+  # Select list
+  selected_label:   { color: "#cba6f7", bold: true }
+  selected_desc:    "#94e2d5"
+  normal_label:     "#585b70"
+  normal_desc:      "#585b70"
+  indicator:        "#585b70"
+  empty:            "#585b70"
+
+input:
+  prefix:      "✦ "
+  placeholder: ""
+
+spinner:
+  frames:      ["✦", "✧", "✦", "✧"]
+  interval_ms: 200

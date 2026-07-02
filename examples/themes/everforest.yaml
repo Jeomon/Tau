@@ -1,0 +1,46 @@
+name: everforest
+
+colors:
+  # UI chrome
+  divider:          "#343f44"
+  spinner_frame:    "#a7c080"
+  spinner_label:    "#7a8478"
+
+  # Markdown
+  heading:          { color: "#a7c080", bold: true }
+  code_inline:      "#dbbc7f"
+  code_block:       "#83c092"
+  code_block_border: "#475258"
+  quote:            { color: "#7a8478", italic: true }
+  quote_border:     "#475258"
+  hr:               "#475258"
+  list_bullet:      "#7fbbb3"
+  link_text:        "#83c092"
+  link_url:         "#859289"
+
+  # Messages
+  you_label:        { color: "#7fbbb3", bold: true }
+  assistant_label:  { color: "#a7c080", bold: true }
+  tool_arrow:       "#e69875"
+  tool_result_ok:   "#7a8478"
+  tool_result_err:  "#e67e80"
+  thinking:         { color: "#7a8478", italic: true }
+  error_label:      { color: "#e67e80", bold: true }
+  dim:              "#7a8478"
+  stream_cursor:    "#d3c6aa"
+
+  # Select list
+  selected_label:   { color: "#a7c080", bold: true }
+  selected_desc:    "#83c092"
+  normal_label:     "#9da9a0"
+  normal_desc:      "#7a8478"
+  indicator:        "#7a8478"
+  empty:            "#7a8478"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["🌲", "🌳", "🌲", "🌳"]
+  interval_ms: 400

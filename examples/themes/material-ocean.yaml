@@ -1,0 +1,46 @@
+name: material-ocean
+
+colors:
+  # UI chrome
+  divider:          "#252837"
+  spinner_frame:    "#82aaff"
+  spinner_label:    "#464b5d"
+
+  # Markdown
+  heading:          { color: "#c792ea", bold: true }
+  code_inline:      "#ffcb6b"
+  code_block:       "#c3e88d"
+  code_block_border: "#2f3347"
+  quote:            { color: "#464b5d", italic: true }
+  quote_border:     "#2f3347"
+  hr:               "#2f3347"
+  list_bullet:      "#89ddff"
+  link_text:        "#89ddff"
+  link_url:         "#464b5d"
+
+  # Messages
+  you_label:        { color: "#82aaff", bold: true }
+  assistant_label:  { color: "#c3e88d", bold: true }
+  tool_arrow:       "#f78c6c"
+  tool_result_ok:   "#464b5d"
+  tool_result_err:  "#ff5370"
+  thinking:         { color: "#464b5d", italic: true }
+  error_label:      { color: "#ff5370", bold: true }
+  dim:              "#464b5d"
+  stream_cursor:    "#8f93a2"
+
+  # Select list
+  selected_label:   { color: "#c792ea", bold: true }
+  selected_desc:    "#89ddff"
+  normal_label:     "#8f93a2"
+  normal_desc:      "#464b5d"
+  indicator:        "#464b5d"
+  empty:            "#464b5d"
+
+input:
+  prefix:      "❯ "
+  placeholder: ""
+
+spinner:
+  frames:      ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+  interval_ms: 80

@@ -24,9 +24,10 @@
         "settings": {}
       },
       {
-        "path": ".tau/extensions/vcc.py",
+        "path": ".tau/extensions/vcc",
         "settings": {
-          "debug": true
+          "override_default_compaction": false,
+          "debug": false
         }
       }
     ]
