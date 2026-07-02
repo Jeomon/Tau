@@ -53,6 +53,10 @@
           "path": "tools.md"
         },
         {
+          "title": "Creating Tools",
+          "path": "creating-tools.md"
+        },
+        {
           "title": "Project Context",
           "path": "project-context.md"
         }

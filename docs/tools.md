@@ -194,7 +194,9 @@ own `preview_lines` collapse threshold.
 
 ## Adding Custom Tools
 
-Extensions can register new tools. See [Extensions](extensions.md) for how to create a `Tool` subclass and register it via `tau.register_tool(...)` inside a `register(tau)` function.
+Extensions, Python runtimes, and the standalone engine can register custom
+tools. See [Creating Tools](creating-tools.md) for a complete typed example,
+registration options, and testing guidance.
 
 The `ToolRegistry` tracks all registered tools by source (`"builtin"`, `"extension"`, `"runtime"`). After `/reload`, extension tools are synced to the live engine immediately without restarting the session.
 
@@ -226,6 +228,7 @@ repository root through the current directory. See
 
 ## Next Steps
 
-- [Extensions](extensions.md) - Create custom tools
+- [Creating Tools](creating-tools.md) - Implement and test custom tools
+- [Extensions](extensions.md) - Package tools with other extension features
 - [Usage Guide](usage.md) - How to work with the agent
 - [Architecture](architecture.md) - How the tool system works internally

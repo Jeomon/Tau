@@ -130,6 +130,8 @@ async def register(tau):
 ## Tools
 
 Import from `tau.tool.types`. Use a Pydantic `BaseModel` for the parameter schema.
+For a focused walkthrough covering implementation, registration, and testing,
+see [Creating Tools](creating-tools.md).
 
 ```python
 from pydantic import BaseModel, Field
