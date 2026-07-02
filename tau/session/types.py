@@ -42,14 +42,19 @@ class SessionType(StrEnum):
 
 
 class BaseSessionEntry(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # defer_build: these models (and the ~10-way discriminated union built from
+    # them) cost ~60ms of pydantic core-schema construction at import time even
+    # though session entries are only read/written once a session file is
+    # actually touched. Deferring moves that cost to first real use instead of
+    # every startup.
+    model_config = ConfigDict(arbitrary_types_allowed=True, defer_build=True)
     id: str = Field(default_factory=_generate_id)
     timestamp: float = Field(default_factory=generate_timestamp)
     parent_id: str | None = None
 
 
 class SessionHeader(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, defer_build=True)
     type: Literal[SessionType.SESSION_HEADER] = SessionType.SESSION_HEADER
     version: int = SESSION_VERSION
     id: str = Field(default_factory=_generate_id)
@@ -150,7 +155,7 @@ SessionFileEntry = Annotated[SessionHeader | SessionEntries, Field(discriminator
 
 
 class SessionTreeNode(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, defer_build=True)
     entry: SessionEntry
     children: list[SessionTreeNode] = Field(default_factory=list)
     label: str | None = None
