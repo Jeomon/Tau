@@ -445,7 +445,7 @@ Use the explicit `group` type when you want the sub-panel to have a header label
 #### Basic example
 
 ```python
-from tau.tui.components.settings_modal import SettingItem
+from tau.modes.interactive.components.settings_selector import SettingItem
 
 def register(tau):
     def on_change(key, value):

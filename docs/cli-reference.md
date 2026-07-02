@@ -206,8 +206,8 @@ Events do **not** have an `id` field. Only responses do.
 
 | Command | Key fields | Description |
 |---------|-----------|-------------|
-| `bash` | `command` (required), `excludeFromContext?` | Run a shell command; output is added to the next LLM context |
-| `abort_bash` | — | Abort a running bash subprocess |
+| `terminal` | `command` (required), `excludeFromContext?` | Run a shell command; output is added to the next LLM context |
+| `abort_terminal` | — | Abort a running terminal subprocess |
 
 ##### Session
 

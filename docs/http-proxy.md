@@ -124,7 +124,8 @@ api_base = "https://api.example.com"
 proxies = get_proxies_for_client(api_base, settings_manager)
 headers = get_proxy_headers(settings_manager)
 
-async with httpx.AsyncClient(proxies=proxies, headers=headers) as client:
+mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
+async with httpx.AsyncClient(mounts=mounts, headers=headers) as client:
     response = await client.get(f"{api_base}/v1/models")
 ```
 
@@ -144,7 +145,8 @@ headers = {
     **proxy_headers,  # Include custom proxy headers
 }
 
-async with httpx.AsyncClient(proxies=proxies, headers=headers) as client:
+mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
+async with httpx.AsyncClient(mounts=mounts, headers=headers) as client:
     response = await client.get(f"{api_base}/v1/models")
 ```
 
@@ -159,9 +161,9 @@ proxy_url = get_proxy_url_for_target(api_base)
 
 client_kwargs = {}
 if proxy_url:
-    client_kwargs["proxies"] = {
-        "http://": proxy_url,
-        "https://": proxy_url,
+    client_kwargs["mounts"] = {
+        "http://": httpx.AsyncHTTPTransport(proxy=proxy_url),
+        "https://": httpx.AsyncHTTPTransport(proxy=proxy_url),
     }
 
 async with httpx.AsyncClient(**client_kwargs) as client:
@@ -334,7 +336,8 @@ from tau.utils.http_proxy import get_proxies_for_client
 import httpx
 
 proxies = get_proxies_for_client("https://api.example.com")
-async with httpx.AsyncClient(proxies=proxies) as client:
+mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
+async with httpx.AsyncClient(mounts=mounts) as client:
     response = await client.get("...")
 ```
 

@@ -7,7 +7,7 @@ We implement multiple layers of defense to prevent dependency-related attacks:
 ### 1. Exact Version Pinning
 
 - All direct dependencies are pinned to exact versions in `pyproject.toml`
-- Python version is pinned to `==3.13.*` to ensure reproducible environments
+- Python 3.12+ is required (see `requires-python` in `pyproject.toml`)
 - `uv.lock` serves as the source of truth for all dependencies and transitive versions
 
 ### 2. Dependency Auditing
@@ -68,20 +68,11 @@ Include:
 
 Current direct dependencies are explicitly pinned. See `pyproject.toml` for the full list.
 
-**Latest Vulnerability Scan:** See [VULNERABILITY_REPORT.md](VULNERABILITY_REPORT.md) for current security issues and remediation guidance.
-
-### Known Issues
-
-As of 2026-06-16, there are 56 known vulnerabilities across the dependency tree:
-- **Critical:** litellm (RCE), PyJWT (auth bypass), aiohttp (cookie/DoS)
-- **High:** cryptography, python-multipart, pip, Starlette
-- **Medium:** idna, lxml, pygments, requests
+Run `pip-audit` or `safety check` against `uv.lock` before release to catch known vulnerabilities in the dependency tree (see [Dependency Auditing](#2-dependency-auditing) above).
 
 Key provider libraries:
-- `anthropic` — Anthropic Claude API client ✅
-- `openai` — OpenAI GPT API client ✅
-- `google-genai` — Google Gemini API client ✅
-- `mistralai` — Mistral AI API client ✅
-- `ollama` — Ollama local models ✅
-
-All LLM provider packages are clean from known vulnerabilities.
+- `anthropic` — Anthropic Claude API client
+- `openai` — OpenAI GPT API client
+- `google-genai` — Google Gemini API client
+- `mistralai` — Mistral AI API client
+- `ollama` — Ollama local models

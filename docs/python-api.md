@@ -312,7 +312,7 @@ await runtime.set_model("claude-opus-4-8", provider="anthropic")
 ### Shell commands
 
 ```python
-await runtime.execute_bash("git status")
+await runtime.execute_terminal("git status")
 ```
 
 ### Properties

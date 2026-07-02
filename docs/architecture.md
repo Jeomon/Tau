@@ -219,7 +219,7 @@ Tools are executed in a sandboxed environment:
 6. Result is serialized and added to context
 ```
 
-Built-in tools (bash, read, write, edit, glob, grep, ls) are enabled by default.
+Built-in tools (terminal, read, write, edit, glob, grep, ls) are enabled by default.
 `RuntimeConfig` can allow or exclude tools by name. Custom tools are registered
 via extensions or passed directly to the runtime.
 

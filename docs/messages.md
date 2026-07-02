@@ -180,7 +180,7 @@ Configure how steering and follow-up messages are delivered in [Settings](settin
 
 | Mode | Behavior |
 |------|----------|
-| `one-at-a-time` | Each message queued and sent separately |
+| `one_at_a_time` | Each message queued and sent separately |
 | `all` | All queued messages sent together |
 
 ## Next Steps
