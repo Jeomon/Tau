@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -14,6 +15,10 @@ from tau.tui.terminal import Terminal
 from tau.tui.utils import set_window_focused
 
 _log = logging.getLogger(__name__)
+
+# The asyncio event loops on Windows can't watch a console handle with
+# add_reader, so stdin is pumped from a background thread there instead.
+_IS_WINDOWS = sys.platform == "win32"
 
 if TYPE_CHECKING:
     pass
@@ -805,6 +810,7 @@ class TUI(Container):
         self._render_timer: asyncio.TimerHandle | None = None
         self._render_requested = False
         self._esc_timer: asyncio.TimerHandle | None = None
+        self._stdin_thread: threading.Thread | None = None
 
         self._input_handlers: list[EventHandler] = []
         self._intercept_handlers: list[EventHandler] = []
@@ -878,7 +884,19 @@ class TUI(Container):
             self._request_render()
 
             self._terminal.enable_kitty_keyboard()
-            loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
+            if _IS_WINDOWS:
+                # Windows event loops can't add_reader() a console handle, so a
+                # daemon thread does the blocking read and hands each chunk back
+                # to the loop thread.
+                self._stdin_thread = threading.Thread(
+                    target=self._win_stdin_loop,
+                    args=(loop,),
+                    name="tau-tui-stdin",
+                    daemon=True,
+                )
+                self._stdin_thread.start()
+            else:
+                loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
 
             # Query terminal background colour for theme hints, then notify any
             # listener (e.g. auto light/dark theme selection).
@@ -891,7 +909,13 @@ class TUI(Container):
             try:
                 await self._stop_event.wait()
             finally:
-                loop.remove_reader(sys.stdin.fileno())
+                if _IS_WINDOWS:
+                    # The daemon reader observes _stop_event and exits after its
+                    # next read returns (or dies with the process); nothing to
+                    # unregister from the loop.
+                    self._stdin_thread = None
+                else:
+                    loop.remove_reader(sys.stdin.fileno())
                 self._cancel_timers()
                 self._terminal.disable_kitty_keyboard()
                 self._terminal.disable_bracketed_paste()
@@ -1175,11 +1199,20 @@ class TUI(Container):
     # -------------------------------------------------------------------------
 
     def _on_stdin_ready(self) -> None:
+        """Loop-thread callback (POSIX add_reader): read stdin and process it."""
         try:
             data = self._terminal.read_raw()
         except OSError:
             return
+        self._process_input(data)
 
+    def _process_input(self, data: str) -> None:
+        """Feed raw input bytes through the parser and dispatch resulting events.
+
+        Runs on the event-loop thread. On POSIX it is called directly from the
+        add_reader callback; on Windows it is scheduled via call_soon_threadsafe
+        from the stdin reader thread.
+        """
         if not data:
             return
 
@@ -1193,6 +1226,27 @@ class TUI(Container):
 
         if events:
             self._request_render()
+
+    def _win_stdin_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Windows stdin pump: blocking-read on a daemon thread.
+
+        Reads keystrokes with the console in raw/VT mode (set by Terminal) and
+        marshals each chunk onto the event loop via call_soon_threadsafe, since
+        Windows event loops cannot watch a console handle with add_reader.
+        """
+        while not self._stop_event.is_set():
+            try:
+                data = self._terminal.read_raw()
+            except OSError:
+                break
+            if not data:
+                continue
+            if self._stop_event.is_set():
+                break
+            try:
+                loop.call_soon_threadsafe(self._process_input, data)
+            except RuntimeError:
+                break  # event loop already closed
 
     def _schedule_esc_flush(self) -> None:
         if self._esc_timer is not None:
