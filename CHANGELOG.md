@@ -2,6 +2,18 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.5 — 2026-07-03
+
+### Fixed
+
+- Stopped the TUI from enabling terminal mouse reporting. Mouse-tracking
+  protocols report clicks and wheel-scroll as a single mode — there's no way
+  to request "clicks only" — so requesting it for click-to-position in the
+  text input was also taking over the terminal's native wheel-scroll and
+  click-drag copy/select for the whole session. Native scroll and copy now
+  work normally again; click-to-position in the editor is disabled until a
+  way to offer it without that trade-off exists.
+
 ## 0.5.4 — 2026-07-03
 
 ### Fixed
