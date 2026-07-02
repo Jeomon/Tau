@@ -1,83 +1,11 @@
-"""ask_user extension — interactive decision-gating tool for the agent.
-
-Outside an interactive TUI session (headless / RPC mode) the tool returns a
-clear error instead of hanging, since there is nowhere to render the prompt.
-"""
-
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from pydantic import BaseModel, Field
+from schema import AskUserOption
 
-from tau.tool.render import call_line
-from tau.tool.types import (
-    Tool,
-    ToolContext,
-    ToolExecutionMode,
-    ToolInvocation,
-    ToolKind,
-    ToolResult,
-)
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
-
-# ── Schema ───────────────────────────────────────────────────────────────────
-
-
-class AskUserOption(BaseModel):
-    title: str
-    description: str | None = None
-
-
-class AskUserParams(BaseModel):
-    question: str = Field(..., description="The question to ask the user")
-    context: str | None = Field(
-        default=None, description="Relevant context summary shown before the question"
-    )
-    options: list[str | AskUserOption] | None = Field(
-        default=None, description="Multiple-choice options"
-    )
-    allow_multiple: bool = Field(
-        default=False, description="Allow selecting more than one option"
-    )
-    allow_freeform: bool = Field(
-        default=True, description="Offer a 'Type something' freeform option"
-    )
-    multiline: bool = Field(
-        default=False,
-        description=(
-            "Use a multi-line text editor for the freeform answer instead of a single "
-            "line — set this for open-ended, long-form answers (e.g. 'write your bio', "
-            "'describe the requirements'). Supports arrow-key navigation between lines, "
-            "Enter for a newline, Ctrl+S/Ctrl+Enter to submit."
-        ),
-    )
-    timeout: int | None = Field(
-        default=None, description="Auto-dismiss after N ms and cancel if the prompt times out"
-    )
-
-
-AskUserParams.model_rebuild()
-
-
-def _normalize_options(raw: list[str | AskUserOption] | None) -> list[AskUserOption]:
-    return [AskUserOption(title=o) if isinstance(o, str) else o for o in (raw or [])]
-
-
-# ── Rendering (tool call / result in the message list) ─────────────────────
-
-
-def _render_call(args: dict, _streaming: bool = False) -> list[str]:
-    return call_line("ask_user", args.get("question", ""))
-
-
-def _render_result(content: str, opts: Any) -> list[str]:
-    return content.splitlines() or [content]
-
-
-# ── Interactive component ───────────────────────────────────────────────────
 
 FREEFORM_LABEL = "Type something…"
 
@@ -167,7 +95,8 @@ class _AskUserComponent(Component):
 
         if self._mode == "freeform" and self._multiline:
             self._clamp_ml_scroll()
-            visible = self._ml_lines[self._ml_scroll_top : self._ml_scroll_top + self.ML_VISIBLE_ROWS]
+            limit = self._ml_scroll_top + self.ML_VISIBLE_ROWS
+            visible = self._ml_lines[self._ml_scroll_top : limit]
             for ri, line in enumerate(visible):
                 abs_row = self._ml_scroll_top + ri
                 if abs_row == self._ml_cursor_row:
@@ -353,12 +282,14 @@ class _AskUserComponent(Component):
         if k == "up":
             if self._ml_cursor_row > 0:
                 self._ml_cursor_row -= 1
-                self._ml_cursor_col = min(self._ml_cursor_col, len(self._ml_lines[self._ml_cursor_row]))
+                row_len = len(self._ml_lines[self._ml_cursor_row])
+                self._ml_cursor_col = min(self._ml_cursor_col, row_len)
             return True
         if k == "down":
             if self._ml_cursor_row < len(self._ml_lines) - 1:
                 self._ml_cursor_row += 1
-                self._ml_cursor_col = min(self._ml_cursor_col, len(self._ml_lines[self._ml_cursor_row]))
+                row_len = len(self._ml_lines[self._ml_cursor_row])
+                self._ml_cursor_col = min(self._ml_cursor_col, row_len)
             return True
         if k == "left":
             if self._ml_cursor_col > 0:
@@ -407,116 +338,3 @@ class _AskUserComponent(Component):
 
     def set_theme(self, theme: Any) -> None:
         pass
-
-
-# ── Tool ─────────────────────────────────────────────────────────────────────
-
-
-class AskUserTool(Tool):
-    def __init__(self, runtime_ref: Any) -> None:
-        self._runtime_ref = runtime_ref
-        super().__init__(
-            name="ask_user",
-            description=(
-                "Ask the human a focused question and wait for their decision before "
-                "proceeding. Use for high-impact architectural trade-offs, ambiguous or "
-                "conflicting requirements, or assumptions that would materially change "
-                "the implementation. Supports single-select, multi-select, and freeform "
-                "text answers. Only available in an interactive TUI session."
-            ),
-            schema=AskUserParams,
-            kind=ToolKind.Read,
-            execution_mode=ToolExecutionMode.Sequential,
-            render_call=_render_call,
-            render_result=_render_result,
-            render_shell="default",
-        )
-
-    async def execute(
-        self,
-        invocation: ToolInvocation,
-        tool_execution_update_callback=None,
-        signal=None,
-        context: ToolContext | None = None,
-    ) -> ToolResult:
-        params = AskUserParams.model_validate(invocation.params)
-        options = _normalize_options(params.options)
-
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
-        if runtime is None:
-            return ToolResult.error(invocation.id, "ask_user unavailable: runtime not ready")
-
-        from tau.extensions.context import ExtensionContext
-
-        ext_ctx = ExtensionContext.from_runtime(runtime)
-        ui = ext_ctx.ui
-        if ui is None:
-            return ToolResult.error(
-                invocation.id,
-                "ask_user requires an interactive TUI session and is unavailable in headless/RPC mode",
-            )
-
-        from tau.tui.tui import CustomOptions, OverlayOptions
-
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[dict | None] = loop.create_future()
-        timeout_task_ref: list[asyncio.Task | None] = [None]
-
-        def _on_done(value: dict | None) -> None:
-            t = timeout_task_ref[0]
-            if t is not None and not t.done():
-                t.cancel()
-            if not fut.done():
-                fut.set_result(value)
-
-        def _factory(_tui, _theme, _kb, done):
-            component = _AskUserComponent(
-                question=params.question,
-                context=params.context,
-                options=options,
-                allow_multiple=params.allow_multiple,
-                allow_freeform=params.allow_freeform,
-                multiline=params.multiline,
-                on_done=lambda v: (_on_done(v), done(v)),
-            )
-            timeout_ms = params.timeout
-            if timeout_ms:
-
-                async def _auto_dismiss() -> None:
-                    await asyncio.sleep(timeout_ms / 1000)
-                    _on_done(None)
-                    done(None)
-
-                timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
-            return component
-
-        await ui.custom(
-            _factory,
-            CustomOptions(overlay_options=OverlayOptions(width="70%", anchor="center", margin=1)),
-        )
-        response = await fut
-
-        if response is None:
-            return ToolResult.ok(
-                invocation.id,
-                "The user cancelled the question without answering.",
-                metadata={"cancelled": True, "question": params.question},
-            )
-
-        if response["kind"] == "freeform":
-            content = response["text"]
-        else:
-            content = ", ".join(response["selections"])
-
-        return ToolResult.ok(
-            invocation.id,
-            content,
-            metadata={"cancelled": False, "question": params.question, "response": response},
-        )
-
-
-# ── Registration ─────────────────────────────────────────────────────────────
-
-
-def register(tau: Any) -> None:
-    tau.register_tool(AskUserTool(tau._runtime_ref))
