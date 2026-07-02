@@ -21,9 +21,10 @@ from tau.tool.types import (
 
 
 def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
-    pattern = " ".join(args.get("pattern", "").split())
+    query = args.get("rule") or args.get("pattern", "")
+    query = " ".join(query.split())
     path = args.get("path", "")
-    return call_line("grep", pattern, path)
+    return call_line("grep", query, path)
 
 
 _MAX_MATCHES = 500
@@ -61,10 +62,11 @@ class GrepParams(BaseModel):
     """Parameters for the grep tool."""
 
     pattern: str = Field(
+        default="",
         description=(
             "Regular expression to search for. If ast is true, this is instead an ast-grep "
-            "structural pattern using $VAR-style meta-variables (e.g. '$A && $A()'), not a "
-            "regex."
+            "structural pattern with $VAR-style meta-variables (e.g. '$A && $A()'), not a "
+            "regex. Required unless rule is set."
         ),
         examples=["def parse_config", "class UserService", "TODO|FIXME"],
     )
@@ -91,15 +93,27 @@ class GrepParams(BaseModel):
     ast: bool = Field(
         default=False,
         description=(
-            "Use ast-grep for structural, AST-aware pattern matching instead of ripgrep "
-            "regex search. Best for finding code shapes across formatting/variable-name "
-            "variations (e.g. all calls matching '$A && $A()'). Requires pattern to be an "
-            "ast-grep pattern, not a regex. The target language is inferred per-file from "
-            "its extension. Compound statements (for/if/while/def/etc.) must include their "
-            "body as '$$$BODY' or the pattern won't parse and will silently match nothing, "
-            "e.g. use 'for $ITEM in $LIST:\\n    $$$BODY' rather than 'for $ITEM in $LIST:'."
+            "Use ast-grep for structural, AST-aware matching instead of ripgrep regex — "
+            "finds code shapes regardless of formatting or naming. Language is inferred "
+            "per-file from its extension."
         ),
         examples=[True, False],
+    )
+    rule: str = Field(
+        default="",
+        description=(
+            "An ast-grep YAML rule (run as ast-grep scan --inline-rules) for structural "
+            "queries a single pattern can't express: relational (has, inside), composite "
+            "(all, any, not), or kind-based matching. Only used when ast is true, and takes "
+            "precedence over pattern. Must include a top-level 'language' key."
+        ),
+        examples=[
+            "language: python\nrule:\n  kind: class_definition",
+            (
+                "language: javascript\nrule:\n  pattern: console.log($$$)\n  inside:\n"
+                "    kind: method_definition\n    stopBy: end"
+            ),
+        ],
     )
 
 
@@ -113,8 +127,7 @@ class GrepTool(Tool):
                 "Search for a regex pattern in files. Returns matches as 'file:line: content', "
                 f"up to {_MAX_MATCHES} matches. Directory searches are recursive and use "
                 "ripgrep's default filtering, which excludes hidden and ignored files. Set "
-                "ast=true to instead do structural AST pattern matching with ast-grep, useful "
-                "for finding code shapes regardless of formatting or naming."
+                "ast=true for structural AST matching with ast-grep instead."
             ),
             schema=GrepParams,
             kind=ToolKind.Read,
@@ -126,13 +139,17 @@ class GrepTool(Tool):
                 "Prefer over read when searching for a symbol, function, or pattern across "
                 "the codebase. Use ast=true with an ast-grep structural pattern (e.g. "
                 "'$A && $A()') when searching for a code structure that may vary in "
-                "formatting or naming; otherwise use the default regex mode. For compound "
+                "formatting or naming; otherwise use the default regex mode. Metavariables "
+                "must be uppercase ($ARG, not $arg) and must be the entire content of their "
+                "AST node (no partial substitution like 'obj.on$EVENT'). For compound "
                 "statements (for/if/while/def/etc.) include the body as '$$$BODY', e.g. "
                 "'for $ITEM in $LIST:\\n    $$$BODY' — omitting it makes the pattern fail to "
-                "parse and silently match nothing. If an ast search unexpectedly finds "
-                "nothing, don't assume the code isn't there: run "
-                "`ast-grep run --pattern '<pattern>' --lang <lang> --debug-query=pattern` via "
-                "the shell tool to see how ast-grep parsed the pattern, and adjust it."
+                "parse and silently match nothing. For relational (has/inside), composite "
+                "(all/any/not), or kind-based queries a single pattern can't express, use "
+                "rule instead of pattern. If an ast search unexpectedly finds nothing, don't "
+                "assume the code isn't there: run `ast-grep run --pattern '<pattern>' --lang "
+                "<lang> --debug-query=pattern` via the shell tool to see how ast-grep parsed "
+                "it, and adjust."
             ),
         )
 
@@ -151,19 +168,25 @@ class GrepTool(Tool):
         target = Path(params.path or invocation.cwd or ".").resolve()
         if not target.exists():
             return ToolResult.error(invocation.id, f"Path not found: {target}")
+        if not params.pattern and not (params.ast and params.rule):
+            return ToolResult.error(
+                invocation.id, "Provide 'pattern' (or 'rule' when ast is true)."
+            )
 
-        result = (
-            await self._ast_grep(params, target, signal)
-            if params.ast
-            else await self._rg(params, target, signal)
-        )
+        if params.ast and params.rule:
+            result = await self._ast_grep_scan(params, target, signal)
+        elif params.ast:
+            result = await self._ast_grep(params, target, signal)
+        else:
+            result = await self._rg(params, target, signal)
         if result.get("error"):
             return ToolResult.error(invocation.id, result["output"])
         if result["matches"]:
             return ToolResult.ok(invocation.id, result["output"], metadata=result["metadata"])
+        query = params.rule if (params.ast and params.rule) else params.pattern
         return ToolResult.ok(
             invocation.id,
-            f"No matches for pattern: {params.pattern}",
+            f"No matches for pattern: {query}",
             metadata=result["metadata"],
         )
 
@@ -216,6 +239,20 @@ class GrepTool(Tool):
         if params.include:
             cmd += ["--globs", params.include]
         cmd += [str(target)]
+        return await self._run_ast_grep(cmd, params.pattern, signal)
+
+    async def _ast_grep_scan(
+        self, params: GrepParams, target: Path, signal: AbortSignal | None
+    ) -> dict:
+        cmd = ["ast-grep", "scan", "--inline-rules", params.rule, "--json=stream"]
+        if params.include:
+            cmd += ["--globs", params.include]
+        cmd += [str(target)]
+        return await self._run_ast_grep(cmd, params.rule, signal)
+
+    async def _run_ast_grep(
+        self, cmd: list[str], query: str, signal: AbortSignal | None
+    ) -> dict:
         try:
             returncode, lines, cancelled = await run_bounded_lines(
                 cmd, max_lines=_MAX_MATCHES, signal=signal
@@ -254,7 +291,7 @@ class GrepTool(Tool):
             formatted.append(f"{file_path}:{line_no}: {text}")
 
         metadata = {
-            "pattern": params.pattern,
+            "pattern": query,
             "files_searched": len(files_seen),
             "match_count": len(formatted),
             "truncated": truncated,

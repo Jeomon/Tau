@@ -98,13 +98,43 @@ If a search unexpectedly finds nothing, run
 directly to see how ast-grep parsed the pattern before assuming the code
 isn't there.
 
+Metavariable names must be uppercase (`$ARG`, `$MY_VAR`); lowercase,
+digit-leading, or kebab-case names are not valid metavariable syntax and are
+matched literally. A metavariable must also be the entire content of its AST
+node — partial substitution like `obj.on$EVENT` doesn't work.
+
+For queries a single pattern can't express — relational (`has`/`inside`/
+`precedes`/`follows`, usually combined with `stopBy: end`), composite
+(`all`/`any`/`not`), or matching by node `kind` — pass a `rule` (an ast-grep
+YAML rule run via `ast-grep scan --inline-rules`) instead of `pattern`.
+`rule` must include a top-level `language` key and takes precedence over
+`pattern` when both are set. Example, finding functions that `await` without
+a surrounding `try`/`except`:
+
+```yaml
+language: python
+rule:
+  all:
+    - kind: function_definition
+    - has:
+        pattern: await $EXPR
+        stopBy: end
+    - not:
+        has:
+            kind: try_statement
+            stopBy: end
+```
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pattern` | string | Yes | — | Regular expression to search for (an ast-grep pattern when `ast` is true) |
+| `pattern` | string | No\* | `""` | Regular expression to search for (an ast-grep pattern when `ast` is true) |
 | `path` | string | No | cwd | File or directory; relative values use Tau's process working directory |
 | `include` | string | No | `""` | Glob filter for files, e.g. `*.py` (only applies when `path` is a directory) |
 | `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive (ignored when `ast` is true) |
 | `ast` | boolean | No | `false` | Use ast-grep structural matching instead of ripgrep regex |
+| `rule` | string | No | `""` | ast-grep YAML rule for structural queries beyond a single pattern; only used when `ast` is true, and takes precedence over `pattern` |
+
+\* Either `pattern` or (when `ast` is true) `rule` is required.
 
 ### ls
 
