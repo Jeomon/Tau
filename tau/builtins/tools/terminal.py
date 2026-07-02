@@ -132,6 +132,7 @@ class TerminalTool(Tool):
                     shell_path,
                     "-c",
                     command,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     cwd=cwd,
@@ -140,6 +141,7 @@ class TerminalTool(Tool):
             else:
                 proc = await asyncio.create_subprocess_shell(
                     command,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     cwd=cwd,

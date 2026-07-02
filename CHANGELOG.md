@@ -2,6 +2,23 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.4 — 2026-07-03
+
+### Fixed
+
+- Redirected the `terminal` tool's spawned subprocess `stdin` to `DEVNULL`
+  instead of leaving it inherited from the parent console. On Windows,
+  console mode (echo/line-input) is shared per-console rather than
+  per-process, so a child command that reset it (as `cmd.exe` and many
+  console apps do on startup) could flip echo back on for the whole
+  session — leaking raw mouse-tracking escape sequences onto the screen
+  while a command was still running.
+- Fixed `tau update`'s installer detection so it only upgrades via `uv` or
+  `pipx` when this copy was actually installed by that tool (detected from
+  `sys.prefix`), rather than falling back to whichever tool happened to be
+  on `PATH`, which could invoke the wrong manager on a package it doesn't
+  own and fail.
+
 ## 0.5.3 — 2026-07-02
 
 ### Performance

@@ -92,13 +92,14 @@ def _update_tau() -> None:
 
     # Pick the upgrade tool that matches how this copy was installed, inferred
     # from the venv it runs in, so we upgrade the right managed environment.
+    # Only trust prefix-based detection here: falling back to "uv"/"pipx just
+    # because they're on PATH (regardless of whether they installed this copy)
+    # tells the wrong tool to upgrade a package it doesn't manage, which fails.
     prefix = sys.prefix.replace(os.sep, "/")
     if "/pipx/" in prefix and shutil.which("pipx"):
         cmd = ["pipx", "upgrade", app]
-    elif "/uv/tools/" in prefix and shutil.which("uv") or shutil.which("uv"):
+    elif "/uv/tools/" in prefix and shutil.which("uv"):
         cmd = ["uv", "tool", "upgrade", app]
-    elif shutil.which("pipx"):
-        cmd = ["pipx", "upgrade", app]
     else:
         cmd = [sys.executable, "-m", "pip", "install", "--upgrade", app]
 
