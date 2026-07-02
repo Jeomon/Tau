@@ -2,6 +2,32 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.3 — 2026-07-02
+
+### Performance
+
+- Cut cold-start time roughly in half by removing several redundant or
+  blocking costs from `Runtime.create()`:
+  - Deferred SSL context construction in the four OAuth provider modules
+    (Anthropic, GitHub Copilot, Google Antigravity, OpenAI Codex) so the
+    certifi CA bundle is only loaded for a provider actually being used,
+    instead of eagerly for all four on every startup.
+  - Ran the git-status snapshot (used in the system prompt) concurrently
+    with the rest of startup instead of blocking on it synchronously.
+  - Replaced `platform.uname()`-based OS/architecture detection with
+    `sys.getwindowsversion()` and `PROCESSOR_ARCHITECTURE` on Windows,
+    avoiding a pair of slow WMI queries on every start.
+  - Made the `tau.tui` package's re-exports lazy (PEP 562), so importing a
+    single TUI submodule no longer pulls in the entire component/markdown
+    framework (including `mistletoe`) for callers that don't need it.
+  - Removed a redundant explicit `git.Repo.close()` call that doubled up
+    with GitPython's own cleanup, eliminating extra forced `gc.collect()`
+    passes on Windows.
+  - Deferred pydantic schema construction for session-entry models
+    (`defer_build=True`) and disabled pydantic's plugin-discovery scan
+    (unused by Tau), removing a full installed-packages metadata scan from
+    the first model built in the process.
+
 ## 0.5.2 — 2026-07-02
 
 ### Terminal
