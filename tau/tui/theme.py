@@ -113,6 +113,17 @@ class MessageTheme:
     diff_context: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
     diff_hunk: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
     diff_inverse: ColorFn = field(default_factory=lambda: lambda s: "\x1b[7m" + s + "\x1b[27m")
+    # Semantic colour roles exposed to tool render_result() callbacks via
+    # ToolRenderOptions.theme. Defaults mirror LayoutTheme's roles; when this
+    # MessageTheme is part of a LayoutTheme they are overwritten from the
+    # layout-level roles in LayoutTheme.__post_init__ so a custom theme's roles
+    # reach tool renderers (and extensions using the documented API).
+    muted: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
+    emphasis: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_WHITE + s + RESET)
+    success: ColorFn = field(default_factory=lambda: _wrap(GREEN))
+    error: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_RED + s + RESET)
+    warning: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
+    accent: ColorFn = field(default_factory=lambda: _wrap(CYAN))
     markdown: MarkdownTheme = field(default_factory=MarkdownTheme)
     show_thinking: bool = True
     show_tool_calls: bool = True
@@ -192,3 +203,16 @@ class LayoutTheme:
     message: MessageTheme = field(default_factory=MessageTheme)
     input: InputTheme = field(default_factory=InputTheme)
     select_list: SelectListTheme = field(default_factory=SelectListTheme)
+
+    def __post_init__(self) -> None:
+        # Tool render_result() callbacks receive the MessageTheme (via
+        # ToolRenderOptions.theme). Mirror the layout-level semantic roles onto
+        # it so a custom theme's roles reach tool renderers and the documented
+        # theme.muted/.error/.warning/.success/.accent/.emphasis all resolve —
+        # keeping "one theme key recolours everywhere" true for renderers too.
+        self.message.muted = self.muted
+        self.message.emphasis = self.emphasis
+        self.message.success = self.success
+        self.message.error = self.error
+        self.message.warning = self.warning
+        self.message.accent = self.accent
