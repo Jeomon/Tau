@@ -21,7 +21,7 @@ from tau.tool.types import (
 
 
 def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
-    pattern = args.get("pattern", "")
+    pattern = " ".join(args.get("pattern", "").split())
     path = args.get("path", "")
     return call_line("grep", pattern, path)
 
