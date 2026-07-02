@@ -63,11 +63,10 @@ class _AskUserComponent(Component):
         self._freeform_index = len(options) if allow_freeform else -1
         self._row_count = len(options) + (1 if allow_freeform else 0)
 
-        # Multi-line with no real choices — freeform is the only path and there's
-        # a whole editor box to show anyway, so open straight into it instead of
-        # forcing an Enter on a single "Type something…" row first. Single-line
-        # freeform keeps the selector screen — it's a cheap, expected step there.
-        if not self._options and self._allow_freeform and self._multiline:
+        # No real choices — freeform is the only path, so open straight into the
+        # editor with a live cursor instead of forcing an Enter on a single
+        # "Type something…" row first. Applies to both single- and multi-line.
+        if not self._options and self._allow_freeform:
             self._enter_freeform()
 
     def _enter_freeform(self, seed: str = "") -> None:
@@ -116,16 +115,18 @@ class _AskUserComponent(Component):
                 inner.append(f"  \x1b[2m↕ {pct}%\x1b[0m")
             else:
                 inner.append("")
+            back = "Esc to cancel" if not self._options else "Esc to go back"
             inner.append(
                 "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
-                "Esc to go back\x1b[0m"
+                f"{back}\x1b[0m"
             )
             return _box(inner, "", width, bg="")
 
         if self._mode == "freeform":
             inner.append(f"  {self._freeform_value}█")
             inner.append("")
-            inner.append("  \x1b[2mEnter to submit  ·  Esc to go back\x1b[0m")
+            back = "Esc to cancel" if not self._options else "Esc to go back"
+            inner.append(f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m")
             return _box(inner, "", width, bg="")
 
         for i in range(self._row_count):
@@ -220,8 +221,13 @@ class _AskUserComponent(Component):
             case "enter":
                 self._on_done({"kind": "freeform", "text": self._freeform_value})
             case "escape":
-                self._mode = "list"
-                self._freeform_value = ""
+                # With no real choices there's no list to fall back to — Esc
+                # cancels the whole prompt (mirrors the multi-line editor).
+                if not self._options:
+                    self._on_done(None)
+                else:
+                    self._mode = "list"
+                    self._freeform_value = ""
             case "backspace":
                 self._freeform_value = self._freeform_value[:-1]
             case _ if _typed_char(event) is not None:
