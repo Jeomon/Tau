@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
+import shlex
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from tau.builtins.tools.edit import EditTool, _render_edit_result
 from tau.builtins.tools.glob import GlobTool
 from tau.builtins.tools.grep import GrepTool
 from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
-from tau.builtins.tools.utils import human_size
+from tau.builtins.tools.terminal import TerminalTool
+from tau.builtins.tools.utils import OutputAccumulator, human_size
 from tau.builtins.tools.write import WriteTool
 from tau.tool.types import ToolInvocation, ToolRenderOptions
 
@@ -28,6 +35,121 @@ def _anchor(line_number: int, content: str) -> str:
     stripped = content.strip()
     line_hash = "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
     return f"{line_number}:{line_hash}"
+
+
+def _python_command(source: str) -> str:
+    args = [sys.executable, "-u", "-c", source]
+    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
+
+
+# ---------------------------------------------------------------------------
+# OutputAccumulator
+# ---------------------------------------------------------------------------
+
+
+def test_output_accumulator_preserves_full_truncated_output() -> None:
+    accumulator = OutputAccumulator(
+        max_bytes=8,
+        max_lines=2,
+        temp_file_prefix="tau-test-output-",
+    )
+    complete = b"one\ntwo\nthree\n"
+
+    accumulator.append(complete)
+    snapshot = accumulator.finish()
+
+    assert snapshot.truncated
+    assert snapshot.total_bytes == len(complete)
+    assert snapshot.full_output_path is not None
+    full_output = Path(snapshot.full_output_path)
+    try:
+        assert full_output.read_bytes() == complete
+    finally:
+        full_output.unlink(missing_ok=True)
+
+
+def test_output_accumulator_removes_unneeded_spill_file() -> None:
+    accumulator = OutputAccumulator(
+        max_bytes=100,
+        max_lines=10,
+        temp_file_prefix="tau-test-output-",
+    )
+    accumulator.append(b"complete")
+    snapshot = accumulator.finish()
+
+    assert not snapshot.truncated
+    assert snapshot.full_output_path is None
+
+
+# ---------------------------------------------------------------------------
+# TerminalTool
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalTool:
+    def setup_method(self) -> None:
+        self.tool = TerminalTool()
+
+    def test_streams_initial_and_final_updates_with_throttling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("tau.builtins.tools.terminal._UPDATE_INTERVAL_SECONDS", 10.0)
+        updates = []
+
+        async def on_update(result) -> None:
+            updates.append(result)
+
+        command = _python_command(
+            "import time\nfor value in range(5):\n print(value, flush=True)\n time.sleep(0.02)\n"
+        )
+        result = run(
+            self.tool.execute(
+                _inv("terminal", cmd=command),
+                tool_execution_update_callback=on_update,
+            )
+        )
+
+        assert not result.is_error
+        assert updates[0].content == ""
+        assert updates[-1].content == result.content
+        assert updates[-1].metadata["running"] is False
+        assert len(updates) == 2
+
+    def test_truncated_output_is_saved_to_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("tau.builtins.tools.terminal._MAX_OUTPUT_BYTES", 16)
+        command = _python_command("print('abcdefghijklmnopqrstuvwxyz', flush=True)")
+
+        result = run(self.tool.execute(_inv("terminal", cmd=command)))
+
+        assert result.metadata["truncated"] is True
+        full_output_path = result.metadata["full_output_path"]
+        assert full_output_path is not None
+        full_output = Path(full_output_path)
+        try:
+            assert full_output.read_text(encoding="utf-8") == "abcdefghijklmnopqrstuvwxyz\n"
+            assert str(full_output) in result.content
+        finally:
+            full_output.unlink(missing_ok=True)
+
+    def test_abort_terminates_running_process_tree(self) -> None:
+        abort = asyncio.Event()
+        command = _python_command("import time; time.sleep(30)")
+
+        async def execute_and_abort():
+            task = asyncio.create_task(
+                self.tool.execute(
+                    _inv("terminal", cmd=command),
+                    signal=abort,
+                )
+            )
+            await asyncio.sleep(0.05)
+            abort.set()
+            return await asyncio.wait_for(task, timeout=2)
+
+        result = run(execute_and_abort())
+
+        assert result.is_error
+        assert result.metadata["cancelled"] is True
 
 
 # ---------------------------------------------------------------------------

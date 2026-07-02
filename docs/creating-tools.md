@@ -136,6 +136,9 @@ outside the complete runtime.
 Long-running tools should check `signal.is_set()` at safe cancellation points.
 Tools that produce incremental output can call
 `tool_execution_update_callback` with partial `ToolResult` values.
+High-frequency producers should throttle updates so they do not flood engine
+events or terminal renders. Emit an initial update when work begins and a final
+update matching the returned result.
 
 ## Register the Tool
 

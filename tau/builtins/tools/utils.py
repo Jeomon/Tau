@@ -1,17 +1,103 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
 import tempfile
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from tau.engine.types import AbortSignal
 
 _locks: dict[Path, tuple[asyncio.Lock, int]] = {}
 _registration_lock = asyncio.Lock()
+
+
+@dataclass(frozen=True)
+class OutputSnapshot:
+    """Bounded display output plus full-output spill metadata."""
+
+    content: str
+    total_bytes: int
+    truncated: bool
+    full_output_path: str | None
+
+
+class OutputAccumulator:
+    """Accumulate streamed bytes while retaining a bounded UTF-8 display tail.
+
+    Raw output is written to a temporary file from the start. The file is
+    deleted when output remains within the display bounds and preserved when
+    truncation occurs.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_bytes: int,
+        max_lines: int,
+        temp_file_prefix: str,
+    ) -> None:
+        self._max_bytes = max_bytes
+        self._max_lines = max_lines
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._tail = ""
+        self._truncated = False
+        self._total_bytes = 0
+        fd, temp_name = tempfile.mkstemp(prefix=temp_file_prefix, suffix=".log")
+        self._stream: BinaryIO | None = os.fdopen(fd, "wb")
+        self._path = Path(temp_name)
+        self._finished = False
+
+    def append(self, data: bytes) -> None:
+        """Append one raw subprocess output chunk."""
+        if self._finished:
+            raise RuntimeError("Cannot append to a finished output accumulator")
+        if not data:
+            return
+        self._total_bytes += len(data)
+        assert self._stream is not None
+        self._stream.write(data)
+        decoded = self._decoder.decode(data)
+        self._tail, truncated = bounded_text_tail(
+            self._tail + decoded,
+            max_bytes=self._max_bytes,
+            max_lines=self._max_lines,
+        )
+        self._truncated = self._truncated or truncated
+
+    def snapshot(self) -> OutputSnapshot:
+        """Return the current bounded output and spill-file metadata."""
+        return OutputSnapshot(
+            content=self._tail,
+            total_bytes=self._total_bytes,
+            truncated=self._truncated,
+            full_output_path=str(self._path) if self._truncated else None,
+        )
+
+    def finish(self) -> OutputSnapshot:
+        """Flush decoding and close or remove the spill file."""
+        if self._finished:
+            return self.snapshot()
+        final_text = self._decoder.decode(b"", final=True)
+        if final_text:
+            self._tail, truncated = bounded_text_tail(
+                self._tail + final_text,
+                max_bytes=self._max_bytes,
+                max_lines=self._max_lines,
+            )
+            self._truncated = self._truncated or truncated
+        assert self._stream is not None
+        self._stream.flush()
+        self._stream.close()
+        self._stream = None
+        self._finished = True
+        if not self._truncated:
+            self._path.unlink(missing_ok=True)
+        return self.snapshot()
 
 
 def bounded_text_tail(

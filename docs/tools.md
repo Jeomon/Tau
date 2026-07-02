@@ -51,7 +51,9 @@ Ctrl+O expands those gaps to show the complete file context.
 ### terminal
 
 Execute a non-interactive shell command and return the combined stdout + stderr
-tail. At most 50 KiB or 2,000 lines are retained.
+tail. At most 50 KiB or 2,000 lines are retained in the result. When output is
+truncated, the complete output is saved to a temporary file and its path is
+included in the result and metadata.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -59,6 +61,12 @@ tail. At most 50 KiB or 2,000 lines are retained.
 | `timeout` | integer | No | `30` | Timeout in seconds (max 600) |
 
 Commands run in the agent's current working directory.
+
+Output is streamed through tool-update events while the command runs. Updates
+are throttled to at most once every 100 milliseconds, with guaranteed initial
+and final updates. Timeout and cancellation terminate the command's complete
+process tree. Programs may still buffer their own output; use an unbuffered mode
+such as `python -u` when immediate output is required.
 
 ### glob
 
