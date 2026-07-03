@@ -379,7 +379,7 @@ class ExtensionLoader:
 
         try:
             deps = self._subdir_deps.get(path.parent.resolve())
-            if deps and source != "builtin":
+            if deps:
                 await asyncio.to_thread(self._ensure_dependencies, path.parent, deps, source)
 
             module_name = f"_tau_ext_{hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:16]}"
