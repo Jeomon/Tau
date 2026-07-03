@@ -69,8 +69,7 @@ class TerminalParams(BaseModel):
     timeout: int = Field(
         default=_DEFAULT_TIMEOUT,
         ge=1,
-        le=600,
-        description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}, max 600).",
+        description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}).",
         examples=[30, 120, 300],
     )
 
