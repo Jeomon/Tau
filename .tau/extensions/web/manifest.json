@@ -1,0 +1,115 @@
+{
+  "tau": {
+    "name": "Web search",
+    "author": "jeomon",
+    "dependencies": ["ddgs", "AsyncDDGS", "exa-py", "tavily-python"],
+    "settings": {
+      "title": "Web search",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true,
+          "description": "Register the web_search / web_fetch tools."
+        },
+        {
+          "key": "engine",
+          "label": "Search engine",
+          "type": "enum",
+          "values": ["ddgs", "exa", "tavily", "jina"],
+          "default": "ddgs",
+          "description": "Active backend for web_search / web_fetch. Configure each engine below."
+        },
+        {
+          "key": "ddgs",
+          "label": "DuckDuckGo",
+          "type": "group",
+          "description": "DuckDuckGo engine settings (no API key required).",
+          "fields": [
+            {
+              "key": "region",
+              "label": "Region",
+              "type": "string",
+              "default": "us-en",
+              "description": "Region code, e.g. us-en, uk-en, de-de."
+            },
+            {
+              "key": "safesearch",
+              "label": "Safe search",
+              "type": "enum",
+              "values": ["off", "moderate", "on"],
+              "default": "off",
+              "description": "Content filtering level."
+            }
+          ]
+        },
+        {
+          "key": "exa",
+          "label": "Exa",
+          "type": "group",
+          "description": "Exa neural search (requires API key + exa-py).",
+          "fields": [
+            {
+              "key": "api_key",
+              "label": "API key",
+              "type": "secret",
+              "description": "Literal key, $ENV_VAR, or !shell-command."
+            },
+            {
+              "key": "type",
+              "label": "Search type",
+              "type": "enum",
+              "values": ["auto", "neural", "keyword"],
+              "default": "auto",
+              "description": "Retrieval strategy Exa uses."
+            }
+          ]
+        },
+        {
+          "key": "tavily",
+          "label": "Tavily",
+          "type": "group",
+          "description": "Tavily LLM search (requires API key + tavily-python).",
+          "fields": [
+            {
+              "key": "api_key",
+              "label": "API key",
+              "type": "secret",
+              "description": "Literal key, $ENV_VAR, or !shell-command."
+            },
+            {
+              "key": "search_depth",
+              "label": "Search depth",
+              "type": "enum",
+              "values": ["basic", "advanced"],
+              "default": "basic",
+              "description": "advanced is higher quality but costs more credits."
+            }
+          ]
+        },
+        {
+          "key": "jina",
+          "label": "Jina AI Reader",
+          "type": "group",
+          "description": "Jina Reader (r.jina.ai / s.jina.ai) — no dependencies required. Optional API key for higher rate limits.",
+          "fields": [
+            {
+              "key": "api_key",
+              "label": "API key",
+              "type": "secret",
+              "description": "Optional. Literal key, $ENV_VAR, or !shell-command. Obtain at https://jina.ai/reader."
+            },
+            {
+              "key": "no_cache",
+              "label": "Bypass cache",
+              "type": "bool",
+              "default": false,
+              "description": "Always fetch a fresh copy, bypassing Jina's cache."
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
