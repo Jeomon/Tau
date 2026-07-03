@@ -28,6 +28,7 @@ dependencies = [
     "pyyaml==6.0.2",
     "pygments==2.20.0",
     "pathspec==1.1.1",
+    "posthog==7.21.3",
     "gitpython==3.1.50",
     "grapheme==0.6.0",
     "arrow==1.4.0",

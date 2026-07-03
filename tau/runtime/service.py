@@ -158,8 +158,9 @@ class Runtime:
             return
 
         from tau.settings.paths import get_app_version
-        from tau.utils.telemetry import report_install
+        from tau.telemetry import enable_exception_autocapture, report_install
 
+        enable_exception_autocapture()
         self.telemetry_task = asyncio.ensure_future(report_install(get_app_version()))
 
     # -------------------------------------------------------------------------

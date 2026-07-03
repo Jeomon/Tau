@@ -149,11 +149,14 @@ Toggle during a session with `/effort` or the effort picker.
 |-------|------|---------|-------------|
 | `telemetry` | boolean | `true` | Send one anonymous version-only install/update count |
 
-Telemetry sends only the installed Tau version to Tau's Cloudflare Worker once
-per version. Tau does not persist identifiers or IP addresses and does not send
-prompts, paths, models, authentication state, session data, or tool activity.
-As with any HTTP request, Cloudflare necessarily processes the source IP under
-its own privacy policy. Failed requests are ignored and never block startup.
+Telemetry sends only the installed Tau version to Tau's PostHog project once
+per version, as a single `tau` event on a shared anonymous distinct ID. When
+enabled, Tau also reports uncaught exceptions (type, message, and traceback)
+to the same PostHog project so crashes can be diagnosed. Tau does not persist
+per-user identifiers and does not send prompts, paths, models, authentication
+state, session data, or tool activity. As with any HTTP request, PostHog
+necessarily processes the source IP under its own privacy policy. Failed
+requests are ignored and never block startup or shutdown.
 
 This is a global preference: project settings cannot enable telemetry after it
 has been disabled globally. Disable it in `/settings` or in
