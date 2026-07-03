@@ -18,6 +18,8 @@ All notable changes to `tau-coding-agent` are documented here.
   crash reporting via PostHog's exception autocapture. Both the install
   ping and the exception client run without blocking startup or delaying
   process exit on shutdown.
+- Moved built-in extension and theme modules from `.tau/` into
+  `tau/builtins/` for consistency with the rest of the package layout.
 
 ## 0.5.5 — 2026-07-03
 
