@@ -101,8 +101,11 @@ class TestRendererDifferentialUpdate:
         assert "c" not in content[0]
 
     def test_appended_suffix_only_rewrites_from_divergence_point(self):
-        """Ratatui-style cell diffing: a changed line reuses its unchanged
-        leading run instead of clearing and rewriting the whole line."""
+        """Ratatui-style Buffer/Cell diffing: a changed line reuses its
+        unchanged leading run of cells instead of clearing and rewriting the
+        whole line. Every row is diffed against a fixed-width, blank-padded
+        grid, so a grown line never needs an explicit end-of-line clear —
+        the newly-occupied columns simply show up as changed cells."""
         term = FakeTerminal()
         renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["hello wor"]))
@@ -116,14 +119,19 @@ class TestRendererDifferentialUpdate:
         assert "ld" in content[0]
         assert "hello wor" not in content[0]
         # Cursor is repositioned to the divergence column with an absolute
-        # column move, and only the tail is cleared — not the whole line.
+        # column move; no whole-line or end-of-line clear is needed.
         assert "G" in content[0]
-        assert "\x1b[0K" in content[0]
         assert "\x1b[2K" not in content[0]
+        assert "\x1b[0K" not in content[0]
 
-    def test_prefix_diff_preserves_ansi_styling_state(self):
-        """A style code shared by the unchanged prefix must not be re-sent,
-        since the terminal already has it active from the previous frame."""
+    def test_changed_cell_declares_its_style_and_resets_after(self):
+        """A cell whose style differs from the row's assumed starting state
+        (default) gets its full resolved style re-declared — Buffer/Cell
+        diffing tracks style per render() call, not across separate calls,
+        so it can't assume the terminal is still in whatever state an
+        earlier, unrelated render() call left it in. The shared "red "
+        prefix text itself is still never re-sent, and the row ends with a
+        reset so it doesn't bleed into later content."""
         term = FakeTerminal()
         renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["\x1b[31mred a"]))
@@ -133,9 +141,9 @@ class TestRendererDifferentialUpdate:
 
         content = _content_writes(term)
         assert len(content) == 1
-        assert "\x1b[31m" not in content[0]
         assert "b" in content[0]
         assert "red" not in content[0]
+        assert content[0].endswith("\x1b[0m")
 
     def test_mid_line_same_width_change_reuses_trailing_suffix(self):
         """A same-width in-place edit (e.g. a spinner glyph or a counter digit
@@ -157,9 +165,12 @@ class TestRendererDifferentialUpdate:
         assert "\x1b[0K" not in content[0]
         assert "\x1b[2K" not in content[0]
 
-    def test_mid_line_width_change_falls_back_to_clear_to_eol(self):
-        """When the replaced span changes width, the trailing text would land
-        at a different column, so it must be rewritten rather than reused."""
+    def test_mid_line_insertion_only_rewrites_the_shifted_cells(self):
+        """Inserting text shifts every cell after it to a new column, so
+        those cells are rewritten — but true per-cell diffing (unlike the
+        old prefix/suffix-on-strings approach) also catches any column that
+        coincidentally still holds the same character after the shift and
+        leaves it untouched, splitting the write into more than one run."""
         term = FakeTerminal()
         renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["hello world"]))
@@ -169,8 +180,13 @@ class TestRendererDifferentialUpdate:
 
         content = _content_writes(term)
         assert len(content) == 1
-        assert "there world" in content[0]
-        assert "\x1b[0K" in content[0]
+        assert "there" in content[0]
+        assert "world" in content[0]
+        assert "hello" not in content[0]
+        # No whole-line clear: the fixed-width Cell grid handles the shift
+        # as ordinary per-column diffs, not a special "line grew" case.
+        assert "\x1b[2K" not in content[0]
+        assert "\x1b[0K" not in content[0]
 
     def test_sparse_changes_redraw_full_span_including_unchanged_lines(self):
         """Documents the known limitation: two far-apart changed lines cause the
@@ -223,7 +239,12 @@ class TestRendererDifferentialUpdate:
 
         content = _content_writes(term)
         assert len(content) == 1
-        assert "visible" in content[0]
+        # Per-cell diffing writes only the columns that actually differ
+        # between "line 19" and "visible" ("v" at column 0, "sible" at
+        # columns 2-6) — column 1 coincidentally holds "i" in both and is
+        # correctly left untouched, so "visible" never appears contiguously.
+        assert "v" in content[0]
+        assert "sible" in content[0]
         assert "line 15" in content[0]
         assert "offscreen" not in content[0]
         assert "\x1b[2J" not in content[0]

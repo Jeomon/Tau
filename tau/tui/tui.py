@@ -335,6 +335,7 @@ from tau.tui.utils import (  # noqa: E402
     _ANSI_RE,
     CURSOR_MARKER,
     RESET,
+    _AnsiStateTracker,
     _char_width,
     is_window_focused,
     truncate,
@@ -524,18 +525,10 @@ class Renderer:
                 if new_line:
                     buf += new_line
                 continue
-            # Ratatui-style cell diffing: only touch the columns that actually
-            # changed. Skip re-emitting the identical leading run of characters
-            # (and its ANSI styling), and if an identical trailing run also
-            # survives at the same column (e.g. a spinner glyph or a counter
-            # digit flipping in place), leave it on screen untouched instead
-            # of clearing and rewriting the rest of the line.
-            prefix_col, middle, suffix_col = _diff_line(old_line, new_line)
-            if prefix_col > 0:
-                buf += f"\x1b[{prefix_col + 1}G"
-            if suffix_col == -1:
-                buf += "\x1b[0K"
-            buf += middle
+            # Ratatui-style Buffer/Cell diffing: parse both versions of this
+            # row into a fixed-width grid and repaint only the cells that
+            # actually changed, instead of clearing and rewriting the line.
+            buf += _diff_row(old_line, new_line, self._terminal.width)
 
         final_cursor_row = render_end
 
@@ -735,77 +728,105 @@ def _split_at_column(text: str, col: int) -> tuple[str, str]:
     return text[:i], text[i:]
 
 
-def _tokenize(line: str) -> list[tuple[str, bool]]:
-    """Split a line into atoms: one complete ANSI escape sequence or one
-    visible character each, tagged with whether it's an escape.
+# ── Buffer / Cell diffing ────────────────────────────────────────────────────
+#
+# Ports ratatui's core rendering trick: instead of comparing rendered lines as
+# opaque strings, parse each row into a fixed-width grid of `Cell`s — a
+# (symbol, resolved_style) pair per terminal column, the same role ratatui's
+# `Buffer`/`Cell` play — and diff that grid cell-by-cell. Only the columns
+# that actually changed are repainted, with cursor moves and SGR codes
+# coalesced across writes the way ratatui's crossterm backend does.
 
-    This is the unit ratatui's `Cell` plays in `Buffer` — the smallest
-    piece that can be individually compared and repositioned.
+# A Cell is (symbol, style): symbol is the glyph text for that column ("" for
+# the second column of a double-width glyph, a placeholder never written on
+# its own — printing the wide glyph already consumes both terminal columns).
+# style is an _AnsiStateTracker.snapshot() tuple: the fully-resolved SGR state
+# active at that cell, so two cells compare equal iff they'd render identically
+# regardless of which literal escape codes produced that state.
+Cell = tuple[str, tuple]
+
+_BLANK_STYLE: tuple = _AnsiStateTracker().snapshot()
+
+
+def _parse_cells(line: str, width: int) -> list[Cell]:
+    """Parse one rendered line into exactly `width` styled Cells.
+
+    Every row is padded/truncated to a solid `width`-wide rectangle, so the
+    diff never needs a separate "clear to end of line" case for ragged
+    line lengths — a shrunk line just turns into a run of blank Cells.
     """
-    atoms: list[tuple[str, bool]] = []
+    tracker = _AnsiStateTracker()
+    cells: list[Cell] = []
     i = 0
     n = len(line)
-    while i < n:
+    while i < n and len(cells) < width:
         m = _ANSI_RE.match(line, i)
         if m:
-            atoms.append((m.group(0), True))
+            tracker.process(m.group(0))
             i += len(m.group(0))
-        else:
-            atoms.append((line[i], False))
-            i += 1
-    return atoms
+            continue
+        ch = line[i]
+        i += 1
+        w = _char_width(ch)
+        if w == 0:
+            # Zero-width combining mark: fold into the previous cell's glyph
+            # rather than giving it a column of its own.
+            if cells:
+                sym, st = cells[-1]
+                cells[-1] = (sym + ch, st)
+            continue
+        if w == 2 and len(cells) + 1 >= width:
+            break  # no room for a double-width glyph and its placeholder
+        style = tracker.snapshot()
+        cells.append((ch, style))
+        if w == 2:
+            cells.append(("", style))
+    while len(cells) < width:
+        cells.append((" ", _BLANK_STYLE))
+    return cells
 
 
-def _atoms_width(atoms: list[tuple[str, bool]]) -> int:
-    return sum(_char_width(text) for text, is_escape in atoms if not is_escape)
+def _style_codes(style: tuple) -> str:
+    tracker = _AnsiStateTracker()
+    tracker.restore(style)
+    return tracker.active_codes()
 
 
-def _diff_line(old: str, new: str) -> tuple[int, str, int]:
-    """Ratatui-style cell diff between two versions of the same row.
+def _diff_row(old_line: str, new_line: str, width: int) -> str:
+    """Ratatui `Buffer::diff` for one terminal row.
 
-    Tokenizes both lines into atoms and finds the longest common atom
-    prefix and suffix, mirroring what ratatui's `Buffer::diff` does across
-    a full 2D cell grid. The shared prefix is already on screen with the
-    right SGR state, so it's never resent. The shared suffix is only left
-    in place (rather than cleared and rewritten) when the differing middle
-    span is the same on-screen width in both versions — otherwise the
-    suffix's column position would have shifted, and leaving it untouched
-    would draw stale or overlapping content.
-
-    Returns (prefix_col, middle, suffix_col):
-      - prefix_col: visual column where the differing middle begins.
-      - middle: the new content to write starting at prefix_col.
-      - suffix_col: visual column, right after `middle`, where the reused
-        unchanged suffix resumes; -1 if there is no reused suffix (the
-        renderer must then clear from prefix_col to end-of-line).
+    Parses both lines into `width`-wide Cell grids, finds every cell that
+    changed, and emits the minimal escapes to repaint just those: an
+    absolute column move only when the next write isn't immediately
+    adjacent to the previous one (mirroring crossterm backend's `last_pos`
+    coalescing), and SGR codes only when a cell's resolved style differs
+    from the previously written cell's rather than once per character.
+    Continuation cells (the second column of a double-width glyph) are
+    never targeted directly — printing the owning glyph already covers
+    both columns on a real terminal.
     """
-    old_atoms = _tokenize(old)
-    new_atoms = _tokenize(new)
+    old_cells = _parse_cells(old_line, width)
+    new_cells = _parse_cells(new_line, width)
 
-    max_common = min(len(old_atoms), len(new_atoms))
-    p = 0
-    while p < max_common and old_atoms[p] == new_atoms[p]:
-        p += 1
+    out: list[str] = []
+    expected_col = -1
+    active_style = _BLANK_STYLE
+    for col in range(width):
+        symbol, cell_style = new_cells[col]
+        if symbol == "" or new_cells[col] == old_cells[col]:
+            continue
+        if col != expected_col:
+            out.append(f"\x1b[{col + 1}G")
+        if cell_style != active_style:
+            out.append(RESET if cell_style == _BLANK_STYLE else _style_codes(cell_style))
+            active_style = cell_style
+        out.append(symbol)
+        glyph_width = 2 if col + 1 < width and new_cells[col + 1][0] == "" else 1
+        expected_col = col + glyph_width
 
-    max_suffix = max_common - p
-    s = 0
-    while s < max_suffix and old_atoms[len(old_atoms) - 1 - s] == new_atoms[len(new_atoms) - 1 - s]:
-        s += 1
-
-    old_middle = old_atoms[p : len(old_atoms) - s]
-    new_middle = new_atoms[p : len(new_atoms) - s] if s else new_atoms[p:]
-
-    if s and _atoms_width(old_middle) != _atoms_width(new_middle):
-        # The replaced span changed width, so the shared suffix would land
-        # at a different column than where it's currently drawn — not safe
-        # to reuse in place. Fall back to rewriting through end-of-line.
-        s = 0
-        new_middle = new_atoms[p:]
-
-    prefix_col = _atoms_width(new_atoms[:p])
-    middle = "".join(text for text, _ in new_middle)
-    suffix_col = prefix_col + _atoms_width(new_middle) if s else -1
-    return prefix_col, middle, suffix_col
+    if active_style != _BLANK_STYLE:
+        out.append(RESET)
+    return "".join(out)
 
 
 def _composite_line(base: str, overlay: str, col: int, ov_width: int, total_width: int) -> str:
