@@ -2,6 +2,23 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.6 — 2026-07-03
+
+### Added
+
+- New `web` extension for web search and page fetching, with pluggable
+  engines (DuckDuckGo, Exa, Jina, Tavily).
+- New `watch` extension for retrieving video metadata and transcripts via
+  `yt-dlp`.
+
+### Changed
+
+- Migrated telemetry from a raw `httpx` install ping to the official
+  PostHog SDK, moved into its own `tau/telemetry` package, and added
+  crash reporting via PostHog's exception autocapture. Both the install
+  ping and the exception client run without blocking startup or delaying
+  process exit on shutdown.
+
 ## 0.5.5 — 2026-07-03
 
 ### Fixed
