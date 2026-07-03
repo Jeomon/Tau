@@ -2,6 +2,16 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.5.7 — 2026-07-03
+
+### Fixed
+
+- Built-in extensions now install their declared `manifest.json`
+  dependencies on first load, same as project and global extensions. The
+  `web` extension's `ddgs` / `exa-py` / `tavily-python` dependencies were
+  previously never installed, since built-ins were explicitly skipped by
+  the dependency-install step.
+
 ## 0.5.6 — 2026-07-03
 
 ### Added
