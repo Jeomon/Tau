@@ -513,9 +513,27 @@ class Renderer:
             if i > first_changed:
                 buf += "\r\n"
                 hw_cursor += 1
-            buf += "\x1b[2K"
-            if i < len(new_lines) and new_lines[i]:
-                buf += new_lines[i]
+            old_line = prev[i] if i < len(prev) else ""
+            new_line = new_lines[i] if i < len(new_lines) else ""
+            if old_line == new_line:
+                # Unchanged line inside a repainted span: still occupies a row
+                # (needed so surrounding changed rows land correctly) but its
+                # own content is already correct on screen, so redraw it as-is
+                # rather than clearing and rewriting.
+                buf += "\x1b[2K"
+                if new_line:
+                    buf += new_line
+                continue
+            # Ratatui-style cell diffing: only touch the columns that actually
+            # changed. Skip re-emitting the identical leading run of characters
+            # (and its ANSI styling) and clear-to-end-of-line instead of the
+            # whole line, so e.g. a spinner tick or an appended character
+            # rewrites a handful of columns instead of the entire row.
+            prefix_col, prefix_end = _common_prefix(old_line, new_line)
+            if prefix_col > 0:
+                buf += f"\x1b[{prefix_col + 1}G"
+            buf += "\x1b[0K"
+            buf += new_line[prefix_end:]
 
         final_cursor_row = render_end
 
@@ -713,6 +731,40 @@ def _split_at_column(text: str, col: int) -> tuple[str, str]:
         vis += w
         i += 1
     return text[:i], text[i:]
+
+
+def _common_prefix(old: str, new: str) -> tuple[int, int]:
+    """ANSI-safe common-prefix scan between two lines.
+
+    Walks both strings token-by-token (an "atom" is either one complete ANSI
+    escape sequence or one visible character) and stops at the first atom
+    that differs. Because the shared prefix is byte-identical between the two
+    lines, replaying `new`'s suffix onto a terminal that already displayed
+    `old` leaves it in the same SGR state `new`'s prefix would have produced,
+    so no styling needs to be resent.
+
+    Returns (visual_col, new_index): the on-screen column width of the shared
+    prefix, and the raw offset into `new` where the differing remainder
+    starts.
+    """
+    i = j = 0
+    col = 0
+    len_old, len_new = len(old), len(new)
+    while i < len_old and j < len_new:
+        m_old = _ANSI_RE.match(old, i)
+        m_new = _ANSI_RE.match(new, j)
+        if m_old or m_new:
+            if not (m_old and m_new) or m_old.group(0) != m_new.group(0):
+                break
+            i += len(m_old.group(0))
+            j += len(m_new.group(0))
+            continue
+        if old[i] != new[j]:
+            break
+        col += _char_width(old[i])
+        i += 1
+        j += 1
+    return col, j
 
 
 def _composite_line(base: str, overlay: str, col: int, ov_width: int, total_width: int) -> str:

@@ -100,6 +100,43 @@ class TestRendererDifferentialUpdate:
         assert "a" not in content[0]
         assert "c" not in content[0]
 
+    def test_appended_suffix_only_rewrites_from_divergence_point(self):
+        """Ratatui-style cell diffing: a changed line reuses its unchanged
+        leading run instead of clearing and rewriting the whole line."""
+        term = FakeTerminal()
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        renderer.render(StaticComponent(["hello wor"]))
+        term.writes.clear()
+
+        renderer.render(StaticComponent(["hello world"]))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        # Only the diverging suffix is written, not the shared "hello wor" prefix.
+        assert "ld" in content[0]
+        assert "hello wor" not in content[0]
+        # Cursor is repositioned to the divergence column with an absolute
+        # column move, and only the tail is cleared — not the whole line.
+        assert "G" in content[0]
+        assert "\x1b[0K" in content[0]
+        assert "\x1b[2K" not in content[0]
+
+    def test_prefix_diff_preserves_ansi_styling_state(self):
+        """A style code shared by the unchanged prefix must not be re-sent,
+        since the terminal already has it active from the previous frame."""
+        term = FakeTerminal()
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        renderer.render(StaticComponent(["\x1b[31mred a"]))
+        term.writes.clear()
+
+        renderer.render(StaticComponent(["\x1b[31mred b"]))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "\x1b[31m" not in content[0]
+        assert "b" in content[0]
+        assert "red" not in content[0]
+
     def test_sparse_changes_redraw_full_span_including_unchanged_lines(self):
         """Documents the known limitation: two far-apart changed lines cause the
         whole span between them to be repainted, not just the two changed lines.
