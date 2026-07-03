@@ -15,7 +15,7 @@ Start a conversation with the agent in the terminal.
 ### Installation
 
 ```bash
-uv pip install tau-coding-agent
+pip install tau-coding-agent
 ```
 
 Or install from source:
