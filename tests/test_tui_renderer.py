@@ -137,6 +137,41 @@ class TestRendererDifferentialUpdate:
         assert "b" in content[0]
         assert "red" not in content[0]
 
+    def test_mid_line_same_width_change_reuses_trailing_suffix(self):
+        """A same-width in-place edit (e.g. a spinner glyph or a counter digit
+        flipping) rewrites only the changed cell and leaves the unchanged
+        trailing text on screen untouched — no end-of-line clear needed."""
+        term = FakeTerminal()
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        renderer.render(StaticComponent(["Loading | please wait"]))
+        term.writes.clear()
+
+        renderer.render(StaticComponent(["Loading / please wait"]))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "/" in content[0]
+        assert "Loading" not in content[0]
+        assert "please wait" not in content[0]
+        # No end-of-line clear: the unchanged suffix is reused in place.
+        assert "\x1b[0K" not in content[0]
+        assert "\x1b[2K" not in content[0]
+
+    def test_mid_line_width_change_falls_back_to_clear_to_eol(self):
+        """When the replaced span changes width, the trailing text would land
+        at a different column, so it must be rewritten rather than reused."""
+        term = FakeTerminal()
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        renderer.render(StaticComponent(["hello world"]))
+        term.writes.clear()
+
+        renderer.render(StaticComponent(["hello there world"]))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "there world" in content[0]
+        assert "\x1b[0K" in content[0]
+
     def test_sparse_changes_redraw_full_span_including_unchanged_lines(self):
         """Documents the known limitation: two far-apart changed lines cause the
         whole span between them to be repainted, not just the two changed lines.

@@ -526,14 +526,16 @@ class Renderer:
                 continue
             # Ratatui-style cell diffing: only touch the columns that actually
             # changed. Skip re-emitting the identical leading run of characters
-            # (and its ANSI styling) and clear-to-end-of-line instead of the
-            # whole line, so e.g. a spinner tick or an appended character
-            # rewrites a handful of columns instead of the entire row.
-            prefix_col, prefix_end = _common_prefix(old_line, new_line)
+            # (and its ANSI styling), and if an identical trailing run also
+            # survives at the same column (e.g. a spinner glyph or a counter
+            # digit flipping in place), leave it on screen untouched instead
+            # of clearing and rewriting the rest of the line.
+            prefix_col, middle, suffix_col = _diff_line(old_line, new_line)
             if prefix_col > 0:
                 buf += f"\x1b[{prefix_col + 1}G"
-            buf += "\x1b[0K"
-            buf += new_line[prefix_end:]
+            if suffix_col == -1:
+                buf += "\x1b[0K"
+            buf += middle
 
         final_cursor_row = render_end
 
@@ -733,38 +735,77 @@ def _split_at_column(text: str, col: int) -> tuple[str, str]:
     return text[:i], text[i:]
 
 
-def _common_prefix(old: str, new: str) -> tuple[int, int]:
-    """ANSI-safe common-prefix scan between two lines.
+def _tokenize(line: str) -> list[tuple[str, bool]]:
+    """Split a line into atoms: one complete ANSI escape sequence or one
+    visible character each, tagged with whether it's an escape.
 
-    Walks both strings token-by-token (an "atom" is either one complete ANSI
-    escape sequence or one visible character) and stops at the first atom
-    that differs. Because the shared prefix is byte-identical between the two
-    lines, replaying `new`'s suffix onto a terminal that already displayed
-    `old` leaves it in the same SGR state `new`'s prefix would have produced,
-    so no styling needs to be resent.
-
-    Returns (visual_col, new_index): the on-screen column width of the shared
-    prefix, and the raw offset into `new` where the differing remainder
-    starts.
+    This is the unit ratatui's `Cell` plays in `Buffer` — the smallest
+    piece that can be individually compared and repositioned.
     """
-    i = j = 0
-    col = 0
-    len_old, len_new = len(old), len(new)
-    while i < len_old and j < len_new:
-        m_old = _ANSI_RE.match(old, i)
-        m_new = _ANSI_RE.match(new, j)
-        if m_old or m_new:
-            if not (m_old and m_new) or m_old.group(0) != m_new.group(0):
-                break
-            i += len(m_old.group(0))
-            j += len(m_new.group(0))
-            continue
-        if old[i] != new[j]:
-            break
-        col += _char_width(old[i])
-        i += 1
-        j += 1
-    return col, j
+    atoms: list[tuple[str, bool]] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        m = _ANSI_RE.match(line, i)
+        if m:
+            atoms.append((m.group(0), True))
+            i += len(m.group(0))
+        else:
+            atoms.append((line[i], False))
+            i += 1
+    return atoms
+
+
+def _atoms_width(atoms: list[tuple[str, bool]]) -> int:
+    return sum(_char_width(text) for text, is_escape in atoms if not is_escape)
+
+
+def _diff_line(old: str, new: str) -> tuple[int, str, int]:
+    """Ratatui-style cell diff between two versions of the same row.
+
+    Tokenizes both lines into atoms and finds the longest common atom
+    prefix and suffix, mirroring what ratatui's `Buffer::diff` does across
+    a full 2D cell grid. The shared prefix is already on screen with the
+    right SGR state, so it's never resent. The shared suffix is only left
+    in place (rather than cleared and rewritten) when the differing middle
+    span is the same on-screen width in both versions — otherwise the
+    suffix's column position would have shifted, and leaving it untouched
+    would draw stale or overlapping content.
+
+    Returns (prefix_col, middle, suffix_col):
+      - prefix_col: visual column where the differing middle begins.
+      - middle: the new content to write starting at prefix_col.
+      - suffix_col: visual column, right after `middle`, where the reused
+        unchanged suffix resumes; -1 if there is no reused suffix (the
+        renderer must then clear from prefix_col to end-of-line).
+    """
+    old_atoms = _tokenize(old)
+    new_atoms = _tokenize(new)
+
+    max_common = min(len(old_atoms), len(new_atoms))
+    p = 0
+    while p < max_common and old_atoms[p] == new_atoms[p]:
+        p += 1
+
+    max_suffix = max_common - p
+    s = 0
+    while s < max_suffix and old_atoms[len(old_atoms) - 1 - s] == new_atoms[len(new_atoms) - 1 - s]:
+        s += 1
+
+    old_middle = old_atoms[p : len(old_atoms) - s]
+    new_middle = new_atoms[p : len(new_atoms) - s] if s else new_atoms[p:]
+
+    if s and _atoms_width(old_middle) != _atoms_width(new_middle):
+        # The replaced span changed width, so the shared suffix would land
+        # at a different column than where it's currently drawn — not safe
+        # to reuse in place. Fall back to rewriting through end-of-line.
+        s = 0
+        new_middle = new_atoms[p:]
+
+    prefix_col = _atoms_width(new_atoms[:p])
+    middle = "".join(text for text, _ in new_middle)
+    suffix_col = prefix_col + _atoms_width(new_middle) if s else -1
+    return prefix_col, middle, suffix_col
 
 
 def _composite_line(base: str, overlay: str, col: int, ov_width: int, total_width: int) -> str:
