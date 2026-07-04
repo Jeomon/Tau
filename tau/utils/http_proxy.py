@@ -176,7 +176,11 @@ def get_proxies_for_client(
 
     Returns a dict keyed by URL scheme; build httpx transports/mounts from it:
         proxies = get_proxies_for_client(api_base_url)
-        mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
+        mounts = (
+            {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()}
+            if proxies
+            else None
+        )
         async with httpx.AsyncClient(mounts=mounts) as client:
             ...
 

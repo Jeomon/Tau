@@ -281,11 +281,14 @@ def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
     assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
 
 
-def test_toggling_expand_refreezes_on_the_next_call() -> None:
-    """Regression: after ctrl+o expands a big tool result, the invalidation
-    reset must only cost one slow (full-rebuild) frame — the very next call
-    should refreeze everything eligible (i.e. not the still-last unit),
-    not leave the expanded content permanently in live_lines."""
+def test_toggle_details_expanded_does_not_touch_frozen_blocks() -> None:
+    """Regression: toggling used to bump _invalidation_seq unconditionally,
+    which resets and fully rebuilds the *entire* frozen cache in one
+    synchronous call — for a long session that's re-running markdown/tool
+    render for potentially hundreds of blocks in a single frame, freezing the
+    spinner and input for however long that takes. Toggling must only touch
+    still-live (not yet frozen) blocks, so a frozen cache never needs
+    rebuilding just because of a ctrl+o press."""
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 5)
     big_result = "\n".join(f"line {i}" for i in range(300))
@@ -295,9 +298,31 @@ def test_toggling_expand_refreezes_on_the_next_call() -> None:
     ml.add_message(UserMessage.from_text("thanks"))  # proves the tool result is done
     ml.render_split_cells(WIDTH)
     assert ml._frozen_block_count == len(ml._blocks) - 1
+    frozen_buf_before = ml._frozen_buf
+    frozen_seq_before = ml._frozen_seq
 
-    ml.toggle_details_expanded()  # bumps invalidation, forces one full rebuild
+    ml.toggle_details_expanded()  # the tool result is already frozen — locked in, not touched
 
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    # No cache reset happened: same object, same generation.
+    assert ml._frozen_buf is frozen_buf_before
+    assert ml._frozen_seq == frozen_seq_before
     assert ml._frozen_block_count == len(ml._blocks) - 1
-    assert len(live_lines) < 10
+
+
+def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
+    """The still-live (unfrozen) trailing assistant message must still
+    respond to ctrl+o normally — only already-frozen history is exempt."""
+    ml = MessageList(theme=MessageTheme())
+    ml.add_message(UserMessage.from_text("q"))
+    long_thinking = "\n".join(f"thought {j}" for j in range(8))
+    ml.add_message(
+        AssistantMessage(
+            contents=[ThinkingContent(content=long_thinking), TextContent(content="a")]
+        )
+    )
+    before = ml.render(WIDTH)
+
+    ml.toggle_details_expanded()
+
+    assert ml.render(WIDTH) != before
+    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]

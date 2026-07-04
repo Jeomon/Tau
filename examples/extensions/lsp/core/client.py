@@ -1280,7 +1280,8 @@ class LSPClient:
             return []
 
     async def linked_editing_range(self, file: str, line: int, character: int) -> dict | None:
-        """textDocument/linkedEditingRange — paired ranges that change together (e.g. HTML open/close tags)."""
+        """textDocument/linkedEditingRange — paired ranges that change together "
+        "(e.g. HTML open/close tags)."""
         if not self.supports("linkedEditingRangeProvider"):
             return None
         try:

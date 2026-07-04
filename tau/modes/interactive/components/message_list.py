@@ -757,39 +757,58 @@ class MessageList(Component):
         self._bump_invalidation()
 
     def toggle_details_expanded(self) -> None:
-        """Toggle thinking and tool-result details for assistant/tool blocks."""
+        """Toggle thinking and tool-result details for assistant/tool blocks.
+
+        Only blocks not yet frozen (still in the live tail) are touched.
+        Anything already frozen has, by definition, scrolled past the
+        viewport — repainting it would need the same disruptive full
+        clear-and-redraw a real terminal already requires to alter scrolled-
+        off content, so its expand state is locked in at whatever it was
+        when it froze. This also means there's nothing to invalidate at the
+        frozen-cache level: every block actually touched here was already
+        excluded from frozen_buf, so no full rebuild is needed.
+        """
         from tau.message.types import AssistantMessage, ToolMessage
 
         targets = [
-            b for b in self._blocks if isinstance(b.message, (AssistantMessage, ToolMessage))
+            (i, b)
+            for i, b in enumerate(self._blocks)
+            if isinstance(b.message, (AssistantMessage, ToolMessage))
         ]
         if not targets:
             return
-        new_state = not targets[-1].is_expanded()
-        for b in targets:
+        new_state = not targets[-1][1].is_expanded()
+        for i, b in targets:
+            if i < self._frozen_block_count:
+                continue
             b._expanded = new_state
             b.invalidate()
-        self._bump_invalidation()
 
     def toggle_invocations_expanded(self) -> None:
-        """Ctrl+O — toggle expand/collapse for all template and skill invocation blocks."""
+        """Ctrl+O — toggle expand/collapse for all template and skill invocation blocks.
+
+        See toggle_details_expanded: only still-live (not yet frozen) blocks
+        are touched, so no frozen-cache rebuild is needed here either.
+        """
         from tau.message.types import SkillInvocationMessage, TemplateInvocationMessage
 
         targets = [
-            b
-            for b in self._blocks
+            (i, b)
+            for i, b in enumerate(self._blocks)
             if isinstance(b.message, (TemplateInvocationMessage, SkillInvocationMessage))
         ]
         if not targets:
             return
-        last_msg = targets[-1].message
+        last_msg = targets[-1][1].message
         if isinstance(last_msg, (TemplateInvocationMessage, SkillInvocationMessage)):
             new_state = not last_msg.expanded
-            for b in targets:
-                if isinstance(b.message, (TemplateInvocationMessage, SkillInvocationMessage)):
-                    b.message.expanded = new_state
+            for i, b in targets:
+                if i < self._frozen_block_count:
+                    continue
+                message = b.message
+                if isinstance(message, (TemplateInvocationMessage, SkillInvocationMessage)):
+                    message.expanded = new_state
                     b.invalidate()
-            self._bump_invalidation()
 
     def add_block(self, block: MessageBlock) -> None:
         self._blocks.append(block)

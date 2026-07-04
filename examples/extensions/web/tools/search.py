@@ -42,7 +42,10 @@ class _WebSearchSchema(BaseModel):
     )
     max_results: int = Field(
         default=10,
-        description="Number of results to return (default 10). Increase to 20+ for broader coverage.",
+        description=(
+            "Number of results to return (default 10). "
+            "Increase to 20+ for broader coverage."
+        ),
         examples=[10, 20],
     )
 
@@ -74,7 +77,7 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
     muted = getattr(opts.theme, "muted", _id)
 
     metadata = opts.metadata or {}
-    query = metadata.get("query", "")
+    # query = metadata.get("query", "")  # Unused variable
     mode = metadata.get("mode", "text")
     result_count = metadata.get("result_count", 0)
     results = metadata.get("results", [])
@@ -132,7 +135,10 @@ class WebSearchTool(Tool):
             render_result=_render_web_search,
             render_call=_render_web_search_call,
             render_shell="default",
-            prompt_guidelines="Use for current information not in the codebase. Follow up with web_fetch to read a full page from the results.",
+            prompt_guidelines=(
+                "Use for current information not in the codebase. "
+                "Follow up with web_fetch to read a full page from the results."
+            ),
         )
 
     async def execute(
@@ -150,10 +156,11 @@ class WebSearchTool(Tool):
         max_results = invocation.params.get("max_results", 10)
 
         if not self._engine.supports(mode):
+            modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
             return ToolResult.error(
                 invocation.id,
                 f"The '{self._engine.name}' engine does not support '{mode}' mode. "
-                f"Supported modes: {', '.join(sorted(m.value for m in self._engine.supported_modes))}.",
+                f"Supported modes: {modes_list}.",
             )
 
         try:

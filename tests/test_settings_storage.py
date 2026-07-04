@@ -97,7 +97,7 @@ class TestFileSettingsStorage:
         from tau.settings.storage import FileSettingsStorage
 
         nested = tmp_path / "a" / "b" / "c"
-        storage = FileSettingsStorage(cwd=tmp_path, config_dir=nested)
+        FileSettingsStorage(cwd=tmp_path, config_dir=nested)
         assert (nested / "settings.json").parent.exists()
 
     def test_global_lock_reads_empty_json_when_missing(self, tmp_path):

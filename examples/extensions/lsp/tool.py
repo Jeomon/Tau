@@ -461,7 +461,8 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 s = r.get("start", {})
                 e = r.get("end", {})
                 out.append(
-                    f"{s.get('line', 1)}:{s.get('character', 1)} – {e.get('line', 1)}:{e.get('character', 1)}"
+                    f"{s.get('line', 1)}:{s.get('character', 1)} – "
+                    f"{e.get('line', 1)}:{e.get('character', 1)}"
                 )
             word_pattern = data.get("wordPattern", "")
             if word_pattern:
@@ -480,7 +481,10 @@ class LSPParams(BaseModel):
     )
     file_path: str = Field(
         default="",
-        description="Absolute path to the file to inspect. Required for all ops except workspaceSymbol (a project-wide search).",
+        description=(
+            "Absolute path to the file to inspect. "
+            "Required for all ops except workspaceSymbol (a project-wide search)."
+        ),
         examples=["/home/user/project/src/main.py", "/home/user/project/src/utils.ts"],
     )
     line: int = Field(
@@ -520,7 +524,8 @@ class LSPParams(BaseModel):
     action_kind: str = Field(
         default="",
         description=(
-            "codeAction only: when set, auto-applies the first action matching this kind and writes "
+            "codeAction only: when set, auto-applies the first action "
+            "matching this kind and writes "
             "changes to disk. Common values: 'quickfix', 'refactor', 'source.fixAll', "
             "'source.organizeImports'. Omit to list available actions without applying."
         ),
@@ -575,7 +580,14 @@ def _empty_result_message(params: LSPParams) -> str:
             "Locate it first with documentSymbol or workspaceSymbol, then retry at that position."
         )
         if op in _CALL_HIERARCHY_OPS:
-            msg += " For call hierarchy, anchor on a call site or a symbol reference rather than its declaration."
+            msg += (
+                " For call hierarchy, anchor on a call site or a symbol reference "
+                "rather than its declaration."
+            )
+            msg += (
+                " For call hierarchy, anchor on a call site or a symbol reference "
+                "rather than its declaration."
+            )
         if op == "goToImplementation":
             msg += (
                 " goToImplementation resolves concrete implementations of an interface, trait, "
@@ -758,7 +770,10 @@ class LSPTool(Tool):
                     "new_name": params.new_name,
                     "files": files,
                     "total_edits": total,
-                    "summary": f"Renamed to '{params.new_name}' in {len(files)} file(s) ({total} edit(s)): {', '.join(files)}",
+                    "summary": (
+                        f"Renamed to '{params.new_name}' in {len(files)} file(s) "
+                        f"({total} edit(s)): {', '.join(files)}"
+                    ),
                 }
             case "codeAction":
                 actions = await svc.code_action(file, line, char, end_line, end_char)
@@ -789,7 +804,10 @@ class LSPTool(Tool):
                 total = sum(applied.values())
                 files = list(applied.keys())
                 if files:
-                    summary = f"Applied '{match.get('title', '')}' in {len(files)} file(s) ({total} edit(s)): {', '.join(files)}"
+                    summary = (
+                        f"Applied '{match.get('title', '')}' in {len(files)} file(s) "
+                        f"({total} edit(s)): {', '.join(files)}"
+                    )
                 else:
                     summary = (
                         f"Executed '{match.get('title', '')}' command (edits applied server-side)."

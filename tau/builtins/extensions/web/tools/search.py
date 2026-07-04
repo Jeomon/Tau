@@ -160,10 +160,11 @@ def _format_results(mode: _SearchMode, query: str, results: list[dict]) -> str:
             max_results = invocation.params.get("max_results", 10)
 
             if not self._engine.supports(mode):
+                modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
                 return ToolResult.error(
                     invocation.id,
                     f"The '{self._engine.name}' engine does not support '{mode}' mode. "
-                    f"Supported modes: {', '.join(sorted(m.value for m in self._engine.supported_modes))}.",
+                    f"Supported modes: {modes_list}.",
                 )
 
             try:

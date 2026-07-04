@@ -44,7 +44,8 @@ def _validate_peer_name(name: str) -> str:
     normalized = name.strip()
     if not PEER_NAME_PATTERN.fullmatch(normalized):
         raise ValueError(
-            "Peer names must be 1-64 characters using letters, numbers, dots, underscores, or hyphens."
+            "Peer names must be 1-64 characters using letters, numbers, "
+            "dots, underscores, or hyphens."
         )
     return normalized
 
@@ -129,7 +130,8 @@ def _format_command_result(action: str, result: Any) -> str:
         out = [f"Recent peer messages ({len(result)}):"]
         for it in result:
             out.append(
-                f"  {it.get('sender', '?')}  {it.get('created_at', '')}\n    {_shorten(str(it.get('body', '')))}"
+                f"  {it.get('sender', '?')}  {it.get('created_at', '')}\n"
+                f"    {_shorten(str(it.get('body', '')))}"
             )
         return "\n".join(out)
     if action == "receipts" and isinstance(result, list):
@@ -138,7 +140,8 @@ def _format_command_result(action: str, result: Any) -> str:
         out = [f"Recent delivery receipts ({len(result)}):"]
         for it in result:
             out.append(
-                f"  {str(it.get('message_id', ''))[:8]}  delivered to {it.get('recipient', '?')}  {it.get('delivered_at', '')}"
+                f"  {str(it.get('message_id', ''))[:8]}  delivered to "
+                f"{it.get('recipient', '?')}  {it.get('delivered_at', '')}"
             )
         return "\n".join(out)
     if action == "leave":

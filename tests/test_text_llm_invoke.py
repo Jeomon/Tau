@@ -210,7 +210,7 @@ class TestInvokeRetryOnEmptyResponse:
     def test_retries_on_whitespace_only_text(self):
         async def _run():
             llm = _make_llm([[_text_end("   \n  ")], [_text_end("content")]])
-            result = await llm.invoke(_context())
+            await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
 
         asyncio.run(_run())
@@ -218,7 +218,7 @@ class TestInvokeRetryOnEmptyResponse:
     def test_retries_on_no_text_events_at_all(self):
         async def _run():
             llm = _make_llm([[EndEvent()], [_text_end("ok")]])
-            result = await llm.invoke(_context())
+            await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
 
         asyncio.run(_run())
@@ -251,7 +251,7 @@ class TestInvokeRetryOnEmptyResponse:
                 [_text_delta(""), _text_end("")],
                 [_text_delta("hello"), _text_end("hello")],
             ]
-            result = await llm.invoke(_context())
+            await llm.invoke(_context())
             assert llm.api.invoke.call_count == 2
 
         asyncio.run(_run())
