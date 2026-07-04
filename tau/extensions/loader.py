@@ -456,10 +456,13 @@ class ExtensionLoader:
         from tau.modes.interactive.components.settings_selector import build_manifest_panel
 
         ext_dir = path.parent
-        try:
-            settings_path = str(ext_dir.relative_to(self._cwd))
-        except ValueError:
+        if ext.source == "builtin":
             settings_path = str(ext_dir)
+        else:
+            try:
+                settings_path = str(ext_dir.relative_to(self._cwd))
+            except ValueError:
+                settings_path = str(ext_dir)
         module_path = str(path)  # absolute path of the loaded entry file
 
         def _apply(key: str, value: Any) -> None:
