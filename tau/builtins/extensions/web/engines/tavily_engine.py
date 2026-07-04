@@ -1,4 +1,6 @@
-"""Tavily engine (LLM-oriented search, https://tavily.com). Requires an API key + ``tavily-python``."""
+"""Tavily engine (LLM-oriented search, https://tavily.com).
+Requires an API key + ``tavily-python``.
+"""
 
 from __future__ import annotations
 

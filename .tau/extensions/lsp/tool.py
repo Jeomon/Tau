@@ -266,11 +266,15 @@ def _render_lsp_result(content: str, opts: Any) -> list[str]:
                 pos = h.get("position", {})
                 ln = pos.get("line", 1)
                 ch = pos.get("character", 1)
-                label = h.get("label", "")
-                if isinstance(label, list):
-                    label = "".join(p.get("value", "") if isinstance(p, dict) else str(p) for p in label)
-                kind = h.get("kind", 0)
-                kind_tag = "type" if kind == 1 else "param" if kind == 2 else ""
+            label = h.get("label", "")
+            if isinstance(label, list):
+                # Join label parts safely, split across lines for readability
+                label = "".join(
+                    p.get("value", "") if isinstance(p, dict) else str(p)
+                    for p in label
+                )
+            kind = h.get("kind", 0)
+            kind_tag = "type" if kind == 1 else "param" if kind == 2 else ""
                 tag = f"  {DIM}[{kind_tag}]{RESET}" if kind_tag else ""
                 out.append(f"{ln}:{ch}  {label}{tag}")
             return out

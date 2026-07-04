@@ -11,6 +11,7 @@ from typing import Any
 
 # Import Peer and PeerMessage types
 from .types import Peer, PeerMessage
+
 # Constants (mirrored from the original implementation)
 # ----------------------------------------------------------------------
 PROTOCOL_VERSION = 1
