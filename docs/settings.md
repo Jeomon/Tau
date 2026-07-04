@@ -415,7 +415,7 @@ Override token budgets for each thinking level:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `quiet_startup` | boolean | `false` | Suppress the startup notice |
+| `quiet_startup` | boolean | `false` | Suppress the startup notice without hiding resumed session history |
 
 ### Project Trust
 

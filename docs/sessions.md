@@ -63,6 +63,9 @@ Or the short form:
 tau -r
 ```
 
+After resuming, `/new` always starts an empty session; the startup resume
+selection is not reused for later session changes.
+
 ### Browse Sessions
 
 Choose from a list of previous sessions interactively:

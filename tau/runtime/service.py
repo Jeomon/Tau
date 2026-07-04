@@ -790,7 +790,10 @@ class Runtime:
         """Shut down the current session and start a fresh one."""
         await self._emit_session_shutdown(SessionShutdownReason.New)
         self._extension_generation += 1
-        self._config = self._config.model_copy(update={"session_file": None})
+        # ``resume`` is a startup instruction, not persistent runtime state.
+        # Leaving it enabled makes /new call continue_recent() and reopen the
+        # previous conversation instead of creating an empty session.
+        self._config = self._config.model_copy(update={"session_file": None, "resume": False})
         self._context = await RuntimeContext.create(
             self._config,
             settings_manager=self.settings_manager,

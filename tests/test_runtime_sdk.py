@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from tau.extensions.api import ExtensionAPI, ExtensionError
 from tau.hooks.runtime import RuntimeReadyEvent
 from tau.hooks.service import Hooks
@@ -76,6 +78,45 @@ def test_runtime_exposes_steering_and_follow_up() -> None:
 
     assert engine.steering[0].contents[0].content == "redirect"  # type: ignore[union-attr]
     assert engine.followups[0].contents[0].content == "then continue"  # type: ignore[union-attr]
+
+
+def test_new_session_clears_startup_resume_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    runtime = object.__new__(Runtime)
+    runtime._config = RuntimeConfig(cwd=tmp_path, resume=True)
+    runtime._context = SimpleNamespace(  # type: ignore[assignment]
+        settings_manager=None,
+        hooks=None,
+        ext_runtime=None,
+    )
+    runtime._extension_generation = 0
+    captured: list[RuntimeConfig] = []
+
+    async def create_context(
+        cls: type[RuntimeContext],
+        config: RuntimeConfig,
+        settings_manager: Any = None,
+        hooks: Any = None,
+        ext_runtime: Any = None,
+    ) -> Any:
+        captured.append(config)
+        return SimpleNamespace()
+
+    async def no_op(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(RuntimeContext, "create", classmethod(create_context))
+    monkeypatch.setattr(runtime, "_emit_session_shutdown", no_op)
+    monkeypatch.setattr(runtime, "_emit_session_start", no_op)
+    monkeypatch.setattr(runtime, "_run_with_session", no_op)
+    monkeypatch.setattr(runtime, "_reinit_after_context_create", lambda: None)
+
+    asyncio.run(runtime.new_session())
+
+    assert len(captured) == 1
+    assert captured[0].session_file is None
+    assert captured[0].resume is False
 
 
 def test_runtime_tool_filters() -> None:
