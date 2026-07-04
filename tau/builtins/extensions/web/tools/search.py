@@ -122,57 +122,57 @@ def _format_results(mode: _SearchMode, query: str, results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-    class WebSearchTool(Tool):
-        def __init__(self, engine: BaseSearchEngine) -> None:
-            self._engine = engine
-            super().__init__(
-                name="web_search",
-                description=(
-                    "Search the web and return results. Supports multiple modes: "
-                    "'text' for pages, 'news' for articles, 'images' for pictures, "
-                    "'videos' for video content, 'books' for books. "
-                    "Follow up with web_fetch to read the full content of a result."
-                ),
-                schema=_WebSearchSchema,
-                kind=ToolKind.Web,
-                execution_mode=ToolExecutionMode.Parallel,
-                render_result=_render_web_search,
-                render_call=_render_web_search_call,
-                render_shell="default",
-                prompt_guidelines=(
-                    "Use for current information not in the codebase. "
-                    "Follow up with web_fetch to read a full page from the results."
-                ),
+class WebSearchTool(Tool):
+    def __init__(self, engine: BaseSearchEngine) -> None:
+        self._engine = engine
+        super().__init__(
+            name="web_search",
+            description=(
+                "Search the web and return results. Supports multiple modes: "
+                "'text' for pages, 'news' for articles, 'images' for pictures, "
+                "'videos' for video content, 'books' for books. "
+                "Follow up with web_fetch to read the full content of a result."
+            ),
+            schema=_WebSearchSchema,
+            kind=ToolKind.Web,
+            execution_mode=ToolExecutionMode.Parallel,
+            render_result=_render_web_search,
+            render_call=_render_web_search_call,
+            render_shell="default",
+            prompt_guidelines=(
+                "Use for current information not in the codebase. "
+                "Follow up with web_fetch to read a full page from the results."
+            ),
+        )
+
+    async def execute(
+        self,
+        invocation: ToolInvocation,
+        tool_execution_update_callback=None,
+        signal=None,
+        context: ToolContext | None = None,
+    ) -> ToolResult:
+        query = invocation.params.get("query")
+        if not query:
+            return ToolResult.error(invocation.id, "Parameter 'query' is required.")
+
+        mode = _SearchMode(invocation.params.get("mode", _SearchMode.text))
+        max_results = invocation.params.get("max_results", 10)
+
+        if not self._engine.supports(mode):
+            modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
+            return ToolResult.error(
+                invocation.id,
+                f"The '{self._engine.name}' engine does not support '{mode}' mode. "
+                f"Supported modes: {modes_list}.",
             )
 
-        async def execute(
-            self,
-            invocation: ToolInvocation,
-            tool_execution_update_callback=None,
-            signal=None,
-            context: ToolContext | None = None,
-        ) -> ToolResult:
-            query = invocation.params.get("query")
-            if not query:
-                return ToolResult.error(invocation.id, "Parameter 'query' is required.")
+        try:
+            results = await self._engine.search(query, mode, max_results)
+        except Exception as e:
+            return ToolResult.error(invocation.id, f"Search failed: {e}")
 
-            mode = _SearchMode(invocation.params.get("mode", _SearchMode.text))
-            max_results = invocation.params.get("max_results", 10)
-
-            if not self._engine.supports(mode):
-                modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
-                return ToolResult.error(
-                    invocation.id,
-                    f"The '{self._engine.name}' engine does not support '{mode}' mode. "
-                    f"Supported modes: {modes_list}.",
-                )
-
-            try:
-                results = await self._engine.search(query, mode, max_results)
-            except Exception as e:
-                return ToolResult.error(invocation.id, f"Search failed: {e}")
-
-            metadata = {
+        metadata = {
                 "query": query,
                 "mode": str(mode),
                 "result_count": len(results),
@@ -181,15 +181,15 @@ def _format_results(mode: _SearchMode, query: str, results: list[dict]) -> str:
                 "engine": self._engine.name,
             }
 
-            if not results:
-                return ToolResult.ok(
-                    invocation.id,
-                    f"No results found for: {query}",
-                    metadata=metadata,
-                )
-
+        if not results:
             return ToolResult.ok(
                 invocation.id,
-                _format_results(mode, query, results),
+                f"No results found for: {query}",
                 metadata=metadata,
             )
+
+        return ToolResult.ok(
+            invocation.id,
+            _format_results(mode, query, results),
+            metadata=metadata,
+        )
