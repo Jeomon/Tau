@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from tau.builtins.tools.hashline import HASH_LEN, compute_line_hashes
+from tau.builtins.tools.utils import HASH_LEN, compute_line_hashes
 
 
 def test_unique_lines_keep_the_plain_isolated_hash():

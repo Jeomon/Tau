@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.hashline import compute_line_hashes
+from tau.builtins.tools.utils import atomic_write_text, compute_line_hashes, serialize_file_mutation
 from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (

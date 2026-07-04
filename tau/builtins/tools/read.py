@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.hashline import compute_line_hashes
+from tau.builtins.tools.utils import compute_line_hashes
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
