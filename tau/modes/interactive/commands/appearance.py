@@ -412,7 +412,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
 
         ext_settings_map = {e.path: (e.settings or {}) for e in sm.get_all_extension_entries()}
 
-        for ext in ext_runtime._extensions:
+        for ext in ext_runtime.get_extensions():
             for reg in ext.settings_registrations:
                 p = _Path(ext.path)
                 ext_dir = str(p.parent)

@@ -325,6 +325,9 @@ await runtime.execute_terminal("git status")
 | `runtime.settings_manager` | `SettingsManager` | Settings access |
 | `runtime.extension_runtime` | `ExtensionRuntime \| None` | Loaded extensions |
 
+`ExtensionRuntime.get_extensions()` returns the loaded extensions in
+registration order as a read-only tuple.
+
 ## Listening to Events
 
 Subscribe to the hook bus directly to observe what the agent does:

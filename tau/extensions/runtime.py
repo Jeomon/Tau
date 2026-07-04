@@ -184,6 +184,10 @@ class ExtensionRuntime:
 
     # ── Accessors ─────────────────────────────────────────────────────────────
 
+    def get_extensions(self) -> tuple[Extension, ...]:
+        """Return loaded extensions in registration order."""
+        return tuple(self._extensions)
+
     def get_tools(self) -> list[Tool]:
         """Return all tools registered by extensions (last-writer-wins on name)."""
         tools: dict[str, Any] = {}

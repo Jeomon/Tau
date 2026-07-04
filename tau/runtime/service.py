@@ -601,7 +601,7 @@ class Runtime:
                     )
                 )
 
-        for ext in new_ext._extensions:
+        for ext in new_ext.get_extensions():
             await self._emit_to_extension(ext, "extension_reloaded")
         if self._extension_ui_refresh is not None:
             self._extension_ui_refresh()

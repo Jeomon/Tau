@@ -87,6 +87,21 @@ def test_load_inline_extensions_isolates_factory_errors(tmp_path: Path) -> None:
     assert [extension.prompt_appends for extension in result.extensions] == [["loaded"]]
 
 
+def test_extension_runtime_exposes_loaded_extensions_read_only() -> None:
+    from tau.extensions.api import Extension, LoadExtensionsResult
+
+    extension = Extension(path="test")
+    runtime = ExtensionRuntime(
+        LoadExtensionsResult(extensions=[extension]),
+        Hooks(),
+        _RuntimeRef(),
+    )
+
+    assert runtime.get_extensions() == (extension,)
+
+    runtime.unsubscribe()
+
+
 def test_inline_extension_reload_does_not_duplicate_handlers(tmp_path: Path) -> None:
     calls = 0
     hooks = Hooks()
