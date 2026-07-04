@@ -229,6 +229,26 @@ def test_large_finished_unit_freezes_once_something_follows_it() -> None:
     assert len(live_lines) < 10
 
 
+def test_finalized_large_unit_freezes_immediately_even_while_last() -> None:
+    """Regression: a !shell-command's output (or the terminal tool's) can sit
+    as the last message for a while if the user starts typing right after it
+    finishes, before anything else is added — "not last" alone would leave it
+    live (and slow) for that whole window. finalize() lets the driver
+    (agent_hooks.py, at the exact point it drops its own reference to the
+    block) prove immediately that nothing will touch it again."""
+    ml = MessageList(theme=MessageTheme())
+    ml.add_message(UserMessage.from_text("!ruff check"))
+    huge_output = "\n".join(f"ruff output line {i}" for i in range(500))
+    block = ml.add_message(AssistantMessage.from_text(huge_output))
+    block.set_streaming(False)
+    block.finalize()  # mirrors agent_hooks.py's terminal-execution-end handler
+
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+
+    assert ml._frozen_block_count == len(ml._blocks)
+    assert len(live_lines) == 0
+
+
 def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
     """Regression: the interactive app creates an assistant's placeholder
     block at message_start with streaming=False (real streaming only starts

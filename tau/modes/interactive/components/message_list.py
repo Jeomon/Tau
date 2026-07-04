@@ -83,6 +83,7 @@ class MessageBlock:
     ) -> None:
         self._message = message
         self._streaming = streaming
+        self._finalized = False
         self._expanded = False
         self._theme = theme or MessageTheme()
         self._user_prefix = user_prefix
@@ -127,6 +128,25 @@ class MessageBlock:
         if self._streaming != value:
             self._streaming = value
             self.invalidate()
+
+    def finalize(self) -> None:
+        """Mark this block as guaranteed to never be mutated again.
+
+        ``is_streaming`` alone isn't sufficient proof of that — the driver
+        that owns a block's lifecycle (agent_hooks.py) can report
+        streaming=False for a moment before the block is truly done (e.g. the
+        placeholder created at message_start, or a lull between token-batch
+        flushes). Call this only at the exact point that driver is dropping
+        its own reference to the block for good, so MessageList can freeze it
+        immediately regardless of position instead of waiting for some later
+        message to prove it's finished.
+        """
+        self._finalized = True
+
+    @property
+    def is_settled(self) -> bool:
+        """Return whether this block is explicitly confirmed to be finished."""
+        return self._finalized
 
     def set_theme(self, theme: MessageTheme) -> None:
         self._theme = theme
@@ -919,22 +939,24 @@ class MessageList(Component):
         rebuilt, so a caller can splice its rows straight into the frame
         buffer instead of re-parsing ANSI text that hasn't changed.
 
-        A unit freezes once it is no longer the last unit AND none of its
-        blocks are streaming. Both conditions matter: the ``streaming`` flag
-        alone is not a reliable one-way signal — the interactive app creates
-        an assistant's placeholder block at message_start with
-        streaming=False (real content, and streaming=True, only arrive once
-        the first token lands), and can also momentarily report
-        streaming=False between token-batch flushes before the message is
-        actually done. Freezing is a one-way operation with no re-check, so
-        freezing a unit that looks "done" for a moment but isn't yet
-        permanently hides every update that arrives afterward. The one
-        invariant that does hold: once something else has been added after a
-        unit, the app has moved on and will never mutate that unit in place
-        again (a new message_start reassigns its own current-block pointer
-        rather than continuing to target the old one) — so "not last" is the
-        one real proof of finality; "not streaming" is only a secondary
-        guard. A unit frozen here that later turns out to still need
+        A unit freezes once none of its blocks are streaming AND either (a) it
+        is explicitly marked settled (MessageBlock.finalize(), called by the
+        driver the instant it drops its own reference to a block for good —
+        e.g. a !shell command's output completing, or a plain tool result
+        with no further tracking) or (b) it is no longer the last unit.
+
+        Neither ``streaming`` alone nor plain position is sufficient proof of
+        finality on its own. The interactive app creates an assistant's
+        placeholder block at message_start with streaming=False (real
+        content, and streaming=True, only arrive once the first token
+        lands), and can momentarily report streaming=False between
+        token-batch flushes before the message is actually done — freezing
+        is one-way with no re-check, so freezing a unit that looks "done" for
+        a moment but isn't yet permanently hides every update that arrives
+        afterward. For a block never explicitly finalized, "not last" is the
+        fallback proof of finality (once something else has been added
+        after it, the app has moved on and will never mutate it in place
+        again). A unit frozen here that later turns out to still need
         changing (e.g. undo pops it, or a toggle mutates it) is still safe:
         popping past the frozen boundary is caught by _guard_frozen_bounds,
         and any mutation bumps _invalidation_seq — both force a one-time full
@@ -954,9 +976,11 @@ class MessageList(Component):
         for i, (start_idx, end_idx, unit_lines) in enumerate(units):
             if end_idx <= self._frozen_block_count:
                 continue
+            blocks = self._blocks[start_idx:end_idx]
+            streaming = any(b.is_streaming for b in blocks)
             is_last_unit = i == len(units) - 1
-            streaming = any(b.is_streaming for b in self._blocks[start_idx:end_idx])
-            if is_last_unit or streaming:
+            settled = all(b.is_settled for b in blocks)
+            if streaming or (is_last_unit and not settled):
                 live_lines.extend(unit_lines)
                 continue
             if self._frozen_buf is None:

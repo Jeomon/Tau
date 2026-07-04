@@ -131,7 +131,11 @@ class AgentHookHandler:
                 if sm is not None:
                     ctx = sm.build_session_context()
                     for msg in ctx.messages:
-                        self._layout.add_message(msg)
+                        # A one-shot replay of persisted history — nothing keeps a
+                        # reference to mutate these blocks again, so they're safe
+                        # to freeze immediately rather than only once something
+                        # newer is added after them.
+                        self._layout.add_message(msg).finalize()
         sm = self._runtime.session_manager
         if sm is not None:
             self._layout.set_cwd(sm.cwd)
@@ -249,7 +253,9 @@ class AgentHookHandler:
             if self._current_block is not None:
                 self._update_block(msg, streaming=False, clear=True)
             else:
-                self._layout.add_message(msg)
+                # No streaming reference was ever kept for this one (e.g. a
+                # tool result) — nothing will mutate it later.
+                self._layout.add_message(msg).finalize()
         self._tui.request_render()
 
     async def _on_message_rollback(self, event: object) -> None:
@@ -293,6 +299,9 @@ class AgentHookHandler:
         else:
             if self._current_terminal_block is not None:
                 self._current_terminal_block.set_streaming(False)
+                # Dropping our own reference for good right here — safe to
+                # freeze immediately even if it's still the last message.
+                self._current_terminal_block.finalize()
                 self._current_terminal_block = None
         self._tui.request_render()
 
@@ -365,6 +374,9 @@ class AgentHookHandler:
         self._current_block.set_streaming(streaming)
         self._current_block.invalidate()
         if clear:
+            # Dropping our own reference for good right here — safe to
+            # freeze immediately even if it's still the last message.
+            self._current_block.finalize()
             self._current_block = None
             self._current_text_length = 0
 
