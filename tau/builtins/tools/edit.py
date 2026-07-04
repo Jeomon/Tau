@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.hashline import compute_line_hashes
 from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -59,7 +60,14 @@ class EditParams(BaseModel):
 
 
 def _line_hash(line: str) -> str:
-    """Return the four-character hash used in read-tool anchors."""
+    """Return an isolated per-line hash for cosmetic diff-preview display only.
+
+    Used solely by _render_hunk_line (the human-facing TUI diff panel), which
+    only has the changed lines in front of it, not the whole file — so it
+    can't run the collision-resolved compute_line_hashes over full context.
+    Anchor *resolution* (_find_anchor) never uses this; it always hashes the
+    complete file so identical/blank lines still get distinct anchors.
+    """
     stripped = line.strip()
     return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
 
@@ -70,12 +78,22 @@ def _parse_anchor(anchor: str) -> tuple[int, str]:
     return int(line_number), line_hash
 
 
-def _find_anchor(lines: list[str], anchor: str) -> int | None:
-    """Find the matching line nearest the anchor's original line number."""
+def _find_anchor(lines: list[str], anchor: str, hashes: list[str] | None = None) -> int | None:
+    """Find the line matching the anchor's hash.
+
+    ``hashes`` (from ``compute_line_hashes``) are unique per file, so a match
+    is normally unambiguous — the line-number hint is only used to break a
+    tie in the pathological case where the file is long enough to exhaust the
+    collision-resolution retry budget and two lines end up sharing a hash.
+    """
     line_hint, expected_hash = _parse_anchor(anchor)
-    matches = [index for index, line in enumerate(lines) if _line_hash(line) == expected_hash]
+    if hashes is None:
+        hashes = compute_line_hashes(lines)
+    matches = [index for index, h in enumerate(hashes) if h == expected_hash]
     if not matches:
         return None
+    if len(matches) == 1:
+        return matches[0]
     expected_index = line_hint - 1
     return min(matches, key=lambda index: abs(index - expected_index))
 
@@ -201,6 +219,14 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     return result
 
 
+_ANCHOR_FORMAT_HINT = (
+    "The 'edit' tool takes content-based hashline anchors, not line numbers. Call 'read' "
+    "on this file first, then copy the '<line>:<hash>' anchor from its output for the "
+    "first and last line to replace — e.g. start_anchor=\"12:a3f1\", end_anchor=\"14:9c8a\". "
+    "Use the same anchor for both fields on a single-line edit."
+)
+
+
 class EditTool(Tool):
     """Tool for replacing line ranges selected by hashline anchors."""
 
@@ -209,9 +235,10 @@ class EditTool(Tool):
             name="edit",
             description=(
                 "Replace an inclusive line range using content-based hashline anchors from "
-                "read. An anchor can survive shifted surrounding lines; when multiple lines "
-                "have the same hash, the closest line-number hint is selected. Rewriting may "
-                "normalize line endings throughout the file."
+                "read. Every line has a distinct anchor, so an anchor always resolves to "
+                "exactly the line it was copied from, even across repeated or blank lines — "
+                "it can survive shifted surrounding lines since it's not based on line "
+                "number. Rewriting may normalize line endings throughout the file."
             ),
             schema=EditParams,
             kind=ToolKind.Edit,
@@ -227,6 +254,21 @@ class EditTool(Tool):
 
     def get_display_name(self, args: dict[str, Any]) -> str:
         return args.get("path", "edit")
+
+    def validate(self, params: dict[str, Any]) -> tuple[bool, list[str]]:
+        """Layer an actionable hint onto anchor-related schema errors.
+
+        The bare Pydantic error ("start_anchor: Field required") never tells the
+        model what a valid anchor looks like or that it needs to call ``read``
+        first — observed in practice to make the model repeat the exact same
+        wrong shape (e.g. line_start/line_end) across several consecutive
+        calls instead of self-correcting. Appending a concrete example fixes
+        that without changing validation semantics.
+        """
+        ok, errors = super().validate(params)
+        if not ok and any("start_anchor" in e or "end_anchor" in e for e in errors):
+            errors.append(_ANCHOR_FORMAT_HINT)
+        return ok, errors
 
     async def execute(
         self,
@@ -252,13 +294,14 @@ class EditTool(Tool):
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
 
         lines = original.splitlines()
-        start_index = _find_anchor(lines, params.start_anchor)
+        hashes = compute_line_hashes(lines)
+        start_index = _find_anchor(lines, params.start_anchor, hashes)
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
                 f"Start anchor hash not found: {params.start_anchor}",
             )
-        end_index = _find_anchor(lines, params.end_anchor)
+        end_index = _find_anchor(lines, params.end_anchor, hashes)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,

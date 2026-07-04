@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tau.builtins.tools.hashline import compute_line_hashes
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -77,9 +77,9 @@ class ReadTool(Tool):
             description=(
                 "Read a UTF-8 text file, replacing invalid byte sequences when decoding. "
                 "Returns each line with a content-based hashline anchor in the format "
-                "'<line>:<hash>|<content>'. Duplicate content, including blank lines, can "
-                "share a hash; the line number is a proximity hint for edit. Use offset and "
-                "limit to read large files in chunks."
+                "'<line>:<hash>|<content>'. Every line in the file gets a distinct anchor, "
+                "including blank lines and repeated content. Use offset and limit to read "
+                "large files in chunks."
             ),
             schema=ReadParams,
             kind=ToolKind.Read,
@@ -123,12 +123,15 @@ class ReadTool(Tool):
         end = min(start + params.limit, total)
         chunk = lines[start:end]
 
-        def line_hash(txt: str) -> str:
-            stripped = txt.strip()
-            return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
+        # Hashed over the whole file, not just this chunk, so collision
+        # resolution (and therefore every line's anchor) stays identical
+        # regardless of which offset/limit window is being displayed —
+        # edit re-derives this same full-file table when resolving an anchor.
+        chunk_hashes = compute_line_hashes(lines)[start:end]
 
         numbered = "\n".join(
-            f"{start + i + 1}:{line_hash(line)}|{line}" for i, line in enumerate(chunk)
+            f"{start + i + 1}:{h}|{line}"
+            for i, (h, line) in enumerate(zip(chunk_hashes, chunk, strict=True))
         )
 
         footer = ""

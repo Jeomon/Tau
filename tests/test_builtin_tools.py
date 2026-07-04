@@ -15,6 +15,7 @@ import pytest
 from tau.builtins.tools.edit import EditTool, _render_edit_result
 from tau.builtins.tools.glob import GlobTool
 from tau.builtins.tools.grep import GrepTool
+from tau.builtins.tools.hashline import compute_line_hashes
 from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.terminal import TerminalTool
@@ -32,9 +33,18 @@ def run(coro):
 
 
 def _anchor(line_number: int, content: str) -> str:
+    """Isolated-hash anchor — valid for lines whose content is unique in the
+    file (the common case, where the perfect-hashed anchor equals this one)."""
     stripped = content.strip()
     line_hash = "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
     return f"{line_number}:{line_hash}"
+
+
+def _anchor_in(text: str, line_number: int) -> str:
+    """Real per-file anchor (perfect-hashed) for targeting a specific line,
+    needed whenever the file has repeated or blank lines."""
+    hashes = compute_line_hashes(text.splitlines())
+    return f"{line_number}:{hashes[line_number - 1]}"
 
 
 def _python_command(source: str) -> str:
@@ -208,6 +218,34 @@ class TestReadTool:
         assert not result.is_error
         assert result.metadata["lines_returned"] == 0
 
+    def test_repeated_lines_get_distinct_anchors(self, tmp_path):
+        f = tmp_path / "dup.txt"
+        f.write_text("foo\nfoo\nfoo\n")
+        result = run(self.tool.execute(_inv("read", path=str(f))))
+        assert not result.is_error
+        anchors = [raw.split("|", 1)[0] for raw in result.content.splitlines() if "|" in raw]
+        assert len(set(anchors)) == len(anchors) == 3
+
+    def test_anchor_for_a_line_is_stable_regardless_of_chunk_offset(self, tmp_path):
+        """The same absolute line must get the same anchor whether it's read
+        as part of the whole file or as part of an offset chunk — read hashes
+        the full file before slicing so chunk boundaries can't change it."""
+        f = tmp_path / "dup.txt"
+        f.write_text("foo\n" * 6)
+        full = run(self.tool.execute(_inv("read", path=str(f))))
+        chunk = run(self.tool.execute(_inv("read", path=str(f), offset=3, limit=2)))
+
+        def anchor_for_line(content: str, line_number: int) -> str:
+            for raw in content.splitlines():
+                if "|" not in raw:
+                    continue
+                anchor, _, _ = raw.partition("|")
+                if anchor.startswith(f"{line_number}:"):
+                    return anchor
+            raise AssertionError(f"line {line_number} not found")
+
+        assert anchor_for_line(full.content, 4) == anchor_for_line(chunk.content, 4)
+
 
 # ---------------------------------------------------------------------------
 # WriteTool
@@ -315,10 +353,45 @@ class TestEditTool:
         assert result.is_error
         assert "not found" in result.content.lower()
 
-    def test_duplicate_hash_uses_closest_line_hint(self, tmp_path):
+    def test_line_number_params_get_actionable_hint(self):
+        """Observed failure mode: model retries with line_start/line_end instead
+        of start_anchor/end_anchor. The bare Pydantic error never explains the
+        correct format, so add a concrete example rather than just "Field
+        required"."""
+        ok, errors = self.tool.validate({"path": "f.py", "line_start": 1, "line_end": 2})
+        assert not ok
+        assert any("start_anchor" in e for e in errors)
+        assert any("hashline anchors" in e and "12:a3f1" in e for e in errors)
+
+    def test_malformed_anchor_gets_actionable_hint(self):
+        """Observed failure mode: anchor missing the ':' separator (e.g. '311a')."""
+        ok, errors = self.tool.validate(
+            {"path": "f.py", "start_anchor": "311a", "end_anchor": "311a", "new_content": "x"}
+        )
+        assert not ok
+        assert any("hashline anchors" in e for e in errors)
+
+    def test_valid_params_have_no_hint_appended(self):
+        ok, errors = self.tool.validate(
+            {
+                "path": "f.py",
+                "start_anchor": "1:aaaa",
+                "end_anchor": "1:aaaa",
+                "new_content": "x",
+            }
+        )
+        assert ok
+        assert errors == []
+
+    def test_repeated_lines_get_distinct_anchors_and_edit_precisely(self, tmp_path):
+        """Perfect hashing: identical lines no longer share an anchor, so an
+        edit lands on exactly the targeted line rather than being resolved by
+        line-number proximity — check the middle occurrence specifically,
+        since a proximity guess would also happen to get the last one right."""
         f = tmp_path / "dup.py"
-        f.write_text("foo\nfoo\nfoo\n")
-        anchor = _anchor(3, "foo")
+        text = "foo\nfoo\nfoo\n"
+        f.write_text(text)
+        anchor = _anchor_in(text, 2)
         result = run(
             self.tool.execute(
                 _inv(
@@ -331,7 +404,26 @@ class TestEditTool:
             )
         )
         assert not result.is_error
-        assert f.read_text() == "foo\nfoo\nbar\n"
+        assert f.read_text() == "foo\nbar\nfoo\n"
+
+    def test_blank_lines_get_distinct_anchors(self, tmp_path):
+        f = tmp_path / "blanks.py"
+        text = "a\n\n\nb\n"
+        f.write_text(text)
+        anchor = _anchor_in(text, 3)
+        result = run(
+            self.tool.execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="filled",
+                )
+            )
+        )
+        assert not result.is_error
+        assert f.read_text() == "a\n\nfilled\nb\n"
 
     def test_replaces_anchored_range(self, tmp_path):
         f = tmp_path / "rep.py"
