@@ -1014,6 +1014,7 @@ class Layout(Component):
         self.palette.set_theme(theme.select_list)
         self.file_picker.set_theme(theme.select_list)
         self._autocomplete.set_theme(theme.select_list)
+        self._selectors.set_theme(theme)
         if _has_editor_extras(self.input):
             self.input.prefix = theme.input.prefix
             self.input.placeholder = theme.input.placeholder

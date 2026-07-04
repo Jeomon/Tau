@@ -39,6 +39,8 @@ Set your default theme in `~/.tau/settings.json` or `.tau/settings.json`:
 ```
 
 Opens an interactive picker. Use ↑↓ to preview, Enter to apply.
+The theme submenu in `/settings` uses the same ↑/↓ live preview. Press Enter to
+apply or Escape to restore the previous theme.
 
 ---
 

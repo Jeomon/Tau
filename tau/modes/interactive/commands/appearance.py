@@ -58,11 +58,27 @@ def open_settings_panel(ctx: CommandContext) -> None:
     from tau.inference.types import ThinkingLevel, Transport
     from tau.modes.interactive.components.settings_selector import SettingItem, SettingsSelector
     from tau.themes.registry import AUTO_THEME, DEFAULT_THEME, theme_registry
+    from tau.tui.theme import LayoutTheme
 
     sm = ctx.runtime.settings_manager
     if sm is None:
         ctx.notify("Settings unavailable.")
         return
+
+    preview_theme_before: list[LayoutTheme] = []
+
+    def preview_theme(name: str) -> None:
+        from tau.themes.registry import mode_for_background
+
+        if not preview_theme_before:
+            preview_theme_before.append(ctx.layout.theme)
+        resolved = mode_for_background(ctx.tui.background_color) if name == AUTO_THEME else name
+        with contextlib.suppress(ValueError):
+            ctx.layout.set_theme(theme_registry.get(resolved))
+
+    def cancel_theme_preview() -> None:
+        if preview_theme_before:
+            ctx.layout.set_theme(preview_theme_before.pop())
 
     # ── Settings tab — display & quick toggles ────────────────────────────────
     settings_items: list[SettingItem] = [
@@ -139,6 +155,8 @@ def open_settings_panel(ctx: CommandContext) -> None:
             current_value=sm.get_theme() or DEFAULT_THEME,
             submenu_items=[AUTO_THEME, *theme_registry.list()],
             submenu_title="Theme",
+            submenu_on_preview=preview_theme,
+            submenu_on_cancel=cancel_theme_preview,
         ),
         SettingItem(
             id="project_trust",
@@ -536,6 +554,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
                     mode_for_background(ctx.tui.background_color) if value == AUTO_THEME else value
                 )
                 ctx.layout.set_theme(_tr.get(resolved))
+                preview_theme_before.clear()
                 sm.set_theme(value)  # persist "auto" verbatim
             except ValueError:
                 pass

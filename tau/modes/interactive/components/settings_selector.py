@@ -65,6 +65,10 @@ class ListSelector:
             return None
         return self._items[self._selected]
 
+    def set_theme(self, theme: LayoutTheme) -> None:
+        """Apply a new theme while the submenu remains open."""
+        self._theme = theme
+
     def render(self, width: int) -> list[str]:
         t = self._theme
         divider = apply_style(t.border, "─" * width)
@@ -109,6 +113,8 @@ class SettingItem:
     values: list[str] = field(default_factory=list)
     submenu_items: list[str] = field(default_factory=list)
     submenu_title: str = ""
+    submenu_on_preview: Callable[[str], None] | None = None
+    submenu_on_cancel: Callable[[], None] | None = None
     text_input: bool = False
     submenu_settings: list[SettingItem] = field(default_factory=list)
     submenu_on_change: Callable[[str, str], None] | None = None
@@ -154,6 +160,7 @@ class SettingsSelector:
 
         self._submenu: object | None = None
         self._submenu_id: str | None = None
+        self._submenu_on_cancel: Callable[[], None] | None = None
 
         self._editing = False
         self._edit_buffer = ""
@@ -180,6 +187,7 @@ class SettingsSelector:
         self._selected = 0
         self._submenu = None
         self._submenu_id = None
+        self._submenu_on_cancel = None
         self._editing = False
         self._edit_buffer = ""
         self._edit_id = None
@@ -194,6 +202,13 @@ class SettingsSelector:
     @property
     def is_editing(self) -> bool:
         return self._editing
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        """Apply a new theme to this selector and its active submenu."""
+        self._theme = theme
+        setter = getattr(self._submenu, "set_theme", None)
+        if callable(setter):
+            setter(theme)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -228,6 +243,7 @@ class SettingsSelector:
                     self._apply_value(self._submenu_id, val)
                 self._submenu = None
                 self._submenu_id = None
+                self._submenu_on_cancel = None
             return
 
         if not self._filtered:
@@ -249,9 +265,11 @@ class SettingsSelector:
                 item.current_value,
                 item.submenu_title or item.label,
                 item.description,
+                on_preview=item.submenu_on_preview,
                 theme=self._theme,
             )
             self._submenu_id = item.id
+            self._submenu_on_cancel = item.submenu_on_cancel
         elif item.text_input:
             self._editing = True
             self._edit_buffer = item.current_value
@@ -272,8 +290,11 @@ class SettingsSelector:
         elif isinstance(self._submenu, SettingsSelector) and self._submenu.in_submenu:
             self._submenu.cancel_submenu()
         else:
+            if self._submenu_on_cancel is not None:
+                self._submenu_on_cancel()
             self._submenu = None
             self._submenu_id = None
+            self._submenu_on_cancel = None
 
     # ── Search / text-edit input ──────────────────────────────────────────────
 

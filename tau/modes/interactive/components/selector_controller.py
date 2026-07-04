@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tau.tui.components.select_list import InlineSelector
 from tau.tui.input import InputEvent, KeyEvent, PasteEvent
+
+if TYPE_CHECKING:
+    from tau.tui.theme import LayoutTheme
 
 
 class SelectorController:
@@ -31,6 +34,14 @@ class SelectorController:
 
     def render(self, width: int) -> list[str]:
         return self._active.render(width) if self._active is not None else []
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        """Apply a theme change to the active selector when supported."""
+        if self._active is None:
+            return
+        setter = getattr(self._active.selector, "set_theme", None)
+        if callable(setter):
+            setter(theme)
 
     def handle_input(self, event: InputEvent) -> bool:
         active = self._active
