@@ -1,0 +1,478 @@
+"""Frame / BufferedTerminal: the double-buffered render loop, mirroring ratatui's ``Terminal<B>``.
+
+This is the piece that ties the rest of the render layer together:
+``BufferedTerminal.draw()`` hands a ``Frame`` to a callback, the callback
+calls ``frame.render_widget()`` for each widget (writing into the frame's
+``Buffer``), then the previous frame's ``Buffer`` is diffed against the new
+one and only the changed cells are sent to the ``Backend``.
+
+Named ``BufferedTerminal`` rather than ``Terminal`` to avoid colliding with
+``tau.tui.terminal.Terminal`` (the raw termios/ANSI I/O wrapper this sits on
+top of via ``AnsiBackend`` — see ``backend.py``).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.backend import Backend
+from tau.tui.buffer import Buffer, Cell
+from tau.tui.geometry import Position, Rect
+from tau.tui.style import OSC8_CLOSE, Style, style_transition
+from tau.tui.utils import grapheme_width, is_window_focused
+from tau.tui.widget import Widget
+
+if TYPE_CHECKING:
+    from tau.tui.terminal import Terminal
+
+
+@dataclass(frozen=True, slots=True)
+class Fullscreen:
+    """The app owns the whole terminal (alt-screen). ``Frame.area`` always starts at (0, 0)."""
+
+
+@dataclass(frozen=True, slots=True)
+class Fixed:
+    """A manually-managed region — never auto-resized, call ``BufferedTerminal.resize()``."""
+
+    area: Rect
+
+
+@dataclass(frozen=True, slots=True)
+class Inline:
+    """Renders ``height`` rows into the normal scrollback at the current cursor row.
+
+    Mirrors ratatui's ``Viewport::Inline`` — everything above the viewport
+    stays real terminal scrollback, matching what ``tui.py``'s existing
+    ``Renderer`` already does by hand for Tau's actual chat UI. Simplified
+    versus ratatui here: the cursor row is fixed at construction rather than
+    dynamically tracked, so it doesn't auto-scroll the terminal to keep the
+    viewport visible as content grows — the caller is responsible for that.
+    """
+
+    height: int
+    cursor_row: int = 0
+
+
+Viewport = Fullscreen | Fixed | Inline
+
+
+@dataclass(slots=True)
+class Frame:
+    """The per-draw-call handle widgets render into; mirrors ratatui's ``Frame``."""
+
+    buffer: Buffer
+    area: Rect
+    cursor_position: Position | None = None
+
+    def render_widget(self, widget: Widget, area: Rect | None = None) -> None:
+        widget.render(area if area is not None else self.area, self.buffer)
+
+    def set_cursor_position(self, position: Position) -> None:
+        self.cursor_position = position
+
+
+class BufferedTerminal:
+    """Owns two ``Buffer``s and diffs them each frame, mirroring ratatui's ``Terminal<B>``."""
+
+    def __init__(self, backend: Backend, viewport: Viewport | None = None) -> None:
+        self._backend = backend
+        self._viewport: Viewport = viewport if viewport is not None else Fullscreen()
+        area = self._compute_area(backend.size())
+        self._buffers = [Buffer.empty(area), Buffer.empty(area)]
+        self._current = 0
+
+    @property
+    def area(self) -> Rect:
+        return self._buffers[self._current].area
+
+    def resize(self, area: Rect) -> None:
+        """Manually update a ``Fixed`` viewport's region (never resized automatically)."""
+        self._viewport = Fixed(area)
+        self._buffers = [Buffer.empty(area), Buffer.empty(area)]
+        self._current = 0
+
+    def _compute_area(self, terminal_size: Rect) -> Rect:
+        if isinstance(self._viewport, Fixed):
+            return self._viewport.area
+        if isinstance(self._viewport, Inline):
+            height = min(self._viewport.height, terminal_size.height)
+            y = min(self._viewport.cursor_row, max(0, terminal_size.height - height))
+            return Rect(0, y, terminal_size.width, height)
+        return terminal_size
+
+    def _resize_if_needed(self) -> None:
+        if isinstance(self._viewport, Fixed):
+            return  # "Fixed viewports are not automatically resized" (ratatui docs)
+        size = self._compute_area(self._backend.size())
+        if size != self._buffers[self._current].area:
+            self._buffers = [Buffer.empty(size), Buffer.empty(size)]
+            self._current = 0
+
+    def draw(self, render_fn: Callable[[Frame], None]) -> Buffer:
+        """Render one frame and flush only the cells that changed to the backend."""
+        self._resize_if_needed()
+        current = self._buffers[self._current]
+        current.content[:] = [Cell() for _ in range(len(current.content))]
+
+        frame = Frame(current, current.area)
+        render_fn(frame)
+
+        previous = self._buffers[1 - self._current]
+        updates = previous.diff(current)
+        if updates:
+            self._backend.draw(updates)
+        if frame.cursor_position is not None:
+            self._backend.set_cursor_position(frame.cursor_position)
+        self._backend.flush()
+
+        self._current = 1 - self._current
+        return current
+
+
+# ── ScrollbackTerminal ───────────────────────────────────────────────────────
+#
+# BufferedTerminal/Inline above mirrors ratatui directly: a fixed-size
+# viewport, addressed with absolute cursor moves via Backend.draw(). That
+# model cannot represent Tau's actual live UI — chat content grows without
+# bound and old rows scroll into the terminal's real scrollback history,
+# where they can never be addressed again (CSI ...H addresses the visible
+# screen, not scrollback). So repainting here uses only relative moves
+# (cursor up/down, \r\n to scroll) and talks to Terminal directly rather
+# than through the absolute-addressing Backend protocol.
+#
+# The diff/paint algorithm below is a mechanical, behavior-preserving port of
+# tui.py's original string-based Renderer onto real Buffer/Cell rows — same
+# viewport tracking, same relative-move + row-redraw strategy, same IME
+# cursor handling — just sourced from Cell objects instead of re-parsing
+# ANSI strings for every frame.
+
+
+def _row_get(buf: Buffer, x: int, y: int) -> Cell:
+    """Read a cell, treating anything outside the buffer's current rows as blank.
+
+    Mirrors ``prev[i] if i < len(prev) else ""`` in the original string
+    Renderer — a buffer that hasn't grown to a given row yet reads as blank
+    there, rather than raising.
+    """
+    if y < 0 or y >= buf.area.height or x < 0 or x >= buf.area.width:
+        return Cell()
+    return buf.get(buf.area.x + x, buf.area.y + y)
+
+
+def _row_equal(prev: Buffer, cur: Buffer, y: int, width: int) -> bool:
+    for x in range(width):
+        cur_cell = _row_get(cur, x, y)
+        if cur_cell.skip:
+            continue  # terminal owns these pixels; never a text-cell change
+        if _row_get(prev, x, y) != cur_cell:
+            return False
+    return True
+
+
+def _diff_row_cells(prev: Buffer, cur: Buffer, y: int, width: int) -> str:
+    """Ratatui ``Buffer::diff`` for one terminal row, sourced from real Cells.
+
+    Emits the minimal escapes to repaint just the cells that changed: an
+    absolute column move only when the next write isn't immediately adjacent
+    to the previous one, and SGR codes only when a cell's style differs from
+    the previously written cell's. Continuation cells (the second column of
+    a double-width glyph) are tracked by width rather than by checking for
+    an empty symbol, since ``Cell.set_symbol`` coerces an empty placeholder
+    to ``" "`` (see ``ansi_bridge.row_to_ansi`` for the same technique).
+    """
+    out: list[str] = []
+    expected_col = -1
+    active_style = Style()
+    skip_cols = 0
+    for col in range(width):
+        if skip_cols > 0:
+            skip_cols -= 1
+            continue
+        cell = _row_get(cur, col, y)
+        if cell.skip:
+            continue  # terminal owns these pixels; never repaint as text
+        glyph_width = grapheme_width(cell.symbol) if cell.symbol else 1
+        if cell == _row_get(prev, col, y):
+            skip_cols = max(glyph_width - 1, 0)
+            continue
+        if col != expected_col:
+            out.append(f"\x1b[{col + 1}G")
+        if cell.style != active_style:
+            out.append(style_transition(active_style, cell.style))
+            active_style = cell.style
+        out.append(cell.symbol or " ")
+        expected_col = col + glyph_width
+        skip_cols = max(glyph_width - 1, 0)
+    if active_style.link:
+        out.append(OSC8_CLOSE)
+    if active_style != Style():
+        out.append("\x1b[0m")
+    return "".join(out)
+
+
+class ScrollbackTerminal:
+    """Differential renderer for unbounded, growing scrollback content.
+
+    Renders into the main terminal buffer — no alternate screen. Content
+    grows downward; old rows scroll into the terminal's native scrollback
+    so the user can scroll back with the terminal's own scrollbar.
+    Positioning uses only relative cursor moves so the terminal's own scroll
+    state is never disrupted.
+
+    ``render(buf)`` takes a full-width ``Buffer`` (``buf.area.width`` must
+    equal ``terminal.width``; the caller is responsible for left/right
+    margins and for compositing overlays into ``buf`` before calling this —
+    the diff engine here just paints whatever buffer it's given). Text
+    cursor position comes from ``buf.cursor_position``.
+    """
+
+    def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
+        self._terminal = terminal
+        self._show_hardware_cursor = show_hardware_cursor
+        self._prev: Buffer | None = None
+        self._hw_cursor_row: int = 0
+        self._viewport_top: int = 0
+        self._max_lines: int = 0
+        self._prev_width: int = 0
+        self._prev_height: int = 0
+        self._resized: bool = False
+        self._unsub_resize = terminal.on_resize(self._on_resize)
+        self._disposed = False
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+
+    def render(self, buf: Buffer) -> None:
+        """Render ``buf`` differentially into the terminal scrollback buffer."""
+        try:
+            self._render(buf)
+        finally:
+            # Independent of whichever path above ran: a row that's entirely
+            # skip=True cells (e.g. a brand-new image) never registers as
+            # "changed" to the cell-diff loop (no non-skip cell ever
+            # differs), so raw_writes need their own novelty check rather
+            # than piggybacking on the text-cell diff outcome.
+            self._flush_raw_writes(buf)
+
+    def _render(self, buf: Buffer) -> None:
+        width = self._terminal.width
+        height = self._terminal.height
+        width_changed = self._resized or (self._prev_width != 0 and self._prev_width != width)
+        self._resized = False
+
+        cursor_pos = buf.cursor_position
+        new_rows = buf.area.height
+
+        if self._prev is None and not width_changed:
+            self._full_render(buf, cursor_pos, width, height, clear=False)
+            return
+
+        if width_changed:
+            self._full_render(buf, cursor_pos, width, height, clear=True)
+            return
+
+        prev = self._prev
+        assert prev is not None
+        prev_rows = prev.area.height
+
+        max_rows = max(new_rows, prev_rows)
+        first_changed = -1
+        last_changed = -1
+        for y in range(max_rows):
+            if not _row_equal(prev, buf, y, width):
+                if first_changed == -1:
+                    first_changed = y
+                last_changed = y
+
+        if first_changed == -1:
+            self._position_hw_cursor(cursor_pos, new_rows)
+            self._prev_height = height
+            return
+
+        if first_changed < self._viewport_top:
+            if new_rows == prev_rows:
+                if last_changed < self._viewport_top:
+                    self._prev = buf
+                    self._prev_width = width
+                    self._prev_height = height
+                    self._position_hw_cursor(cursor_pos, new_rows)
+                    return
+                first_changed = self._viewport_top
+            else:
+                self._full_render(buf, cursor_pos, width, height, clear=True)
+                return
+
+        # === Differential render ===
+        out = self._terminal.begin_sync()
+
+        viewport_top = self._viewport_top
+        hw_cursor = self._hw_cursor_row
+        viewport_bottom = viewport_top + height - 1
+
+        if first_changed > viewport_bottom:
+            current_screen_row = hw_cursor - viewport_top
+            move_to_bottom = max(0, (height - 1) - current_screen_row)
+            if move_to_bottom > 0:
+                out += f"\x1b[{move_to_bottom}B"
+            scroll = first_changed - viewport_bottom
+            out += "\r\n" * scroll
+            viewport_top += scroll
+            hw_cursor = first_changed
+            viewport_bottom = viewport_top + height - 1
+
+        line_diff = first_changed - hw_cursor
+        if line_diff > 0:
+            out += f"\x1b[{line_diff}B"
+        elif line_diff < 0:
+            out += f"\x1b[{-line_diff}A"
+        out += "\r"
+        hw_cursor = first_changed
+
+        render_end = min(last_changed, new_rows - 1)
+        for y in range(first_changed, render_end + 1):
+            if y > first_changed:
+                out += "\r\n"
+                hw_cursor += 1
+            if _row_equal(prev, buf, y, width):
+                # Unchanged row inside a repainted span: still occupies a
+                # row but its content is already correct on screen, so
+                # redraw it as-is rather than clearing and rewriting.
+                out += "\x1b[2K"
+                if y < new_rows:
+                    out += row_to_ansi(buf, buf.area.y + y)
+                continue
+            out += _diff_row_cells(prev, buf, y, width)
+
+        final_cursor_row = render_end
+
+        if prev_rows > new_rows:
+            if render_end < new_rows - 1:
+                move_down = new_rows - 1 - render_end
+                out += f"\x1b[{move_down}B"
+                final_cursor_row = new_rows - 1
+            extra = prev_rows - new_rows
+            for _ in range(extra):
+                out += "\r\n\x1b[2K"
+            out += f"\x1b[{extra}A"
+
+        out += self._terminal.end_sync()
+        self._terminal.write(out)
+
+        self._hw_cursor_row = final_cursor_row
+        self._max_lines = max(self._max_lines, new_rows)
+        self._viewport_top = max(viewport_top, final_cursor_row - height + 1)
+        self._prev = buf
+        self._prev_width = width
+        self._prev_height = height
+
+        self._position_hw_cursor(cursor_pos, new_rows)
+
+    def clear(self) -> None:
+        """Erase the entire screen and scrollback buffer."""
+        self._terminal.write_flush(
+            self._terminal.begin_sync() + "\x1b[2J\x1b[H\x1b[3J" + self._terminal.end_sync()
+        )
+        self._prev = None
+        self._hw_cursor_row = 0
+        self._viewport_top = 0
+        self._max_lines = 0
+
+    def reset(self) -> None:
+        """Force a full re-render on the next frame without clearing the screen."""
+        self._prev = None
+        self._hw_cursor_row = 0
+        self._viewport_top = 0
+
+    def dispose(self) -> None:
+        """Release terminal subscriptions and retained render state."""
+        if self._disposed:
+            return
+        self._disposed = True
+        self._unsub_resize()
+        self._prev = None
+
+    def reset_with_clear(self) -> None:
+        """Force a full clear-and-redraw on the next frame.
+
+        Unlike reset(), this sets _resized so the render takes the clear=True
+        path — homing the cursor before writing — which is required when content
+        that was painted at arbitrary screen rows (e.g. an overlay) must be
+        erased without a terminal resize event.
+        """
+        self.reset()
+        self._resized = True
+
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    def _full_render(
+        self,
+        buf: Buffer,
+        cursor_pos: Position | None,
+        width: int,
+        height: int,
+        *,
+        clear: bool,
+    ) -> None:
+        rows = buf.area.height
+        out = self._terminal.begin_sync()
+        if clear:
+            out += "\x1b[2J\x1b[H\x1b[3J"  # clear screen + scrollback
+        else:
+            out += "\r"  # start from column 0 for first render
+        for i in range(rows):
+            if i > 0:
+                out += "\r\n"
+            out += "\x1b[2K"
+            out += row_to_ansi(buf, buf.area.y + i)
+        out += self._terminal.end_sync()
+        self._terminal.write(out)
+
+        self._hw_cursor_row = max(0, rows - 1)
+        self._max_lines = rows if clear else max(self._max_lines, rows)
+        self._viewport_top = max(0, max(height, rows) - height)
+        self._prev = buf
+        self._prev_width = width
+        self._prev_height = height
+
+        self._position_hw_cursor(cursor_pos, rows)
+
+    def _position_hw_cursor(self, cursor_pos: Position | None, rows: int) -> None:
+        """Move the hardware terminal cursor to the IME position and show/hide it."""
+        if cursor_pos is None or rows == 0:
+            self._terminal.write_flush("\x1b[?25l")
+            return
+
+        target_row = max(0, min(cursor_pos.y, rows - 1))
+
+        row_delta = target_row - self._hw_cursor_row
+        out = ""
+        if row_delta > 0:
+            out += f"\x1b[{row_delta}B"
+        elif row_delta < 0:
+            out += f"\x1b[{-row_delta}A"
+        out += f"\x1b[{cursor_pos.x + 1}G"  # absolute column (1-indexed)
+        # Reveal the real hardware cursor when the window is unfocused: the
+        # terminal draws it as a hollow outline, giving the native unfocused
+        # cursor look. While focused we keep it hidden and draw our own block.
+        if self._show_hardware_cursor or not is_window_focused():
+            out += "\x1b[?25h"  # show cursor
+        else:
+            out += "\x1b[?25l"  # hide cursor (we draw our own block)
+        self._terminal.write_flush(out)
+        self._hw_cursor_row = target_row
+
+    def _on_resize(self) -> None:
+        # Clear state; next render() call forces a full clear+redraw, even if
+        # the reported width didn't change (e.g. a height-only resize), so a
+        # stale frame is never left on screen for the new render to stack atop.
+        self._prev = None
+        self._hw_cursor_row = 0
+        self._viewport_top = 0
+        self._resized = True

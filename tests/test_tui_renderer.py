@@ -1,15 +1,19 @@
-"""Tests for tau/tui/tui.py — Renderer differential-render invariants.
+"""Tests for tau/tui/tui.py — the Renderer wrapper's integration with the app.
 
-These exercise the claim that Renderer.render() only rewrites the contiguous
-span of lines that actually changed between frames, leaving everything above
-first_changed and below last_changed untouched.
+Renderer itself is now a thin wrapper delegating to ScrollbackTerminal
+(tau/tui/frame.py) — the differential-render invariants (only changed rows
+repaint, viewport clamping, resize, dispose) are exercised directly against
+that engine in tests/test_scrollback_terminal.py. What's tested here is
+specific to the wrapper: that it correctly builds a Buffer from a
+component's render_cells (bridging legacy render(width) components
+automatically), composites overlays as a real Buffer blit, and that TUI's
+lifecycle (dispose, resize-callback bookkeeping) still holds.
 """
 
 from __future__ import annotations
 
-from tau.tui import tui as tui_module
 from tau.tui.component import Component, StaticComponent
-from tau.tui.tui import TUI, Renderer
+from tau.tui.tui import TUI, OverlayEntry, OverlayOptions, Renderer
 
 
 class FakeTerminal:
@@ -43,12 +47,23 @@ class FakeTerminal:
 
 
 def _content_writes(term: FakeTerminal) -> list[str]:
-    """Writes from render()'s main buffer, excluding the trailing cursor-hide write_flush."""
     return [w for w in term.writes if w != "\x1b[?25l"]
 
 
-class TestRendererDifferentialUpdate:
-    def test_first_render_draws_everything(self):
+class _CellsComponent(Component):
+    """A Buffer-native component (render_cells only), for mixed-tree checks."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def render_cells(self, area, buf) -> int:  # noqa: ANN001
+        buf.grow_to(area.y + 1)
+        buf.set_string(area.x, area.y, self._text, max_width=area.width)
+        return 1
+
+
+class TestRendererWrapper:
+    def test_renders_legacy_component(self):
         term = FakeTerminal()
         renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["a", "b", "c"]))
@@ -59,218 +74,39 @@ class TestRendererDifferentialUpdate:
         assert "b" in content[0]
         assert "c" in content[0]
 
+    def test_renders_buffer_native_component(self):
+        term = FakeTerminal()
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        renderer.render(_CellsComponent("native"))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "native" in content[0]
+
+    def test_overlay_composites_over_base_content(self):
+        term = FakeTerminal(width=40, height=10)
+        renderer = Renderer(term)  # type: ignore[arg-type]
+        base = StaticComponent(["base line"] * 5)
+        overlay = OverlayEntry(
+            component=StaticComponent(["OVERLAY"]),
+            options=OverlayOptions(width=20, height=1, anchor="top-left", margin=0),
+        )
+
+        renderer.render(base, overlays=[overlay])
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "OVERLAY" in content[0]
+
     def test_no_change_writes_no_content(self):
         term = FakeTerminal()
         renderer = Renderer(term)  # type: ignore[arg-type]
-        lines = ["a", "b", "c"]
-        renderer.render(StaticComponent(lines))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(list(lines)))
-
-        assert _content_writes(term) == []
-
-    def test_appended_line_only_redraws_new_line(self):
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["a", "b", "c"]))
         term.writes.clear()
 
-        renderer.render(StaticComponent(["a", "b", "c", "d"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        assert "d" in content[0]
-        # Unchanged lines above the appended one must not be rewritten.
-        assert "a" not in content[0]
-        assert "b" not in content[0]
-        assert "c" not in content[0]
-
-    def test_single_middle_line_change_only_redraws_that_line(self):
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
         renderer.render(StaticComponent(["a", "b", "c"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["a", "X", "c"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        assert "X" in content[0]
-        assert "a" not in content[0]
-        assert "c" not in content[0]
-
-    def test_appended_suffix_only_rewrites_from_divergence_point(self):
-        """Ratatui-style Buffer/Cell diffing: a changed line reuses its
-        unchanged leading run of cells instead of clearing and rewriting the
-        whole line. Every row is diffed against a fixed-width, blank-padded
-        grid, so a grown line never needs an explicit end-of-line clear —
-        the newly-occupied columns simply show up as changed cells."""
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        renderer.render(StaticComponent(["hello wor"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["hello world"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        # Only the diverging suffix is written, not the shared "hello wor" prefix.
-        assert "ld" in content[0]
-        assert "hello wor" not in content[0]
-        # Cursor is repositioned to the divergence column with an absolute
-        # column move; no whole-line or end-of-line clear is needed.
-        assert "G" in content[0]
-        assert "\x1b[2K" not in content[0]
-        assert "\x1b[0K" not in content[0]
-
-    def test_changed_cell_declares_its_style_and_resets_after(self):
-        """A cell whose style differs from the row's assumed starting state
-        (default) gets its full resolved style re-declared — Buffer/Cell
-        diffing tracks style per render() call, not across separate calls,
-        so it can't assume the terminal is still in whatever state an
-        earlier, unrelated render() call left it in. The shared "red "
-        prefix text itself is still never re-sent, and the row ends with a
-        reset so it doesn't bleed into later content."""
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        renderer.render(StaticComponent(["\x1b[31mred a"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["\x1b[31mred b"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        assert "b" in content[0]
-        assert "red" not in content[0]
-        assert content[0].endswith("\x1b[0m")
-
-    def test_mid_line_same_width_change_reuses_trailing_suffix(self):
-        """A same-width in-place edit (e.g. a spinner glyph or a counter digit
-        flipping) rewrites only the changed cell and leaves the unchanged
-        trailing text on screen untouched — no end-of-line clear needed."""
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        renderer.render(StaticComponent(["Loading | please wait"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["Loading / please wait"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        assert "/" in content[0]
-        assert "Loading" not in content[0]
-        assert "please wait" not in content[0]
-        # No end-of-line clear: the unchanged suffix is reused in place.
-        assert "\x1b[0K" not in content[0]
-        assert "\x1b[2K" not in content[0]
-
-    def test_mid_line_insertion_only_rewrites_the_shifted_cells(self):
-        """Inserting text shifts every cell after it to a new column, so
-        those cells are rewritten — but true per-cell diffing (unlike the
-        old prefix/suffix-on-strings approach) also catches any column that
-        coincidentally still holds the same character after the shift and
-        leaves it untouched, splitting the write into more than one run."""
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        renderer.render(StaticComponent(["hello world"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["hello there world"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        assert "there" in content[0]
-        assert "world" in content[0]
-        assert "hello" not in content[0]
-        # No whole-line clear: the fixed-width Cell grid handles the shift
-        # as ordinary per-column diffs, not a special "line grew" case.
-        assert "\x1b[2K" not in content[0]
-        assert "\x1b[0K" not in content[0]
-
-    def test_sparse_changes_redraw_full_span_including_unchanged_lines(self):
-        """Documents the known limitation: two far-apart changed lines cause the
-        whole span between them to be repainted, not just the two changed lines.
-        """
-        term = FakeTerminal()
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        renderer.render(StaticComponent(["a", "b", "c", "d", "e"]))
-        term.writes.clear()
-
-        renderer.render(StaticComponent(["a", "Z", "c", "d", "Y"]))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        # Both changed lines are present...
-        assert "Z" in content[0]
-        assert "Y" in content[0]
-        # ...and so are the unchanged lines within the span, since the whole
-        # [first_changed, last_changed] range is repainted contiguously.
-        assert "c" in content[0]
-        assert "d" in content[0]
-        # Lines outside the span (before first_changed) are never touched.
-        assert "a" not in content[0]
-
-    def test_stable_height_offscreen_change_does_not_redraw(self):
-        term = FakeTerminal(width=20, height=5)
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        lines = [f"line {i}" for i in range(20)]
-        renderer.render(StaticComponent(lines))
-        term.writes.clear()
-
-        changed = list(lines)
-        changed[0] = "offscreen"
-        renderer.render(StaticComponent(changed))
 
         assert _content_writes(term) == []
-        assert renderer._prev_lines[0].strip() == "offscreen"
-
-    def test_stable_height_change_clamps_redraw_to_viewport(self):
-        term = FakeTerminal(width=20, height=5)
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        lines = [f"line {i}" for i in range(20)]
-        renderer.render(StaticComponent(lines))
-        term.writes.clear()
-
-        changed = list(lines)
-        changed[0] = "offscreen"
-        changed[19] = "visible"
-        renderer.render(StaticComponent(changed))
-
-        content = _content_writes(term)
-        assert len(content) == 1
-        # Per-cell diffing writes only the columns that actually differ
-        # between "line 19" and "visible" ("v" at column 0, "sible" at
-        # columns 2-6) — column 1 coincidentally holds "i" in both and is
-        # correctly left untouched, so "visible" never appears contiguously.
-        assert "v" in content[0]
-        assert "sible" in content[0]
-        assert "line 15" in content[0]
-        assert "offscreen" not in content[0]
-        assert "\x1b[2J" not in content[0]
-
-    def test_unchanged_lines_reuse_width_calculation(self, monkeypatch):
-        term = FakeTerminal(width=100, height=24)
-        renderer = Renderer(term)  # type: ignore[arg-type]
-        lines = [f"\x1b[2mline {index}\x1b[0m" for index in range(10_000)]
-        renderer.render(StaticComponent(lines))
-
-        calls = 0
-        original = tui_module.visible_width
-
-        def counted(text: str) -> int:
-            nonlocal calls
-            calls += 1
-            return original(text)
-
-        monkeypatch.setattr(tui_module, "visible_width", counted)
-        changed = list(lines)
-        changed[-1] = "\x1b[2mchanged\x1b[0m"
-
-        renderer.render(StaticComponent(changed))
-
-        assert calls == 1
-
 
 class _DisposableComponent(Component):
     def __init__(self) -> None:
