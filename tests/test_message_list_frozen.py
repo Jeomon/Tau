@@ -207,3 +207,42 @@ def test_frozen_buf_cell_rows_render_identically_via_row_to_ansi() -> None:
     spliced_lines = [row_to_ansi(target, y)[1 : 1 + WIDTH].rstrip() for y in range(frozen_rows)]
     expected = [line.rstrip() for line in full_lines[:frozen_rows]]
     assert spliced_lines == expected
+
+
+def test_large_finished_tail_unit_freezes_immediately() -> None:
+    """Regression: freezing used to wait for 3 more units to pile up behind a
+    unit, so a big finished terminal/tool output sitting near the tail stayed
+    in live_lines — meaning every frame (every keystroke, every spinner tick)
+    re-parsed all of it into cells for as long as nothing else was added.
+    A finished (non-streaming) unit must freeze on the very next call,
+    regardless of how few units follow it."""
+    ml = MessageList(theme=MessageTheme())
+    ml.add_message(UserMessage.from_text("run the build"))
+    huge_output = "\n".join(f"build log line {i}" for i in range(500))
+    ml.add_message(AssistantMessage.from_text(huge_output))  # the last unit, not streaming
+
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+
+    assert ml._frozen_block_count == len(ml._blocks)
+    assert len(live_lines) < 10
+
+
+def test_toggling_expand_refreezes_on_the_next_call() -> None:
+    """Regression: after ctrl+o expands a big tool result, the invalidation
+    reset must only cost one slow (full-rebuild) frame — the very next call
+    should refreeze everything that isn't streaming, not leave the expanded
+    content permanently in live_lines."""
+    ml = MessageList(theme=MessageTheme())
+    _add_conversation(ml, 5)
+    big_result = "\n".join(f"line {i}" for i in range(300))
+    ml.add_message(
+        ToolMessage(contents=[ToolResultContent(id="t1", tool_name="grep", content=big_result)])
+    )
+    ml.render_split_cells(WIDTH)
+    assert ml._frozen_block_count == len(ml._blocks)
+
+    ml.toggle_details_expanded()  # bumps invalidation, forces one full rebuild
+
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    assert ml._frozen_block_count == len(ml._blocks)
+    assert len(live_lines) == 0

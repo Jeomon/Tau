@@ -118,6 +118,11 @@ class MessageBlock:
         """Return whether this block is in expanded view."""
         return self._expanded
 
+    @property
+    def is_streaming(self) -> bool:
+        """Return whether this block's content may still be actively changing."""
+        return self._streaming
+
     def set_streaming(self, value: bool) -> None:
         if self._streaming != value:
             self._streaming = value
@@ -660,12 +665,6 @@ class MessageList(Component):
     viewport.  Pass a MessageTheme to MessageList to apply it to all new blocks.
     """
 
-    # Render units kept out of the frozen cache no matter how old the session
-    # gets — covers remove_last()/remove_pending_user_turn()'s undo popping
-    # (which only ever touches the tail) and keeps the most recent messages
-    # responsive to toggle_details_expanded()/toggle_invocations_expanded().
-    _KEEP_TAIL_UNITS = 3
-
     def __init__(
         self,
         height: int = 20,
@@ -780,11 +779,13 @@ class MessageList(Component):
     def _guard_frozen_bounds(self) -> None:
         """Defensively drop the frozen cache if a pop ever reached into it.
 
-        By construction _KEEP_TAIL_UNITS keeps the frozen boundary well clear
-        of anything remove_last()/remove_pending_user_turn() can pop (both
-        only ever touch the most recent one or two blocks), so this should
-        never trigger — it's a cheap correctness backstop, not the primary
-        mechanism.
+        A unit only freezes once none of its blocks are streaming, and
+        remove_last()/remove_pending_user_turn() only ever pop the most
+        recent one or two blocks — normally still streaming or just added, so
+        this should rarely trigger. If it ever does (e.g. a render happened
+        to land between adding a block and an immediate undo), resetting here
+        forces one full rebuild rather than leaving the cache pointing past
+        the end of self._blocks.
         """
         if self._frozen_block_count > len(self._blocks):
             self._frozen_buf = None
@@ -876,7 +877,7 @@ class MessageList(Component):
         return self._render_blocks(width)
 
     def _iter_units(self, width: int):
-        """Yield (end_block_index, lines) for each renderable unit.
+        """Yield (start_block_index, end_block_index, lines) for each renderable unit.
 
         A unit is either one block, or an assistant+tool pair merged for a
         joint tool-result render — shared by ``_render_blocks`` and
@@ -897,16 +898,16 @@ class MessageList(Component):
                 and isinstance(next_message, ToolMessage)
             )
             if followed_by_tool_result:
-                yield index + 2, block.render_with_tool_results(next_message, width)
+                yield index, index + 2, block.render_with_tool_results(next_message, width)
                 index += 2
                 continue
 
-            yield index + 1, block.render(width)
+            yield index, index + 1, block.render(width)
             index += 1
 
     def _render_blocks(self, width: int) -> list[str]:
         lines: list[str] = []
-        for _end_idx, unit_lines in self._iter_units(width):
+        for _start_idx, _end_idx, unit_lines in self._iter_units(width):
             lines.extend(unit_lines)
         return lines
 
@@ -916,9 +917,19 @@ class MessageList(Component):
         ``frozen_buf`` holds Cell rows for render units old enough to be
         considered finalized — cached across calls and only ever grown, never
         rebuilt, so a caller can splice its rows straight into the frame
-        buffer instead of re-parsing ANSI text that hasn't changed. The last
-        ``_KEEP_TAIL_UNITS`` units are always returned as fresh ``live_lines``
-        instead, so the caller renders those the normal way.
+        buffer instead of re-parsing ANSI text that hasn't changed.
+
+        A unit freezes as soon as none of its blocks are still streaming —
+        not after some fixed number of newer units pile up behind it. Freezing
+        by position alone left large content (a big terminal/tool output, or
+        anything just expanded via ctrl+o) sitting in the live tail
+        indefinitely whenever it happened to be one of the last few units,
+        which meant every frame — including every keystroke and spinner tick
+        — kept re-parsing it into cells. A unit frozen here that later turns
+        out to still be needed (e.g. undo pops it, or a toggle mutates it) is
+        still safe: popping past the frozen boundary is caught by
+        _guard_frozen_bounds, and any mutation bumps _invalidation_seq, both
+        of which force a one-time full rebuild rather than corrupting state.
         """
         from tau.tui.ansi_bridge import parse_ansi_into
         from tau.tui.geometry import Rect
@@ -929,23 +940,21 @@ class MessageList(Component):
             self._frozen_width = width
             self._frozen_seq = self._invalidation_seq
 
-        units = list(self._iter_units(width))
-        keep_from = max(0, len(units) - self._KEEP_TAIL_UNITS)
-
         live_lines: list[str] = []
-        for i, (end_idx, unit_lines) in enumerate(units):
+        for start_idx, end_idx, unit_lines in self._iter_units(width):
             if end_idx <= self._frozen_block_count:
                 continue
-            if i < keep_from:
-                if self._frozen_buf is None:
-                    self._frozen_buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
-                base = self._frozen_buf.area.height
-                self._frozen_buf.grow_to(base + len(unit_lines))
-                for j, line in enumerate(unit_lines):
-                    parse_ansi_into(self._frozen_buf, 0, base + j, line, width)
-                self._frozen_block_count = end_idx
-            else:
+            streaming = any(b.is_streaming for b in self._blocks[start_idx:end_idx])
+            if streaming:
                 live_lines.extend(unit_lines)
+                continue
+            if self._frozen_buf is None:
+                self._frozen_buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
+            base = self._frozen_buf.area.height
+            self._frozen_buf.grow_to(base + len(unit_lines))
+            for j, line in enumerate(unit_lines):
+                parse_ansi_into(self._frozen_buf, 0, base + j, line, width)
+            self._frozen_block_count = end_idx
         return self._frozen_buf, live_lines
 
     def handle_input(self, event: InputEvent) -> bool:
