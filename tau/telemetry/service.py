@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import atexit
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from posthog import Posthog
 
