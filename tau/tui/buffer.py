@@ -46,6 +46,17 @@ class Cell:
         self.symbol, self.style, self.skip = " ", Style(), False
 
 
+# Shared sentinel for still-blank cells. ``Buffer`` fills new rows with
+# references to this single instance instead of constructing a fresh ``Cell``
+# per position — for a growing scrollback buffer, the overwhelming majority of
+# blank positions are read (diffed) many times but never individually written,
+# so allocation dominated ``grow_to``'s per-frame cost for large buffers.
+# ``Buffer.get``/``set`` copy-on-write: any position still holding this
+# sentinel is swapped for a private ``Cell()`` before it's handed out or
+# mutated, so nothing here can leak a shared, externally-mutable instance.
+_BLANK_CELL = Cell()
+
+
 @dataclass(slots=True)
 class RawWrite:
     """Content that must bypass normal cell diffing/printing entirely.
@@ -83,7 +94,7 @@ class Buffer:
 
     def __post_init__(self) -> None:
         if not self.content:
-            self.content = [Cell() for _ in range(max(0, self.area.area))]
+            self.content = [_BLANK_CELL] * max(0, self.area.area)
 
     @classmethod
     def empty(cls, area: Rect) -> Buffer:
@@ -99,7 +110,7 @@ class Buffer:
         if height <= self.area.height:
             return
         added = (height - self.area.height) * self.area.width
-        self.content.extend(Cell() for _ in range(added))
+        self.content.extend([_BLANK_CELL] * added)
         self.area = Rect(self.area.x, self.area.y, self.area.width, height)
 
     def index_of(self, x: int, y: int) -> int:
@@ -108,12 +119,21 @@ class Buffer:
         return (y - self.area.y) * self.area.width + (x - self.area.x)
 
     def get(self, x: int, y: int) -> Cell:
-        return self.content[self.index_of(x, y)]
+        idx = self.index_of(x, y)
+        cell = self.content[idx]
+        if cell is _BLANK_CELL:
+            cell = Cell()
+            self.content[idx] = cell
+        return cell
 
     def set(self, x: int, y: int, symbol: str, style: Style | None = None) -> None:
         if not self.area.contains(x, y):
             return
-        cell = self.content[self.index_of(x, y)]
+        idx = self.index_of(x, y)
+        cell = self.content[idx]
+        if cell is _BLANK_CELL:
+            cell = Cell()
+            self.content[idx] = cell
         cell.symbol = symbol or " "
         cell.style = style if style is not None else Style()
 

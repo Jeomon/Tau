@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.backend import Backend
-from tau.tui.buffer import Buffer, Cell
+from tau.tui.buffer import _BLANK_CELL, Buffer, Cell
 from tau.tui.geometry import Position, Rect
 from tau.tui.style import OSC8_CLOSE, Style, style_transition
 from tau.tui.utils import grapheme_width, is_window_focused
@@ -116,7 +116,7 @@ class BufferedTerminal:
         """Render one frame and flush only the cells that changed to the backend."""
         self._resize_if_needed()
         current = self._buffers[self._current]
-        current.content[:] = [Cell() for _ in range(len(current.content))]
+        current.content[:] = [_BLANK_CELL] * len(current.content)
 
         frame = Frame(current, current.area)
         render_fn(frame)
