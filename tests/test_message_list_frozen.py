@@ -281,37 +281,31 @@ def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
     assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
 
 
-def test_toggle_details_expanded_does_not_touch_frozen_blocks() -> None:
-    """Regression: toggling used to bump _invalidation_seq unconditionally,
-    which resets and fully rebuilds the *entire* frozen cache in one
-    synchronous call — for a long session that's re-running markdown/tool
-    render for potentially hundreds of blocks in a single frame, freezing the
-    spinner and input for however long that takes. Toggling must only touch
-    still-live (not yet frozen) blocks, so a frozen cache never needs
-    rebuilding just because of a ctrl+o press."""
+def test_toggle_details_expanded_reaches_an_already_frozen_block() -> None:
+    """Regression: a tool result can be marked "frozen" internally (something
+    else was appended after it) while still fully visible on screen — frozen
+    is not a reliable proxy for scrolled-off-screen. ctrl+o must still be
+    able to expand/collapse it; this used to silently no-op instead."""
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 5)
     big_result = "\n".join(f"line {i}" for i in range(300))
     ml.add_message(
         ToolMessage(contents=[ToolResultContent(id="t1", tool_name="grep", content=big_result)])
     )
-    ml.add_message(UserMessage.from_text("thanks"))  # proves the tool result is done
+    ml.add_message(UserMessage.from_text("thanks"))  # pushes the tool result out of "last unit"
     ml.render_split_cells(WIDTH)
-    assert ml._frozen_block_count == len(ml._blocks) - 1
-    frozen_buf_before = ml._frozen_buf
-    frozen_seq_before = ml._frozen_seq
+    assert ml._frozen_block_count == len(ml._blocks) - 1  # confirms it's actually frozen
 
-    ml.toggle_details_expanded()  # the tool result is already frozen — locked in, not touched
+    before = ml.render(WIDTH)
+    ml.toggle_details_expanded()
 
-    # No cache reset happened: same object, same generation.
-    assert ml._frozen_buf is frozen_buf_before
-    assert ml._frozen_seq == frozen_seq_before
-    assert ml._frozen_block_count == len(ml._blocks) - 1
+    assert ml.render(WIDTH) != before
+    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
 
 
 def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
-    """The still-live (unfrozen) trailing assistant message must still
-    respond to ctrl+o normally — only already-frozen history is exempt."""
+    """The still-live (unfrozen) trailing assistant message must respond to
+    ctrl+o normally too."""
     ml = MessageList(theme=MessageTheme())
     ml.add_message(UserMessage.from_text("q"))
     long_thinking = "\n".join(f"thought {j}" for j in range(8))
@@ -322,6 +316,33 @@ def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
     )
     before = ml.render(WIDTH)
 
+    ml.toggle_details_expanded()
+
+    assert ml.render(WIDTH) != before
+    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+
+
+def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
+    """Regression: agent_hooks.py's _update_block(clear=True) — called the
+    instant an assistant reply finishes — must NOT finalize() the block.
+    An AssistantMessage/ToolMessage is a ctrl+o target
+    (toggle_details_expanded); finalizing it on completion would make it
+    permanently frozen the moment it appears, and freezing is one-way."""
+    ml = MessageList(theme=MessageTheme())
+    ml.add_message(UserMessage.from_text("explain"))
+    long_thinking = "\n".join(f"reasoning {j}" for j in range(8))
+    block = ml.add_message(
+        AssistantMessage(contents=[ThinkingContent(content=long_thinking)]), streaming=True
+    )
+    ml.render_split_cells(WIDTH)  # mid-stream render, like a real session
+
+    # Mirrors _on_message_end -> _update_block(msg, streaming=False, clear=True):
+    # NOT calling finalize() here is exactly the point of this test.
+    block.set_streaming(False)
+    block.invalidate()
+    ml.render_split_cells(WIDTH)  # one more frame after the reply completes
+
+    before = ml.render(WIDTH)
     ml.toggle_details_expanded()
 
     assert ml.render(WIDTH) != before

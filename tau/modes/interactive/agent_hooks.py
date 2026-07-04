@@ -131,11 +131,12 @@ class AgentHookHandler:
                 if sm is not None:
                     ctx = sm.build_session_context()
                     for msg in ctx.messages:
-                        # A one-shot replay of persisted history — nothing keeps a
-                        # reference to mutate these blocks again, so they're safe
-                        # to freeze immediately rather than only once something
-                        # newer is added after them.
-                        self._layout.add_message(msg).finalize()
+                        # No finalize() here: a replayed AssistantMessage/ToolMessage
+                        # can still hold thinking/tool-result content the user wants
+                        # to reach via ctrl+o, which only affects still-live (not yet
+                        # frozen) blocks — finalizing on arrival would make it
+                        # permanently un-toggleable the moment it's added.
+                        self._layout.add_message(msg)
         sm = self._runtime.session_manager
         if sm is not None:
             self._layout.set_cwd(sm.cwd)
@@ -253,9 +254,11 @@ class AgentHookHandler:
             if self._current_block is not None:
                 self._update_block(msg, streaming=False, clear=True)
             else:
-                # No streaming reference was ever kept for this one (e.g. a
-                # tool result) — nothing will mutate it later.
-                self._layout.add_message(msg).finalize()
+                # No finalize(): a ToolMessage's result is a ctrl+o target too
+                # (toggle_details_expanded), which only reaches still-live
+                # blocks — freezing on arrival would make it permanently
+                # un-toggleable immediately.
+                self._layout.add_message(msg)
         self._tui.request_render()
 
     async def _on_message_rollback(self, event: object) -> None:
@@ -374,9 +377,12 @@ class AgentHookHandler:
         self._current_block.set_streaming(streaming)
         self._current_block.invalidate()
         if clear:
-            # Dropping our own reference for good right here — safe to
-            # freeze immediately even if it's still the last message.
-            self._current_block.finalize()
+            # No finalize(): this is always an AssistantMessage/ToolMessage,
+            # a ctrl+o target — toggle_details_expanded only reaches
+            # still-live blocks, so freezing here the instant a reply
+            # finishes would make it permanently un-toggleable. It still
+            # freezes safely once something else is added after it (the
+            # "not last unit" fallback in render_split_cells).
             self._current_block = None
             self._current_text_length = 0
 
