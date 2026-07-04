@@ -209,40 +209,75 @@ def test_frozen_buf_cell_rows_render_identically_via_row_to_ansi() -> None:
     assert spliced_lines == expected
 
 
-def test_large_finished_tail_unit_freezes_immediately() -> None:
-    """Regression: freezing used to wait for 3 more units to pile up behind a
-    unit, so a big finished terminal/tool output sitting near the tail stayed
-    in live_lines — meaning every frame (every keystroke, every spinner tick)
-    re-parsed all of it into cells for as long as nothing else was added.
-    A finished (non-streaming) unit must freeze on the very next call,
-    regardless of how few units follow it."""
+def test_large_finished_unit_freezes_once_something_follows_it() -> None:
+    """A big finished terminal/tool output must eventually freeze (bounding
+    per-frame cost), but never while it's still the last unit — a message
+    the app considers "done" for the moment can still be mutated in place
+    later (see test_last_unit_is_never_frozen_even_when_not_streaming), so
+    "not streaming" alone isn't proof of finality. Once a further message
+    exists after it, the app has moved on and it's safe to freeze."""
     ml = MessageList(theme=MessageTheme())
     ml.add_message(UserMessage.from_text("run the build"))
     huge_output = "\n".join(f"build log line {i}" for i in range(500))
-    ml.add_message(AssistantMessage.from_text(huge_output))  # the last unit, not streaming
+    ml.add_message(AssistantMessage.from_text(huge_output))  # not streaming, but still last
+    ml.add_message(UserMessage.from_text("looks good"))  # proves the previous unit is done
 
     _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
 
-    assert ml._frozen_block_count == len(ml._blocks)
+    # Only the new trailing message stays live; the huge output got frozen.
+    assert ml._frozen_block_count == len(ml._blocks) - 1
     assert len(live_lines) < 10
+
+
+def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
+    """Regression: the interactive app creates an assistant's placeholder
+    block at message_start with streaming=False (real streaming only starts
+    once the first token lands), and can momentarily report streaming=False
+    between token-batch flushes before the message is actually complete.
+    Freezing is one-way and never re-checked, so freezing a not-yet-finished
+    last unit permanently hides every token that streams in afterward —
+    this reproduces exactly that: a message added non-streaming, then
+    "streamed into" after the fact, must still show its final content."""
+    ml = MessageList(theme=MessageTheme())
+    ml.add_message(UserMessage.from_text("say hi"))
+    # Mirrors message_start: placeholder added non-streaming, empty content.
+    placeholder = ml.add_message(AssistantMessage.from_text(""), streaming=False)
+
+    # A render happens here in the real app (request_render() after message_start).
+    ml.render_split_cells(WIDTH)
+
+    # Now the "stream" actually delivers content, exactly like _update_block.
+    placeholder._message = AssistantMessage.from_text("Hi there!")
+    placeholder.set_streaming(True)
+    placeholder.invalidate()
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    assert any("Hi there!" in line for line in live_lines)
+
+    # And once the turn ends (streaming=False for good, nothing further).
+    placeholder.set_streaming(False)
+    placeholder.invalidate()
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    assert any("Hi there!" in line for line in live_lines)
+    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
 
 
 def test_toggling_expand_refreezes_on_the_next_call() -> None:
     """Regression: after ctrl+o expands a big tool result, the invalidation
     reset must only cost one slow (full-rebuild) frame — the very next call
-    should refreeze everything that isn't streaming, not leave the expanded
-    content permanently in live_lines."""
+    should refreeze everything eligible (i.e. not the still-last unit),
+    not leave the expanded content permanently in live_lines."""
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 5)
     big_result = "\n".join(f"line {i}" for i in range(300))
     ml.add_message(
         ToolMessage(contents=[ToolResultContent(id="t1", tool_name="grep", content=big_result)])
     )
+    ml.add_message(UserMessage.from_text("thanks"))  # proves the tool result is done
     ml.render_split_cells(WIDTH)
-    assert ml._frozen_block_count == len(ml._blocks)
+    assert ml._frozen_block_count == len(ml._blocks) - 1
 
     ml.toggle_details_expanded()  # bumps invalidation, forces one full rebuild
 
     _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
-    assert ml._frozen_block_count == len(ml._blocks)
-    assert len(live_lines) == 0
+    assert ml._frozen_block_count == len(ml._blocks) - 1
+    assert len(live_lines) < 10

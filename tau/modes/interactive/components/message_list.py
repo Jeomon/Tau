@@ -919,17 +919,26 @@ class MessageList(Component):
         rebuilt, so a caller can splice its rows straight into the frame
         buffer instead of re-parsing ANSI text that hasn't changed.
 
-        A unit freezes as soon as none of its blocks are still streaming —
-        not after some fixed number of newer units pile up behind it. Freezing
-        by position alone left large content (a big terminal/tool output, or
-        anything just expanded via ctrl+o) sitting in the live tail
-        indefinitely whenever it happened to be one of the last few units,
-        which meant every frame — including every keystroke and spinner tick
-        — kept re-parsing it into cells. A unit frozen here that later turns
-        out to still be needed (e.g. undo pops it, or a toggle mutates it) is
-        still safe: popping past the frozen boundary is caught by
-        _guard_frozen_bounds, and any mutation bumps _invalidation_seq, both
-        of which force a one-time full rebuild rather than corrupting state.
+        A unit freezes once it is no longer the last unit AND none of its
+        blocks are streaming. Both conditions matter: the ``streaming`` flag
+        alone is not a reliable one-way signal — the interactive app creates
+        an assistant's placeholder block at message_start with
+        streaming=False (real content, and streaming=True, only arrive once
+        the first token lands), and can also momentarily report
+        streaming=False between token-batch flushes before the message is
+        actually done. Freezing is a one-way operation with no re-check, so
+        freezing a unit that looks "done" for a moment but isn't yet
+        permanently hides every update that arrives afterward. The one
+        invariant that does hold: once something else has been added after a
+        unit, the app has moved on and will never mutate that unit in place
+        again (a new message_start reassigns its own current-block pointer
+        rather than continuing to target the old one) — so "not last" is the
+        one real proof of finality; "not streaming" is only a secondary
+        guard. A unit frozen here that later turns out to still need
+        changing (e.g. undo pops it, or a toggle mutates it) is still safe:
+        popping past the frozen boundary is caught by _guard_frozen_bounds,
+        and any mutation bumps _invalidation_seq — both force a one-time full
+        rebuild rather than corrupting state.
         """
         from tau.tui.ansi_bridge import parse_ansi_into
         from tau.tui.geometry import Rect
@@ -940,12 +949,14 @@ class MessageList(Component):
             self._frozen_width = width
             self._frozen_seq = self._invalidation_seq
 
+        units = list(self._iter_units(width))
         live_lines: list[str] = []
-        for start_idx, end_idx, unit_lines in self._iter_units(width):
+        for i, (start_idx, end_idx, unit_lines) in enumerate(units):
             if end_idx <= self._frozen_block_count:
                 continue
+            is_last_unit = i == len(units) - 1
             streaming = any(b.is_streaming for b in self._blocks[start_idx:end_idx])
-            if streaming:
+            if is_last_unit or streaming:
                 live_lines.extend(unit_lines)
                 continue
             if self._frozen_buf is None:
