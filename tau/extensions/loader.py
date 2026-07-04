@@ -30,6 +30,22 @@ _log = logging.getLogger(__name__)
 
 _ENTRY_POINT = "register"
 
+# When the same extension identity (folder/module name) is discoverable from
+# more than one of these three sources — e.g. a builtin also copied into a
+# project's or the user's global extensions dir — only the highest-priority
+# one loads. Sources outside this map (explicit settings.json paths, inline,
+# package) are unranked and never suppressed by this scheme.
+_SOURCE_PRIORITY = {"project": 0, "global": 1, "builtin": 2}
+
+
+def _extension_identity(path: Path) -> str:
+    """Identity key for priority comparison: folder name for a package entry
+    point, file stem otherwise. Matches the ``config_key`` computation in
+    ``ExtensionLoader.load`` so priority resolution and config lookup agree
+    on what counts as "the same" extension.
+    """
+    return path.parent.name if path.name == "__init__.py" else path.stem
+
 
 async def load_inline_extensions(
     factories: list[ExtensionFactory],
@@ -112,6 +128,12 @@ class ExtensionLoader:
     in ``disabled_stems`` are also skipped.  Duplicate resolved paths are
     skipped silently.  A failing extension is logged and recorded in the
     returned ``LoadExtensionsResult`` — it never crashes startup.
+
+    Same-identity priority: if the same extension (same folder/module name)
+    is discoverable from more than one of builtin/project/global, only the
+    highest-priority copy loads — project > global > builtin — rather than
+    loading all of them and leaving tool-name collisions to be settled by
+    whichever happened to register last. See ``_resolve_source_priority``.
 
     Subdirectory support:
       Given ``extensions/my_pkg/``:
@@ -270,7 +292,43 @@ class ExtensionLoader:
                     for path in self._discover_in_dir(p, seen):
                         found.append((path, source))
 
-        return found
+        return self._resolve_source_priority(found)
+
+    @staticmethod
+    def _resolve_source_priority(
+        found: list[tuple[Path, str]],
+    ) -> list[tuple[Path, str]]:
+        """Drop lower-priority duplicates of the same extension identity.
+
+        Path-based dedup above only catches the exact same file discovered
+        twice; it does nothing when the same extension exists as physically
+        separate copies under two sources (e.g. a builtin also installed
+        globally). Left alone, both would load and silently collide on tool
+        names — whichever loaded last would win (see ``get_tools()``),
+        regardless of source. This resolves that ambiguity explicitly:
+        project > global > builtin.
+
+        Only applies among the three ranked sources. An unranked source
+        (explicit settings.json path, inline, package) always passes through
+        untouched — it never suppresses, and is never suppressed by, a
+        ranked entry sharing its identity; the two schemes don't interact.
+        """
+        best: dict[str, tuple[Path, str]] = {}
+        unranked: list[tuple[Path, str]] = []
+        order: list[str] = []
+        for path, source in found:
+            if source not in _SOURCE_PRIORITY:
+                unranked.append((path, source))
+                continue
+            key = _extension_identity(path)
+            if key not in best:
+                best[key] = (path, source)
+                order.append(key)
+                continue
+            _, current_source = best[key]
+            if _SOURCE_PRIORITY[source] < _SOURCE_PRIORITY[current_source]:
+                best[key] = (path, source)
+        return [best[key] for key in order] + unranked
 
     # ── Dependency installation ──────────────────────────────────────────────────
 
