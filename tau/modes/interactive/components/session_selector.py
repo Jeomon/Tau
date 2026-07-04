@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tau.tui.style import apply_style
+
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
@@ -238,28 +240,34 @@ class ResumeSelector:
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
-        folder_label = t.emphasis("[Folder]") if self._scope == "current" else t.muted("Folder")
-        all_label = t.emphasis("[All]") if self._scope == "all" else t.muted("All")
-        sort_label = t.muted(f"Sort: {self._SORT_LABELS[self._sort_idx]}")
+        if self._scope == "current":
+            folder_label = apply_style(t.emphasis, "[Folder]")
+        else:
+            folder_label = apply_style(t.muted, "Folder")
+        all_label = apply_style(t.emphasis, "[All]") if self._scope == "all" else apply_style(
+            t.muted, "All"
+        )
+        sort_label = apply_style(t.muted, f"Sort: {self._SORT_LABELS[self._sort_idx]}")
         lines.append(f"  {folder_label}  {all_label}    {sort_label}")
         lines.append(divider)
 
         # ── Search box ─────────────────────────────────────────────────────────
         if self._search:
-            lines.append(f"  {t.muted('⊘')} {self._search}█")
+            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}█")
         else:
-            lines.append("  " + t.muted("⊘ Search sessions…"))
+            lines.append("  " + apply_style(t.muted, "⊘ Search sessions…"))
         lines.append(divider)
 
         # ── Delete confirmation ────────────────────────────────────────────────
         if self._confirming_delete is not None:
             del_path = self._confirming_delete
             short = _shorten(del_path)[: width - 20]
-            lines.append("  " + t.error(f"Delete '{short}'?  Enter: yes  ·  Esc: no"))
+            msg = apply_style(t.error, f"Delete '{short}'?  Enter: yes  ·  Esc: no")
+            lines.append("  " + msg)
             lines.append(divider)
 
         # ── Session list (two-line entries) ────────────────────────────────────
@@ -267,18 +275,19 @@ class ResumeSelector:
 
         if not self._filtered:
             if self._search:
-                lines.append("  " + t.muted(f"No sessions match '{self._search}'"))
+                lines.append("  " + apply_style(t.muted, f"No sessions match '{self._search}'"))
             elif self._scope == "current":
-                lines.append("  " + t.muted("No sessions in current folder — Tab for all"))
+                hint = "No sessions in current folder — Tab for all"
+                lines.append("  " + apply_style(t.muted, hint))
             else:
-                lines.append("  " + t.muted("No sessions found"))
+                lines.append("  " + apply_style(t.muted, "No sessions found"))
         else:
             count = len(self._filtered)
             visible = min(self._max_visible, count)
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more above"))
+                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
             end_idx = min(start + visible, count)
             for i in range(start, end_idx):
@@ -296,16 +305,16 @@ class ResumeSelector:
 
                 # ── Line 1: indicator + session name ──────────────────────────
                 if is_del_target:
-                    name_styled = t.error(display)
-                    indicator = t.error("> ")
+                    name_styled = apply_style(t.error, display)
+                    indicator = apply_style(t.error, "> ")
                 elif is_sel:
-                    name_styled = t.emphasis(display)
-                    indicator = t.accent("> ")
+                    name_styled = apply_style(t.emphasis, display)
+                    indicator = apply_style(t.accent, "> ")
                 elif session.name:
-                    name_styled = t.warning(display)
+                    name_styled = apply_style(t.warning, display)
                     indicator = "  "
                 else:
-                    name_styled = t.muted(display)
+                    name_styled = apply_style(t.muted, display)
                     indicator = "  "
 
                 lines.append("  " + indicator + name_styled)
@@ -321,7 +330,7 @@ class ResumeSelector:
                     meta_parts.append(f"⚙ {mc}")
 
                 meta_line = "  ·  ".join(meta_parts)
-                lines.append("    " + t.muted(meta_line))
+                lines.append("    " + apply_style(t.muted, meta_line))
 
                 # blank line between entries for readability
                 if i < end_idx - 1:
@@ -329,17 +338,18 @@ class ResumeSelector:
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more below"))
+                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
 
         # ── Status bar ─────────────────────────────────────────────────────────
         if self._status_msg:
-            lines.append("  " + t.warning(self._status_msg))
+            lines.append("  " + apply_style(t.warning, self._status_msg))
         else:
-            lines.append(
-                "  " + t.muted("tab: scope  ·  ctrl+r: sort  ·  ctrl+d: delete  ·  Esc: cancel")
+            hint = apply_style(
+                t.muted, "tab: scope  ·  ctrl+r: sort  ·  ctrl+d: delete  ·  Esc: cancel"
             )
+            lines.append("  " + hint)
         return lines
 
     # ── Internal ──────────────────────────────────────────────────────────────

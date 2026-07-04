@@ -17,7 +17,7 @@ import httpx
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
-from tau.inference.api.text.utils import parse_tool_args
+from tau.inference.api.text.utils import parse_tool_args, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -282,7 +282,7 @@ def _messages_to_contents(
                             {
                                 "functionResponse": {
                                     "name": content.id,
-                                    "response": {"result": content.content},
+                                    "response": {"result": tool_result_text(content)},
                                 }
                             }
                         )

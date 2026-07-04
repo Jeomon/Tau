@@ -4,9 +4,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.utils import fuzzy_filter, visible_width
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
+from tau.tui.utils import fuzzy_filter
+from tau.tui.widgets.list import List, ListItem, ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import SelectListTheme
@@ -33,6 +38,14 @@ class SelectList[T](Component):
     - Escape fires on_dismiss.
     - Shows a scroll indicator when items overflow the viewport.
 
+    Rendering is built on the ratatui-style ``List``/``ListState`` widgets
+    (``tau/tui/widgets/list.py``): selection/scroll-offset state lives in a
+    real ``ListState``, and each row's two-column label/description layout
+    is two ``Span``s in a ``ListItem``'s ``Line``. The scroll "N more"
+    indicators aren't part of ``List`` itself (ratatui's List has no such
+    concept) — they're rendered as their own rows above/below it, same as
+    before.
+
     Usage::
 
         lst = SelectList(items, max_visible=5, theme=theme.select)
@@ -50,8 +63,7 @@ class SelectList[T](Component):
         self._all_items: list[SelectItem[T]] = items or []
         self._filtered: list[SelectItem[T]] = list(self._all_items)
         self._max_visible = max(1, max_visible)
-        self._selected = 0
-        self._scroll_offset = 0
+        self._state = ListState(selected=0)
         self._query = ""
         self._on_confirm: Callable[[SelectItem[T]], None] | None = None
         self._on_dismiss: Callable[[], None] | None = None
@@ -72,7 +84,7 @@ class SelectList[T](Component):
     def selected_item(self) -> SelectItem[T] | None:
         if not self._filtered:
             return None
-        return self._filtered[self._selected]
+        return self._filtered[self._state.selected or 0]
 
     @property
     def line_count(self) -> int:
@@ -97,95 +109,116 @@ class SelectList[T](Component):
     def on_dismiss(self, cb: Callable[[], None]) -> None:
         self._on_dismiss = cb
 
+    def set_selected(self, index: int) -> None:
+        """Jump directly to ``index`` (clamped) — e.g. to seed an initial selection."""
+        if self._filtered:
+            self._state.select(max(0, min(index, len(self._filtered) - 1)))
+            self._clamp_scroll()
+
     def move_up(self) -> None:
         if self._filtered:
-            self._selected = (self._selected - 1) % len(self._filtered)
+            selected = self._state.selected or 0
+            self._state.select((selected - 1) % len(self._filtered))
             self._clamp_scroll()
 
     def move_down(self) -> None:
         if self._filtered:
-            self._selected = (self._selected + 1) % len(self._filtered)
+            selected = self._state.selected or 0
+            self._state.select((selected + 1) % len(self._filtered))
             self._clamp_scroll()
 
     def page_up(self) -> None:
         if self._filtered:
-            self._selected = max(0, self._selected - self._max_visible)
+            selected = self._state.selected or 0
+            self._state.select(max(0, selected - self._max_visible))
             self._clamp_scroll()
 
     def page_down(self) -> None:
         if self._filtered:
-            self._selected = min(len(self._filtered) - 1, self._selected + self._max_visible)
+            selected = self._state.selected or 0
+            self._state.select(min(len(self._filtered) - 1, selected + self._max_visible))
             self._clamp_scroll()
 
     def move_top(self) -> None:
         if self._filtered:
-            self._selected = 0
+            self._state.select(0)
             self._clamp_scroll()
 
     def move_bottom(self) -> None:
         if self._filtered:
-            self._selected = len(self._filtered) - 1
+            self._state.select(len(self._filtered) - 1)
             self._clamp_scroll()
 
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
         items = self._filtered
 
         if not items:
-            return [t.empty("  no matches")]
+            buf.grow_to(area.y + 1)
+            buf.set_string(area.x, area.y, "  no matches", t.empty)
+            return 1
 
         count = len(items)
         visible = min(self._max_visible, count)
 
-        # Keep scroll window so selected stays in view
+        # Keep scroll window so selected stays in view (mirrors List.render's
+        # own ensure_visible call, run early so the label-width pass below
+        # sees the same visible slice List will actually draw).
         self._clamp_scroll()
-        start = self._scroll_offset
+        start = self._state.offset
+        selected = self._state.selected if self._state.selected is not None else -1
 
         # Label column width: widest label in visible slice (min 8, max ~40% of width)
         label_w = max(
             8,
             min(
                 max(len(it.label) for it in items[start : start + visible]),
-                width // 2,
+                area.width // 2,
             ),
         )
-        desc_w = max(0, width - label_w - 3)  # 3 = "  " indent + " " gap
+        desc_w = max(0, area.width - label_w - 3)  # 3 = "  " indent + " " gap
 
-        lines: list[str] = []
+        y = area.y
+        rows = 0
 
-        # Scroll-up indicator
         if start > 0:
-            lines.append(t.indicator(f"  ↑ {start} more"))
+            buf.grow_to(y + 1)
+            buf.set_string(area.x, y, f"  ↑ {start} more", t.indicator)
+            y += 1
+            rows += 1
 
-        for i in range(start, start + visible):
-            item = items[i]
-            is_sel = i == self._selected
-
+        list_items: list[ListItem] = []
+        for i, item in enumerate(items):
+            is_sel = i == selected
             label = item.label[:label_w].ljust(label_w)
             desc = item.description[:desc_w] if desc_w > 0 else ""
+            label_style = t.selected_label if is_sel else t.normal_label
+            desc_style = t.selected_desc if is_sel else t.normal_desc
+            line = Line([Span(label, label_style), Span(" ", Style()), Span(desc, desc_style)])
+            list_items.append(ListItem(line))
 
-            if is_sel:
-                row = "  " + t.selected_label(label) + " " + t.selected_desc(desc)
-                if t.selected_bg:
-                    # Fill to full width and apply background
-                    vw = visible_width(row)
-                    fill = max(0, width - vw)
-                    row = t.selected_bg(row + " " * fill)
-            else:
-                row = "  " + t.normal_label(label) + " " + t.normal_desc(desc)
+        list_area = Rect(area.x, y, area.width, visible)
+        buf.grow_to(y + visible)
+        widget = List(
+            items=list_items,
+            highlight_symbol="  ",
+            highlight_style=t.selected_bg if t.selected_bg is not None else Style(),
+        )
+        widget.render(list_area, buf, self._state)
+        y += visible
+        rows += visible
 
-            lines.append(row)
-
-        # Scroll-down indicator
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(t.indicator(f"  ↓ {remaining} more"))
+            buf.grow_to(y + 1)
+            buf.set_string(area.x, y, f"  ↓ {remaining} more", t.indicator)
+            rows += 1
 
-        return lines
+        return rows
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -249,21 +282,16 @@ class SelectList[T](Component):
             )
         # Clamp selection to new list length
         if self._filtered:
-            self._selected = min(self._selected, len(self._filtered) - 1)
+            selected = self._state.selected or 0
+            self._state.select(min(selected, len(self._filtered) - 1))
         else:
-            self._selected = 0
-        self._scroll_offset = 0
+            self._state.select(0)
+        self._state.offset = 0
 
     def _clamp_scroll(self) -> None:
         count = len(self._filtered)
         visible = min(self._max_visible, count)
-        # selected must be in [scroll_offset, scroll_offset + visible)
-        if self._selected < self._scroll_offset:
-            self._scroll_offset = self._selected
-        elif self._selected >= self._scroll_offset + visible:
-            self._scroll_offset = self._selected - visible + 1
-        # ensure scroll_offset valid
-        self._scroll_offset = max(0, min(self._scroll_offset, max(0, count - visible)))
+        self._state.ensure_visible(count, visible)
 
 
 # ── InlineSelector ────────────────────────────────────────────────────────────

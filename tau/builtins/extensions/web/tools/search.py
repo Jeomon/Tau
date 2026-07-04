@@ -70,8 +70,12 @@ def _result_lines(r: dict, mode: _SearchMode) -> tuple[str, str]:
 def _render_web_search(content: str, opts: Any) -> list[str]:
     # Style via the theme on the render options (stable extension surface)
     # instead of importing ANSI codes from Tau internals.
-    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
-    muted = getattr(opts.theme, "muted", _id)
+    from tau.tui.style import Style, apply_style
+
+    muted_style = getattr(opts.theme, "muted", Style())
+
+    def muted(text: str) -> str:
+        return apply_style(muted_style, text)
 
     metadata = opts.metadata or {}
     query = metadata.get("query", "")

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.trust.manager import TrustOption
@@ -48,19 +49,21 @@ class TrustScreen(Component):
         lines.append("")
         lines.append("")
 
-        lines.append(indent + t.emphasis("Trust project folder?"))
+        lines.append(indent + apply_style(t.emphasis, "Trust project folder?"))
         lines.append("")
 
         cwd_display = self._cwd
         if len(cwd_display) > width - len(indent) - 2:
             cwd_display = "…" + cwd_display[-(width - len(indent) - 3) :]
-        lines.append(indent + t.accent(cwd_display))
+        lines.append(indent + apply_style(t.accent, cwd_display))
         lines.append("")
 
-        lines.append(indent + t.muted("This allows tau to load .py settings and resources,"))
-        lines.append(
-            indent + t.muted("install missing project packages, and run project extensions.")
+        line1 = apply_style(t.muted, "This allows tau to load .py settings and resources,")
+        line2 = apply_style(
+            t.muted, "install missing project packages, and run project extensions."
         )
+        lines.append(indent + line1)
+        lines.append(indent + line2)
         lines.append("")
         lines.append("")
 
@@ -68,12 +71,13 @@ class TrustScreen(Component):
             is_sel = i == self._selected
             prefix = "› " if is_sel else "  "
             row = indent + prefix + opt.label
-            lines.append(t.emphasis(row) if is_sel else t.muted(row))
+            lines.append(apply_style(t.emphasis if is_sel else t.muted, row))
 
         lines.append("")
         lines.append("")
 
-        lines.append(indent + t.muted("↑↓ navigate  ·  Enter select  ·  Esc cancel"))
+        hint = apply_style(t.muted, "↑↓ navigate  ·  Enter select  ·  Esc cancel")
+        lines.append(indent + hint)
 
         return lines
 

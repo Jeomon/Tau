@@ -3,28 +3,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from tau.tui.utils import (
-    BOLD,
-    BRIGHT_BLACK,
-    BRIGHT_CYAN,
-    BRIGHT_GREEN,
-    BRIGHT_RED,
-    BRIGHT_WHITE,
-    BRIGHT_YELLOW,
-    CYAN,
-    DIM,
-    GREEN,
-    ITALIC,
-    RESET,
-    fg,
-)
+from tau.tui.style import Style
+from tau.tui.utils import BOLD, ITALIC, RESET, fg
 
 # A color function wraps a string in ANSI codes and returns the styled string.
+# Only `MessageTheme.diff_inverse` still uses this shape (see its field comment
+# for why); every other color-bearing field below is a structured `Style`,
+# applied via `tau.tui.style.apply_style(style, text)`.
 ColorFn = Callable[[str], str]
 
 
 # ---------------------------------------------------------------------------
-# Color-function builders — public helpers for writing custom themes
+# Color-function builders — standalone ANSI-wrapping helpers, independent of
+# the Style-based theme fields below (kept for diff_inverse-style needs and
+# anyone building a raw ColorFn directly).
 # ---------------------------------------------------------------------------
 
 
@@ -48,10 +40,6 @@ def rgb_italic(r: int, g: int, b: int) -> ColorFn:
     return lambda s: ITALIC + fg(r, g, b) + s + RESET
 
 
-def _wrap(code: str) -> ColorFn:
-    return color(code)
-
-
 # ---------------------------------------------------------------------------
 # Per-component theme dataclasses
 # ---------------------------------------------------------------------------
@@ -63,8 +51,8 @@ class SpinnerTheme:
 
     frames: list[str] = field(default_factory=lambda: ["▖", "▘", "▝", "▗"])
     interval_ms: int = 120
-    frame_color: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_CYAN))
-    label_color: ColorFn = field(default_factory=lambda: lambda s: s)
+    frame_color: Style = field(default_factory=lambda: Style().with_fg("bright_cyan"))
+    label_color: Style = field(default_factory=Style)
     label_thinking: str = "Thinking…"
     label_streaming: str = "Streaming…"
     label_tool_calling: str = "Tool Calling…"
@@ -75,55 +63,61 @@ class SpinnerTheme:
 class MarkdownTheme:
     """Controls colours for rendered markdown inside assistant messages."""
 
-    heading: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_CYAN + s + RESET)
-    code_inline: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
-    code_block: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_GREEN))
-    code_block_border: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
+    heading: Style = field(default_factory=lambda: Style().bold().with_fg("bright_cyan"))
+    code_inline: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
+    code_block: Style = field(default_factory=lambda: Style().with_fg("bright_green"))
+    code_block_border: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     # Pygments style for syntax-highlighted fenced code blocks; "" disables
     # highlighting (falls back to the flat `code_block` colour).
     code_syntax_style: str = "monokai"
-    quote: ColorFn = field(default_factory=lambda: lambda s: "\x1b[3m" + s + RESET)  # italic
-    quote_border: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    hr: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    list_bullet: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_CYAN))
-    bold: ColorFn = field(default_factory=lambda: lambda s: BOLD + s + RESET)
-    italic: ColorFn = field(default_factory=lambda: lambda s: "\x1b[3m" + s + RESET)
-    strikethrough: ColorFn = field(default_factory=lambda: lambda s: "\x1b[9m" + s + RESET)
-    link_text: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_CYAN))
-    link_url: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
+    quote: Style = field(default_factory=lambda: Style().italic())
+    quote_border: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    hr: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    list_bullet: Style = field(default_factory=lambda: Style().with_fg("bright_cyan"))
+    bold: Style = field(default_factory=lambda: Style().bold())
+    italic: Style = field(default_factory=lambda: Style().italic())
+    strikethrough: Style = field(default_factory=lambda: Style().strikethrough())
+    link_text: Style = field(default_factory=lambda: Style().with_fg("bright_cyan"))
+    link_url: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
 
 
 @dataclass
 class MessageTheme:
     """Controls all colors used when rendering chat messages."""
 
-    you_label: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_CYAN + s + RESET)
-    assistant_label: ColorFn = field(
-        default_factory=lambda: lambda s: BOLD + BRIGHT_GREEN + s + RESET
+    you_label: Style = field(default_factory=lambda: Style().bold().with_fg("bright_cyan"))
+    assistant_label: Style = field(default_factory=lambda: Style().bold().with_fg("bright_green"))
+    tool_arrow: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
+    tool_result_ok: Style = field(default_factory=Style)
+    tool_result_err: Style = field(default_factory=lambda: Style().with_fg("bright_red"))
+    thinking: Style = field(default_factory=lambda: Style().dim().italic())
+    error_label: Style = field(default_factory=lambda: Style().bold().with_fg("bright_red"))
+    dim: Style = field(default_factory=lambda: Style().dim())
+    stream_cursor: Style = field(default_factory=lambda: Style().with_fg("bright_white"))
+    diff_added: Style = field(default_factory=lambda: Style().with_fg("bright_green"))
+    diff_removed: Style = field(default_factory=lambda: Style().with_fg("bright_red"))
+    diff_context: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    diff_hunk: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
+    # Word-diff highlight applied *inside* an already-colored removed/added
+    # line (see message_list.py's render_diff call). Must stay a ColorFn: it
+    # toggles reverse-video on then back off (`\x1b[27m`), not a full reset —
+    # a full reset here would also clear the enclosing line's color for
+    # everything after the highlighted word. Style's close is always a full
+    # reset (see apply_style), so this one case doesn't fit that model.
+    diff_inverse: ColorFn = field(
+        default_factory=lambda: (lambda s: "\x1b[7m" + s + "\x1b[27m")
     )
-    tool_arrow: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
-    tool_result_ok: ColorFn = field(default_factory=lambda: lambda s: s)
-    tool_result_err: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_RED))
-    thinking: ColorFn = field(default_factory=lambda: lambda s: DIM + ITALIC + s + RESET)
-    error_label: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_RED + s + RESET)
-    dim: ColorFn = field(default_factory=lambda: _wrap(DIM))
-    stream_cursor: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_WHITE))
-    diff_added: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_GREEN))
-    diff_removed: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_RED))
-    diff_context: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    diff_hunk: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
-    diff_inverse: ColorFn = field(default_factory=lambda: lambda s: "\x1b[7m" + s + "\x1b[27m")
     # Semantic colour roles exposed to tool render_result() callbacks via
     # ToolRenderOptions.theme. Defaults mirror LayoutTheme's roles; when this
     # MessageTheme is part of a LayoutTheme they are overwritten from the
     # layout-level roles in LayoutTheme.__post_init__ so a custom theme's roles
     # reach tool renderers (and extensions using the documented API).
-    muted: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    emphasis: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_WHITE + s + RESET)
-    success: ColorFn = field(default_factory=lambda: _wrap(GREEN))
-    error: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_RED + s + RESET)
-    warning: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
-    accent: ColorFn = field(default_factory=lambda: _wrap(CYAN))
+    muted: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    emphasis: Style = field(default_factory=lambda: Style().bold().with_fg("bright_white"))
+    success: Style = field(default_factory=lambda: Style().with_fg("green"))
+    error: Style = field(default_factory=lambda: Style().bold().with_fg("bright_red"))
+    warning: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
+    accent: Style = field(default_factory=lambda: Style().with_fg("cyan"))
     markdown: MarkdownTheme = field(default_factory=MarkdownTheme)
     show_thinking: bool = True
     show_tool_calls: bool = True
@@ -143,19 +137,17 @@ class InputTheme:
 class SelectListTheme:
     """Controls appearance of the SelectList / CommandPalette component."""
 
-    selected_label: ColorFn = field(
-        default_factory=lambda: lambda s: BOLD + BRIGHT_WHITE + s + RESET
-    )
-    selected_desc: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    normal_label: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    normal_desc: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    indicator: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    empty: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
+    selected_label: Style = field(default_factory=lambda: Style().bold().with_fg("bright_white"))
+    selected_desc: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    normal_label: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    normal_desc: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    indicator: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    empty: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     # Emphasised entry — e.g. directories in the file picker. Lists that have no
     # such distinction simply ignore it.
-    selected_dir: ColorFn = field(default_factory=lambda: lambda s: BOLD + CYAN + s + RESET)
+    selected_dir: Style = field(default_factory=lambda: Style().bold().with_fg("cyan"))
     # Optional full-line background for the selected row (None = no background)
-    selected_bg: ColorFn | None = field(default_factory=lambda: None)
+    selected_bg: Style | None = None
 
 
 @dataclass
@@ -165,11 +157,11 @@ class LayoutTheme:
 
     Pass a custom instance to App.create() or Layout() to restyle the whole UI:
 
-        from tau.tui.theme import LayoutTheme, SpinnerTheme, MessageTheme
-        from tau.tui.utils import BRIGHT_MAGENTA, RESET
+        from tau.tui.theme import LayoutTheme, SpinnerTheme
+        from tau.tui.style import Style
 
         theme = LayoutTheme(
-            divider=lambda s: BRIGHT_MAGENTA + s + RESET,
+            divider=Style().with_fg("bright_magenta"),
             spinner=SpinnerTheme(
                 frames=["◐", "◓", "◑", "◒"],
                 interval_ms=100,
@@ -178,21 +170,27 @@ class LayoutTheme:
         app = await App.create(config, theme=theme)
     """
 
-    divider: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))
-    divider_command: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_CYAN))
-    divider_execute: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))
+    divider: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    divider_command: Style = field(default_factory=lambda: Style().with_fg("bright_cyan"))
+    divider_execute: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
 
     # Shared semantic roles used by selectors,
     # modals, and other chrome so a single theme key recolours them everywhere.
-    muted: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))  # dim chrome/secondary text
-    emphasis: ColorFn = field(  # highlighted/active item
-        default_factory=lambda: lambda s: BOLD + BRIGHT_WHITE + s + RESET
+    muted: Style = field(  # dim chrome/secondary text
+        default_factory=lambda: Style().with_fg("bright_black")
     )
-    success: ColorFn = field(default_factory=lambda: _wrap(GREEN))  # positive / current
-    error: ColorFn = field(default_factory=lambda: lambda s: BOLD + BRIGHT_RED + s + RESET)
-    warning: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_YELLOW))  # caution / highlight
-    accent: ColorFn = field(default_factory=lambda: _wrap(CYAN))  # highlighted value/path
-    border: ColorFn = field(default_factory=lambda: _wrap(BRIGHT_BLACK))  # modal/box borders
+    emphasis: Style = field(  # highlighted/active item
+        default_factory=lambda: Style().bold().with_fg("bright_white")
+    )
+    success: Style = field(default_factory=lambda: Style().with_fg("green"))  # positive / current
+    error: Style = field(default_factory=lambda: Style().bold().with_fg("bright_red"))
+    warning: Style = field(  # caution / highlight
+        default_factory=lambda: Style().with_fg("bright_yellow")
+    )
+    accent: Style = field(default_factory=lambda: Style().with_fg("cyan"))  # highlighted value/path
+    border: Style = field(  # modal/box borders
+        default_factory=lambda: Style().with_fg("bright_black")
+    )
 
     # Optional terminal background colour applied via OSC 11 when Tau starts.
     # Use a CSS hex string e.g. "#1e1e2e" or an "rgb(r,g,b)" string.

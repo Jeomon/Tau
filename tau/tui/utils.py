@@ -151,6 +151,23 @@ def _char_width(ch: str) -> int:
     return 1
 
 
+def char_width(ch: str) -> int:
+    """Public alias for the single-character width table (no ANSI awareness needed)."""
+    return _char_width(ch)
+
+
+def grapheme_width(cluster: str) -> int:
+    """Terminal column width of one grapheme cluster (a whole user-perceived character).
+
+    A cluster may be several codepoints (base + combining accent, or a ZWJ
+    emoji sequence like the family emoji); combining marks/ZWJ/variation
+    selectors are zero-width, so the cluster's width is its first codepoint's
+    width. Splitting a string into clusters is the caller's job (e.g. via
+    ``grapheme.graphemes()``) — this only measures one.
+    """
+    return _char_width(cluster[0]) if cluster else 0
+
+
 def visible_width(text: str) -> int:
     """Return the number of terminal columns the string will occupy."""
     # Fast path: pure ASCII printable

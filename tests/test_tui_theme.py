@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from tau.tui.style import Style, apply_style
 from tau.tui.theme import (
     InputTheme,
     LayoutTheme,
@@ -74,9 +75,10 @@ class TestSpinnerTheme:
         t = SpinnerTheme(frames=["◐", "◓", "◑", "◒"])
         assert t.frames == ["◐", "◓", "◑", "◒"]
 
-    def test_frame_color_fn_callable(self):
+    def test_frame_color_is_style(self):
         t = SpinnerTheme()
-        result = t.frame_color("spin")
+        assert isinstance(t.frame_color, Style)
+        result = apply_style(t.frame_color, "spin")
         assert "spin" in result
 
 
@@ -85,29 +87,29 @@ class TestMarkdownTheme:
         t = MarkdownTheme()
         assert t is not None
 
-    def test_heading_fn_callable(self):
+    def test_heading_is_style(self):
         t = MarkdownTheme()
-        result = t.heading("Title")
+        result = apply_style(t.heading, "Title")
         assert "Title" in result
 
-    def test_code_inline_fn_callable(self):
+    def test_code_inline_is_style(self):
         t = MarkdownTheme()
-        result = t.code_inline("code")
+        result = apply_style(t.code_inline, "code")
         assert "code" in result
 
-    def test_bold_fn_callable(self):
+    def test_bold_is_style(self):
         t = MarkdownTheme()
-        result = t.bold("bold text")
+        result = apply_style(t.bold, "bold text")
         assert "bold text" in result
 
-    def test_italic_fn_callable(self):
+    def test_italic_is_style(self):
         t = MarkdownTheme()
-        result = t.italic("italic text")
+        result = apply_style(t.italic, "italic text")
         assert "italic text" in result
 
-    def test_link_text_fn_callable(self):
+    def test_link_text_is_style(self):
         t = MarkdownTheme()
-        assert "link" in t.link_text("link")
+        assert "link" in apply_style(t.link_text, "link")
 
     def test_code_syntax_style_default(self):
         t = MarkdownTheme()
@@ -132,29 +134,37 @@ class TestMessageTheme:
         t = MessageTheme()
         assert t.show_images is True
 
-    def test_you_label_fn_callable(self):
+    def test_you_label_is_style(self):
         t = MessageTheme()
-        result = t.you_label("You")
+        result = apply_style(t.you_label, "You")
         assert "You" in result
 
-    def test_assistant_label_fn_callable(self):
+    def test_assistant_label_is_style(self):
         t = MessageTheme()
-        result = t.assistant_label("Assistant")
+        result = apply_style(t.assistant_label, "Assistant")
         assert "Assistant" in result
 
     def test_has_markdown_subtheme(self):
         t = MessageTheme()
         assert isinstance(t.markdown, MarkdownTheme)
 
-    def test_diff_added_fn(self):
+    def test_diff_added_is_style(self):
         t = MessageTheme()
-        result = t.diff_added("+added line")
+        result = apply_style(t.diff_added, "+added line")
         assert "+added line" in result
 
-    def test_diff_removed_fn(self):
+    def test_diff_removed_is_style(self):
         t = MessageTheme()
-        result = t.diff_removed("-removed line")
+        result = apply_style(t.diff_removed, "-removed line")
         assert "-removed line" in result
+
+    def test_diff_inverse_is_still_a_colorfn(self):
+        # Deliberately not migrated to Style: it toggles reverse-video on then
+        # off (`\x1b[27m`), not a full reset, so it composes correctly inside
+        # an already-colored line. See the field comment in theme.py.
+        t = MessageTheme()
+        result = t.diff_inverse("word")
+        assert result == "\x1b[7mword\x1b[27m"
 
 
 class TestInputTheme:
@@ -176,14 +186,14 @@ class TestSelectListTheme:
         t = SelectListTheme()
         assert t is not None
 
-    def test_selected_label_fn(self):
+    def test_selected_label_is_style(self):
         t = SelectListTheme()
-        result = t.selected_label("option")
+        result = apply_style(t.selected_label, "option")
         assert "option" in result
 
-    def test_normal_label_fn(self):
+    def test_normal_label_is_style(self):
         t = SelectListTheme()
-        result = t.normal_label("option")
+        result = apply_style(t.normal_label, "option")
         assert "option" in result
 
     def test_selected_bg_default_none(self):
@@ -212,9 +222,9 @@ class TestLayoutTheme:
         t = LayoutTheme()
         assert isinstance(t.select_list, SelectListTheme)
 
-    def test_divider_fn_callable(self):
+    def test_divider_is_style(self):
         t = LayoutTheme()
-        result = t.divider("─────")
+        result = apply_style(t.divider, "─────")
         assert "─────" in result
 
     def test_custom_spinner(self):
@@ -240,17 +250,18 @@ class TestToolRenderThemeContract:
     def test_message_theme_exposes_documented_roles(self):
         m = MessageTheme()
         for role in _TOOL_RENDER_ROLES:
-            fn = getattr(m, role)
-            assert callable(fn)
-            assert "x" in str(fn("x"))
+            style = getattr(m, role)
+            assert isinstance(style, Style)
+            assert "x" in apply_style(style, "x")
 
     def test_layout_theme_message_exposes_documented_roles(self):
         m = LayoutTheme().message
         for role in _TOOL_RENDER_ROLES:
-            assert callable(getattr(m, role))
+            assert isinstance(getattr(m, role), Style)
 
     def test_custom_layout_role_propagates_to_message(self):
-        t = LayoutTheme(muted=lambda s: "<M>" + s + "</M>")
+        custom = Style().with_fg("bright_magenta")
+        t = LayoutTheme(muted=custom)
         # LayoutTheme.__post_init__ mirrors layout roles onto .message so tool
         # renderers pick up a custom theme's colours.
-        assert t.message.muted("hi") == "<M>hi</M>"
+        assert t.message.muted == custom

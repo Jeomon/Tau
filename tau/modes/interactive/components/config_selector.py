@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -58,24 +59,24 @@ class ConfigSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
         # Header
-        lines.append("  " + t.emphasis("Extensions"))
+        lines.append("  " + apply_style(t.emphasis, "Extensions"))
         lines.append(divider)
 
         # Search box
         if self._search:
-            lines.append(f"  {t.muted('⊘')} {self._search}█")
+            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}█")
         else:
-            lines.append("  " + t.muted("⊘ Search extensions…"))
+            lines.append("  " + apply_style(t.muted, "⊘ Search extensions…"))
         lines.append(divider)
 
         if not self._filtered:
-            lines.append("  " + t.muted("No extensions found"))
+            lines.append("  " + apply_style(t.muted, "No extensions found"))
             lines.append(divider)
-            lines.append("  " + t.muted("Space: toggle  ·  Esc: close"))
+            lines.append("  " + apply_style(t.muted, "Space: toggle  ·  Esc: close"))
             return lines
 
         # Flat list with group headers
@@ -88,35 +89,38 @@ class ConfigSelector(Component):
         start = max(0, min(sel_flat_idx - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted(f"↑ {start} more above"))
+            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
         for i in range(start, min(start + visible, count)):
             kind, payload = flat[i]
             if kind == "header":
-                lines.append("  " + t.accent(str(payload)))
+                lines.append("  " + apply_style(t.accent, str(payload)))
             else:
                 assert isinstance(payload, ConfigEntry)
                 is_sel = i == sel_flat_idx
-                checkbox = (
-                    t.success(ENABLED_SYMBOL) if payload.enabled else t.muted(DISABLED_SYMBOL)
+                checkbox = apply_style(
+                    t.success if payload.enabled else t.muted,
+                    ENABLED_SYMBOL if payload.enabled else DISABLED_SYMBOL,
                 )
-                name = t.emphasis(payload.name) if is_sel else t.muted(payload.name)
+                name = apply_style(t.emphasis if is_sel else t.muted, payload.name)
                 label = name
                 if payload.author:
-                    label += " " + t.muted(f"by {payload.author}")
+                    label += " " + apply_style(t.muted, f"by {payload.author}")
                 if payload.path_display:
-                    label += " " + t.muted(f"({payload.path_display})")
+                    label += " " + apply_style(t.muted, f"({payload.path_display})")
                 if is_sel:
-                    lines.append(f"  {t.accent('>')} {checkbox} {label}")
+                    marker = apply_style(t.accent, ">")
+                    lines.append(f"  {marker} {checkbox} {label}")
                 else:
                     lines.append(f"    {checkbox} {label}")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted(f"↓ {remaining} more below"))
+            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("Space: toggle  ·  ↑/↓ to move  ·  Esc: close"))
+        hint = apply_style(t.muted, "Space: toggle  ·  ↑/↓ to move  ·  Esc: close")
+        lines.append("  " + hint)
         return lines
 
     def handle_input(self, event: InputEvent) -> bool:

@@ -1,11 +1,25 @@
+import re
+
 from tau.message.types import AssistantMessage, ThinkingContent
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.tui.theme import MessageTheme
-from tau.tui.utils import DIM, ITALIC, strip_ansi
+from tau.tui.utils import strip_ansi
 
 
+# Style.sgr() combines modifiers into one SGR sequence (e.g. "\x1b[2;3m" for
+# dim+italic) rather than the old code's separate "\x1b[2m\x1b[3m" — both are
+# valid, terminal-equivalent ANSI. Check for the SGR *parameters* (2, 3)
+# appearing (combined or separately) rather than the old literal substrings.
 def _plain(lines: list[str]) -> list[str]:
     return [strip_ansi(line) for line in lines]
+
+
+def _has_dim_and_italic(line: str) -> bool:
+    codes = re.findall(r"\x1b\[([0-9;]*)m", line)
+    params: set[str] = set()
+    for code in codes:
+        params.update(code.split(";"))
+    return "2" in params and "3" in params
 
 
 def test_short_thinking_renders_without_expand_hint() -> None:
@@ -62,7 +76,7 @@ def test_thinking_renders_markdown() -> None:
 
     assert any("Plan" in line and "##" not in line for line in lines)
     assert any("•" in line and "inspect" in line for line in lines)
-    assert all(DIM in line and ITALIC in line for line in rendered if strip_ansi(line).strip())
+    assert all(_has_dim_and_italic(line) for line in rendered if strip_ansi(line).strip())
 
 
 def test_streaming_incomplete_thinking_markdown_renders() -> None:

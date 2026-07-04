@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -36,10 +37,10 @@ class VoiceSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines = [
-            "  " + t.emphasis("Speak Voice"),
-            "  " + t.muted(self._model_name),
+            "  " + apply_style(t.emphasis, "Speak Voice"),
+            "  " + apply_style(t.muted, self._model_name),
             divider,
         ]
 
@@ -48,24 +49,26 @@ class VoiceSelector(Component):
         start = max(0, min(self._selected - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted(f"↑ {start} more above"))
+            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
         for index in range(start, start + visible):
             voice = self._voices[index]
-            check = f" {t.success('✓')}" if voice == self._current else ""
+            check = f" {apply_style(t.success, '✓')}" if voice == self._current else ""
             if index == self._selected:
-                lines.append(f"  {t.accent('>')} {t.emphasis(voice)}{check}")
+                marker = apply_style(t.accent, ">")
+                label = apply_style(t.emphasis, voice)
+                lines.append(f"  {marker} {label}{check}")
             else:
-                lines.append(f"    {t.muted(voice)}{check}")
+                lines.append(f"    {apply_style(t.muted, voice)}{check}")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted(f"↓ {remaining} more below"))
+            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.extend(
             [
                 divider,
-                "  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"),
+                "  " + apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"),
             ]
         )
         return lines

@@ -1,0 +1,270 @@
+"""Tests for tau/tui/frame.py — ScrollbackTerminal differential-render invariants.
+
+Mirrors tests/test_tui_renderer.py's scenarios for the original string-based
+Renderer, to confirm the Buffer/Cell port preserves the exact same
+observable behavior (same writes, same viewport/cursor tracking) rather than
+just "looking equivalent" in isolation.
+
+Not ported: test_unchanged_lines_reuse_width_calculation. That test asserts
+on Renderer's `_clamp_cache` (memoizing `visible_width` per line so
+unchanged lines skip a wrap re-scan every frame). ScrollbackTerminal has no
+such cache because it doesn't need one: components wrap their own content
+once into Buffer rows at render_cells() time, so the engine never re-scans
+a line's visible width on every frame the way the string Renderer did.
+"""
+
+from __future__ import annotations
+
+from tau.tui.buffer import Buffer
+from tau.tui.component import StaticComponent
+from tau.tui.frame import ScrollbackTerminal
+from tau.tui.geometry import Rect
+
+
+class FakeTerminal:
+    """Minimal stand-in for tau.tui.terminal.Terminal, capturing writes."""
+
+    def __init__(self, width: int = 80, height: int = 24) -> None:
+        self.width = width
+        self.height = height
+        self.writes: list[str] = []
+        self.resize_callbacks: list[object] = []
+
+    def begin_sync(self) -> str:
+        return ""
+
+    def end_sync(self) -> str:
+        return ""
+
+    def write(self, data: str) -> None:
+        self.writes.append(data)
+
+    def write_flush(self, data: str) -> None:
+        self.writes.append(data)
+
+    def on_resize(self, callback: object) -> object:
+        self.resize_callbacks.append(callback)
+
+        def unsubscribe() -> None:
+            self.resize_callbacks.remove(callback)
+
+        return unsubscribe
+
+
+def _content_writes(term: FakeTerminal) -> list[str]:
+    """Writes from render()'s main buffer, excluding the trailing cursor-hide write_flush."""
+    return [w for w in term.writes if w != "\x1b[?25l"]
+
+
+def _buf(lines: list[str], width: int) -> Buffer:
+    component = StaticComponent(lines)
+    buf = Buffer.empty(Rect(0, 0, width, 0))
+    component.render_cells(Rect(0, 0, width, 0), buf)
+    return buf
+
+
+class TestScrollbackTerminalDifferentialUpdate:
+    def test_first_render_draws_everything(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "a" in content[0]
+        assert "b" in content[0]
+        assert "c" in content[0]
+
+    def test_no_change_writes_no_content(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = ["a", "b", "c"]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(list(lines), term.width))
+
+        assert _content_writes(term) == []
+
+    def test_appended_line_only_redraws_new_line(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "b", "c", "d"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "d" in content[0]
+        assert "a" not in content[0]
+        assert "b" not in content[0]
+        assert "c" not in content[0]
+
+    def test_single_middle_line_change_only_redraws_that_line(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "X", "c"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "X" in content[0]
+        assert "a" not in content[0]
+        assert "c" not in content[0]
+
+    def test_appended_suffix_only_rewrites_from_divergence_point(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["hello wor"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["hello world"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "ld" in content[0]
+        assert "hello wor" not in content[0]
+        assert "G" in content[0]
+        assert "\x1b[2K" not in content[0]
+        assert "\x1b[0K" not in content[0]
+
+    def test_changed_cell_declares_its_style_and_resets_after(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["\x1b[31mred a"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["\x1b[31mred b"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "b" in content[0]
+        assert "red" not in content[0]
+        assert content[0].endswith("\x1b[0m")
+
+    def test_mid_line_same_width_change_reuses_trailing_suffix(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["Loading | please wait"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["Loading / please wait"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "/" in content[0]
+        assert "Loading" not in content[0]
+        assert "please wait" not in content[0]
+        assert "\x1b[0K" not in content[0]
+        assert "\x1b[2K" not in content[0]
+
+    def test_mid_line_insertion_only_rewrites_the_shifted_cells(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["hello world"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["hello there world"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "there" in content[0]
+        assert "world" in content[0]
+        assert "hello" not in content[0]
+        assert "\x1b[2K" not in content[0]
+        assert "\x1b[0K" not in content[0]
+
+    def test_sparse_changes_redraw_full_span_including_unchanged_lines(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c", "d", "e"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "Z", "c", "d", "Y"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "Z" in content[0]
+        assert "Y" in content[0]
+        assert "c" in content[0]
+        assert "d" in content[0]
+        assert "a" not in content[0]
+
+    def test_stable_height_offscreen_change_does_not_redraw(self):
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        changed = list(lines)
+        changed[0] = "offscreen"
+        renderer.render(_buf(changed, term.width))
+
+        assert _content_writes(term) == []
+
+    def test_stable_height_change_clamps_redraw_to_viewport(self):
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        changed = list(lines)
+        changed[0] = "offscreen"
+        changed[19] = "visible"
+        renderer.render(_buf(changed, term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "v" in content[0]
+        assert "sible" in content[0]
+        assert "line 15" in content[0]
+        assert "offscreen" not in content[0]
+        assert "\x1b[2J" not in content[0]
+
+    def test_growing_buffer_across_frames(self):
+        """A component whose row count grows (real chat history growth)."""
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "b", "c", "d", "e", "f"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "c" in content[0]
+        assert "f" in content[0]
+        assert "a" not in content[0]
+
+    def test_resize_forces_full_redraw(self):
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b"], term.width))
+        term.writes.clear()
+
+        term.width = 30
+        for cb in list(term.resize_callbacks):
+            cb()
+        renderer.render(_buf(["a", "b"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "\x1b[2J" in content[0]
+        assert "a" in content[0]
+        assert "b" in content[0]
+
+    def test_dispose_unsubscribes_resize_and_clears_state(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a"], term.width))
+        assert term.resize_callbacks != []
+
+        renderer.dispose()
+
+        assert term.resize_callbacks == []
+        assert renderer._prev is None

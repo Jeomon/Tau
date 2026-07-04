@@ -13,6 +13,7 @@ from tau.inference.api.text.utils import (
     openai_response_format,
     openai_user_content,
     parse_tool_args,
+    tool_result_text,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -134,7 +135,7 @@ def _messages_to_mistral(
                             {
                                 "role": "tool",
                                 "tool_call_id": content.id,
-                                "content": content.content,
+                                "content": tool_result_text(content),
                             }
                         )
     return result

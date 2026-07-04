@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.utils import tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -107,7 +108,7 @@ def _messages_to_gemini(
                             genai_types.Part(
                                 function_response=genai_types.FunctionResponse(
                                     name=content.id,
-                                    response={"result": content.content},
+                                    response={"result": tool_result_text(content)},
                                 ),
                             )
                         )

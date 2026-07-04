@@ -331,19 +331,10 @@ class CustomOptions:
 
 # ── Renderer ──────────────────────────────────────────────────────────────────
 
-from tau.tui.utils import (  # noqa: E402
-    _ANSI_RE,
-    CURSOR_MARKER,
-    RESET,
-    _AnsiStateTracker,
-    _char_width,
-    is_window_focused,
-    truncate,
-    visible_width,
-)
-from tau.tui.utils import wrap as _wrap  # noqa: E402
-
-_CURSOR_MARKER_LEN = len(CURSOR_MARKER)
+from tau.tui.ansi_bridge import row_to_ansi  # noqa: E402
+from tau.tui.buffer import Buffer  # noqa: E402
+from tau.tui.frame import ScrollbackTerminal  # noqa: E402
+from tau.tui.geometry import Rect  # noqa: E402
 
 # Blank columns reserved on the left/right edges of the terminal so content
 # never touches the window border.
@@ -355,34 +346,17 @@ class Renderer:
     """
     Scrollback-mode differential renderer.
 
-    Renders into the main terminal buffer — no alternate screen.  Content
-    grows downward; old lines scroll into the terminal's native scrollback
-    buffer so the user can scroll back with the terminal's own scrollbar.
-
-    Positioning uses only relative cursor moves (ESC[NA / ESC[NB) so the
-    terminal's own scroll state is never disrupted.  Overlays are composited
-    directly into the content lines before the diff, keeping a single
-    rendering pass.
+    A thin wrapper over ``ScrollbackTerminal`` (``frame.py``): builds one
+    ``Buffer`` for the whole tree per frame — via ``Component.render_cells``,
+    so old (``render(width)``) and new (Buffer-native) components compose
+    freely — composites overlays into it as a real Buffer blit, then hands
+    the finished buffer to the diff engine. Old lines still scroll into the
+    terminal's native scrollback; ``ScrollbackTerminal`` owns that behavior.
     """
 
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
         self._terminal = terminal
-        self._show_hardware_cursor = show_hardware_cursor
-        self._prev_lines: list[str] = []
-        self._cursor_row: int = 0  # logical index of last rendered line
-        self._hw_cursor_row: int = 0  # where the terminal cursor actually is
-        self._viewport_top: int = 0  # first logical line visible on screen
-        self._max_lines: int = 0
-        self._prev_width: int = 0
-        self._prev_height: int = 0
-        self._resized: bool = False
-        # Memoizes the width-wrap of each line (line -> wrapped rows). Unchanged
-        # blocks emit stable string objects, so this skips the costly visible_width
-        # ANSI scan for every line that didn't change since the last frame.
-        self._clamp_cache: dict[str, list[str]] = {}
-        self._clamp_cache_width: int = 0
-        self._unsub_resize = terminal.on_resize(self._on_resize)
-        self._disposed = False
+        self._engine = ScrollbackTerminal(terminal, show_hardware_cursor=show_hardware_cursor)
 
     # -------------------------------------------------------------------------
     # Public API
@@ -392,198 +366,27 @@ class Renderer:
         """Render component differentially into the terminal scrollback buffer."""
         width = self._terminal.width - _LEFT_PAD - _RIGHT_PAD
         height = self._terminal.height
-        width_changed = self._resized or (self._prev_width != 0 and self._prev_width != width)
-        self._resized = False
 
-        new_lines: list[str] = component.render(width)
+        buf = Buffer.empty(Rect(0, 0, self._terminal.width, 0))
+        rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
+        buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
 
-        if width != self._clamp_cache_width:
-            self._clamp_cache = {}
-            self._clamp_cache_width = width
-        prev_clamp = self._clamp_cache
-        clamp: dict[str, list[str]] = {}
-        clamped: list[str] = []
-        for line in new_lines:
-            wrapped = prev_clamp.get(line)
-            if wrapped is None:
-                wrapped = _wrap(line, width) if visible_width(line) > width else [line]
-            clamp[line] = wrapped
-            clamped.extend(wrapped)
-        self._clamp_cache = clamp
-        new_lines = clamped
-
-        # Always have at least one line so index arithmetic stays valid.
-        if not new_lines:
-            new_lines = [""]
-
-        # Composite overlays into the visible viewport portion of new_lines.
         if overlays:
-            new_lines = self._composite_overlays(new_lines, overlays, width, height)
+            self._composite_overlays(buf, overlays, width, height)
 
-        # Locate and strip CURSOR_MARKER (TextInput IME cursor position).
-        cursor_pos: tuple[int, int] | None = None
-        for _r, _line in enumerate(new_lines):
-            if CURSOR_MARKER in _line:
-                _mi = _line.index(CURSOR_MARKER)
-                cursor_pos = (_r, visible_width(_line[:_mi]) + _LEFT_PAD)
-                new_lines[_r] = _line[:_mi] + _line[_mi + _CURSOR_MARKER_LEN :]
-                break
-
-        # Reserve the left/right margins on every line.
-        left_pad = " " * _LEFT_PAD
-        right_pad = " " * _RIGHT_PAD
-        new_lines = [left_pad + line + right_pad for line in new_lines]
-
-        # First render (or after reset()).
-        if not self._prev_lines and not width_changed:
-            self._full_render(new_lines, cursor_pos, width, height, clear=False)
-            return
-
-        # Width changed — wrapping changes, must fully redraw.
-        if width_changed:
-            self._full_render(new_lines, cursor_pos, width, height, clear=True)
-            return
-
-        prev = self._prev_lines
-
-        # Find first and last changed line.
-        max_len = max(len(new_lines), len(prev))
-        first_changed = -1
-        last_changed = -1
-        for i in range(max_len):
-            old_line = prev[i] if i < len(prev) else ""
-            new_line = new_lines[i] if i < len(new_lines) else ""
-            if old_line != new_line:
-                if first_changed == -1:
-                    first_changed = i
-                last_changed = i
-
-        # No content changes — only reposition IME cursor if needed.
-        if first_changed == -1:
-            self._position_hw_cursor(cursor_pos, new_lines)
-            self._prev_height = height
-            return
-
-        # Stable-height changes above the viewport do not shift visible rows.
-        # Skip an entirely off-screen repaint, or clamp a mixed repaint to the
-        # first visible row. Height changes still require a full redraw because
-        # they may move every subsequent logical row.
-        if first_changed < self._viewport_top:
-            if len(new_lines) == len(prev):
-                if last_changed < self._viewport_top:
-                    self._prev_lines = new_lines
-                    self._prev_width = width
-                    self._prev_height = height
-                    self._position_hw_cursor(cursor_pos, new_lines)
-                    return
-                first_changed = self._viewport_top
-            else:
-                self._full_render(new_lines, cursor_pos, width, height, clear=True)
-                return
-
-        # === Differential render ===
-        buf = self._terminal.begin_sync()
-
-        viewport_top = self._viewport_top
-        hw_cursor = self._hw_cursor_row
-        viewport_bottom = viewport_top + height - 1
-
-        # If first changed row is beyond the viewport bottom, scroll down to it.
-        if first_changed > viewport_bottom:
-            current_screen_row = hw_cursor - viewport_top
-            move_to_bottom = max(0, (height - 1) - current_screen_row)
-            if move_to_bottom > 0:
-                buf += f"\x1b[{move_to_bottom}B"
-            scroll = first_changed - viewport_bottom
-            buf += "\r\n" * scroll
-            viewport_top += scroll
-            hw_cursor = first_changed
-            viewport_bottom = viewport_top + height - 1
-
-        # Move cursor up/down to the first changed line.
-        line_diff = first_changed - hw_cursor
-        if line_diff > 0:
-            buf += f"\x1b[{line_diff}B"
-        elif line_diff < 0:
-            buf += f"\x1b[{-line_diff}A"
-        buf += "\r"
-        hw_cursor = first_changed
-
-        render_end = min(last_changed, len(new_lines) - 1)
-        for i in range(first_changed, render_end + 1):
-            if i > first_changed:
-                buf += "\r\n"
-                hw_cursor += 1
-            old_line = prev[i] if i < len(prev) else ""
-            new_line = new_lines[i] if i < len(new_lines) else ""
-            if old_line == new_line:
-                # Unchanged line inside a repainted span: still occupies a row
-                # (needed so surrounding changed rows land correctly) but its
-                # own content is already correct on screen, so redraw it as-is
-                # rather than clearing and rewriting.
-                buf += "\x1b[2K"
-                if new_line:
-                    buf += new_line
-                continue
-            # Ratatui-style Buffer/Cell diffing: parse both versions of this
-            # row into a fixed-width grid and repaint only the cells that
-            # actually changed, instead of clearing and rewriting the line.
-            buf += _diff_row(old_line, new_line, self._terminal.width)
-
-        final_cursor_row = render_end
-
-        # Clear extra lines if content shrank.
-        if len(prev) > len(new_lines):
-            if render_end < len(new_lines) - 1:
-                move_down = len(new_lines) - 1 - render_end
-                buf += f"\x1b[{move_down}B"
-                final_cursor_row = len(new_lines) - 1
-            extra = len(prev) - len(new_lines)
-            for _ in range(extra):
-                buf += "\r\n\x1b[2K"
-            buf += f"\x1b[{extra}A"
-
-        buf += self._terminal.end_sync()
-        self._terminal.write(buf)
-
-        self._cursor_row = max(0, len(new_lines) - 1)
-        self._hw_cursor_row = final_cursor_row
-        self._max_lines = max(self._max_lines, len(new_lines))
-        self._viewport_top = max(viewport_top, final_cursor_row - height + 1)
-        self._prev_lines = new_lines
-        self._prev_width = width
-        self._prev_height = height
-
-        self._position_hw_cursor(cursor_pos, new_lines)
+        self._engine.render(buf)
 
     def clear(self) -> None:
         """Erase the entire screen and scrollback buffer."""
-        self._terminal.write_flush(
-            self._terminal.begin_sync() + "\x1b[2J\x1b[H\x1b[3J" + self._terminal.end_sync()
-        )
-        self._prev_lines = []
-        self._cursor_row = 0
-        self._hw_cursor_row = 0
-        self._viewport_top = 0
-        self._max_lines = 0
-        self._clamp_cache.clear()
+        self._engine.clear()
 
     def reset(self) -> None:
         """Force a full re-render on the next frame without clearing the screen."""
-        self._prev_lines = []
-        self._cursor_row = 0
-        self._hw_cursor_row = 0
-        self._viewport_top = 0
-        self._clamp_cache.clear()
+        self._engine.reset()
 
     def dispose(self) -> None:
         """Release terminal subscriptions and retained render state."""
-        if self._disposed:
-            return
-        self._disposed = True
-        self._unsub_resize()
-        self._prev_lines.clear()
-        self._clamp_cache.clear()
+        self._engine.dispose()
 
     def reset_with_clear(self) -> None:
         """Force a full clear-and-redraw on the next frame.
@@ -593,263 +396,55 @@ class Renderer:
         that was painted at arbitrary screen rows (e.g. an overlay) must be
         erased without a terminal resize event.
         """
-        self.reset()
-        self._resized = True
+        self._engine.reset_with_clear()
+
+    # -------------------------------------------------------------------------
+    # Compatibility accessors (TUI reads these directly — see tui.py below)
+    # -------------------------------------------------------------------------
+
+    @property
+    def _viewport_top(self) -> int:
+        return self._engine._viewport_top
+
+    @property
+    def _hw_cursor_row(self) -> int:
+        return self._engine._hw_cursor_row
+
+    @property
+    def _prev_lines(self) -> list[str]:
+        prev = self._engine._prev
+        if prev is None:
+            return []
+        return [row_to_ansi(prev, y) for y in range(prev.area.height)]
 
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
 
-    def _full_render(
-        self,
-        new_lines: list[str],
-        cursor_pos: tuple[int, int] | None,
-        width: int,
-        height: int,
-        *,
-        clear: bool,
-    ) -> None:
-        buf = self._terminal.begin_sync()
-        if clear:
-            buf += "\x1b[2J\x1b[H\x1b[3J"  # clear screen + scrollback
-        else:
-            buf += "\r"  # start from column 0 for first render
-        for i, line in enumerate(new_lines):
-            if i > 0:
-                buf += "\r\n"
-            buf += "\x1b[2K"
-            buf += line
-        buf += self._terminal.end_sync()
-        self._terminal.write(buf)
-
-        self._cursor_row = max(0, len(new_lines) - 1)
-        self._hw_cursor_row = self._cursor_row
-        self._max_lines = len(new_lines) if clear else max(self._max_lines, len(new_lines))
-        buf_len = max(height, len(new_lines))
-        self._viewport_top = max(0, buf_len - height)
-        self._prev_lines = new_lines
-        self._prev_width = width
-        self._prev_height = height
-
-        self._position_hw_cursor(cursor_pos, new_lines)
-
-    def _position_hw_cursor(self, cursor_pos: tuple[int, int] | None, new_lines: list[str]) -> None:
-        """Move the hardware terminal cursor to the IME position and show/hide it."""
-        if cursor_pos is None or not new_lines:
-            self._terminal.write_flush("\x1b[?25l")
-            return
-
-        target_row, target_col = cursor_pos
-        target_row = max(0, min(target_row, len(new_lines) - 1))
-
-        row_delta = target_row - self._hw_cursor_row
-        buf = ""
-        if row_delta > 0:
-            buf += f"\x1b[{row_delta}B"
-        elif row_delta < 0:
-            buf += f"\x1b[{-row_delta}A"
-        buf += f"\x1b[{target_col + 1}G"  # absolute column (1-indexed)
-        # Reveal the real hardware cursor when the window is unfocused: the
-        # terminal draws it as a hollow outline, giving the native unfocused
-        # cursor look. While focused we keep it hidden and draw our own block.
-        if self._show_hardware_cursor or not is_window_focused():
-            buf += "\x1b[?25h"  # show cursor
-        else:
-            buf += "\x1b[?25l"  # hide cursor (we draw our own block)
-        self._terminal.write_flush(buf)
-        self._hw_cursor_row = target_row
-
-    def _composite_overlays(
-        self, lines: list[str], overlays: list, width: int, height: int
-    ) -> list[str]:
-        """Composite all visible overlays into the visible portion of lines."""
-        viewport_start = max(0, len(lines) - height)
-        result = list(lines)
+    def _composite_overlays(self, buf: Buffer, overlays: list, width: int, height: int) -> None:
+        """Blit every visible overlay directly into buf's cells (in place)."""
+        viewport_start = max(0, buf.area.height - height)
 
         for entry in overlays:
             if not entry.is_visible(width, height):
                 continue
-            ov_w = entry.resolve_width(width)
-            all_ov_lines = entry.component.render(ov_w)
-            ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, len(all_ov_lines))
-            ov_lines = all_ov_lines[:ov_h]
+            ov_w = max(1, entry.resolve_width(width))
+            ov_buf = Buffer.empty(Rect(0, 0, ov_w, 0))
+            natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
+            _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
+            ov_h = min(ov_h, natural_h)
 
-            for i, ov_line in enumerate(ov_lines):
-                logical = viewport_start + ov_row + i
-                if logical < 0:
+            buf.grow_to(viewport_start + ov_row + ov_h)
+            for y in range(ov_h):
+                target_y = viewport_start + ov_row + y
+                if target_y < 0:
                     continue
-                while logical >= len(result):
-                    result.append("")
-                result[logical] = _composite_line(
-                    result[logical], _fit_line(ov_line, ov_w2), ov_col, ov_w2, width
-                )
-
-        return result
-
-    def _on_resize(self) -> None:
-        # Clear state; next render() call forces a full clear+redraw, even if
-        # the reported width didn't change (e.g. a height-only resize), so a
-        # stale frame is never left on screen for the new render to stack atop.
-        self._prev_lines = []
-        self._cursor_row = 0
-        self._hw_cursor_row = 0
-        self._viewport_top = 0
-        self._resized = True
-
-
-# ── Line helpers ──────────────────────────────────────────────────────────────
-
-
-def _fit_line(line: str, width: int) -> str:
-    """Pad or truncate a line to exactly width visible columns."""
-    vw = visible_width(line)
-    if vw > width:
-        return truncate(line, width, ellipsis="")
-    if vw < width:
-        return line + RESET + " " * (width - vw)
-    return line
-
-
-def _split_at_column(text: str, col: int) -> tuple[str, str]:
-    """ANSI-safe split: returns (text_before_col, text_from_col_onwards)."""
-    vis = 0
-    i = 0
-    while i < len(text):
-        m = _ANSI_RE.match(text, i)
-        if m:
-            i += len(m.group(0))
-            continue
-        ch = text[i]
-        w = _char_width(ch)
-        if vis + w > col:
-            break
-        vis += w
-        i += 1
-    return text[:i], text[i:]
-
-
-# ── Buffer / Cell diffing ────────────────────────────────────────────────────
-#
-# Ports ratatui's core rendering trick: instead of comparing rendered lines as
-# opaque strings, parse each row into a fixed-width grid of `Cell`s — a
-# (symbol, resolved_style) pair per terminal column, the same role ratatui's
-# `Buffer`/`Cell` play — and diff that grid cell-by-cell. Only the columns
-# that actually changed are repainted, with cursor moves and SGR codes
-# coalesced across writes the way ratatui's crossterm backend does.
-
-# A Cell is (symbol, style): symbol is the glyph text for that column ("" for
-# the second column of a double-width glyph, a placeholder never written on
-# its own — printing the wide glyph already consumes both terminal columns).
-# style is an _AnsiStateTracker.snapshot() tuple: the fully-resolved SGR state
-# active at that cell, so two cells compare equal iff they'd render identically
-# regardless of which literal escape codes produced that state.
-Cell = tuple[str, tuple]
-
-_BLANK_STYLE: tuple = _AnsiStateTracker().snapshot()
-
-
-def _parse_cells(line: str, width: int) -> list[Cell]:
-    """Parse one rendered line into exactly `width` styled Cells.
-
-    Every row is padded/truncated to a solid `width`-wide rectangle, so the
-    diff never needs a separate "clear to end of line" case for ragged
-    line lengths — a shrunk line just turns into a run of blank Cells.
-    """
-    tracker = _AnsiStateTracker()
-    cells: list[Cell] = []
-    i = 0
-    n = len(line)
-    while i < n and len(cells) < width:
-        m = _ANSI_RE.match(line, i)
-        if m:
-            tracker.process(m.group(0))
-            i += len(m.group(0))
-            continue
-        ch = line[i]
-        i += 1
-        w = _char_width(ch)
-        if w == 0:
-            # Zero-width combining mark: fold into the previous cell's glyph
-            # rather than giving it a column of its own.
-            if cells:
-                sym, st = cells[-1]
-                cells[-1] = (sym + ch, st)
-            continue
-        if w == 2 and len(cells) + 1 >= width:
-            break  # no room for a double-width glyph and its placeholder
-        style = tracker.snapshot()
-        cells.append((ch, style))
-        if w == 2:
-            cells.append(("", style))
-    while len(cells) < width:
-        cells.append((" ", _BLANK_STYLE))
-    return cells
-
-
-def _style_codes(style: tuple) -> str:
-    tracker = _AnsiStateTracker()
-    tracker.restore(style)
-    return tracker.active_codes()
-
-
-def _diff_row(old_line: str, new_line: str, width: int) -> str:
-    """Ratatui `Buffer::diff` for one terminal row.
-
-    Parses both lines into `width`-wide Cell grids, finds every cell that
-    changed, and emits the minimal escapes to repaint just those: an
-    absolute column move only when the next write isn't immediately
-    adjacent to the previous one (mirroring crossterm backend's `last_pos`
-    coalescing), and SGR codes only when a cell's resolved style differs
-    from the previously written cell's rather than once per character.
-    Continuation cells (the second column of a double-width glyph) are
-    never targeted directly — printing the owning glyph already covers
-    both columns on a real terminal.
-    """
-    old_cells = _parse_cells(old_line, width)
-    new_cells = _parse_cells(new_line, width)
-
-    out: list[str] = []
-    expected_col = -1
-    active_style = _BLANK_STYLE
-    for col in range(width):
-        symbol, cell_style = new_cells[col]
-        if symbol == "" or new_cells[col] == old_cells[col]:
-            continue
-        if col != expected_col:
-            out.append(f"\x1b[{col + 1}G")
-        if cell_style != active_style:
-            out.append(RESET if cell_style == _BLANK_STYLE else _style_codes(cell_style))
-            active_style = cell_style
-        out.append(symbol)
-        glyph_width = 2 if col + 1 < width and new_cells[col + 1][0] == "" else 1
-        expected_col = col + glyph_width
-
-    if active_style != _BLANK_STYLE:
-        out.append(RESET)
-    return "".join(out)
-
-
-def _composite_line(base: str, overlay: str, col: int, ov_width: int, total_width: int) -> str:
-    """Splice overlay into base starting at visual column col."""
-    before, rest = _split_at_column(base, col)
-
-    # Pad before to exactly col visual columns if base is shorter.
-    before_vw = visible_width(before)
-    if before_vw < col:
-        before += " " * (col - before_vw)
-
-    # Skip the overlay zone in the base to get the "after" segment.
-    _, after = _split_at_column(rest, ov_width)
-
-    # Overlay is already padded to ov_width by _fit_line; just truncate if needed.
-    ov_vw = visible_width(overlay)
-    if ov_vw > ov_width:
-        overlay = truncate(overlay, ov_width, ellipsis="")
-
-    result = before + RESET + overlay + RESET + after
-    if visible_width(result) > total_width:
-        result = truncate(result, total_width, ellipsis="")
-    return result
+                for x in range(ov_w):
+                    target_x = _LEFT_PAD + ov_col + x
+                    if target_x < 0 or target_x >= buf.area.width:
+                        continue
+                    cell = ov_buf.get(x, y)
+                    buf.set(target_x, target_y, cell.symbol, cell.style)
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
@@ -965,6 +560,21 @@ class TUI(Container):
             self._child_rows[id(child)] = len(lines)
             lines.extend(child.render(width))
         return lines
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Buffer-native counterpart to render() — same child-row bookkeeping.
+
+        Renderer.render() calls render_cells directly (not render()), so
+        without this override Container's generic render_cells would be used
+        instead, silently leaving _child_rows empty and breaking
+        mouse_position_for for every mouse-aware child (e.g. Layout).
+        """
+        y = area.y
+        self._child_rows = {}
+        for child in self.children:
+            self._child_rows[id(child)] = y - area.y
+            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
+        return y - area.y
 
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
         """Return a mouse event as zero-based coordinates relative to a direct child."""

@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from tau.tui.style import apply_style
 from tau.tui.utils import cursor_block
 
 if TYPE_CHECKING:
@@ -66,29 +67,32 @@ class ListSelector:
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
-        lines.append("  " + t.emphasis(self._title))
+        lines.append("  " + apply_style(t.emphasis, self._title))
         if self._subtitle:
-            lines.append("  " + t.muted(self._subtitle))
+            lines.append("  " + apply_style(t.muted, self._subtitle))
 
         lines.append(divider)
 
         if not self._items:
-            lines.append("  " + t.muted("(no items)"))
+            lines.append("  " + apply_style(t.muted, "(no items)"))
         else:
             for i, item in enumerate(self._items):
                 is_sel = i == self._selected
                 is_current = item == self._current
-                check = f" {t.success('✓')}" if is_current else ""
+                check = f" {apply_style(t.success, '✓')}" if is_current else ""
                 if is_sel:
-                    lines.append(f"  {t.accent('>')} {t.emphasis(item)}{check}")
+                    marker = apply_style(t.accent, ">")
+                    label = apply_style(t.emphasis, item)
+                    lines.append(f"  {marker} {label}{check}")
                 else:
-                    lines.append(f"    {t.muted(item)}{check}")
+                    lines.append(f"    {apply_style(t.muted, item)}{check}")
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑/↓ move  ·  enter select  ·  esc cancel"))
+        hint = apply_style(t.muted, "↑/↓ move  ·  enter select  ·  esc cancel")
+        lines.append("  " + hint)
 
         return lines
 
@@ -305,7 +309,7 @@ class SettingsSelector:
             return self._submenu.render(width)  # type: ignore[attr-defined]
 
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
         # ── Tab bar ────────────────────────────────────────────────────────────
@@ -313,26 +317,26 @@ class SettingsSelector:
             parts = []
             for i, (label, _) in enumerate(self._tabs):
                 if i == self._active_tab:
-                    parts.append(t.emphasis(f"[{label}]"))
+                    parts.append(apply_style(t.emphasis, f"[{label}]"))
                 else:
-                    parts.append(t.muted(label))
+                    parts.append(apply_style(t.muted, label))
             lines.append("  " + "  ".join(parts))
         elif self._title:
-            lines.append("  " + t.emphasis(self._title))
+            lines.append("  " + apply_style(t.emphasis, self._title))
         lines.append(divider)
 
         # ── Search box ─────────────────────────────────────────────────────────
         if self._editing:
-            lines.append("  " + t.muted("editing — enter to confirm, esc to cancel"))
+            lines.append("  " + apply_style(t.muted, "editing — enter to confirm, esc to cancel"))
         elif self._search:
-            lines.append(f"  {t.muted('⊘')} {self._search}{cursor_block()}")
+            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}{cursor_block()}")
         else:
-            lines.append("  " + t.muted("⊘ Search settings…"))
+            lines.append("  " + apply_style(t.muted, "⊘ Search settings…"))
         lines.append(divider)
 
         # ── Items list ─────────────────────────────────────────────────────────
         if not self._filtered:
-            lines.append("  " + t.muted("No matching settings"))
+            lines.append("  " + apply_style(t.muted, "No matching settings"))
         else:
             max_label = min(28, max(len(i.label) for i in self._filtered))
             count = len(self._filtered)
@@ -340,7 +344,7 @@ class SettingsSelector:
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more above"))
+                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
             for i in range(start, min(start + visible, count)):
                 item = self._filtered[i]
@@ -356,16 +360,22 @@ class SettingsSelector:
 
                 if is_sel and self._editing:
                     val_display = self._edit_buffer + cursor_block()
-                    row = f"  {t.accent('>')} {t.emphasis(label_padded)}  {t.emphasis(val_display)}"
+                    marker = apply_style(t.accent, ">")
+                    label_s = apply_style(t.emphasis, label_padded)
+                    val_s = apply_style(t.emphasis, val_display)
+                    row = f"  {marker} {label_s}  {val_s}"
                 elif is_sel:
-                    row = f"  {t.accent('>')} {t.emphasis(label_padded)}  {t.accent(val_display)}"
+                    marker = apply_style(t.accent, ">")
+                    label_s = apply_style(t.emphasis, label_padded)
+                    val_s = apply_style(t.accent, val_display)
+                    row = f"  {marker} {label_s}  {val_s}"
                 else:
-                    row = f"    {t.muted(label_padded)}  {val_display}"
+                    row = f"    {apply_style(t.muted, label_padded)}  {val_display}"
                 lines.append(row)
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more below"))
+                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
 
@@ -373,21 +383,19 @@ class SettingsSelector:
         desc = ""
         if self._filtered and 0 <= self._selected < len(self._filtered):
             desc = self._filtered[self._selected].description
-        lines.append("  " + t.muted(desc if desc else "—"))
+        lines.append("  " + apply_style(t.muted, desc if desc else "—"))
         lines.append(divider)
 
         # ── Status bar ─────────────────────────────────────────────────────────
         if self._editing:
-            lines.append("  " + t.muted("enter: confirm  ·  esc: cancel"))
+            lines.append("  " + apply_style(t.muted, "enter: confirm  ·  esc: cancel"))
         else:
             tab_hint = "  ·  tab: switch" if len(self._tabs) > 1 else ""
             back_or_close = "back" if (self._title or self._tabs) else "close & save"
-            lines.append(
-                "  "
-                + t.muted(
-                    f"Enter/Space to change  ·  / to search{tab_hint}  ·  Esc to {back_or_close}"
-                )
+            hint_text = (
+                f"Enter/Space to change  ·  / to search{tab_hint}  ·  Esc to {back_or_close}"
             )
+            lines.append("  " + apply_style(t.muted, hint_text))
 
         return lines
 

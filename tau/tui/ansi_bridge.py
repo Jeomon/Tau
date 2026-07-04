@@ -25,7 +25,7 @@ import re
 
 import grapheme
 
-from tau.tui.buffer import Buffer
+from tau.tui.buffer import Buffer, RawWrite
 from tau.tui.style import OSC8_CLOSE, Modifier, Style, style_transition
 from tau.tui.utils import _ANSI_RE, grapheme_width
 
@@ -140,8 +140,23 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     but scans SGR/OSC-8 escapes to resolve each cluster's ``Style`` instead of
     taking one pre-resolved style for the whole call. Returns the column after
     the last glyph written.
+
+    A line carrying a Kitty/iTerm2 inline-image escape is treated as one
+    atomic RawWrite covering the whole string — a legacy component
+    (``MessageBlock``) can embed an ``Image``'s already-rendered line
+    verbatim, and the image payload must survive the round trip rather
+    than being silently eaten as an unrecognized no-op escape. Checked
+    by substring rather than prefix: the iTerm2 line in particular leads
+    with a relative cursor-up move (``Image``'s "position, then draw"
+    trick for a protocol with no explicit placement params) before the
+    OSC 1337 sequence itself.
     """
     buf.grow_to(y + 1)
+    if "\x1b_G" in line or "\x1b]1337;File=" in line:
+        token = f"legacy-image:{hash(line)}"
+        buf.raw_writes.append(RawWrite(x, y, line, token))
+        return x
+
     state = _SgrState()
     limit = min(buf.area.right, x + max_width)
     col = x
@@ -172,7 +187,9 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     return col
 
 
-def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None) -> str:
+def row_to_ansi(
+    buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: bool = True
+) -> str:
     """Flatten one ``Buffer`` row back into an ANSI string (skip cells excluded).
 
     Double-width glyphs occupy two cells (the glyph, then a continuation
@@ -190,12 +207,16 @@ def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None) -> str:
 
     Any ``buf.raw_writes`` anchored to this row (e.g. an inline image's
     escape sequence — see ``Image``) are spliced in at their column
-    verbatim, same reasoning: legacy callers still need the bytes even
-    though the cells underneath are ``skip=True`` and carry no symbol.
+    verbatim by default, same reasoning: legacy callers have no other way
+    to see the bytes since the cells underneath are ``skip=True`` and
+    carry no symbol. ``ScrollbackTerminal`` passes ``embed_raw=False``
+    since it has its own novelty-tracked flush for raw writes (resending a
+    multi-MB image payload every time an unrelated cell nearby changes
+    would be wasteful, unlike plain text which is cheap to resend as-is).
     """
     from tau.tui.utils import CURSOR_MARKER
 
-    raw_at = {rw.x: rw.data for rw in buf.raw_writes if rw.y == y}
+    raw_at = {rw.x: rw.data for rw in buf.raw_writes if rw.y == y} if embed_raw else {}
 
     out: list[str] = []
     active: Style | None = None

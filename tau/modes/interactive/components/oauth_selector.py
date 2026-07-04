@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -48,11 +49,11 @@ class OAuthSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
         title = "Configure provider:" if self._mode == "login" else "Logout from provider:"
-        lines.append("  " + t.emphasis(title))
+        lines.append("  " + apply_style(t.emphasis, title))
         lines.append(divider)
 
         if not self._providers:
@@ -61,7 +62,7 @@ class OAuthSelector(Component):
                 if self._mode == "logout"
                 else "No providers available"
             )
-            lines.append("  " + t.muted(msg))
+            lines.append("  " + apply_style(t.muted, msg))
         else:
             start = max(
                 0,
@@ -73,28 +74,33 @@ class OAuthSelector(Component):
             end = min(start + _VISIBLE_ROWS, len(self._providers))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more above"))
+                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
             for i in range(start, end):
                 p = self._providers[i]
                 if p.status and p.status.startswith("✓"):
-                    status_part = f"  {t.success('✓')}{t.muted(p.status[1:])}"
+                    check = apply_style(t.success, "✓")
+                    rest = apply_style(t.muted, p.status[1:])
+                    status_part = f"  {check}{rest}"
                 elif p.status:
-                    status_part = f"  {t.muted(p.status)}"
+                    status_part = f"  {apply_style(t.muted, p.status)}"
                 else:
                     status_part = ""
 
                 if i == self._selected:
-                    lines.append(f"  {t.accent('>')} {t.emphasis(p.name)}{status_part}")
+                    marker = apply_style(t.accent, ">")
+                    label = apply_style(t.emphasis, p.name)
+                    lines.append(f"  {marker} {label}{status_part}")
                 else:
-                    lines.append(f"    {t.muted(p.name)}{status_part}")
+                    lines.append(f"    {apply_style(t.muted, p.name)}{status_part}")
 
             remaining = len(self._providers) - end
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more below"))
+                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
+        lines.append("  " + hint)
 
         return lines
 

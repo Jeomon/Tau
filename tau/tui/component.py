@@ -1,39 +1,102 @@
 from __future__ import annotations
 
 import contextlib
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from tau.tui.geometry import Rect
+
 if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
     from tau.tui.input import InputEvent
 
 
-class Component(ABC):
+class Component:
     """
     Base class for all TUI components.
 
-    A component produces a list of pre-rendered lines for a given terminal
-    width. The renderer calls render() on each frame and only writes lines
-    that changed since the last frame.
+    Two render contracts coexist during the migration onto the Buffer/Cell
+    render layer (see ``tau/tui/buffer.py``, ``ansi_bridge.py``):
+
+    - ``render(width) -> list[str]`` — the original contract. Each string is
+      one ANSI-laden terminal line; the renderer diffs lines that changed.
+    - ``render_cells(area, buf) -> int`` — writes directly into a real
+      ``Buffer`` starting at ``area.y`` (growing it as needed via
+      ``buf.grow_to``) and returns the number of rows written.
+
+    A subclass overrides exactly one; the other is synthesized automatically
+    via ``ansi_bridge`` (ANSI string <-> Cell/Style conversion), so old and
+    new components can be freely mixed in the same tree. Overriding neither
+    recurses indefinitely — always implement at least one.
     """
 
-    @abstractmethod
     def render(self, width: int) -> list[str]:
+        """Return the component's visual representation as a list of strings.
+
+        Default: bridges from ``render_cells`` by rendering into a scratch
+        ``Buffer`` and flattening each row back to an ANSI string. Override
+        directly instead if the component hasn't moved onto ``render_cells``.
+
+        ``buf.cursor_position``, if a native ``render_cells`` override set
+        one, gets re-embedded as a ``CURSOR_MARKER`` in the matching row so
+        callers still on the legacy ``render(width)`` contract (e.g.
+        ``Layout`` before its own migration) keep seeing IME cursor
+        placement despite going through the string bridge.
         """
-        Return the component's visual representation as a list of strings.
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer
 
-        Each string is one terminal line. Lines must not contain newline
-        characters — the renderer handles line breaks. ANSI escape codes
-        are allowed; the renderer uses ansi.visible_width() for comparisons.
+        buf = Buffer.empty(Rect(0, 0, max(0, width), 0))
+        used = self.render_cells(Rect(0, 0, max(0, width), 0), buf)
+        cursor = buf.cursor_position
+        return [
+            row_to_ansi(buf, y, cursor_x=cursor.x if cursor is not None and cursor.y == y else None)
+            for y in range(used)
+        ]
 
-        Args:
-            width: Available terminal columns.
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Render into ``buf`` starting at row ``area.y``; return rows written.
 
-        Returns:
-            List of strings, one per line.
+        ``buf`` starts at height 0 and grows on demand — a native override
+        must call ``buf.grow_to(area.y + n)`` before writing row
+        ``area.y + n - 1``; ``Buffer.set``/``set_string`` silently no-op on
+        an out-of-bounds row rather than growing it themselves (growing
+        implicitly on every write would be surprising for the fixed-size
+        buffers the ratatui-style widgets in ``tui/widgets/`` render into).
+
+        Default: bridges from ``render(width)`` by parsing each returned
+        ANSI line back into real ``Cell``/``Style`` objects. Override
+        directly instead of ``render`` for a Buffer-native component.
+
+        A ``CURSOR_MARKER`` embedded in the legacy output (see
+        ``utils.py`` — TextInput's IME-cursor hack) is extracted into
+        ``buf.cursor_position`` rather than silently dropped, since the new
+        contract has no string to embed it in.
         """
-        ...
+        from tau.tui.ansi_bridge import parse_ansi_into
+        from tau.tui.geometry import Position
+        from tau.tui.utils import CURSOR_MARKER, visible_width, wrap
+
+        raw_lines = self.render(area.width)
+        # A legacy line can exceed area.width (the old string Renderer wraps
+        # it after the fact); parse_ansi_into only truncates, so wrap first
+        # to avoid silently dropping content that used to wrap onto more rows.
+        lines: list[str] = []
+        for line in raw_lines:
+            if CURSOR_MARKER in line:
+                marker_i = line.index(CURSOR_MARKER)
+                col = area.x + visible_width(line[:marker_i])
+                line = line[:marker_i] + line[marker_i + len(CURSOR_MARKER) :]
+                buf.cursor_position = Position(col, area.y + len(lines))
+            if visible_width(line) > area.width:
+                lines.extend(wrap(line, area.width))
+            else:
+                lines.append(line)
+
+        buf.grow_to(area.y + len(lines))
+        for i, line in enumerate(lines):
+            parse_ansi_into(buf, area.x, area.y + i, line, area.width)
+        return len(lines)
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """
@@ -115,11 +178,11 @@ class Container(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
-        lines: list[str] = []
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        y = area.y
         for child in self.children:
-            lines.extend(child.render(width))
-        return lines
+            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child in self.children)
@@ -194,11 +257,11 @@ class Column(Component):
     def __init__(self, children: list[Component]) -> None:
         self.children = list(children)
 
-    def render(self, width: int) -> list[str]:
-        lines: list[str] = []
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        y = area.y
         for child in self.children:
-            lines.extend(child.render(width))
-        return lines
+            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child in reversed(self.children))

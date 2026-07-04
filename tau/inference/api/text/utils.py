@@ -7,6 +7,7 @@ from typing import Any
 
 __all__ = [
     "parse_tool_args",
+    "tool_result_text",
     "openai_user_content",
     "openai_assistant_content",
     "openai_messages_to_chat",
@@ -18,6 +19,18 @@ __all__ = [
 
 
 _CACHE_MARKER = {"type": "ephemeral"}
+
+_NO_TOOL_OUTPUT = "(no tool output)"
+
+
+def tool_result_text(content: Any) -> str:
+    """Text to send a provider for a tool result, substituting a placeholder when empty.
+
+    Some providers reject or mishandle a bare empty string in a tool-result
+    content block, so a tool that legitimately produced no output (e.g. a
+    silent success) still needs non-empty text on the wire.
+    """
+    return content.content or _NO_TOOL_OUTPUT
 
 
 def anthropic_apply_message_cache(
@@ -191,7 +204,7 @@ def openai_messages_to_chat(messages: list, model: Any = None) -> list[dict[str,
                             {
                                 "role": "tool",
                                 "tool_call_id": content.id,
-                                "content": content.content,
+                                "content": tool_result_text(content),
                             }
                         )
     return result
@@ -295,7 +308,7 @@ def anthropic_messages_to_list(
                             {
                                 "type": "tool_result",
                                 "tool_use_id": content.id,
-                                "content": content.content,
+                                "content": tool_result_text(content),
                                 "is_error": content.is_error,
                             }
                         )

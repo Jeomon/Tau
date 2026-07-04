@@ -71,8 +71,12 @@ def _human_size(n: int) -> str:
 def _render_web_fetch(content: str, opts: Any) -> list[str]:
     # Style via the theme passed on the render options — the stable surface for
     # extensions — rather than importing ANSI codes from Tau internals.
-    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
-    error = getattr(opts.theme, "error", _id)
+    from tau.tui.style import Style, apply_style
+
+    error_style = getattr(opts.theme, "error", Style())
+
+    def error(text: str) -> str:
+        return apply_style(error_style, text)
 
     if opts.is_error:
         return [error(content.strip())]

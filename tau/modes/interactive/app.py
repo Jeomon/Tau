@@ -756,6 +756,7 @@ class App:
             return
         from tau.tui.component import Column, StaticComponent
         from tau.tui.components.box import DynamicBorder
+        from tau.tui.style import apply_style
         from tau.tui.utils import BOLD, RESET
 
         theme = self._layout.theme
@@ -764,8 +765,9 @@ class App:
                 DynamicBorder(theme.warning),
                 StaticComponent(
                     [
-                        f"  {theme.warning('⚡')} Update available: {BOLD}v{latest}{RESET}"
-                        f"{theme.muted('  ·  run: tau update')}",
+                        f"  {apply_style(theme.warning, '⚡')} Update available: "
+                        f"{BOLD}v{latest}{RESET}"
+                        f"{apply_style(theme.muted, '  ·  run: tau update')}",
                     ]
                 ),
                 DynamicBorder(theme.warning),

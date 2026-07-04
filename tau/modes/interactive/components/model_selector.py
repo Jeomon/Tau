@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -234,13 +236,11 @@ class ModelSelector:
     # ── Render ────────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
-        muted, emphasis, success, accent, border = (
-            self._muted,
-            self._emphasis,
-            self._success,
-            self._accent,
-            self._border,
-        )
+        muted = partial(apply_style, self._muted)
+        emphasis = partial(apply_style, self._emphasis)
+        success = partial(apply_style, self._success)
+        accent = partial(apply_style, self._accent)
+        border = partial(apply_style, self._border)
         divider = border("─" * width)
         lines: list[str] = []
 

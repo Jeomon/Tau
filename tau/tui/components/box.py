@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
+from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent
-from tau.tui.utils import BRIGHT_BLACK, RESET, visible_width
-
-if TYPE_CHECKING:
-    from tau.tui.theme import ColorFn
+from tau.tui.style import Style
+from tau.tui.widgets.block import Block, Borders
 
 
 class Box(Component):
     """
-    Padded container with an optional background ColorFn applied to every line.
+    Padded container with an optional background Style applied to every line.
 
     Usage::
 
-        box = Box(my_component.render, padding_x=1, padding_y=0, bg_fn=theme.selected)
+        box = Box(my_component.render, padding_x=1, padding_y=0, bg_style=theme.selected)
         lines = box.render(width)
     """
 
@@ -26,13 +26,13 @@ class Box(Component):
         render_fn: Callable[[int], list[str]],
         padding_x: int = 0,
         padding_y: int = 0,
-        bg_fn: ColorFn | None = None,
+        bg_style: Style | None = None,
     ) -> None:
         self._render_fn = render_fn
         self._padding_x = max(0, padding_x)
         self._padding_y = max(0, padding_y)
-        self._bg_fn = bg_fn
-        self._cache: list[str] | None = None
+        self._bg_style = bg_style
+        self._cache: Buffer | None = None
         self._cache_width = 0
 
     # -------------------------------------------------------------------------
@@ -42,66 +42,76 @@ class Box(Component):
     def invalidate(self) -> None:
         self._cache = None
 
-    def set_bg_fn(self, bg_fn: ColorFn | None) -> None:
-        self._bg_fn = bg_fn
+    def set_bg_style(self, bg_style: Style | None) -> None:
+        self._bg_style = bg_style
         self._cache = None
 
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
-        if self._cache is not None and self._cache_width == width:
-            return self._cache
-        self._cache = self._build(width)
-        self._cache_width = width
-        return self._cache
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        if self._cache is None or self._cache_width != area.width:
+            self._cache = self._build(area.width)
+            self._cache_width = area.width
+        cached = self._cache
 
-    def handle_input(self, event: InputEvent) -> bool:
+        rows = cached.area.height
+        buf.grow_to(area.y + rows)
+        for y in range(rows):
+            for x in range(area.width):
+                cell = cached.get(x, y)
+                buf.set(area.x + x, area.y + y, cell.symbol, cell.style)
+        return rows
+
+    def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         return False
 
     # -------------------------------------------------------------------------
     # Internal
     # -------------------------------------------------------------------------
 
-    def _build(self, width: int) -> list[str]:
+    def _build(self, width: int) -> Buffer:
         inner_w = max(1, width - self._padding_x * 2)
         raw = self._render_fn(inner_w)
-        pad_x = " " * self._padding_x
+        total_rows = self._padding_y * 2 + len(raw)
 
-        def _apply(line: str) -> str:
-            # Pad the visible content to `width` columns, then apply bg.
-            vw = visible_width(line)
-            fill = max(0, width - vw)
-            full = line + " " * fill
-            return self._bg_fn(full) if self._bg_fn else full
+        buf = Buffer.empty(Rect(0, 0, width, total_rows))
 
-        out: list[str] = []
-        blank = " " * width
-
-        for _ in range(self._padding_y):
-            out.append(_apply(blank) if self._bg_fn else blank)
-
+        y = self._padding_y
         for line in raw:
-            out.append(_apply(pad_x + line))
+            parse_ansi_into(buf, self._padding_x, y, line, width - self._padding_x)
+            y += 1
 
-        for _ in range(self._padding_y):
-            out.append(_apply(blank) if self._bg_fn else blank)
-
-        return out
+        # Apply after content so Style.patch merges the background behind
+        # whatever fg/modifiers the content itself set, instead of a plain
+        # overwrite clobbering them (matches the old ColorFn wrap, which
+        # layered bg onto already-styled content via cumulative SGR codes).
+        if self._bg_style is not None:
+            buf.set_style(buf.area, self._bg_style)
+        return buf
 
 
 # ── DynamicBorder ─────────────────────────────────────────────────────────────
 
 
 class DynamicBorder(Component):
-    """Full-width horizontal rule that adapts to the terminal width."""
+    """Full-width horizontal rule that adapts to the terminal width.
 
-    def __init__(self, color: Callable[[str], str] | None = None) -> None:
-        self._color = color or (lambda s: BRIGHT_BLACK + s + RESET)
+    Renders via the ratatui-style ``Block`` widget directly (a Buffer with
+    only the top border enabled draws exactly this rule) — Buffer-native,
+    no ANSI round-trip.
+    """
 
-    def render(self, width: int) -> list[str]:
-        return [self._color("─" * max(1, width))]
+    def __init__(self, style: Style | None = None) -> None:
+        # Matches the old default ColorFn: BRIGHT_BLACK + s + RESET.
+        self._style = style if style is not None else Style(fg="bright_black")
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        buf.grow_to(area.y + 1)
+        row = Rect(area.x, area.y, max(1, area.width), 1)
+        Block(borders=Borders.TOP, border_style=self._style).render(row, buf)
+        return 1
 
     def invalidate(self) -> None:
         pass

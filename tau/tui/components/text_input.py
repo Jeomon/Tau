@@ -10,10 +10,13 @@ from typing import TYPE_CHECKING
 
 import grapheme
 
+from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Position, Rect
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent, get_keybindings
+from tau.tui.style import Style
 from tau.tui.utils import (
-    BOLD,
     CURSOR_MARKER,
     DIM,
     RESET,
@@ -332,46 +335,44 @@ class TextInput(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         self._ensure_blink_task()
         cursor_cell = self._effective_cursor_cell()
 
         prefix_w = visible_width(self._prefix)
         padding = " " * self._padding_x
-        available = max(1, width - prefix_w - self._padding_x * 2)
+        available = max(1, area.width - prefix_w - self._padding_x * 2)
         self._last_available = available
         indent = " " * prefix_w
 
         # Strip leading chars that the prefix has already represented visually.
         display_text = self._text[self._visual_strip :] if self._visual_strip else self._text
 
+        bold = Style().bold()
+        dim = Style().dim()
+
         if not display_text:
-            empty_cursor = CURSOR_MARKER + cursor_cell(" ")
+            buf.grow_to(area.y + 1)
+            col = buf.set_string(area.x, area.y, self._prefix + padding, bold)
+            buf.cursor_position = Position(col, area.y)
+            parse_ansi_into(buf, col, area.y, cursor_cell(" "), 1)
+            col += 1
             effective_placeholder = (
                 self._placeholder_override
                 if self._placeholder_override is not None
                 else self._placeholder
             )
             placeholder = effective_placeholder[:available] if effective_placeholder else ""
-            return [
-                BOLD
-                + self._prefix
-                + padding
-                + RESET
-                + empty_cursor
-                + DIM
-                + placeholder
-                + padding
-                + RESET
-            ]
+            buf.set_string(col, area.y, placeholder + padding, dim)
+            return 1
 
         text_lines = display_text.split("\n")
         cursor_line_idx, cursor_col = self._cursor_line_col()
         # Adjust column for the hidden leading chars on line 0.
         if self._visual_strip and cursor_line_idx == 0:
             cursor_col = max(0, cursor_col - self._visual_strip)
-        result = []
 
+        y = area.y
         last_line_idx = len(text_lines) - 1
         for i, line_text in enumerate(text_lines):
             line_prefix = self._prefix if i == 0 else indent
@@ -387,9 +388,20 @@ class TextInput(Component):
                     and j == len(segments) - 1
                 ):
                     seg += DIM + self._arg_hint + RESET
-                result.append(BOLD + seg_prefix + padding + RESET + seg + padding)
+                buf.grow_to(y + 1)
+                col = buf.set_string(area.x, y, seg_prefix + padding, bold)
+                if CURSOR_MARKER in seg:
+                    marker_i = seg.index(CURSOR_MARKER)
+                    before, after = seg[:marker_i], seg[marker_i + len(CURSOR_MARKER) :]
+                    col = parse_ansi_into(buf, col, y, before, area.width)
+                    buf.cursor_position = Position(col, y)
+                    col = parse_ansi_into(buf, col, y, after, area.width)
+                else:
+                    col = parse_ansi_into(buf, col, y, seg, area.width)
+                buf.set_string(col, y, padding)
+                y += 1
 
-        return result
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, PasteEvent):

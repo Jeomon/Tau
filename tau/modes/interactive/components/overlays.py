@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, TypeVar
 
 from tau.tui.component import Component
 from tau.tui.components.select_list import SelectItem, SelectList
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import Style, apply_style
 from tau.tui.utils import RESET, pad, visible_width
 
 if TYPE_CHECKING:
@@ -34,9 +36,10 @@ def _box(
     """
     inner_w = max(1, width - 4)  # "│ " + content + " │"
 
-    _id: Callable[[str], str] = lambda s: s  # noqa: E731
-    border = theme.border if theme is not None else _id
-    emphasis = theme.emphasis if theme is not None else _id
+    border_style = theme.border if theme is not None else Style()
+    emphasis_style = theme.emphasis if theme is not None else Style()
+    border = partial(apply_style, border_style)
+    emphasis = partial(apply_style, emphasis_style)
 
     # When a background is requested, apply it to the *entire* row inside the
     # box borders so padding spaces pick up the colour too.
@@ -107,7 +110,7 @@ class PickerOverlay[T](Component):
     ) -> None:
         self._selector: SelectList[T] = SelectList(items, max_visible=max_visible)
         if items:
-            self._selector._selected = min(initial_index, len(items) - 1)
+            self._selector.set_selected(initial_index)
         self._title = title
         self._on_commit = on_commit
         self._on_cancel = on_cancel
@@ -125,11 +128,12 @@ class PickerOverlay[T](Component):
         inner: list[str] = []
         if self._searchable:
             if self._query:
-                inner.append(f"  {t.muted('⊘')} {self._query}█")
+                inner.append(f"  {apply_style(t.muted, '⊘')} {self._query}█")
             else:
-                inner.append("  " + t.muted("⊘ Search…"))
+                inner.append("  " + apply_style(t.muted, "⊘ Search…"))
         inner.extend(self._selector.render(inner_w))
-        inner.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
+        inner.append("  " + hint)
         return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
@@ -215,7 +219,7 @@ class TextOverlay(Component):
         t = self._theme
         inner: list[str] = list(self._lines)
         if self._on_close is not None:
-            inner.append("  " + t.muted("Esc to close"))
+            inner.append("  " + apply_style(t.muted, "Esc to close"))
         return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:
@@ -278,8 +282,8 @@ class PromptOverlay(Component):
         t = self._theme
         display = "*" * len(self._value) if self._secret else self._value
         inner = [
-            "  " + t.emphasis(self._label),
-            "  " + t.muted("Enter to confirm  ·  Esc to cancel"),
+            "  " + apply_style(t.emphasis, self._label),
+            "  " + apply_style(t.muted, "Enter to confirm  ·  Esc to cancel"),
             f"  {display}█",
         ]
         return _box(inner, "", width, t, self._bg)
@@ -376,11 +380,11 @@ class EditorOverlay(Component):
         total = len(self._lines)
         if total > self.VISIBLE_ROWS:
             pct = int(self._scroll_top / max(1, total - self.VISIBLE_ROWS) * 100)
-            inner.append(t.muted(f"↕ {pct}%"))
+            inner.append(apply_style(t.muted, f"↕ {pct}%"))
         else:
             inner.append("")
 
-        inner.append(t.muted("Ctrl+S to save  ·  Esc to cancel"))
+        inner.append(apply_style(t.muted, "Ctrl+S to save  ·  Esc to cancel"))
         return _box(inner, self._title, width, t, self._bg)
 
     def handle_input(self, event: InputEvent) -> bool:

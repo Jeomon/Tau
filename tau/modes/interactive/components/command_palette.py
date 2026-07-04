@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.style import apply_style
 from tau.tui.utils import fuzzy_filter, visible_width
 
 if True:  # avoid circular at runtime
@@ -100,7 +101,7 @@ class CommandPalette(Component):
 
         # Scroll-up indicator
         if start > 0:
-            lines.append(t.indicator(f"  ↑ {start} more"))
+            lines.append(apply_style(t.indicator, f"  ↑ {start} more"))
 
         for i in range(start, start + visible):
             cmd = self._commands[i]
@@ -111,19 +112,23 @@ class CommandPalette(Component):
             desc = cmd.description[:desc_w] if desc_w > 0 else ""
 
             if is_sel:
-                row = "  " + t.selected_label(label) + "  " + t.selected_desc(desc)
+                label_s = apply_style(t.selected_label, label)
+                desc_s = apply_style(t.selected_desc, desc)
+                row = f"  {label_s}  {desc_s}"
                 if t.selected_bg:
                     fill = max(0, width - visible_width(row))
-                    row = t.selected_bg(row + " " * fill)
+                    row = apply_style(t.selected_bg, row + " " * fill)
             else:
-                row = "  " + t.normal_label(label) + "  " + t.normal_desc(desc)
+                label_s = apply_style(t.normal_label, label)
+                desc_s = apply_style(t.normal_desc, desc)
+                row = f"  {label_s}  {desc_s}"
 
             lines.append(row)
 
         # Scroll-down indicator
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(t.indicator(f"  ↓ {remaining} more"))
+            lines.append(apply_style(t.indicator, f"  ↓ {remaining} more"))
 
         return lines
 

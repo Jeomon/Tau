@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.theme import SpinnerTheme
 
 if TYPE_CHECKING:
@@ -135,17 +137,20 @@ class Spinner(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self.active or self._force_hidden:
-            return []
+            return 0
+        buf.grow_to(area.y + 1)
         t = self._theme
         frames = self._custom_frames if self._custom_frames is not None else (t.frames or ["…"])
         char = frames[self._frame % len(frames)]
-        frame = t.frame_color(char)
+        col = buf.set_string(area.x, area.y, char, t.frame_color, max_width=area.width)
         # A layered reason (e.g. "Compacting…") takes precedence over the base label.
         text = self._reasons[-1][1] if self._reasons else self._label
-        label = f" {t.label_color(text)}" if text else ""
-        return [(frame + label)[:width]]
+        if text:
+            remaining = area.x + area.width - col
+            buf.set_string(col, area.y, f" {text}", t.label_color, max_width=remaining)
+        return 1
 
     # -------------------------------------------------------------------------
     # Animation loop

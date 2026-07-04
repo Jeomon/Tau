@@ -7,7 +7,7 @@ from uuid import uuid4
 from ollama import AsyncClient
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import parse_tool_args
+from tau.inference.api.text.utils import parse_tool_args, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -111,7 +111,7 @@ def _messages_to_ollama(
             case ToolMessage():
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
-                        result.append({"role": "tool", "content": content.content})
+                        result.append({"role": "tool", "content": tool_result_text(content)})
 
     return result
 

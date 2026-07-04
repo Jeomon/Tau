@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.style import apply_style
 from tau.tui.utils import fuzzy_filter
 
 if TYPE_CHECKING:
@@ -166,10 +167,10 @@ class FilePicker(Component):
                 rel = str(self._cwd.relative_to(self._root))
             except ValueError:
                 rel = str(self._cwd)
-            lines.append(t.indicator(f"  @ {rel}/"))
+            lines.append(apply_style(t.indicator, f"  @ {rel}/"))
 
         if not self._entries:
-            lines.append(t.empty("  (no matches)"))
+            lines.append(apply_style(t.empty, "  (no matches)"))
             return lines
 
         count = len(self._entries)
@@ -188,7 +189,7 @@ class FilePicker(Component):
         )
 
         if start > 0:
-            lines.append(t.indicator(f"  ↑ {start} more"))
+            lines.append(apply_style(t.indicator, f"  ↑ {start} more"))
 
         for i in range(start, start + visible):
             entry = self._entries[i]
@@ -197,15 +198,15 @@ class FilePicker(Component):
 
             if is_sel:
                 style = t.selected_dir if entry.is_dir else t.selected_label
-                row = "  " + style(label)
+                row = "  " + apply_style(style, label)
             else:
-                row = "  " + t.normal_label(label)
+                row = "  " + apply_style(t.normal_label, label)
 
             lines.append(row)
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(t.indicator(f"  ↓ {remaining} more"))
+            lines.append(apply_style(t.indicator, f"  ↓ {remaining} more"))
 
         return lines
 

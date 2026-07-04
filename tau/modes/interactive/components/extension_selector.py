@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -44,15 +45,15 @@ class ExtensionSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
         for line in self._title.splitlines():
-            lines.append("  " + t.emphasis(line))
+            lines.append("  " + apply_style(t.emphasis, line))
         lines.append(divider)
 
         if not self._options:
-            lines.append("  " + t.muted("No options available"))
+            lines.append("  " + apply_style(t.muted, "No options available"))
         else:
             start = max(
                 0,
@@ -64,21 +65,24 @@ class ExtensionSelector(Component):
             end = min(start + _VISIBLE_ROWS, len(self._options))
 
             if start > 0:
-                lines.append("  " + t.muted(f"↑ {start} more above"))
+                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
             for i in range(start, end):
                 opt = self._options[i]
                 if i == self._selected:
-                    lines.append(f"  {t.accent('>')} {t.emphasis(opt)}")
+                    marker = apply_style(t.accent, ">")
+                    label = apply_style(t.emphasis, opt)
+                    lines.append(f"  {marker} {label}")
                 else:
-                    lines.append(f"    {t.muted(opt)}")
+                    lines.append(f"    {apply_style(t.muted, opt)}")
 
             remaining = len(self._options) - end
             if remaining > 0:
-                lines.append("  " + t.muted(f"↓ {remaining} more below"))
+                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
+        lines.append("  " + hint)
 
         return lines
 

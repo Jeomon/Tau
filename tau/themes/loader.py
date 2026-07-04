@@ -7,8 +7,8 @@ from typing import Any
 import yaml
 
 from tau.themes.types import LoadThemesResult, ThemeLoadError
+from tau.tui.style import Style, parse_color
 from tau.tui.theme import (
-    ColorFn,
     InputTheme,
     LayoutTheme,
     MarkdownTheme,
@@ -16,57 +16,23 @@ from tau.tui.theme import (
     SelectListTheme,
     SpinnerTheme,
 )
-from tau.tui.utils import (
-    BLACK,
-    BLUE,
-    BOLD,
-    BRIGHT_BLACK,
-    BRIGHT_BLUE,
-    BRIGHT_CYAN,
-    BRIGHT_GREEN,
-    BRIGHT_MAGENTA,
-    BRIGHT_RED,
-    BRIGHT_WHITE,
-    BRIGHT_YELLOW,
-    CYAN,
-    DEFAULT,
-    DIM,
-    GREEN,
-    ITALIC,
-    MAGENTA,
-    RED,
-    RESET,
-    WHITE,
-    YELLOW,
-    fg,
-)
 
 # ---------------------------------------------------------------------------
 # Color parsing
 # ---------------------------------------------------------------------------
 
-# Named ANSI colors → their SGR escape. These map to the terminal's own 16-colour
-# palette (not fixed RGB), so a theme written with names adapts to the user's
-# terminal colours — the same behaviour as the in-code defaults.
-_NAMED_COLORS: dict[str, str] = {
-    "black": BLACK,
-    "red": RED,
-    "green": GREEN,
-    "yellow": YELLOW,
-    "blue": BLUE,
-    "magenta": MAGENTA,
-    "cyan": CYAN,
-    "white": WHITE,
-    "default": DEFAULT,
-    "bright_black": BRIGHT_BLACK,
-    "bright_red": BRIGHT_RED,
-    "bright_green": BRIGHT_GREEN,
-    "bright_yellow": BRIGHT_YELLOW,
-    "bright_blue": BRIGHT_BLUE,
-    "bright_magenta": BRIGHT_MAGENTA,
-    "bright_cyan": BRIGHT_CYAN,
-    "bright_white": BRIGHT_WHITE,
-}
+# Valid named-color tokens theme authors can use — these map to the terminal's
+# own 16-colour palette (not fixed RGB), so a theme written with names adapts
+# to the user's terminal colours. Mirrors `tau.tui.style`'s named set; kept as
+# its own frozenset here since `_valid_color_value` only needs membership, not
+# the color values themselves (`parse_color` resolves those).
+_NAMED_COLORS: frozenset[str] = frozenset(
+    {
+        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "default",
+        "bright_black", "bright_red", "bright_green", "bright_yellow",
+        "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+    }
+)
 
 
 def _parse_hex(value: str) -> tuple[int, int, int] | None:
@@ -80,14 +46,14 @@ def _parse_hex(value: str) -> tuple[int, int, int] | None:
     return None
 
 
-def _make_color_fn(
+def _make_style(
     value: Any,
     bold: bool = False,
     italic: bool = False,
     dim: bool = False,
-) -> ColorFn | None:
+) -> Style | None:
     """
-    Convert a JSON color value to a ColorFn.
+    Convert a JSON color value to a Style.
 
     Accepts:
       - ``"#rrggbb"``          — plain hex (fixed RGB)
@@ -110,24 +76,19 @@ def _make_color_fn(
     if not color_str:
         return None
 
-    # Prefer a named ANSI colour (terminal-palette aware); fall back to hex.
-    code = _NAMED_COLORS.get(color_str.strip().lower())
-    if code is None:
-        rgb = _parse_hex(color_str)
-        if rgb is None:
-            return None
-        code = fg(*rgb)
+    try:
+        fg = parse_color(color_str)
+    except ValueError:
+        return None
 
-    prefix = ""
+    style = Style(fg=fg)
     if bold:
-        prefix += BOLD
+        style = style.bold()
     if italic:
-        prefix += ITALIC
+        style = style.italic()
     if dim:
-        prefix += DIM
-    prefix += code
-
-    return lambda s, p=prefix: p + s + RESET
+        style = style.dim()
+    return style
 
 
 def _c(
@@ -136,8 +97,8 @@ def _c(
     bold: bool = False,
     italic: bool = False,
     dim: bool = False,
-) -> ColorFn | None:
-    return _make_color_fn(colors.get(key), bold=bold, italic=italic, dim=dim)
+) -> Style | None:
+    return _make_style(colors.get(key), bold=bold, italic=italic, dim=dim)
 
 
 # ---------------------------------------------------------------------------

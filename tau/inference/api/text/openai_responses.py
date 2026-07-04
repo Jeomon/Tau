@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncOpenAI
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import parse_tool_args
+from tau.inference.api.text.utils import parse_tool_args, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -159,7 +159,7 @@ def _messages_to_input(
                             {
                                 "type": "function_call_output",
                                 "call_id": content.id,
-                                "output": content.content,
+                                "output": tool_result_text(content),
                             }
                         )
             case UserMessage() | AssistantMessage():

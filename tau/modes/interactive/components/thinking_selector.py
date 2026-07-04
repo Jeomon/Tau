@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.inference.types import ThinkingLevel
@@ -45,26 +46,29 @@ class ThinkingSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
-        lines.append("  " + t.emphasis("Thinking Effort"))
+        lines.append("  " + apply_style(t.emphasis, "Thinking Effort"))
         lines.append(divider)
 
         for i, lv in enumerate(self._levels):
             is_sel = i == self._selected
             is_cur = lv == self._current
-            check = f" {t.success('✓')}" if is_cur else ""
+            check = f" {apply_style(t.success, '✓')}" if is_cur else ""
             desc = _DESCRIPTIONS.get(lv.value, "")
-            desc_part = f"  {t.muted(desc)}" if desc else ""
+            desc_part = f"  {apply_style(t.muted, desc)}" if desc else ""
 
             if is_sel:
-                lines.append(f"  {t.accent('>')} {t.emphasis(lv.value)}{desc_part}{check}")
+                marker = apply_style(t.accent, ">")
+                label = apply_style(t.emphasis, lv.value)
+                lines.append(f"  {marker} {label}{desc_part}{check}")
             else:
-                lines.append(f"    {t.muted(lv.value)}{desc_part}{check}")
+                lines.append(f"    {apply_style(t.muted, lv.value)}{desc_part}{check}")
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
+        lines.append("  " + hint)
 
         return lines
 

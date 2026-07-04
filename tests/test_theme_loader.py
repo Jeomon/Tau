@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 
 from tau.themes.loader import (
-    _make_color_fn,
+    _make_style,
     _parse_hex,
     load_theme_from_dict,
     load_theme_from_file,
     load_themes_from_dir,
     validate_theme_dict,
 )
+from tau.tui.style import Style, apply_style
 
 
 def _minimal_theme(name: str = "test") -> dict:
@@ -44,33 +45,37 @@ class TestParseHex:
         assert _parse_hex("") is None
 
 
-class TestMakeColorFn:
+class TestMakeStyle:
     def test_none_returns_none(self):
-        assert _make_color_fn(None) is None
+        assert _make_style(None) is None
 
-    def test_named_color_returns_callable(self):
-        fn = _make_color_fn("red")
-        assert callable(fn)
-        assert "red" in fn("text").lower() or "\x1b[" in fn("text")
+    def test_named_color_returns_style(self):
+        style = _make_style("red")
+        assert isinstance(style, Style)
+        assert style.fg == "red"
 
-    def test_hex_color_returns_callable(self):
-        fn = _make_color_fn("#ff0000")
-        assert callable(fn)
+    def test_hex_color_returns_style(self):
+        style = _make_style("#ff0000")
+        assert isinstance(style, Style)
+        assert style.fg == (255, 0, 0)
 
-    def test_callable_wraps_text(self):
-        fn = _make_color_fn("cyan")
-        result = fn("hello")
+    def test_style_wraps_text(self):
+        style = _make_style("cyan")
+        result = apply_style(style, "hello")
         assert "hello" in result
 
     def test_dict_with_color_and_bold(self):
-        fn = _make_color_fn({"color": "green", "bold": True})
-        assert callable(fn)
+        style = _make_style({"color": "green", "bold": True})
+        assert isinstance(style, Style)
+        from tau.tui.style import Modifier
+
+        assert Modifier.BOLD in style.add_modifier
 
     def test_unknown_color_name_returns_none(self):
-        assert _make_color_fn("notacolor") is None
+        assert _make_style("notacolor") is None
 
     def test_invalid_hex_returns_none(self):
-        assert _make_color_fn("#xyz") is None
+        assert _make_style("#xyz") is None
 
 
 class TestLoadThemeFromDict:
@@ -94,7 +99,8 @@ class TestLoadThemeFromDict:
         theme, err = load_theme_from_dict(data)
         assert err is None
         assert theme is not None
-        assert callable(theme.message.markdown.heading)
+        assert isinstance(theme.message.markdown.heading, Style)
+        assert theme.message.markdown.heading.fg == (255, 0, 0)
 
     def test_show_thinking_flag(self):
         data = {"name": "t", "show_thinking": False}

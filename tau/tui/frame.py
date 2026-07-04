@@ -242,6 +242,11 @@ class ScrollbackTerminal:
         self._resized: bool = False
         self._unsub_resize = terminal.on_resize(self._on_resize)
         self._disposed = False
+        # Last-sent token per (x, y) anchor — see Buffer.raw_writes/RawWrite.
+        # Cleared whenever the actual terminal screen gets erased (clear(),
+        # or a resize/reset_with_clear's lazy full_render(clear=True)), since
+        # a previously-drawn image no longer exists on screen at that point.
+        self._sent_raw: dict[tuple[int, int], str] = {}
 
     # -------------------------------------------------------------------------
     # Public API
@@ -344,7 +349,7 @@ class ScrollbackTerminal:
                 # redraw it as-is rather than clearing and rewriting.
                 out += "\x1b[2K"
                 if y < new_rows:
-                    out += row_to_ansi(buf, buf.area.y + y)
+                    out += row_to_ansi(buf, buf.area.y + y, embed_raw=False)
                 continue
             out += _diff_row_cells(prev, buf, y, width)
 
@@ -381,6 +386,7 @@ class ScrollbackTerminal:
         self._hw_cursor_row = 0
         self._viewport_top = 0
         self._max_lines = 0
+        self._sent_raw.clear()
 
     def reset(self) -> None:
         """Force a full re-render on the next frame without clearing the screen."""
@@ -421,6 +427,8 @@ class ScrollbackTerminal:
         clear: bool,
     ) -> None:
         rows = buf.area.height
+        if clear:
+            self._sent_raw.clear()  # screen erased; a drawn image no longer exists there
         out = self._terminal.begin_sync()
         if clear:
             out += "\x1b[2J\x1b[H\x1b[3J"  # clear screen + scrollback
@@ -430,7 +438,7 @@ class ScrollbackTerminal:
             if i > 0:
                 out += "\r\n"
             out += "\x1b[2K"
-            out += row_to_ansi(buf, buf.area.y + i)
+            out += row_to_ansi(buf, buf.area.y + i, embed_raw=False)
         out += self._terminal.end_sync()
         self._terminal.write(out)
 
@@ -467,6 +475,34 @@ class ScrollbackTerminal:
             out += "\x1b[?25l"  # hide cursor (we draw our own block)
         self._terminal.write_flush(out)
         self._hw_cursor_row = target_row
+
+    def _flush_raw_writes(self, buf: Buffer) -> None:
+        """Send any raw_writes whose token changed since last sent.
+
+        Independent of the text-cell diff outcome above — see the comment in
+        render(). Uses its own relative cursor moves (not begin_sync/end_sync
+        batching with the main paint, since this runs after it in a
+        `finally`, once the main write — if any — has already gone out).
+        """
+        pending = [rw for rw in buf.raw_writes if self._sent_raw.get((rw.x, rw.y)) != rw.token]
+        if not pending:
+            return
+
+        out = ""
+        hw_cursor = self._hw_cursor_row
+        for rw in pending:
+            row_delta = rw.y - hw_cursor
+            if row_delta > 0:
+                out += f"\x1b[{row_delta}B"
+            elif row_delta < 0:
+                out += f"\x1b[{-row_delta}A"
+            out += f"\x1b[{rw.x + 1}G"
+            out += rw.data
+            hw_cursor = rw.y
+            self._sent_raw[(rw.x, rw.y)] = rw.token
+        self._terminal.write(out)
+        self._hw_cursor_row = hw_cursor
+        self._position_hw_cursor(buf.cursor_position, buf.area.height)
 
     def _on_resize(self) -> None:
         # Clear state; next render() call forces a full clear+redraw, even if

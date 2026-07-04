@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import apply_style
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -38,10 +39,10 @@ class ThemeSelector(Component):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        divider = t.border("─" * width)
+        divider = apply_style(t.border, "─" * width)
         lines: list[str] = []
 
-        lines.append("  " + t.emphasis("Theme"))
+        lines.append("  " + apply_style(t.emphasis, "Theme"))
         lines.append(divider)
 
         count = len(self._names)
@@ -49,22 +50,25 @@ class ThemeSelector(Component):
         start = max(0, min(self._selected - visible // 2, count - visible))
 
         if start > 0:
-            lines.append("  " + t.muted(f"↑ {start} more above"))
+            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
         for i in range(start, start + visible):
             name = self._names[i]
-            check = f" {t.success('✓')}" if name == self._current else ""
+            check = f" {apply_style(t.success, '✓')}" if name == self._current else ""
             if i == self._selected:
-                lines.append(f"  {t.accent('>')} {t.emphasis(name)}{check}")
+                marker = apply_style(t.accent, ">")
+                label = apply_style(t.emphasis, name)
+                lines.append(f"  {marker} {label}{check}")
             else:
-                lines.append(f"    {t.muted(name)}{check}")
+                lines.append(f"    {apply_style(t.muted, name)}{check}")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + t.muted(f"↓ {remaining} more below"))
+            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
         lines.append(divider)
-        lines.append("  " + t.muted("↑/↓ to move  ·  Enter to select  ·  Esc to cancel"))
+        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
+        lines.append("  " + hint)
 
         return lines
 

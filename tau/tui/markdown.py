@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from mistletoe.base_renderer import BaseRenderer
 from mistletoe.block_token import Document
 
+from tau.tui.style import apply_style
 from tau.tui.utils import RESET, visible_width, wrap
 
 if TYPE_CHECKING:
@@ -130,7 +131,7 @@ class _Renderer:
             if name in ("Heading", "SetextHeading"):
                 text = self._render_inline(node.children or [])
                 for wl in wrap(text, self.width) or [text]:
-                    lines.append(self.theme.heading(wl))
+                    lines.append(apply_style(self.theme.heading, wl))
                 lines.append("")
 
             elif name == "Paragraph":
@@ -142,7 +143,7 @@ class _Renderer:
             elif name in ("CodeFence", "BlockCode"):
                 lang = (getattr(node, "language", "") or "").strip()
                 if lang:
-                    lines.append(self.theme.code_block_border(lang))
+                    lines.append(apply_style(self.theme.code_block_border, lang))
                 code = self._code_content(node).rstrip("\n")
                 style = getattr(self.theme, "code_syntax_style", "")
                 highlighted = _highlight_code(code, lang, style)
@@ -156,11 +157,11 @@ class _Renderer:
                 else:
                     for cl in code.split("\n"):
                         for wl in wrap(cl, self.width - 2) or [""]:
-                            lines.append("  " + self.theme.code_block(wl))
+                            lines.append("  " + apply_style(self.theme.code_block, wl))
                 lines.append("")
 
             elif name == "ThematicBreak":
-                lines.append(self.theme.hr("─" * self.width))
+                lines.append(apply_style(self.theme.hr, "─" * self.width))
                 lines.append("")
 
             elif name == "List":
@@ -168,7 +169,7 @@ class _Renderer:
                 lines.append("")
 
             elif name == "Quote":
-                border = self.theme.quote_border("▎ ")
+                border = apply_style(self.theme.quote_border, "▎ ")
                 inner_w = max(1, self.width - visible_width(border))
                 # Render inner content at the reduced width so it wraps to fit
                 # beside the border instead of spilling a 2-char remainder.
@@ -177,7 +178,7 @@ class _Renderer:
                     inner.pop()
                 for il in inner:
                     for wl in wrap(il, inner_w) or [il]:
-                        lines.append(border + self.theme.quote(wl))
+                        lines.append(border + apply_style(self.theme.quote, wl))
                 lines.append("")
 
             elif name == "Table":
@@ -207,7 +208,7 @@ class _Renderer:
 
         for item in node.children or []:
             bullet = f"{num}." if ordered else "•"
-            marker = self.theme.list_bullet(bullet)
+            marker = apply_style(self.theme.list_bullet, bullet)
             prefix = indent + marker + " "
             cont_pref = indent + " " * (len(bullet) + 1)
             inner_w = max(1, self.width - visible_width(prefix))
@@ -308,7 +309,7 @@ class _Renderer:
 
         def _border(left: str, mid: str, right: str, fill: str = "─") -> str:
             segs = (fill * (w + 4) for w in col_widths)
-            return self.theme.hr(left + mid.join(segs) + right)
+            return apply_style(self.theme.hr, left + mid.join(segs) + right)
 
         top = _border("┌", "┬", "┐")
         mid = _border("├", "┼", "┤")
@@ -317,10 +318,11 @@ class _Renderer:
         def _row(cells: list[str]) -> list[str]:
             wrapped = [wrap(cell, col_widths[ci]) or [cell] for ci, cell in enumerate(cells)]
             height = max(len(w) for w in wrapped)
+            sep_glyph = apply_style(self.theme.hr, "│")
             blank = (
-                self.theme.hr("│")
-                + self.theme.hr("│").join(" " * (col_widths[ci] + 4) for ci in range(ncols))
-                + self.theme.hr("│")
+                sep_glyph
+                + sep_glyph.join(" " * (col_widths[ci] + 4) for ci in range(ncols))
+                + sep_glyph
             )
             out = [blank]
             for li in range(height):
@@ -329,7 +331,7 @@ class _Renderer:
                     cw = col_widths[ci]
                     cell = lines[li] if li < len(lines) else ""
                     padded.append("  " + cell + " " * max(2, cw - visible_width(cell) + 2))
-                sep = self.theme.hr("│")
+                sep = apply_style(self.theme.hr, "│")
                 out.append(sep + sep.join(padded) + sep)
             out.append(blank)
             return out
@@ -355,28 +357,31 @@ class _Renderer:
                 soft = getattr(node, "soft", True)
                 parts.append("\n" if not soft or self.preserve_soft_breaks else " ")
             elif name == "InlineCode":
-                parts.append(self.theme.code_inline(self._raw(node)))
+                parts.append(apply_style(self.theme.code_inline, self._raw(node)))
             elif name == "Strong":
-                parts.append(self.theme.bold(self._render_inline(node.children or [])))
+                bold_text = self._render_inline(node.children or [])
+                parts.append(apply_style(self.theme.bold, bold_text))
             elif name == "Emphasis":
-                parts.append(self.theme.italic(self._render_inline(node.children or [])))
+                italic_text = self._render_inline(node.children or [])
+                parts.append(apply_style(self.theme.italic, italic_text))
             elif name == "Strikethrough":
-                parts.append(self.theme.strikethrough(self._render_inline(node.children or [])))
+                inner_text = self._render_inline(node.children or [])
+                parts.append(apply_style(self.theme.strikethrough, inner_text))
             elif name == "Link":
                 inner = self._render_inline(node.children or []) or getattr(node, "target", "")
                 target = self._safe_link_target(getattr(node, "target", ""))
-                label = self.theme.link_text(inner)
+                label = apply_style(self.theme.link_text, inner)
                 parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
             elif name == "AutoLink":
                 target = self._safe_link_target(getattr(node, "target", ""))
                 inner = self._render_inline(node.children or []) or target
-                label = self.theme.link_url(inner)
+                label = apply_style(self.theme.link_url, inner)
                 parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
             elif name == "Image":
                 alt = self._render_inline(node.children or [])
                 url = getattr(node, "src", "") or getattr(node, "target", "")
                 label = f"[image: {alt}]" if alt else "[image]"
-                styled_label = self.theme.italic(label)
+                styled_label = apply_style(self.theme.italic, label)
                 target = self._image_link_target(url)
                 parts.append(
                     f"\x1b]8;;{target}\x1b\\{styled_label}\x1b]8;;\x1b\\"

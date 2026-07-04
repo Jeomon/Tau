@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import render_markdown
+from tau.tui.style import Style, apply_style
 from tau.tui.theme import MessageTheme
 from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
 
@@ -17,14 +18,12 @@ _RESULT_INDENT = "    "
 _DEFAULT_DETAIL_PREVIEW_LINES = 5
 
 
-def _apply_nested_style(text: str, style: Callable[[str], str]) -> str:
+def _apply_nested_style(text: str, style: Style) -> str:
     """Apply a semantic style and restore it after nested ANSI resets."""
-    marker = "\0tau-style\0"
-    styled_marker = style(marker)
-    if marker not in styled_marker:
-        return style(text)
-    prefix, suffix = styled_marker.split(marker, maxsplit=1)
-    return prefix + text.replace(RESET, RESET + prefix) + suffix
+    if style == Style():
+        return text
+    prefix = style.sgr()
+    return prefix + text.replace(RESET, RESET + prefix) + RESET
 
 
 def _default_shell_preview(
@@ -40,22 +39,23 @@ def _default_shell_preview(
     if not expandable or len(lines) <= threshold:
         return lines
     if expanded:
-        return [*lines, theme.dim("(ctrl+o to collapse)")]
+        return [*lines, apply_style(theme.dim, "(ctrl+o to collapse)")]
     hidden = len(lines) - threshold
-    return [*lines[:threshold], theme.dim(f"… +{hidden} lines (ctrl+o to expand)")]
+    hint = apply_style(theme.dim, f"… +{hidden} lines (ctrl+o to expand)")
+    return [*lines[:threshold], hint]
 
 
-def apply_render_shell(lines: list[str], theme: Any, color_fn: Any = None) -> list[str]:
+def apply_render_shell(lines: list[str], theme: Any, style: Style | None = None) -> list[str]:
     """Apply the standard └ framing to a pre-rendered list of lines.
 
     First line gets '    └ <line>', subsequent lines get '      <line>'.
-    Optional color_fn is applied to the first line (e.g. theme.error for red).
+    Optional style is applied to the first line (e.g. theme.error for red).
     Shared by tool results and notify so any style change propagates everywhere.
     """
     if not lines:
         return []
-    first = color_fn(lines[0]) if color_fn else lines[0]
-    out = [f"{_RESULT_INDENT}{theme.dim('└')} {first}"]
+    first = apply_style(style, lines[0]) if style is not None else lines[0]
+    out = [f"{_RESULT_INDENT}{apply_style(theme.dim, '└')} {first}"]
     out.extend(f"{_RESULT_INDENT}  {line}" for line in lines[1:])
     return out
 
@@ -221,7 +221,7 @@ class MessageBlock:
             elif isinstance(msg, SkillInvocationMessage):
                 lines.extend(self._render_skill_invocation(msg, width))
             else:
-                lines.append(self._theme.dim(str(msg)))
+                lines.append(apply_style(self._theme.dim, str(msg)))
 
         from tau.message.types import (
             SkillInvocationMessage,
@@ -256,7 +256,7 @@ class MessageBlock:
         for c_idx, item in enumerate(msg.contents):
             if isinstance(item, TextContent) and item.content:
                 for line in wrap(item.content.rstrip(), inner_width):
-                    lead = t.you_label(prefix) if not lines else "  "
+                    lead = apply_style(t.you_label, prefix) if not lines else "  "
                     lines.append(lead + line)
             elif isinstance(item, ImageContent):
                 for i_idx, (b64, mime) in enumerate(item.to_base64()):
@@ -291,7 +291,7 @@ class MessageBlock:
         )
 
         if not has_content and msg.stop_reason == StopReason.Error and msg.error:
-            lines.append(t.error_label("error"))
+            lines.append(apply_style(t.error_label, "error"))
             for line in wrap(msg.error, inner_width):
                 lines.append("  " + line)
             return lines
@@ -335,7 +335,7 @@ class MessageBlock:
                         _apply_nested_style(line, t.thinking) for line in thinking_lines
                     ]
                 if not thinking_lines:
-                    thinking_lines.append(t.thinking(t.thinking_label))
+                    thinking_lines.append(apply_style(t.thinking, t.thinking_label))
                 thinking_lines = _default_shell_preview(
                     thinking_lines,
                     expanded=self._expanded,
@@ -403,7 +403,7 @@ class MessageBlock:
             else:
                 lines.append("  " + cursor)
         elif msg.stop_reason == StopReason.Abort:
-            lines.append("  " + t.dim("┌ User Interrupted"))
+            lines.append("  " + apply_style(t.dim, "┌ User Interrupted"))
 
         return lines
 
@@ -414,7 +414,7 @@ class MessageBlock:
         if not isinstance(msg, TerminalExecutionMessage):
             return []
         t = self._theme
-        label = t.dim("$ " + msg.command)
+        label = apply_style(t.dim, "$ " + msg.command)
         if msg.cancelled:
             label += "  " + BRIGHT_RED + "(cancelled)" + RESET
         elif msg.exit_code is not None and msg.exit_code != 0:
@@ -422,7 +422,7 @@ class MessageBlock:
         lines = [label]
         if msg.output:
             for line in msg.output.rstrip().split("\n"):
-                lines.append("  " + t.dim(line))
+                lines.append("  " + apply_style(t.dim, line))
         if self._streaming:
             lines.append("  " + cursor_block())
         return lines
@@ -440,8 +440,8 @@ class MessageBlock:
         t = self._theme
         for item in msg.contents:
             if isinstance(item, LinesContent):
-                color_fn = t.tool_result_err if item.notify_type == "error" else None
-                return apply_render_shell(item.lines, t, color_fn)
+                style = t.tool_result_err if item.notify_type == "error" else None
+                return apply_render_shell(item.lines, t, style)
             if isinstance(item, TextContent) and item.content:
                 lines = wrap(
                     item.content.rstrip(), max(1, width - visible_width(_RESULT_INDENT) - 4)
@@ -459,15 +459,16 @@ class MessageBlock:
             lines = [""]
             header = f"  {BOLD}/{msg.name}{RESET}"
             if msg.args:
-                header += t.dim(f"  {msg.args}")
+                header += apply_style(t.dim, f"  {msg.args}")
             lines.append(header)
             lines.append("")
             for line in msg.expanded_content.splitlines():
-                lines.append(f"  {t.dim(line) if line.strip() == '' else line}")
+                styled = apply_style(t.dim, line) if line.strip() == "" else line
+                lines.append(f"  {styled}")
             lines.append("")
         else:
             name_args = f"/{msg.name}" + (f"  {msg.args}" if msg.args else "")
-            hint = t.dim("  (ctrl+o to expand)")
+            hint = apply_style(t.dim, "  (ctrl+o to expand)")
             lines = [f"  {name_args}", f"  {hint}", ""]
         return lines
 
@@ -482,7 +483,7 @@ class MessageBlock:
             lines = [""]
             header = f"  {BOLD}/{msg.name}{RESET}"
             if msg.args:
-                header += t.dim(f"  {msg.args}")
+                header += apply_style(t.dim, f"  {msg.args}")
             lines.append(header)
             lines.append("")
             for line in msg.content.splitlines():
@@ -490,7 +491,7 @@ class MessageBlock:
             lines.append("")
         else:
             name_args = f"/{msg.name}" + (f"  {msg.args}" if msg.args else "")
-            hint = t.dim("  (ctrl+o to expand)")
+            hint = apply_style(t.dim, "  (ctrl+o to expand)")
             lines = [f"  {name_args}", f"  {hint}", ""]
         return lines
 
@@ -541,7 +542,7 @@ class MessageBlock:
                     )
                 if tool.render_shell == "default":
                     t = self._theme
-                    color_fn = t.tool_result_err if item.is_error else t.tool_result_ok
+                    style = t.tool_result_err if item.is_error else t.tool_result_ok
                     threshold = (
                         tool.result_preview_lines
                         if tool.result_preview_lines is not None
@@ -556,7 +557,7 @@ class MessageBlock:
                     )
                     if not framed:
                         return []
-                    framed[0] = color_fn(framed[0])
+                    framed[0] = apply_style(style, framed[0])
                     lines = apply_render_shell(framed, t)
                 else:
                     lines = list(custom)
@@ -571,23 +572,23 @@ class MessageBlock:
                 return lines
 
         t = self._theme
-        color_fn = t.tool_result_err if item.is_error else t.tool_result_ok
+        style = t.tool_result_err if item.is_error else t.tool_result_ok
         content = str(display_content).strip() if display_content else ""
         all_lines = content.split("\n") if content else []
         if not all_lines:
-            rendered = [color_fn("(no output)")]
+            rendered = [apply_style(style, "(no output)")]
         elif not item.is_error and _is_diff(content):
             from tau.tui.utils import render_diff
 
             diff_lines = render_diff(
                 content,
-                added=t.diff_added,
-                removed=t.diff_removed,
-                context=t.diff_context,
-                hunk=t.diff_hunk,
+                added=lambda s: apply_style(t.diff_added, s),
+                removed=lambda s: apply_style(t.diff_removed, s),
+                context=lambda s: apply_style(t.diff_context, s),
+                hunk=lambda s: apply_style(t.diff_hunk, s),
                 inverse=t.diff_inverse,
             )
-            rendered = diff_lines or [color_fn("(empty diff)")]
+            rendered = diff_lines or [apply_style(style, "(empty diff)")]
         elif not item.is_error and item.metadata.get("_render_format") == "markdown":
             rendered = render_markdown(
                 content,
@@ -595,9 +596,10 @@ class MessageBlock:
                 t.markdown,
             )
             if not rendered:
-                rendered = [color_fn("(no output)")]
+                rendered = [apply_style(style, "(no output)")]
         else:
-            rendered = [color_fn(all_lines[0])] + [t.dim(line) for line in all_lines[1:]]
+            rendered = [apply_style(style, all_lines[0])]
+            rendered += [apply_style(t.dim, line) for line in all_lines[1:]]
         rendered = _default_shell_preview(
             rendered,
             expanded=self._expanded,
@@ -643,7 +645,7 @@ def _render_extra_blocks(
             preview_lines=block.get("preview_lines", preview_lines),
             theme=theme,
         )
-        lines.append(f"{_RESULT_INDENT}{theme.dim('└')} {rendered[0]}")
+        lines.append(f"{_RESULT_INDENT}{apply_style(theme.dim, '└')} {rendered[0]}")
         lines.extend(f"{_RESULT_INDENT}  {line}" for line in rendered[1:])
     return lines
 

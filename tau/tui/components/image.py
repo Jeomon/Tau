@@ -7,7 +7,10 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.buffer import Buffer, RawWrite
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 
 _log = logging.getLogger(__name__)
 
@@ -140,7 +143,10 @@ class Image(Component):
             dimensions or _get_image_dimensions(self._raw, mime_type) or ImageDimensions(800, 600)
         )
         self._image_id: int | None = self._opts.image_id
-        self._cache: list[str] | None = None
+        # Cache holds either ("escape", row_within_block, rows, sequence) for
+        # Kitty/iTerm2 (recomputed only when width changes — chunking a large
+        # base64 payload isn't free) or ("fallback", 0, 1, text).
+        self._cache: tuple[str, int, int, str] | None = None
         self._cache_width: int = 0
 
     def get_image_id(self) -> int | None:
@@ -150,10 +156,15 @@ class Image(Component):
         self._cache = None
         self._cache_width = 0
 
-    def render(self, width: int) -> list[str]:
-        if self._cache is not None and self._cache_width == width:
-            return self._cache
+    def _compute(self, width: int) -> tuple[str, int, int, str]:
+        """Return (kind, escape_row, rows, content) — recomputed only on width change.
 
+        ``escape_row`` is which row (0-indexed within the block) actually
+        carries the escape sequence — Kitty's is the top row; iTerm2's own
+        protocol draws from wherever the cursor sits when it receives the
+        sequence, so (matching the original string-renderer's approach) it's
+        emitted on the last row with an embedded relative cursor-up move.
+        """
         from tau.tui.terminal import get_capabilities, get_cell_dimensions
 
         caps = get_capabilities()
@@ -165,7 +176,6 @@ class Image(Component):
 
         cols, rows = _calculate_cell_size(self._dims, max_w, max_h, cell.width_px, cell.height_px)
 
-        lines: list[str]
         if caps.images == "kitty":
             if self._image_id is None:
                 self._image_id = _allocate_image_id()
@@ -180,19 +190,37 @@ class Image(Component):
                 except Exception:
                     _log.warning("image PNG conversion failed", exc_info=True)
             seq = _encode_kitty(b64, cols, rows, self._image_id)
-            lines = [seq] + [""] * (rows - 1)
-        elif caps.images == "iterm2":
+            return ("escape", 0, rows, seq)
+        if caps.images == "iterm2":
             seq = _encode_iterm2(self._b64, cols, self._opts.filename)
             move_up = f"\x1b[{rows - 1}A" if rows > 1 else ""
-            lines = [""] * (rows - 1) + [move_up + seq]
-        else:
-            fallback = self._fallback_text()
-            lines = [self._fallback_color(fallback)]
+            return ("escape", rows - 1, rows, move_up + seq)
+        return ("fallback", 0, 1, self._fallback_text())
 
-        self._cache = lines
-        self._cache_width = width
-        self._raw = b""  # decoded bytes no longer needed after first render
-        return lines
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        if self._cache is None or self._cache_width != area.width:
+            self._cache = self._compute(area.width)
+            self._cache_width = area.width
+            self._raw = b""  # decoded bytes no longer needed after first render
+
+        kind, escape_row, rows, content = self._cache
+
+        buf.grow_to(area.y + rows)
+        if kind == "fallback":
+            parse_ansi_into(buf, area.x, area.y, self._fallback_color(content), area.width)
+            return 1
+
+        # The whole block's cells are invisible to the terminal's normal text
+        # grid — the terminal itself owns those pixels once it draws them, so
+        # a stray SGR write or cell diff here would corrupt the image. Mark
+        # every cell skip=True (blank symbol) rather than writing content.
+        for yy in range(rows):
+            for xx in range(area.width):
+                buf.set(area.x + xx, area.y + yy, " ")
+                buf.get(area.x + xx, area.y + yy).skip = True
+        token = f"{self._mime}:{self._image_id}:{area.x}x{area.y}:{area.width}"
+        buf.raw_writes.append(RawWrite(area.x, area.y + escape_row, content, token))
+        return rows
 
     def _fallback_text(self) -> str:
         parts = []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -9,12 +10,15 @@ from tau.modes.interactive.components.file_picker import FilePicker
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.modes.interactive.components.selector_controller import SelectorController
 from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
+from tau.tui.ansi_bridge import parse_ansi_into
 from tau.tui.autocomplete import AutocompleteManager
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component, Container, StaticComponent
 from tau.tui.components.editor import EditorComponent, EditorExtras
 from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
 from tau.tui.components.spinner import Spinner
 from tau.tui.components.text_input import TextInput
+from tau.tui.geometry import Rect
 from tau.tui.input import (
     InputEvent,
     KeyEvent,
@@ -22,6 +26,7 @@ from tau.tui.input import (
     PasteEvent,
     get_keybindings,
 )  # MouseEvent kept for type narrowing
+from tau.tui.style import apply_style
 from tau.tui.theme import LayoutTheme
 
 if TYPE_CHECKING:
@@ -328,21 +333,34 @@ class Layout(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
-        """Render the editor zone: status-map, dividers, input, pickers, footer."""
-        # ── Build the editor content stream ───────────────────────────────
-        content: list[str] = []
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Render the editor zone: status-map, dividers, input, pickers, footer.
+
+        The editor zone's own composition (dividers/input/widgets stacking)
+        writes directly into buf — Container/TextInput children (already
+        Buffer-native) get render_cells calls straight through with no
+        round trip. Peripheral pickers/modals not yet on the render_cells
+        contract (SelectorController, TextPrompt — plain classes, not
+        Component subclasses) still return list[str], parsed in via
+        parse_ansi_into exactly like Component's own default bridge would.
+        """
+        y = area.y
+
+        def write_lines(lines: list[str]) -> None:
+            nonlocal y
+            for line in lines:
+                parse_ansi_into(buf, area.x, y, line, area.width)
+                y += 1
 
         # Status zone — keyed status lines above the editor
         if self._status_map:
             from tau.tui.utils import DIM, RESET
 
-            for text in self._status_map.values():
-                content.append(f"  {DIM}{text}{RESET}")
+            write_lines([f"  {DIM}{text}{RESET}" for text in self._status_map.values()])
 
         # Widgets above editor
         if self.widgets_above.children:
-            content.extend(self.widgets_above.render(width))
+            y += self.widgets_above.render_cells(Rect(area.x, y, area.width, 0), buf)
 
         # Modals that replace the input box (input disappears when a modal is active).
         # The file picker is NOT a modal — like the '/' palette it renders below the
@@ -357,54 +375,55 @@ class Layout(Component):
         # Divider color: when a modal is active use plain divider; otherwise reflect input state
         _text = self.input.text
         if any_modal:
-            _divider = self._theme.divider
+            _divider_style = self._theme.divider
         elif _text.startswith("!"):
-            _divider = self._theme.divider_execute
+            _divider_style = self._theme.divider_execute
         elif _text.startswith("/"):
-            _divider = self._theme.divider_command
+            _divider_style = self._theme.divider_command
         else:
-            _divider = self._theme.divider
+            _divider_style = self._theme.divider
 
-        content.append(_divider("─" * width))
+        divider_line = apply_style(_divider_style, "─" * area.width)
+        write_lines([divider_line])
 
         if any_modal:
             self._editor_row_count = 0
             # Modal replaces the input between the two dividers
             if self._selectors.is_active:
-                content.extend(self._selectors.render(width))
+                write_lines(self._selectors.render(area.width))
             elif self._settings_panel is not None:
-                content.extend(self._settings_panel)
+                write_lines(self._settings_panel)
             elif self._prompt.active:
-                content.extend(self._prompt.render(width))
+                write_lines(self._prompt.render(area.width))
             elif self._oauth_status_lines is not None:
-                content.extend(self._oauth_status_lines)
+                write_lines(self._oauth_status_lines)
         else:
             # Normal: show the input editor
-            self._editor_row = len(content)
-            editor_lines = self.input.render(width)
-            self._editor_row_count = len(editor_lines)
-            content.extend(editor_lines)
+            self._editor_row = y - area.y
+            rows = self.input.render_cells(Rect(area.x, y, area.width, 0), buf)
+            self._editor_row_count = rows
+            y += rows
 
-        content.append(_divider("─" * width))
+        write_lines([divider_line])
 
         # Widgets below editor (only when no modal)
         if not any_modal and self.widgets_below.children:
-            content.extend(self.widgets_below.render(width))
+            y += self.widgets_below.render_cells(Rect(area.x, y, area.width, 0), buf)
 
         # Palette, file picker, and autocomplete — always below (driven by live input
         # text); hidden during modals. The file picker renders here so it appears under
         # the input, the same way the '/' command palette does.
         any_inline = any_modal or self.palette.active or self.file_picker.active
         if not any_modal:
-            content.extend(self.palette.render(width))
-            content.extend(self.file_picker.render(width))
-            content.extend(self._autocomplete.render(width))
+            write_lines(self.palette.render(area.width))
+            write_lines(self.file_picker.render(area.width))
+            write_lines(self._autocomplete.render(area.width))
 
         # Footer — hidden when any picker/modal is active
         if not any_inline:
-            content.extend(self.footer.render(width))
+            y += self.footer.render_cells(Rect(area.x, y, area.width, 0), buf)
 
-        return content
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         """Process input event and return True if consumed.
@@ -1014,7 +1033,7 @@ class Layout(Component):
         if current_label is not None:
             labels = [item.label for item in items]
             if current_label in labels:
-                selector._selected = labels.index(current_label)
+                selector.set_selected(labels.index(current_label))
         return selector
 
     def open_model_selector(
@@ -1291,24 +1310,27 @@ class Layout(Component):
 
         def role_color(role: str, text: str) -> Callable[[str], str]:
             if role == "user":
-                return m.you_label
-            if role == "assistant":
-                return m.assistant_label
-            if role == "branch_summary":
-                return m.tool_arrow
-            if role == "tool":
-                return m.tool_result_err if text.startswith("[error]") else m.tool_result_ok
-            return m.dim
+                style = m.you_label
+            elif role == "assistant":
+                style = m.assistant_label
+            elif role == "branch_summary":
+                style = m.tool_arrow
+            elif role == "tool":
+                style = m.tool_result_err if text.startswith("[error]") else m.tool_result_ok
+            else:
+                style = m.dim
+            return partial(apply_style, style)
 
         # Size the tree to half the terminal height (min 5), not a fixed picker size.
         tree_max_visible = max(5, self._tui.terminal.height // 2)
+        selected_bg = self._theme.select_list.selected_bg
         selector = TreeSelectList(
             rows,
             role_color=role_color,
-            accent_color=m.you_label,
-            dim_color=m.dim,
+            accent_color=partial(apply_style, m.you_label),
+            dim_color=partial(apply_style, m.dim),
             max_visible=tree_max_visible,
-            selected_bg=self._theme.select_list.selected_bg,
+            selected_bg=partial(apply_style, selected_bg) if selected_bg is not None else None,
         )
         self._active_selector = InlineSelector(
             kind="tree",

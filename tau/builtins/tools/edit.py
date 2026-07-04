@@ -19,6 +19,7 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+from tau.tui.style import apply_style
 
 
 def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
@@ -181,7 +182,7 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
             hidden_total += hidden
         for line in displayed:
             if isinstance(line, str):
-                muted = opts.theme.dim(line) if opts.theme is not None else line
+                muted = apply_style(opts.theme.dim, line) if opts.theme is not None else line
                 result.append(muted)
                 continue
             char, ol, nl, text = line
