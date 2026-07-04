@@ -332,7 +332,7 @@ class CustomOptions:
 # ── Renderer ──────────────────────────────────────────────────────────────────
 
 from tau.tui.ansi_bridge import row_to_ansi  # noqa: E402
-from tau.tui.buffer import Buffer  # noqa: E402
+from tau.tui.buffer import Buffer, RawWrite  # noqa: E402
 from tau.tui.frame import ScrollbackTerminal  # noqa: E402
 from tau.tui.geometry import Rect  # noqa: E402
 
@@ -374,7 +374,8 @@ class Renderer:
         if overlays:
             self._composite_overlays(buf, overlays, width, height)
 
-        self._engine.render(buf)
+        stable_through = getattr(component, "_stable_rows", 0)
+        self._engine.render(buf, stable_through=stable_through)
 
     def clear(self) -> None:
         """Erase the entire screen and scrollback buffer."""
@@ -534,6 +535,10 @@ class TUI(Container):
         # Mouse-aware children use this to translate terminal coordinates into
         # coordinates relative to their own rendered content.
         self._child_rows: dict[int, int] = {}
+        # See render_cells: rows confirmed identical to last frame's buffer,
+        # safe for ScrollbackTerminal to skip re-diffing.
+        self._stable_rows: int = 0
+        self._prev_stable_rows: int = 0
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -568,12 +573,53 @@ class TUI(Container):
         without this override Container's generic render_cells would be used
         instead, silently leaving _child_rows empty and breaking
         mouse_position_for for every mouse-aware child (e.g. Layout).
+
+        A child exposing ``render_split_cells`` (currently just MessageList)
+        gets special-cased: its already-finalized rows are spliced in by
+        reference from its own cache instead of being re-parsed every frame,
+        and only its still-live tail goes through the normal per-frame path.
+        ``self._stable_rows`` records how many of those spliced rows are also
+        guaranteed identical to last frame's buffer (Renderer reads this to
+        let ScrollbackTerminal skip re-diffing them).
         """
+        from tau.tui.ansi_bridge import parse_ansi_into
+
         y = area.y
         self._child_rows = {}
+        frozen_rows_this_frame = 0
         for child in self.children:
             self._child_rows[id(child)] = y - area.y
-            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
+            split = getattr(child, "render_split_cells", None)
+            if split is not None:
+                frozen_buf, live_lines = split(area.width)
+                if frozen_buf is not None and frozen_buf.area.height:
+                    frozen_rows = frozen_buf.area.height
+                    buf.grow_to(y + frozen_rows)
+                    fw = frozen_buf.area.width
+                    for r in range(frozen_rows):
+                        src = r * fw
+                        dst = (y + r) * buf.area.width + area.x
+                        buf.content[dst : dst + fw] = frozen_buf.content[src : src + fw]
+                    if frozen_buf.raw_writes:
+                        buf.raw_writes.extend(
+                            RawWrite(area.x + rw.x, y + rw.y, rw.data, rw.token)
+                            for rw in frozen_buf.raw_writes
+                        )
+                    frozen_rows_this_frame = frozen_rows
+                    y += frozen_rows
+                if live_lines:
+                    buf.grow_to(y + len(live_lines))
+                    for i, line in enumerate(live_lines):
+                        parse_ansi_into(buf, area.x, y + i, line, area.width)
+                    y += len(live_lines)
+            else:
+                y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
+        # Rows are only safe to skip re-diffing if they were ALSO the frozen
+        # prefix last frame (same cached Cell objects both times) — a prefix
+        # that just became frozen this frame may still differ from whatever
+        # (different) content occupied those rows in last frame's buffer.
+        self._stable_rows = min(frozen_rows_this_frame, self._prev_stable_rows)
+        self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
 
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:

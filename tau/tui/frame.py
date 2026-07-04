@@ -252,10 +252,21 @@ class ScrollbackTerminal:
     # Public API
     # -------------------------------------------------------------------------
 
-    def render(self, buf: Buffer) -> None:
-        """Render ``buf`` differentially into the terminal scrollback buffer."""
+    def render(self, buf: Buffer, stable_through: int = 0) -> None:
+        """Render ``buf`` differentially into the terminal scrollback buffer.
+
+        ``stable_through``: the caller guarantees rows ``[0, stable_through)``
+        are byte-identical to the buffer it passed on the *previous* call (the
+        Renderer establishes this by splicing cached, never-rewritten Cell
+        rows into the same absolute positions across frames — see
+        ``MessageList.render_split_cells``). Skipping the comparison for that
+        span turns the per-frame diff scan from O(total scrollback) into
+        O(still-live content), which is what actually degrades over a long
+        session — the vast majority of rows are finalized and provably
+        unchanged, so there is nothing to gain by re-checking them.
+        """
         try:
-            self._render(buf)
+            self._render(buf, stable_through)
         finally:
             # Independent of whichever path above ran: a row that's entirely
             # skip=True cells (e.g. a brand-new image) never registers as
@@ -264,7 +275,7 @@ class ScrollbackTerminal:
             # than piggybacking on the text-cell diff outcome.
             self._flush_raw_writes(buf)
 
-    def _render(self, buf: Buffer) -> None:
+    def _render(self, buf: Buffer, stable_through: int = 0) -> None:
         width = self._terminal.width
         height = self._terminal.height
         width_changed = self._resized or (self._prev_width != 0 and self._prev_width != width)
@@ -286,9 +297,10 @@ class ScrollbackTerminal:
         prev_rows = prev.area.height
 
         max_rows = max(new_rows, prev_rows)
+        scan_start = max(0, min(stable_through, max_rows))
         first_changed = -1
         last_changed = -1
-        for y in range(max_rows):
+        for y in range(scan_start, max_rows):
             if not _row_equal(prev, buf, y, width):
                 if first_changed == -1:
                     first_changed = y

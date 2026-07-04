@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import render_markdown
@@ -659,6 +660,12 @@ class MessageList(Component):
     viewport.  Pass a MessageTheme to MessageList to apply it to all new blocks.
     """
 
+    # Render units kept out of the frozen cache no matter how old the session
+    # gets — covers remove_last()/remove_pending_user_turn()'s undo popping
+    # (which only ever touches the tail) and keeps the most recent messages
+    # responsive to toggle_details_expanded()/toggle_invocations_expanded().
+    _KEEP_TAIL_UNITS = 3
+
     def __init__(
         self,
         height: int = 20,
@@ -675,6 +682,16 @@ class MessageList(Component):
         self._user_prefix = user_prefix
         self._tool_lookup: Callable[[str], Tool | None] | None = None
         self._tool_result_preview_lines = max(1, tool_result_preview_lines)
+        # Cell-level cache of render units old enough to be considered
+        # finalized (see render_split_cells) — never rebuilt once written, so
+        # a frame only pays for the still-changing tail, not the whole
+        # transcript. Reset whenever something could have altered already-
+        # frozen content (see _bump_invalidation) or the width changes.
+        self._frozen_buf: Buffer | None = None
+        self._frozen_block_count = 0
+        self._frozen_width = -1
+        self._invalidation_seq = 0
+        self._frozen_seq = -1
 
     # -------------------------------------------------------------------------
     # Public API
@@ -688,10 +705,20 @@ class MessageList(Component):
     def set_height(self, height: int) -> None:
         self._height = max(1, height)
 
+    def _bump_invalidation(self) -> None:
+        """Force the frozen-cell cache to rebuild from scratch on the next render.
+
+        Called by anything that can retroactively change already-frozen
+        content (theme/prefix/tool-lookup swaps, expand/collapse-all) so a
+        stale cache is never handed to the renderer.
+        """
+        self._invalidation_seq += 1
+
     def set_theme(self, theme: MessageTheme) -> None:
         self._theme = theme
         for block in self._blocks:
             block.set_theme(theme)
+        self._bump_invalidation()
 
     def set_show_images(self, enabled: bool) -> None:
         """Update image visibility across existing and future message blocks."""
@@ -702,11 +729,13 @@ class MessageList(Component):
         self._user_prefix = prefix
         for block in self._blocks:
             block.set_user_prefix(prefix)
+        self._bump_invalidation()
 
     def set_tool_lookup(self, fn: Callable[[str], Tool | None] | None) -> None:
         self._tool_lookup = fn
         for block in self._blocks:
             block.set_tool_lookup(fn)
+        self._bump_invalidation()
 
     def toggle_details_expanded(self) -> None:
         """Toggle thinking and tool-result details for assistant/tool blocks."""
@@ -721,6 +750,7 @@ class MessageList(Component):
         for b in targets:
             b._expanded = new_state
             b.invalidate()
+        self._bump_invalidation()
 
     def toggle_invocations_expanded(self) -> None:
         """Ctrl+O — toggle expand/collapse for all template and skill invocation blocks."""
@@ -740,16 +770,31 @@ class MessageList(Component):
                 if isinstance(b.message, (TemplateInvocationMessage, SkillInvocationMessage)):
                     b.message.expanded = new_state
                     b.invalidate()
+            self._bump_invalidation()
 
     def add_block(self, block: MessageBlock) -> None:
         self._blocks.append(block)
         if self._auto_scroll:
             self._scroll = 0
 
+    def _guard_frozen_bounds(self) -> None:
+        """Defensively drop the frozen cache if a pop ever reached into it.
+
+        By construction _KEEP_TAIL_UNITS keeps the frozen boundary well clear
+        of anything remove_last()/remove_pending_user_turn() can pop (both
+        only ever touch the most recent one or two blocks), so this should
+        never trigger — it's a cheap correctness backstop, not the primary
+        mechanism.
+        """
+        if self._frozen_block_count > len(self._blocks):
+            self._frozen_buf = None
+            self._frozen_block_count = 0
+
     def remove_last(self) -> bool:
         """Remove the last block (used to undo a user message on pre-stream abort)."""
         if self._blocks:
             self._blocks.pop()
+            self._guard_frozen_bounds()
             return True
         return False
 
@@ -767,13 +812,17 @@ class MessageList(Component):
         while self._blocks:
             block = self._blocks.pop()
             if isinstance(block.message, UserMessage):
+                self._guard_frozen_bounds()
                 return True
+        self._guard_frozen_bounds()
         return False
 
     def clear(self) -> None:
         self._blocks.clear()
         self._scroll = 0
         self._auto_scroll = True
+        self._frozen_buf = None
+        self._frozen_block_count = 0
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
         block = MessageBlock(
@@ -826,10 +875,15 @@ class MessageList(Component):
         #     as new content pushes them off the visible viewport.
         return self._render_blocks(width)
 
-    def _render_blocks(self, width: int) -> list[str]:
+    def _iter_units(self, width: int):
+        """Yield (end_block_index, lines) for each renderable unit.
+
+        A unit is either one block, or an assistant+tool pair merged for a
+        joint tool-result render — shared by ``_render_blocks`` and
+        ``render_split_cells`` so both agree on exactly the same grouping.
+        """
         from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage
 
-        lines: list[str] = []
         index = 0
         while index < len(self._blocks):
             block = self._blocks[index]
@@ -843,13 +897,56 @@ class MessageList(Component):
                 and isinstance(next_message, ToolMessage)
             )
             if followed_by_tool_result:
-                lines.extend(block.render_with_tool_results(next_message, width))
+                yield index + 2, block.render_with_tool_results(next_message, width)
                 index += 2
                 continue
 
-            lines.extend(block.render(width))
+            yield index + 1, block.render(width)
             index += 1
+
+    def _render_blocks(self, width: int) -> list[str]:
+        lines: list[str] = []
+        for _end_idx, unit_lines in self._iter_units(width):
+            lines.extend(unit_lines)
         return lines
+
+    def render_split_cells(self, width: int) -> tuple[Buffer | None, list[str]]:
+        """Return (frozen_buf, live_lines) for the incremental render fast path.
+
+        ``frozen_buf`` holds Cell rows for render units old enough to be
+        considered finalized — cached across calls and only ever grown, never
+        rebuilt, so a caller can splice its rows straight into the frame
+        buffer instead of re-parsing ANSI text that hasn't changed. The last
+        ``_KEEP_TAIL_UNITS`` units are always returned as fresh ``live_lines``
+        instead, so the caller renders those the normal way.
+        """
+        from tau.tui.ansi_bridge import parse_ansi_into
+        from tau.tui.geometry import Rect
+
+        if width != self._frozen_width or self._frozen_seq != self._invalidation_seq:
+            self._frozen_buf = None
+            self._frozen_block_count = 0
+            self._frozen_width = width
+            self._frozen_seq = self._invalidation_seq
+
+        units = list(self._iter_units(width))
+        keep_from = max(0, len(units) - self._KEEP_TAIL_UNITS)
+
+        live_lines: list[str] = []
+        for i, (end_idx, unit_lines) in enumerate(units):
+            if end_idx <= self._frozen_block_count:
+                continue
+            if i < keep_from:
+                if self._frozen_buf is None:
+                    self._frozen_buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
+                base = self._frozen_buf.area.height
+                self._frozen_buf.grow_to(base + len(unit_lines))
+                for j, line in enumerate(unit_lines):
+                    parse_ansi_into(self._frozen_buf, 0, base + j, line, width)
+                self._frozen_block_count = end_idx
+            else:
+                live_lines.extend(unit_lines)
+        return self._frozen_buf, live_lines
 
     def handle_input(self, event: InputEvent) -> bool:
         if not self._focused or not isinstance(event, KeyEvent):
