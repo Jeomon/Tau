@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import apply_style
-from tau.tui.utils import fuzzy_filter, visible_width
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Line, Span
+from tau.tui.utils import fuzzy_filter
+from tau.tui.widgets.list import List, ListItem, ListState
 
 if True:  # avoid circular at runtime
     from typing import TYPE_CHECKING
@@ -26,6 +30,7 @@ class CommandPalette(Component):
         self._commands: list[CommandInfo] = []
         self._selected = 0
         self._query = ""
+        self._list_state = ListState()
 
         from tau.tui.theme import SelectListTheme as _ST
 
@@ -76,14 +81,18 @@ class CommandPalette(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self._commands:
-            return []
+            return 0
 
         count = len(self._commands)
         visible = min(VISIBLE_ROWS, count)
 
-        # Scroll so selected row is always in view
+        # Scroll so selected row is always in view, bottom-aligned when scrolled
+        # (distinct from the centering formula the flat-list selectors use, and
+        # from ListState.ensure_visible's minimal-scroll — kept as its own
+        # explicit formula since List.render()'s own ensure_visible call is a
+        # no-op on top of any offset already satisfying "selected is visible").
         start = max(0, min(self._selected - visible + 1, count - visible))
 
         # Label column width — longest "/name" in visible window, capped at 20
@@ -94,43 +103,53 @@ class CommandPalette(Component):
                 20,
             ),
         )
-        desc_w = max(0, width - label_w - 4)  # 4 = "  " + " " + margin
+        desc_w = max(0, area.width - label_w - 4)  # 4 = "  " + " " + margin
 
         t = self._theme
-        lines: list[str] = []
+        y = area.y
 
-        # Scroll-up indicator
+        def write(line: str) -> None:
+            nonlocal y
+            from tau.tui.ansi_bridge import parse_ansi_into
+            from tau.tui.utils import visible_width, wrap
+
+            for wl in (wrap(line, area.width) if visible_width(line) > area.width else [line]):
+                buf.grow_to(y + 1)
+                parse_ansi_into(buf, area.x, y, wl, area.width)
+                y += 1
+
         if start > 0:
-            lines.append(apply_style(t.indicator, f"  ↑ {start} more"))
+            write(apply_style(t.indicator, f"  ↑ {start} more"))
 
-        for i in range(start, start + visible):
-            cmd = self._commands[i]
+        list_items: list[ListItem] = []
+        for i, cmd in enumerate(self._commands):
             is_sel = i == self._selected
-
             name_str = f"/{cmd.name}"
             label = name_str[:label_w].ljust(label_w)
             desc = cmd.description[:desc_w] if desc_w > 0 else ""
+            label_style = t.selected_label if is_sel else t.normal_label
+            desc_style = t.selected_desc if is_sel else t.normal_desc
+            spans = [Span("  ", Style()), Span(label, label_style), Span("  ", Style())]
+            spans.append(Span(desc, desc_style))
+            list_items.append(ListItem(Line(spans)))
 
-            if is_sel:
-                label_s = apply_style(t.selected_label, label)
-                desc_s = apply_style(t.selected_desc, desc)
-                row = f"  {label_s}  {desc_s}"
-                if t.selected_bg:
-                    fill = max(0, width - visible_width(row))
-                    row = apply_style(t.selected_bg, row + " " * fill)
-            else:
-                label_s = apply_style(t.normal_label, label)
-                desc_s = apply_style(t.normal_desc, desc)
-                row = f"  {label_s}  {desc_s}"
+        self._list_state.select(self._selected)
+        self._list_state.offset = start
+        list_area = Rect(area.x, y, area.width, visible)
+        buf.grow_to(y + visible)
+        widget = List(
+            items=list_items,
+            highlight_symbol="",
+            highlight_style=t.selected_bg if t.selected_bg is not None else Style(),
+        )
+        widget.render(list_area, buf, self._list_state)
+        y += visible
 
-            lines.append(row)
-
-        # Scroll-down indicator
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(apply_style(t.indicator, f"  ↓ {remaining} more"))
+            write(apply_style(t.indicator, f"  ↓ {remaining} more"))
 
-        return lines
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

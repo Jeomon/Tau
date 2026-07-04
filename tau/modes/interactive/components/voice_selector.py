@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Span
+from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -34,44 +39,34 @@ class VoiceSelector(Component):
         self._on_cancel = on_cancel
         self._theme = theme or LT()
         self._selected = next((i for i, voice in enumerate(self._voices) if voice == current), 0)
+        self._list_state = ListState()
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines = [
-            "  " + apply_style(t.emphasis, "Speak Voice"),
-            "  " + apply_style(t.muted, self._model_name),
-            divider,
+        rows = [
+            PickerRow(
+                voice,
+                [Span(" ", Style()), Span("✓", t.success)] if voice == self._current else [],
+            )
+            for voice in self._voices
         ]
-
-        count = len(self._voices)
-        visible = min(_VISIBLE_ROWS, count)
-        start = max(0, min(self._selected - visible // 2, count - visible))
-
-        if start > 0:
-            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
-
-        for index in range(start, start + visible):
-            voice = self._voices[index]
-            check = f" {apply_style(t.success, '✓')}" if voice == self._current else ""
-            if index == self._selected:
-                marker = apply_style(t.accent, ">")
-                label = apply_style(t.emphasis, voice)
-                lines.append(f"  {marker} {label}{check}")
-            else:
-                lines.append(f"    {apply_style(t.muted, voice)}{check}")
-
-        remaining = count - (start + visible)
-        if remaining > 0:
-            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
-
-        lines.extend(
-            [
-                divider,
-                "  " + apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"),
-            ]
+        return render_picker_cells(
+            buf,
+            area,
+            header=[
+                "  " + apply_style(t.emphasis, "Speak Voice"),
+                "  " + apply_style(t.muted, self._model_name),
+            ],
+            rows=rows,
+            selected=self._selected,
+            state=self._list_state,
+            max_visible=_VISIBLE_ROWS,
+            border_style=t.border,
+            muted_style=t.muted,
+            accent_style=t.accent,
+            emphasis_style=t.emphasis,
+            hint=DEFAULT_HINT,
         )
-        return lines
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

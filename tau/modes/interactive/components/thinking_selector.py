@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Span
+from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.inference.types import ThinkingLevel
@@ -41,36 +46,34 @@ class ThinkingSelector(Component):
         self._on_select = on_select
         self._on_cancel = on_cancel
         self._theme = theme or LT()
+        self._list_state = ListState()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
-
-        lines.append("  " + apply_style(t.emphasis, "Thinking Effort"))
-        lines.append(divider)
-
-        for i, lv in enumerate(self._levels):
-            is_sel = i == self._selected
-            is_cur = lv == self._current
-            check = f" {apply_style(t.success, '✓')}" if is_cur else ""
+        rows = []
+        for lv in self._levels:
             desc = _DESCRIPTIONS.get(lv.value, "")
-            desc_part = f"  {apply_style(t.muted, desc)}" if desc else ""
+            spans = [Span("  ", Style()), Span(desc, t.muted)] if desc else []
+            if lv == self._current:
+                spans.extend([Span(" ", Style()), Span("✓", t.success)])
+            rows.append(PickerRow(lv.value, spans))
 
-            if is_sel:
-                marker = apply_style(t.accent, ">")
-                label = apply_style(t.emphasis, lv.value)
-                lines.append(f"  {marker} {label}{desc_part}{check}")
-            else:
-                lines.append(f"    {apply_style(t.muted, lv.value)}{desc_part}{check}")
-
-        lines.append(divider)
-        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
-        lines.append("  " + hint)
-
-        return lines
+        return render_picker_cells(
+            buf,
+            area,
+            header=["  " + apply_style(t.emphasis, "Thinking Effort")],
+            rows=rows,
+            selected=self._selected,
+            state=self._list_state,
+            max_visible=len(self._levels) or 1,
+            border_style=t.border,
+            muted_style=t.muted,
+            accent_style=t.accent,
+            emphasis_style=t.emphasis,
+            hint=DEFAULT_HINT,
+        )
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

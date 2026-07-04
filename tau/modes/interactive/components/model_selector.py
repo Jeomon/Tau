@@ -4,7 +4,13 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
-from tau.tui.style import apply_style
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.buffer import Buffer
+from tau.tui.geometry import Rect
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Line, Span
+from tau.tui.widgets.list import List, ListItem, ListState
+from tau.tui.widgets.tabs import Tabs
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -238,8 +244,6 @@ class ModelSelector:
     def render(self, width: int) -> list[str]:
         muted = partial(apply_style, self._muted)
         emphasis = partial(apply_style, self._emphasis)
-        success = partial(apply_style, self._success)
-        accent = partial(apply_style, self._accent)
         border = partial(apply_style, self._border)
         divider = border("─" * width)
         lines: list[str] = []
@@ -250,11 +254,19 @@ class ModelSelector:
             return lines
 
         # ── Tab bar (modality sections) ────────────────────────────────────────
-        tab_parts = [
-            emphasis(f"[{s.label}]") if i == self._active else muted(s.label)
+        titles = [
+            f"[{s.label}]" if i == self._active else s.label
             for i, s in enumerate(self._sections)
         ]
-        lines.append("  " + "  ".join(tab_parts))
+        tabs_buf = Buffer.empty(Rect(0, 0, width, 1))
+        Tabs(
+            titles=titles,
+            selected=self._active,
+            style=self._muted,
+            highlight_style=self._emphasis,
+            divider="  ",
+        ).render(Rect(2, 0, max(0, width - 2), 1), tabs_buf)
+        lines.append(row_to_ansi(tabs_buf, 0))
         lines.append(divider)
 
         # ── Scope row (only when tab spans multiple providers) ─────────────────
@@ -286,18 +298,43 @@ class ModelSelector:
                 lines.append("  " + muted(f"↑ {start} more above"))
 
             max_id = min(36, max(len(m.id) for m in sec.filtered[start : start + visible]))
+            list_items: list[ListItem] = []
             for i in range(start, start + visible):
                 m = sec.filtered[i]
                 is_sel = i == sec.selected
                 is_current = f"{m.provider}/{m.id}" == sec.current_key
-                check = f" {success('✓')}" if is_current else ""
                 badge = f"[{m.provider}]" if m.provider else ""
                 model_id = m.id.ljust(max_id)
 
                 if is_sel:
-                    lines.append(f"  {accent('>')} {emphasis(model_id)}  {accent(badge)}{check}")
+                    spans = [
+                        Span("  ", Style()),
+                        Span(">", self._accent),
+                        Span(" ", Style()),
+                        Span(model_id, self._emphasis),
+                        Span("  ", Style()),
+                        Span(badge, self._accent),
+                    ]
                 else:
-                    lines.append(f"    {muted(model_id)}  {muted(badge)}{check}")
+                    spans = [
+                        Span("    ", Style()),
+                        Span(model_id, self._muted),
+                        Span("  ", Style()),
+                        Span(badge, self._muted),
+                    ]
+                if is_current:
+                    spans.append(Span(" ", Style()))
+                    spans.append(Span("✓", self._success))
+                list_items.append(ListItem(Line(spans)))
+
+            state = ListState()
+            state.select(sec.selected - start)
+            state.offset = 0
+            list_buf = Buffer.empty(Rect(0, 0, width, visible))
+            List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
+                Rect(0, 0, width, visible), list_buf, state
+            )
+            lines.extend(row_to_ansi(list_buf, y) for y in range(visible))
 
             remaining = count - (start + visible)
             if remaining > 0:

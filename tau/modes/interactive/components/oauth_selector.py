@@ -4,9 +4,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Span
+from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -42,67 +47,53 @@ class OAuthSelector(Component):
         self._on_select = on_select
         self._on_cancel = on_cancel
         self._theme = theme or LT()
+        self._list_state = ListState()
 
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
-
         title = "Configure provider:" if self._mode == "login" else "Logout from provider:"
-        lines.append("  " + apply_style(t.emphasis, title))
-        lines.append(divider)
+
+        rows = []
+        for p in self._providers:
+            spans: list[Span] = []
+            if p.status and p.status.startswith("✓"):
+                spans = [
+                    Span("  ", Style()),
+                    Span("✓", t.success),
+                    Span(p.status[1:], t.muted),
+                ]
+            elif p.status:
+                spans = [Span("  ", Style()), Span(p.status, t.muted)]
+            rows.append(PickerRow(p.name, spans))
 
         if not self._providers:
-            msg = (
+            empty_text = (
                 "No providers logged in. Use /login first."
                 if self._mode == "logout"
                 else "No providers available"
             )
-            lines.append("  " + apply_style(t.muted, msg))
         else:
-            start = max(
-                0,
-                min(
-                    self._selected - _VISIBLE_ROWS // 2,
-                    max(0, len(self._providers) - _VISIBLE_ROWS),
-                ),
-            )
-            end = min(start + _VISIBLE_ROWS, len(self._providers))
+            empty_text = ""
 
-            if start > 0:
-                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
-
-            for i in range(start, end):
-                p = self._providers[i]
-                if p.status and p.status.startswith("✓"):
-                    check = apply_style(t.success, "✓")
-                    rest = apply_style(t.muted, p.status[1:])
-                    status_part = f"  {check}{rest}"
-                elif p.status:
-                    status_part = f"  {apply_style(t.muted, p.status)}"
-                else:
-                    status_part = ""
-
-                if i == self._selected:
-                    marker = apply_style(t.accent, ">")
-                    label = apply_style(t.emphasis, p.name)
-                    lines.append(f"  {marker} {label}{status_part}")
-                else:
-                    lines.append(f"    {apply_style(t.muted, p.name)}{status_part}")
-
-            remaining = len(self._providers) - end
-            if remaining > 0:
-                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
-
-        lines.append(divider)
-        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
-        lines.append("  " + hint)
-
-        return lines
+        return render_picker_cells(
+            buf,
+            area,
+            header=["  " + apply_style(t.emphasis, title)],
+            rows=rows,
+            selected=self._selected,
+            state=self._list_state,
+            max_visible=_VISIBLE_ROWS,
+            border_style=t.border,
+            muted_style=t.muted,
+            accent_style=t.accent,
+            emphasis_style=t.emphasis,
+            hint=DEFAULT_HINT,
+            empty_text=empty_text,
+        )
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

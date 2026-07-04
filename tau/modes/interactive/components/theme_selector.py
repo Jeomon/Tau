@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Span
+from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -34,43 +39,33 @@ class ThemeSelector(Component):
         self._on_preview = on_preview
         self._theme = theme or LT()
         self._selected = next((i for i, n in enumerate(self._names) if n == current), 0)
+        self._list_state = ListState()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
-
-        lines.append("  " + apply_style(t.emphasis, "Theme"))
-        lines.append(divider)
-
-        count = len(self._names)
-        visible = min(_VISIBLE_ROWS, count)
-        start = max(0, min(self._selected - visible // 2, count - visible))
-
-        if start > 0:
-            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
-
-        for i in range(start, start + visible):
-            name = self._names[i]
-            check = f" {apply_style(t.success, '✓')}" if name == self._current else ""
-            if i == self._selected:
-                marker = apply_style(t.accent, ">")
-                label = apply_style(t.emphasis, name)
-                lines.append(f"  {marker} {label}{check}")
-            else:
-                lines.append(f"    {apply_style(t.muted, name)}{check}")
-
-        remaining = count - (start + visible)
-        if remaining > 0:
-            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
-
-        lines.append(divider)
-        hint = apply_style(t.muted, "↑/↓ to move  ·  Enter to select  ·  Esc to cancel")
-        lines.append("  " + hint)
-
-        return lines
+        rows = [
+            PickerRow(
+                name,
+                [Span(" ", Style()), Span("✓", t.success)] if name == self._current else [],
+            )
+            for name in self._names
+        ]
+        return render_picker_cells(
+            buf,
+            area,
+            header=["  " + apply_style(t.emphasis, "Theme")],
+            rows=rows,
+            selected=self._selected,
+            state=self._list_state,
+            max_visible=_VISIBLE_ROWS,
+            border_style=t.border,
+            muted_style=t.muted,
+            accent_style=t.accent,
+            emphasis_style=t.emphasis,
+            hint=DEFAULT_HINT,
+        )
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

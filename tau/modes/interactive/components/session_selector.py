@@ -9,7 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau.tui.style import apply_style
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.buffer import Buffer
+from tau.tui.geometry import Rect
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Line, Span
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -282,6 +286,8 @@ class ResumeSelector:
             else:
                 lines.append("  " + apply_style(t.muted, "No sessions found"))
         else:
+            from tau.tui.widgets.list import List, ListItem, ListState
+
             count = len(self._filtered)
             visible = min(self._max_visible, count)
             start = max(0, min(self._selected - visible // 2, count - visible))
@@ -290,6 +296,14 @@ class ResumeSelector:
                 lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
 
             end_idx = min(start + visible, count)
+
+            # Each session is 2 content rows (name, meta) plus a blank
+            # separator between entries — never after the last one in the
+            # window. Built as a flat run of ListItems (one row per
+            # ListItem, matching ratatui's List); only "name" rows are ever
+            # the selected one, so state.selected always points at a
+            # 3k-th item within this windowed slice.
+            list_items: list[ListItem] = []
             for i in range(start, end_idx):
                 session = self._filtered[i]
                 is_sel = i == self._selected
@@ -305,19 +319,25 @@ class ResumeSelector:
 
                 # ── Line 1: indicator + session name ──────────────────────────
                 if is_del_target:
-                    name_styled = apply_style(t.error, display)
-                    indicator = apply_style(t.error, "> ")
+                    name_style = t.error
+                    indicator_spans = [Span("> ", t.error)]
                 elif is_sel:
-                    name_styled = apply_style(t.emphasis, display)
-                    indicator = apply_style(t.accent, "> ")
+                    name_style = t.emphasis
+                    indicator_spans = [Span("> ", t.accent)]
                 elif session.name:
-                    name_styled = apply_style(t.warning, display)
-                    indicator = "  "
+                    name_style = t.warning
+                    indicator_spans = [Span("  ", Style())]
                 else:
-                    name_styled = apply_style(t.muted, display)
-                    indicator = "  "
+                    name_style = t.muted
+                    indicator_spans = [Span("  ", Style())]
 
-                lines.append("  " + indicator + name_styled)
+                list_items.append(
+                    ListItem(
+                        Line(
+                            [Span("  ", Style()), *indicator_spans, Span(display, name_style)]
+                        )
+                    )
+                )
 
                 # ── Line 2: age · project · size · ⚙ N ───────────────────────
                 meta_parts: list[str] = [_humanize_age(session.modified)]
@@ -330,11 +350,22 @@ class ResumeSelector:
                     meta_parts.append(f"⚙ {mc}")
 
                 meta_line = "  ·  ".join(meta_parts)
-                lines.append("    " + apply_style(t.muted, meta_line))
+                list_items.append(
+                    ListItem(Line([Span("    ", Style()), Span(meta_line, t.muted)]))
+                )
 
                 # blank line between entries for readability
                 if i < end_idx - 1:
-                    lines.append("")
+                    list_items.append(ListItem(Line([])))
+
+            state = ListState()
+            state.select((self._selected - start) * 3 if list_items else None)
+            state.offset = 0
+            buf = Buffer.empty(Rect(0, 0, width, len(list_items)))
+            List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
+                Rect(0, 0, width, len(list_items)), buf, state
+            )
+            lines.extend(row_to_ansi(buf, y) for y in range(len(list_items)))
 
             remaining = count - (start + visible)
             if remaining > 0:

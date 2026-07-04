@@ -6,9 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
+from tau.tui.text import Line, Span
+from tau.tui.widgets.list import List, ListItem, ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -53,75 +58,98 @@ class ConfigSelector(Component):
         self._theme = theme or LT()
         self._search = ""
         self._selected = 0
+        self._list_state = ListState()
         self._select_first_item()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
+        y = area.y
 
-        # Header
-        lines.append("  " + apply_style(t.emphasis, "Extensions"))
-        lines.append(divider)
+        def write(line: str) -> None:
+            nonlocal y
+            from tau.tui.utils import visible_width, wrap
 
-        # Search box
+            for wl in (wrap(line, area.width) if visible_width(line) > area.width else [line]):
+                buf.grow_to(y + 1)
+                parse_ansi_into(buf, area.x, y, wl, area.width)
+                y += 1
+
+        write("  " + apply_style(t.emphasis, "Extensions"))
+        divider = apply_style(t.border, "─" * area.width)
+        write(divider)
+
         if self._search:
-            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}█")
+            write(f"  {apply_style(t.muted, '⊘')} {self._search}█")
         else:
-            lines.append("  " + apply_style(t.muted, "⊘ Search extensions…"))
-        lines.append(divider)
+            write("  " + apply_style(t.muted, "⊘ Search extensions…"))
+        write(divider)
 
         if not self._filtered:
-            lines.append("  " + apply_style(t.muted, "No extensions found"))
-            lines.append(divider)
-            lines.append("  " + apply_style(t.muted, "Space: toggle  ·  Esc: close"))
-            return lines
+            write("  " + apply_style(t.muted, "No extensions found"))
+            write(divider)
+            write("  " + apply_style(t.muted, "Space: toggle  ·  Esc: close"))
+            return y - area.y
 
-        # Flat list with group headers
+        # Flat list with group headers — headers occupy real rows in the
+        # List but are never selectable; sel_flat_idx (not self._selected,
+        # which indexes _filtered only) is the flat row List.state tracks.
         flat = self._build_flat()
         selectable = [i for i, (kind, _) in enumerate(flat) if kind == "item"]
         sel_flat_idx = selectable[self._selected] if selectable else -1
 
         count = len(flat)
         visible = min(_VISIBLE_ROWS, count)
-        start = max(0, min(sel_flat_idx - visible // 2, count - visible))
+        start = max(0, min(sel_flat_idx - visible // 2, max(0, count - visible)))
 
         if start > 0:
-            lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
+            write("  " + apply_style(t.muted, f"↑ {start} more above"))
 
-        for i in range(start, min(start + visible, count)):
-            kind, payload = flat[i]
+        list_items: list[ListItem] = []
+        for i, (kind, payload) in enumerate(flat):
             if kind == "header":
-                lines.append("  " + apply_style(t.accent, str(payload)))
-            else:
-                assert isinstance(payload, ConfigEntry)
-                is_sel = i == sel_flat_idx
-                checkbox = apply_style(
-                    t.success if payload.enabled else t.muted,
-                    ENABLED_SYMBOL if payload.enabled else DISABLED_SYMBOL,
+                list_items.append(
+                    ListItem(Line([Span("  ", Style()), Span(str(payload), t.accent)]))
                 )
-                name = apply_style(t.emphasis if is_sel else t.muted, payload.name)
-                label = name
-                if payload.author:
-                    label += " " + apply_style(t.muted, f"by {payload.author}")
-                if payload.path_display:
-                    label += " " + apply_style(t.muted, f"({payload.path_display})")
-                if is_sel:
-                    marker = apply_style(t.accent, ">")
-                    lines.append(f"  {marker} {checkbox} {label}")
-                else:
-                    lines.append(f"    {checkbox} {label}")
+                continue
+            assert isinstance(payload, ConfigEntry)
+            is_sel = i == sel_flat_idx
+            checkbox_style = t.success if payload.enabled else t.muted
+            checkbox_symbol = ENABLED_SYMBOL if payload.enabled else DISABLED_SYMBOL
+            name_style = t.emphasis if is_sel else t.muted
+
+            if is_sel:
+                spans = [Span("  ", Style()), Span(">", t.accent), Span(" ", Style())]
+            else:
+                spans = [Span("    ", Style())]
+            spans.append(Span(checkbox_symbol, checkbox_style))
+            spans.append(Span(" ", Style()))
+            spans.append(Span(payload.name, name_style))
+            if payload.author:
+                spans.append(Span(" ", Style()))
+                spans.append(Span(f"by {payload.author}", t.muted))
+            if payload.path_display:
+                spans.append(Span(" ", Style()))
+                spans.append(Span(f"({payload.path_display})", t.muted))
+            list_items.append(ListItem(Line(spans)))
+
+        self._list_state.select(sel_flat_idx if sel_flat_idx >= 0 else None)
+        self._list_state.offset = start
+        list_area = Rect(area.x, y, area.width, visible)
+        buf.grow_to(y + visible)
+        List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
+            list_area, buf, self._list_state
+        )
+        y += visible
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
+            write("  " + apply_style(t.muted, f"↓ {remaining} more below"))
 
-        lines.append(divider)
-        hint = apply_style(t.muted, "Space: toggle  ·  ↑/↓ to move  ·  Esc: close")
-        lines.append("  " + hint)
-        return lines
+        write(divider)
+        write("  " + apply_style(t.muted, "Space: toggle  ·  ↑/↓ to move  ·  Esc: close"))
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
