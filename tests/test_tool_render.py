@@ -65,6 +65,17 @@ class TestCallLine:
         plain = strip_ansi(lines[0])
         assert "Tool" in plain
 
+    def test_embedded_newline_is_escaped_not_literal(self):
+        # A raw "\n" byte reaching the terminal here would move the hardware
+        # cursor to the next row mid-write, since some render paths (e.g.
+        # MessageList.render_split_cells) write returned lines straight into
+        # cells without re-wrapping — see tau/tool/render.py:call_line.
+        lines = call_line("terminal", 'python3 -c "\nfrom a import b\n"')
+        assert len(lines) == 1
+        assert "\n" not in lines[0]
+        plain = strip_ansi(lines[0])
+        assert "python3 -c \"\\nfrom a import b\\n\"" in plain
+
 
 class TestToolResult:
     def test_ok_constructor(self):
