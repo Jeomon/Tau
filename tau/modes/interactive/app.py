@@ -449,9 +449,9 @@ class App:
         self._redirect_logging_off_terminal()
         self._hooks.subscribe()
 
-        # Session history is conversation content, not a startup notice.
-        # ``quiet_startup`` must not hide a resumed transcript.
-        self._replay_session()
+        sm = self._runtime.settings_manager
+        if sm is None or not sm.get_quiet_startup():
+            self._replay_session()
 
         self._hooks._refresh_model_badge()
         self._input.load_history()
