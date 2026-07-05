@@ -4,7 +4,9 @@ import base64
 
 from google.genai import types as genai_types
 
+from tau.builtins.extensions.ask_user.schema import AskUserParams
 from tau.inference.api.text.gemini_generate import _messages_to_gemini
+from tau.inference.api.text.utils import gemini_tool_schema
 from tau.inference.model.registry import ModelRegistry
 from tau.message.types import (
     AssistantMessage,
@@ -12,6 +14,40 @@ from tau.message.types import (
     ToolMessage,
     ToolResultContent,
 )
+
+
+def test_gemini_tool_schema_removes_unsupported_examples() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "title": "Path",
+                "examples": ["/tmp/file.txt"],
+            },
+            "offset": {
+                "anyOf": [{"type": "integer"}, {"type": "null"}],
+                "default": None,
+                "examples": [0, 100],
+            },
+        },
+    }
+
+    assert gemini_tool_schema(schema) == {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "integer"},
+        },
+    }
+
+
+def test_gemini_tool_schema_preserves_property_named_title() -> None:
+    schema = gemini_tool_schema(AskUserParams.model_json_schema())
+
+    option_object = schema["properties"]["options"]["items"]["anyOf"][1]
+    assert "title" in option_object["properties"]
+    assert option_object["required"] == ["title"]
 
 
 def test_google_ai_studio_models_are_registered() -> None:

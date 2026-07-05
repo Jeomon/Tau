@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 __all__ = [
+    "gemini_tool_schema",
     "parse_tool_args",
     "tool_result_text",
     "openai_user_content",
@@ -21,6 +22,61 @@ __all__ = [
 _CACHE_MARKER = {"type": "ephemeral"}
 
 _NO_TOOL_OUTPUT = "(no tool output)"
+
+_GEMINI_UNSUPPORTED_SCHEMA_KEYS = {
+    "title",
+    "$schema",
+    "$defs",
+    "default",
+    "prefixItems",
+    "maxItems",
+    "minItems",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "examples",
+}
+
+
+def gemini_tool_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Convert Pydantic JSON Schema to Gemini's function declaration subset."""
+    defs = schema.get("$defs", {})
+
+    def resolve(obj: Any) -> Any:
+        if not isinstance(obj, dict):
+            return obj if not isinstance(obj, list) else [resolve(item) for item in obj]
+        if "$ref" in obj:
+            ref_name = obj["$ref"].rsplit("/", 1)[-1]
+            return resolve(defs.get(ref_name, {}))
+
+        result: dict[str, Any] = {}
+        for key, value in obj.items():
+            if key in _GEMINI_UNSUPPORTED_SCHEMA_KEYS:
+                continue
+            if key == "properties" and isinstance(value, dict):
+                # Property names are user-defined and may legitimately match an
+                # unsupported schema keyword such as "title" or "default".
+                result[key] = {
+                    property_name: resolve(property_schema)
+                    for property_name, property_schema in value.items()
+                }
+                continue
+            if key == "anyOf" and isinstance(value, list):
+                non_null = [resolve(item) for item in value if item != {"type": "null"}]
+                if len(non_null) == 1:
+                    result.update(non_null[0])
+                else:
+                    result[key] = non_null
+            else:
+                result[key] = resolve(value)
+
+        if result.get("type") == "array" and "items" not in result:
+            prefix = obj.get("prefixItems")
+            result["items"] = (
+                resolve(prefix[0]) if isinstance(prefix, list) and prefix else {"type": "string"}
+            )
+        return result
+
+    return resolve(schema)
 
 
 def tool_result_text(content: Any) -> str:

@@ -10,7 +10,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import tool_result_text
+from tau.inference.api.text.utils import gemini_tool_schema, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -213,7 +213,9 @@ class GoogleVertexAPI(BaseAPI):
                         genai_types.FunctionDeclaration(
                             name=t.name,
                             description=t.description,
-                            parameters=t.schema.model_json_schema(),  # type: ignore[arg-type]
+                            parameters=gemini_tool_schema(  # type: ignore[arg-type]
+                                t.schema.model_json_schema()
+                            ),
                         )
                         for t in tools
                     ]

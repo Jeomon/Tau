@@ -17,7 +17,7 @@ import httpx
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
-from tau.inference.api.text.utils import parse_tool_args, tool_result_text
+from tau.inference.api.text.utils import gemini_tool_schema, parse_tool_args, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -55,63 +55,6 @@ if TYPE_CHECKING:
     from tau.tool.types import Tool
 
 __all__ = ["GoogleAntigravityAPI"]
-
-_SKIP_KEYS = {
-    "title",
-    "$schema",
-    "$defs",
-    "default",
-    "prefixItems",
-    "maxItems",
-    "minItems",
-    "exclusiveMinimum",
-    "exclusiveMaximum",
-    "examples",
-}
-
-
-def _resolve_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Flatten Pydantic JSON schema for Gemini: resolve $ref/$defs, drop unsupported keys."""
-    defs = schema.get("$defs", {})
-
-    def _resolve(obj: Any) -> Any:
-        if not isinstance(obj, dict):
-            return obj if not isinstance(obj, list) else [_resolve(i) for i in obj]
-        if "$ref" in obj:
-            ref_name = obj["$ref"].rsplit("/", 1)[-1]
-            return _resolve(defs.get(ref_name, {}))
-        result: dict[str, Any] = {}
-        for k, v in obj.items():
-            if k in _SKIP_KEYS:
-                continue
-            if k == "anyOf" and isinstance(v, list):
-                non_null = [_resolve(s) for s in v if s != {"type": "null"}]
-                if len(non_null) == 1:
-                    result.update(non_null[0])
-                else:
-                    result[k] = non_null
-            elif isinstance(v, dict):
-                result[k] = _resolve(v)
-            elif isinstance(v, list):
-                result[k] = [_resolve(i) for i in v]
-            else:
-                result[k] = v
-
-        # Gemini requires `items` on every array type.
-        # Pydantic encodes tuple[int, int] as {type: array, prefixItems: [...]}
-        # which we drop above — fill in a generic integer items fallback.
-        if result.get("type") == "array" and "items" not in result:
-            prefix = obj.get("prefixItems")
-            if prefix and isinstance(prefix, list) and len(prefix) > 0:
-                # Use the type of the first element (all tuple coords are the same type)
-                result["items"] = _resolve(prefix[0])
-            else:
-                result["items"] = {"type": "string"}
-
-        return result
-
-    return _resolve(schema)
-
 
 _DEFAULT_BASE_URL = "https://cloudcode-pa.googleapis.com"
 _STREAM_PATH = "/v1internal:streamGenerateContent?alt=sse"
@@ -363,7 +306,7 @@ class GoogleAntigravityAPI(BaseAPI):
                 continue
             seen.add(t.name)
             raw = t.schema.model_json_schema() if t.schema else {}
-            schema = _resolve_schema(raw)
+            schema = gemini_tool_schema(raw)
             decls.append({"name": t.name, "description": t.description or "", "parameters": schema})
         return decls
 
