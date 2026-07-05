@@ -63,7 +63,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*
+            dist/*.whl
+            dist/*.tar.gz
           body_path: release-notes.md
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
