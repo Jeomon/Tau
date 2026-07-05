@@ -14,9 +14,9 @@ from tau.inference.types import (
     AudioStopReason,
     STTContext,
     SynthesizedAudio,
+    TimestampGranularity,
     TranscribedAudio,
     TTSContext,
-    TimestampGranularity,
     WordTimestamp,
 )
 
