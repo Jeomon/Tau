@@ -60,7 +60,9 @@ tau --model openai/gpt-4o -p "Say hello"
 
 ## Google Gemini
 
-Google provides Gemini models with multimodal capabilities.
+Google AI Studio provides API-key access to Gemini models through the Google
+Gen AI SDK. Tau's `google` provider uses the Gemini Developer API; it is
+separate from the `google-vertex` provider, which uses Google Cloud.
 
 ### Setup
 
@@ -75,8 +77,15 @@ export GOOGLE_API_KEY=...
 ### Verify
 
 ```bash
-tau --model google/gemini-2.0-flash -p "Say hello"
+tau --model google/gemini-2.5-flash -p "Say hello"
 ```
+
+Current Google AI Studio model IDs include:
+
+- `gemini-3.5-flash` (stable)
+- `gemini-3.1-flash-lite` (stable)
+- `gemini-3.1-pro-preview` (preview)
+- `gemini-2.5-pro`, `gemini-2.5-flash`, and `gemini-2.5-flash-lite`
 
 ## Mistral AI
 

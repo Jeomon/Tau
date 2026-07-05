@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
@@ -55,6 +56,18 @@ _STOP_REASON: dict[str, StopReason] = {
 }
 
 
+def _encode_signature(signature: bytes | None) -> str:
+    """Encode an SDK thought signature for JSON-safe message persistence."""
+    return base64.b64encode(signature).decode("ascii") if signature else ""
+
+
+def _decode_signature(signature: object) -> bytes | None:
+    """Decode a persisted thought signature for the Google Gen AI SDK."""
+    if not isinstance(signature, str) or not signature:
+        return None
+    return base64.b64decode(signature)
+
+
 def _messages_to_gemini(
     messages: list[LLMMessage],
 ) -> tuple[str | None, list[genai_types.Content]]:
@@ -89,12 +102,24 @@ def _messages_to_gemini(
                     match item:
                         case TextContent():
                             parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
+                        case ThinkingContent():
+                            parts.append(
+                                genai_types.Part(
+                                    text=item.content,
+                                    thought=True,
+                                    thought_signature=_decode_signature(item.signature),
+                                )
+                            )
                         case ToolCallContent():
                             parts.append(
                                 genai_types.Part(
                                     function_call=genai_types.FunctionCall(
+                                        id=item.id,
                                         name=item.name,
                                         args=item.args,
+                                    ),
+                                    thought_signature=_decode_signature(
+                                        item.metadata.get("thought_signature")
                                     ),
                                 )
                             )
@@ -107,7 +132,8 @@ def _messages_to_gemini(
                         parts.append(
                             genai_types.Part(
                                 function_response=genai_types.FunctionResponse(
-                                    name=content.id,
+                                    id=content.id,
+                                    name=content.tool_name or content.id,
                                     response={"result": tool_result_text(content)},
                                 ),
                             )
@@ -195,6 +221,7 @@ class GeminiGenerateAPI(BaseAPI):
         thinking_started = False
         text_buf = ""
         thinking_buf = ""
+        thinking_signature = ""
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
@@ -227,15 +254,21 @@ class GeminiGenerateAPI(BaseAPI):
                                 yield ThinkingStartEvent(thinking=None)
                                 thinking_started = True
                             thinking_buf += part.text
+                            if part.thought_signature:
+                                thinking_signature = _encode_signature(part.thought_signature)
                             yield ThinkingDeltaEvent(thinking=ThinkingContent(content=part.text))  # type: ignore[arg-type]
                         elif part.text:
                             if thinking_started:
                                 yield ThinkingEndEvent(
-                                    thinking=ThinkingContent(content=thinking_buf)  # type: ignore[arg-type]
+                                    thinking=ThinkingContent(
+                                        content=thinking_buf,
+                                        signature=thinking_signature,
+                                    )
                                 )
                                 thinking_started = False
                                 thinking_index += 1
                                 thinking_buf = ""
+                                thinking_signature = ""
                             if not text_started:
                                 yield TextStartEvent(text=TextContent(content=""))  # type: ignore[arg-type]
                                 text_started = True
@@ -243,17 +276,28 @@ class GeminiGenerateAPI(BaseAPI):
                             yield TextDeltaEvent(text=TextContent(content=part.text))  # type: ignore[arg-type]
                         elif part.function_call:
                             fc = part.function_call
-                            tool_id = fc.name
+                            tool_name = fc.name or ""
+                            tool_id = fc.id or tool_name
                             args_str = json.dumps(dict(fc.args)) if fc.args else ""
+                            metadata = (
+                                {"thought_signature": _encode_signature(part.thought_signature)}
+                                if part.thought_signature
+                                else {}
+                            )
                             yield ToolCallStartEvent(
-                                tool_call=ToolCallContent(id=tool_id, name=fc.name)  # type: ignore[arg-type]
+                                tool_call=ToolCallContent(  # type: ignore[arg-type]
+                                    id=tool_id,
+                                    name=tool_name,
+                                    metadata=metadata,
+                                )
                             )
                             yield ToolCallDeltaEvent(tool_call=ToolCallContent(id=tool_id))  # type: ignore[arg-type]
                             yield ToolCallEndEvent(
                                 tool_call=ToolCallContent(  # type: ignore[arg-type]
                                     id=tool_id,  # type: ignore[arg-type]
-                                    name=fc.name,  # type: ignore[arg-type]
+                                    name=tool_name,
                                     args=json.loads(args_str) if args_str else {},
+                                    metadata=metadata,
                                 )
                             )
                             tool_index += 1
@@ -261,7 +305,12 @@ class GeminiGenerateAPI(BaseAPI):
                 finish_reason = getattr(candidate, "finish_reason", None)
                 if finish_reason and str(finish_reason) not in ("", "FINISH_REASON_UNSPECIFIED"):
                     if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))  # type: ignore[arg-type]
+                        yield ThinkingEndEvent(
+                            thinking=ThinkingContent(
+                                content=thinking_buf,
+                                signature=thinking_signature,
+                            )
+                        )
                     if text_started:
                         yield TextEndEvent(text=TextContent(content=text_buf))  # type: ignore[arg-type]
                     reason_str = (
@@ -289,7 +338,12 @@ class GeminiGenerateAPI(BaseAPI):
             return
 
         if thinking_started:
-            yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))  # type: ignore[arg-type]
+            yield ThinkingEndEvent(
+                thinking=ThinkingContent(
+                    content=thinking_buf,
+                    signature=thinking_signature,
+                )
+            )
         if text_started:
             yield TextEndEvent(text=TextContent(content=text_buf))  # type: ignore[arg-type]
         yield EndEvent(
