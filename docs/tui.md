@@ -78,15 +78,17 @@ automatically during shutdown.
 Subclass `Component` to create a reusable view:
 
 ```python
-from tau.tui import Component, KeyEvent
+from tau.tui import Buffer, Component, KeyEvent, Line, Rect, Span
 
 
 class Counter(Component):
     def __init__(self) -> None:
         self.value = 0
 
-    def render(self, width: int) -> list[str]:
-        return [f"Count: {self.value}"[:width]]
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        buf.grow_to(area.y + 1)
+        buf.set_line(area.x, area.y, Line([Span(f"Count: {self.value}")]), area.width)
+        return 1
 
     def handle_input(self, event: object) -> bool:
         if isinstance(event, KeyEvent) and event.matches("up"):
@@ -95,8 +97,9 @@ class Counter(Component):
         return False
 ```
 
-`render()` returns one string per terminal row. Components must respect the
-provided width and must not include newline characters inside a returned line.
+`render_cells()` writes styled cells into the provided `Buffer` and returns the
+number of rows written. Components must grow dynamic buffers before writing and
+must respect the provided `Rect`.
 
 ## Layout
 

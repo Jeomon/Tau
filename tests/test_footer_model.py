@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tau.builtins.extensions.footer.model import ModelBadge
+from tau.tui.utils import strip_ansi
+from tests.render_helpers import render_cells_to_lines
 
 
 @dataclass
@@ -40,7 +42,7 @@ def test_response_usage_updates_badge_immediately() -> None:
 
     badge.update_context_from_response(response, _Context())
 
-    assert "25%" in badge.render(80)[0]
+    assert "25%" in strip_ansi(render_cells_to_lines(badge, 80)[0])
 
 
 def test_response_usage_includes_cache_tokens() -> None:
@@ -57,7 +59,7 @@ def test_response_usage_includes_cache_tokens() -> None:
 
     badge.update_context_from_response(response, _Context(context_window=1_000))
 
-    assert "50%" in badge.render(80)[0]
+    assert "50%" in strip_ansi(render_cells_to_lines(badge, 80)[0])
 
 
 def test_response_usage_does_not_double_count_inclusive_cache_tokens() -> None:
@@ -74,7 +76,7 @@ def test_response_usage_does_not_double_count_inclusive_cache_tokens() -> None:
 
     badge.update_context_from_response(response, _Context(context_window=1_000))
 
-    assert "60%" in badge.render(80)[0]
+    assert "60%" in strip_ansi(render_cells_to_lines(badge, 80)[0])
 
 
 def test_missing_response_usage_falls_back_to_context() -> None:
@@ -83,4 +85,4 @@ def test_missing_response_usage_falls_back_to_context() -> None:
 
     badge.update_context_from_response(object(), _Context(tokens=400, context_window=1_000))
 
-    assert "40%" in badge.render(80)[0]
+    assert "40%" in strip_ansi(render_cells_to_lines(badge, 80)[0])

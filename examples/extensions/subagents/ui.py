@@ -2,51 +2,58 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from tau.message.types import TextContent
 from tau.session.types import MessageEntry
 from tau.session.utils import read_session_file
+from tau.tui.buffer import Buffer
+from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
 
 from .types import AgentRecord, AgentStatus
-
-if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
 
 _ACTIVE_STATUSES = {AgentStatus.QUEUED, AgentStatus.RUNNING}
 
 
-class AgentWidget:
+class AgentWidget(Component):
     """Compact live summary rendered above the editor while agents are active."""
 
     def __init__(self, manager: Any) -> None:
         self._manager = manager
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         records = [
             record for record in self._manager.list_records() if record.status in _ACTIVE_STATUSES
         ]
         if not records:
-            return []
-        lines = [f"  Agents ({len(records)})"]
+            return 0
+
+        row = area.y
+
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
+
+        write([Span(f"  Agents ({len(records)})", Style().bold())])
         for record in records[:5]:
             icon = "○" if record.status == AgentStatus.QUEUED else "●"
             stats = f"{record.turn_count} turns · {record.tool_uses} tools"
-            line = f"  {icon} {record.agent_type}  {record.description}  {stats}"
-            lines.append(line[:width])
+            write(
+                [
+                    Span(f"  {icon} ", Style().dim()),
+                    Span(record.agent_type, Style().bold()),
+                    Span(f"  {record.description}  {stats}", Style().dim()),
+                ]
+            )
         if len(records) > 5:
-            lines.append(f"  ↓ {len(records) - 5} more")
-        return lines
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        row = 0
-        for line in self.render(area.width):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+            write([Span(f"  ↓ {len(records) - 5} more", Style().dim())])
+        return row - area.y
 
     def handle_input(self, _event: InputEvent) -> bool:
         return False
@@ -78,7 +85,7 @@ def _message_lines(session_file: Path) -> list[str]:
     return lines or ["(no conversation output yet)"]
 
 
-class ConversationViewer:
+class ConversationViewer(Component):
     """Scrollable transcript overlay that reloads the session on every render."""
 
     def __init__(self, record: AgentRecord, done: Callable[[None], None]) -> None:
@@ -86,7 +93,7 @@ class ConversationViewer:
         self._done = done
         self._offset = 0
 
-    def render(self, width: int) -> list[str]:
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         status = self._record.status.value
         title = f"  {self._record.agent_type} · {self._record.id} · {status}"
         session_file = self._record.output_file
@@ -101,21 +108,14 @@ class ConversationViewer:
         start = max(0, max_offset - self._offset)
         visible = content[start : start + height]
         footer = "  ↑/↓ scroll · PgUp/PgDn page · Esc close"
-        return [
-            title[:width],
-            "─" * width,
-            *[line[:width] for line in visible],
-            "─" * width,
-            footer,
-        ]
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        row = 0
-        for line in self.render(area.width):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        lines = [title, "─" * area.width, *visible, "─" * area.width, footer]
+        row = area.y
+        for line in lines:
+            buf.grow_to(row + 1)
+            style = Style().dim() if line == footer else Style()
+            buf.set_line(area.x, row, Line([Span(line, style)]), area.width)
+            row += 1
+        return row - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

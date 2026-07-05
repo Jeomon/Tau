@@ -26,6 +26,8 @@ from subagents.ui import AgentWidget, ConversationViewer
 from subagents.worktree import create_worktree, finalize_worktree
 from subagents.tool import AgentTool
 from tau.tui.input import KeyEvent
+from tau.tui.utils import strip_ansi
+from tests.render_helpers import render_cells_to_lines
 
 
 def test_builtin_markdown_profiles_load() -> None:
@@ -224,10 +226,12 @@ def test_live_widget_and_conversation_viewer() -> None:
         def list_records():
             return [record]
 
-    assert any("scout" in line for line in AgentWidget(Manager()).render(100))
+    widget_lines = render_cells_to_lines(AgentWidget(Manager()), 100)
+    assert any("scout" in strip_ansi(line) for line in widget_lines)
     closed: list[None] = []
     viewer = ConversationViewer(record, closed.append)
-    assert any("transcript not available" in line for line in viewer.render(100))
+    viewer_lines = render_cells_to_lines(viewer, 100)
+    assert any("transcript not available" in strip_ansi(line) for line in viewer_lines)
     viewer.handle_input(KeyEvent(key="escape"))
     assert closed == [None]
 

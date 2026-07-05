@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
     from tau.tui.geometry import Rect
 
 
-class ModelBadge:
+class ModelBadge(Component):
     """Renders ``(provider) model ∙ Level|context%`` for the footer Row right slot.
 
     The ``∙ Level`` segment only appears when the active model supports
@@ -81,12 +82,6 @@ class ModelBadge:
             self.set_context(tokens, window)
         else:
             self.update_context_from_ctx(ctx)
-
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        from tau.tui.utils import DIM, RESET
-
-        text = self._text()
-        return [DIM + text + RESET] if text else []
 
     def _text(self) -> str:
         if not self._provider and not self._model:

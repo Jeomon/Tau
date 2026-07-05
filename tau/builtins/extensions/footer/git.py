@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from tau.tui.geometry import Rect
 
 
-class GitBadge:
+class GitBadge(Component):
     """Renders ``~/path (branch)`` for the footer Row left slot."""
 
     def __init__(self) -> None:
@@ -24,11 +25,6 @@ class GitBadge:
         branch = read_branch(cwd)
         display = shorten_home(cwd)
         self._text = f"{display} ({branch})" if branch else display
-
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        from tau.tui.utils import DIM, RESET
-
-        return [DIM + self._text + RESET]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         buf.grow_to(area.y + 1)
