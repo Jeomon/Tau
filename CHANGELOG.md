@@ -2,7 +2,7 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
-## 0.6.0 — 2026-07-05
+## 0.6.0 — 2026-07-06
 
 ### Added
 
@@ -14,9 +14,9 @@ All notable changes to `tau-coding-agent` are documented here.
 -   Implement collision-resistant per-line content hashing for anchor-based file editing.
 -   Implement extension priority resolution to suppress duplicate identity discovery across source locations.
 -   Implement terminal tool for non-interactive shell command execution.
--   Optimize TUI rendering by implementing Ratatui-style incremental cell diffing to minimize terminal writes.
+-   Optimize TUI rendering with incremental cell diffing to minimize terminal writes.
 -   Optimize TUI rendering by reusing unchanged trailing segments during in-place line diffs.
--   Replace line-diffing with a true Ratatui-style Buffer/Cell grid renderer.
+-   Replace line-diffing with a native Buffer/Cell grid renderer.
 
 ### Fixed
 
@@ -26,6 +26,9 @@ All notable changes to `tau-coding-agent` are documented here.
 -   Prevent premature freezing of streaming units by ensuring only non-final, non-streaming units are frozen.
 -   Update `settings_path` resolution to handle builtin extension paths correctly.
 -   Prevent markdown hyperlink rendering leaks.
+-   Use provider-compatible transcription response formats for OpenAI GPT-4o,
+    OpenAI Whisper, and Groq Whisper models.
+-   Request and correctly parse word-level timestamps from Sarvam speech-to-text.
 -   Restore CI checks.
 
 ### Refactored
@@ -51,6 +54,7 @@ All notable changes to `tau-coding-agent` are documented here.
 -   Update interactive component selectors and add simple picker.
 -   Modernize TUI component architecture with new cell-based buffer rendering system and extensive widget library.
 -   Optimize TUI rendering by reusing unchanged trailing segments during in-place line diffs.
+-   Stream partial terminal tool output into persistent in-place update blocks.
 
 ## 0.5.7 — 2026-07-03
 

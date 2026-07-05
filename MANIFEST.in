@@ -2,3 +2,5 @@ recursive-include tau/builtins *
 recursive-include docs *
 include README.md
 include LICENSE
+global-exclude *.py[cod]
+global-exclude __pycache__
