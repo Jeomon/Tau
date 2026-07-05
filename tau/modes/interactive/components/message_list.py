@@ -33,6 +33,7 @@ def _default_shell_preview(
     *,
     expanded: bool,
     expandable: bool,
+    streaming: bool = False,
     preview_lines: int,
     theme: Any,
 ) -> list[str]:
@@ -44,6 +45,10 @@ def _default_shell_preview(
         return [*lines, apply_style(theme.dim, "(ctrl+o to collapse)")]
     hidden = len(lines) - threshold
     hint = apply_style(theme.dim, f"… +{hidden} lines (ctrl+o to expand)")
+    if streaming:
+        # A growing command's first lines quickly become static. Show its tail
+        # so progress remains visible without requiring the user to expand it.
+        return [hint, *lines[-threshold:]]
     return [*lines[:threshold], hint]
 
 
@@ -601,6 +606,7 @@ class MessageBlock:
                         list(custom),
                         expanded=self._expanded,
                         expandable=tool.result_expandable,
+                        streaming=self._streaming,
                         preview_lines=threshold,
                         theme=t,
                     )
@@ -653,6 +659,7 @@ class MessageBlock:
             rendered,
             expanded=self._expanded,
             expandable=tool.result_expandable if tool is not None else True,
+            streaming=self._streaming,
             preview_lines=(
                 tool.result_preview_lines
                 if tool is not None and tool.result_preview_lines is not None

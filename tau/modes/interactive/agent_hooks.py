@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from tau.message.types import ToolResultContent
     from tau.modes.interactive.components.layout import Layout
     from tau.modes.interactive.components.message_list import MessageBlock
     from tau.runtime.service import Runtime
@@ -64,6 +65,9 @@ class AgentHookHandler:
         self._current_block: MessageBlock | None = None
         self._current_text_length: int = 0
         self._current_terminal_block: MessageBlock | None = None
+        self._partial_tool_block: MessageBlock | None = None
+        self._partial_tool_results: dict[str, ToolResultContent] = {}
+        self._tool_names: dict[str, str] = {}
         self._unsubs: list[Callable[[], None]] = []
 
         # Streaming batch state — pending token flush
@@ -86,6 +90,7 @@ class AgentHookHandler:
             hooks.register("message_end", self._on_message_end),
             hooks.register("message_rollback", self._on_message_rollback),
             hooks.register("tool_execution_start", self._on_tool_start),
+            hooks.register("tool_execution_update", self._on_tool_update),
             hooks.register("tool_execution_end", self._on_tool_end),
             hooks.register("model_select", self._on_model_select),
             hooks.register("terminal_execution", self._on_terminal_execution),
@@ -103,6 +108,9 @@ class AgentHookHandler:
         self._pending_msg = None
         self._current_block = None
         self._current_terminal_block = None
+        self._partial_tool_block = None
+        self._partial_tool_results.clear()
+        self._tool_names.clear()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -126,6 +134,9 @@ class AgentHookHandler:
             self._current_block = None
             self._current_text_length = 0
             self._current_terminal_block = None
+            self._partial_tool_block = None
+            self._partial_tool_results.clear()
+            self._tool_names.clear()
             if replay:
                 sm = self._runtime.session_manager
                 if sm is not None:
@@ -189,11 +200,22 @@ class AgentHookHandler:
     # ── Messages ──────────────────────────────────────────────────────────────
 
     async def _on_message_start(self, event: object) -> None:
+        from tau.message.types import ToolMessage
+
         msg = getattr(event, "message", None)
         if msg is None:
             return
         self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
-        block = self._layout.add_message(msg, streaming=False)
+        if isinstance(msg, ToolMessage) and self._partial_tool_block is not None:
+            block = self._partial_tool_block
+            block._message = msg
+            block.set_streaming(False)
+            block.invalidate()
+            self._partial_tool_block = None
+            self._partial_tool_results.clear()
+            self._tool_names.clear()
+        else:
+            block = self._layout.add_message(msg, streaming=False)
         self._current_block = block
         self._current_text_length = _text_length(msg)
         self._tui.request_render()
@@ -278,13 +300,43 @@ class AgentHookHandler:
                 break
         self._current_block = None
         self._current_text_length = 0
+        self._partial_tool_block = None
+        self._partial_tool_results.clear()
+        self._tool_names.clear()
         self._tui.request_render()
 
     # ── Tools ─────────────────────────────────────────────────────────────────
 
-    async def _on_tool_start(self, _event: object) -> None:
+    async def _on_tool_start(self, event: object) -> None:
+        tool_call = getattr(event, "tool_call", None)
+        if tool_call is not None:
+            self._tool_names[tool_call.id] = tool_call.name
         self._mark_turn_content()
         self._spinner(self._layout.spinner.theme.label_tool_calling)
+
+    async def _on_tool_update(self, event: object) -> None:
+        """Render a tool's partial result while it is still executing."""
+        from tau.message.types import ToolMessage, ToolResultContent
+
+        partial = getattr(event, "partial_tool_result", None)
+        if partial is None:
+            return
+        result = ToolResultContent(
+            id=partial.id,
+            content=partial.content,
+            is_error=partial.is_error,
+            metadata=partial.metadata,
+            tool_name=self._tool_names.get(partial.id, ""),
+        )
+        self._partial_tool_results[partial.id] = result
+        message = ToolMessage(contents=list(self._partial_tool_results.values()))
+        if self._partial_tool_block is None:
+            self._partial_tool_block = self._layout.add_message(message, streaming=True)
+        else:
+            self._partial_tool_block._message = message
+            self._partial_tool_block.set_streaming(True)
+            self._partial_tool_block.invalidate()
+        self._tui.request_render()
 
     async def _on_tool_end(self, _event: object) -> None:
         self._spinner(self._layout.spinner.theme.label_thinking)

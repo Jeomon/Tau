@@ -64,9 +64,11 @@ Commands run in the agent's current working directory.
 
 Output is streamed through tool-update events while the command runs. Updates
 are throttled to at most once every 100 milliseconds, with guaranteed initial
-and final updates. Timeout and cancellation terminate the command's complete
-process tree. Programs may still buffer their own output; use an unbuffered mode
-such as `python -u` when immediate output is required.
+and final updates. The interactive TUI refreshes the existing result block for
+each update; when a long result is collapsed, its newest lines remain visible
+while the command is running. Timeout and cancellation terminate the command's
+complete process tree. Programs may still buffer their own output; use an
+unbuffered mode such as `python -u` when immediate output is required.
 
 ### glob
 

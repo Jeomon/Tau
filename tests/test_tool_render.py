@@ -130,6 +130,19 @@ class TestDefaultToolResultShell:
         assert rendered[:5] == ["0", "1", "2", "3", "4"]
         assert "ctrl+o to expand" in strip_ansi(rendered[-1])
 
+    def test_streaming_output_shows_latest_lines(self):
+        rendered = _default_shell_preview(
+            [str(index) for index in range(10)],
+            expanded=False,
+            expandable=True,
+            streaming=True,
+            preview_lines=3,
+            theme=MessageTheme(),
+        )
+
+        assert "ctrl+o to expand" in strip_ansi(rendered[0])
+        assert rendered[1:] == ["7", "8", "9"]
+
     def test_opt_out_always_shows_complete_output(self):
         lines = [str(index) for index in range(7)]
         rendered = _default_shell_preview(
