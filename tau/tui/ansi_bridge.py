@@ -1,16 +1,18 @@
-"""Bidirectional bridge between legacy ANSI-string lines and real Buffer/Cell content.
+"""Conversions between ANSI-string content and real Buffer/Cell content.
 
-Stage 2 of the TUI migration lets Buffer-native components (``render_cells``)
-and not-yet-migrated legacy components (``render(width) -> list[str]``)
-coexist in the same tree. Two conversions make that possible:
+``render_cells`` is the sole Component render contract, but plenty of content
+still legitimately arrives as an ANSI-laden string — arbitrary text supplied
+by extensions (e.g. ``TextOverlay`` lines), pre-formatted output from
+external tools, or content built via ``apply_style``-style helpers. Two
+conversions bridge that content into/out of a real ``Buffer``:
 
-- ``parse_ansi_into``: legacy ANSI output -> real ``Cell``/``Style`` objects,
-  written into a target ``Buffer`` row. Used by ``Component``'s default
-  ``render_cells`` so unmigrated components keep working under Buffer-based
-  containers without any changes to the component itself.
-- ``row_to_ansi``: a ``Buffer`` row -> an ANSI string. Used by ``Component``'s
-  default ``render(width)`` so newly-migrated components stay callable by any
-  code that hasn't moved onto the Buffer contract yet.
+- ``parse_ansi_into`` / ``parse_ansi_wrapped_into``: an ANSI string -> real
+  ``Cell``/``Style`` objects, written into a target ``Buffer`` row (the
+  wrapped variant also handles overflow across multiple rows). Used directly
+  by ``render_cells`` implementations that ingest raw-ANSI content.
+- ``row_to_ansi``: a ``Buffer`` row -> an ANSI string. Used by the terminal
+  diff/scrollback writer (``frame.py``) and by components that need a plain
+  ANSI-string view of their own rendered output.
 
 The SGR parser here mirrors ``utils.py``'s ``_AnsiStateTracker`` (used for
 line-wrap state carry-over) but resolves into a real ``tau.tui.style.Style``
@@ -154,18 +156,17 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     the last glyph written.
 
     A line carrying a Kitty/iTerm2 inline-image escape is treated as one
-    atomic RawWrite covering the whole string — a legacy component
-    (``MessageBlock``) can embed an ``Image``'s already-rendered line
-    verbatim, and the image payload must survive the round trip rather
-    than being silently eaten as an unrecognized no-op escape. Checked
-    by substring rather than prefix: the iTerm2 line in particular leads
-    with a relative cursor-up move (``Image``'s "position, then draw"
-    trick for a protocol with no explicit placement params) before the
-    OSC 1337 sequence itself.
+    atomic RawWrite covering the whole string — ``MessageBlock`` embeds an
+    ``Image``'s already-rendered line verbatim as plain ANSI text, and the
+    image payload must survive the round trip rather than being silently
+    eaten as an unrecognized no-op escape. Checked by substring rather than
+    prefix: the iTerm2 line in particular leads with a relative cursor-up
+    move (``Image``'s "position, then draw" trick for a protocol with no
+    explicit placement params) before the OSC 1337 sequence itself.
     """
     buf.grow_to(y + 1)
     if "\x1b_G" in line or "\x1b]1337;File=" in line:
-        token = f"legacy-image:{hash(line)}"
+        token = f"raw-image:{hash(line)}"
         buf.raw_writes.append(RawWrite(x, y, line, token))
         return x
 
@@ -209,7 +210,7 @@ def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: i
         return 0
     if "\x1b_G" in line or "\x1b]1337;File=" in line:
         buf.grow_to(y + 1)
-        token = f"legacy-image:{hash(line)}"
+        token = f"raw-image:{hash(line)}"
         buf.raw_writes.append(RawWrite(x, y, line, token))
         return 1
 
@@ -280,7 +281,7 @@ def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: i
     return row
 
 
-def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: bool = True) -> str:
+def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
     """Flatten one ``Buffer`` row back into an ANSI string (skip cells excluded).
 
     Double-width glyphs occupy two cells (the glyph, then a continuation
@@ -290,31 +291,20 @@ def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: 
     width instead (the same technique ``Buffer.diff`` uses) and skip the
     placeholder rather than printing a stray extra space.
 
-    ``cursor_x``, when given, embeds ``CURSOR_MARKER`` right before that
-    column — the legacy ``render(width) -> list[str]`` bridge's way of
-    carrying a Buffer-native component's ``cursor_position`` through to
-    callers that haven't moved onto ``render_cells`` yet (e.g. ``Layout``
-    before Stage 5), so IME cursor placement keeps working either way.
-
     Any ``buf.raw_writes`` anchored to this row (e.g. an inline image's
     escape sequence — see ``Image``) are spliced in at their column
-    verbatim by default, same reasoning: legacy callers have no other way
-    to see the bytes since the cells underneath are ``skip=True`` and
+    verbatim by default, since the cells underneath are ``skip=True`` and
     carry no symbol. ``ScrollbackTerminal`` passes ``embed_raw=False``
     since it has its own novelty-tracked flush for raw writes (resending a
     multi-MB image payload every time an unrelated cell nearby changes
     would be wasteful, unlike plain text which is cheap to resend as-is).
     """
-    from tau.tui.utils import CURSOR_MARKER
-
     raw_at = {rw.x: rw.data for rw in buf.raw_writes if rw.y == y} if embed_raw else {}
 
     out: list[str] = []
     active: Style | None = None
     skip_cols = 0
     for x in range(buf.area.left, buf.area.right):
-        if cursor_x is not None and x == cursor_x:
-            out.append(CURSOR_MARKER)
         if x in raw_at:
             out.append(raw_at[x])
         cell = buf.get(x, y)
@@ -329,8 +319,6 @@ def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: 
         symbol = cell.symbol or " "
         out.append(symbol)
         skip_cols = max(grapheme_width(symbol) - 1, 0)
-    if cursor_x is not None and cursor_x >= buf.area.right:
-        out.append(CURSOR_MARKER)
     if active is not None:
         if active.link:
             out.append(OSC8_CLOSE)

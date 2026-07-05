@@ -34,22 +34,11 @@ class SelectorController:
     def is_kind(self, kind: str) -> bool:
         return self._active is not None and self._active.kind == kind
 
-    def render(self, width: int) -> list[str]:
-        return self._active.render(width) if self._active is not None else []
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render the active selector, preferring its native cell path."""
+        """Render the active selector directly into ``buf``."""
         if self._active is None:
             return 0
-        native = getattr(self._active.selector, "render_cells", None)
-        if callable(native):
-            return native(area, buf)
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        row = 0
-        for line in self._active.render(area.width):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        return self._active.selector.render_cells(area, buf)
 
     def set_theme(self, theme: LayoutTheme) -> None:
         """Apply a theme change to the active selector when supported."""

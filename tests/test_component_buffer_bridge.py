@@ -17,15 +17,8 @@ from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
 
 
-class _LegacyOnly(Component):
-    """Implements only the old render(width) contract."""
-
-    def render(self, width: int) -> list[str]:
-        return ["legacy plain", apply_style(Style().bold().with_fg("red"), "legacy styled")]
-
-
 class _CellsOnly(Component):
-    """Implements only the new render_cells(area, buf) contract."""
+    """A Buffer-native component implementing the sole render_cells contract."""
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         buf.grow_to(area.y + 1)
@@ -40,43 +33,30 @@ def _render_via_cells(component: Component, width: int) -> list[str]:
 
 
 def _rstrip_all(lines: list[str]) -> list[str]:
-    # render_cells always pads to the full buffer width; render(width) does
-    # not — trailing whitespace differs between the two paths but is not
-    # visually distinguishable on a terminal, so ignore it for comparison.
+    # render_cells always pads to the full buffer width, so trailing
+    # whitespace isn't meaningful — ignore it for comparison.
     return [line.rstrip() for line in lines]
 
 
-def test_legacy_component_default_render_cells_matches_render() -> None:
-    c = _LegacyOnly()
-    assert _rstrip_all(_render_via_cells(c, 30)) == _rstrip_all(c.render(30))
-
-
-def test_cells_only_component_default_render_matches_render_cells() -> None:
-    c = _CellsOnly()
-    assert _rstrip_all(c.render(30)) == _rstrip_all(_render_via_cells(c, 30))
-
-
-def test_container_mixes_legacy_and_cells_components_identically() -> None:
+def test_container_renders_mixed_native_children() -> None:
     container = Container()
-    container.add_child(_LegacyOnly())
     container.add_child(_CellsOnly())
     container.add_child(StaticComponent(["static row"]))
 
-    via_render = container.render(30)
-    via_cells = _render_via_cells(container, 30)
-    assert _rstrip_all(via_render) == _rstrip_all(via_cells)
-    assert len(via_render) == 4
+    lines = _rstrip_all(_render_via_cells(container, 30))
+    assert len(lines) == 2
+    assert lines[1] == "static row"
 
 
-def test_column_mixes_legacy_and_cells_components_identically() -> None:
-    column = Column([_LegacyOnly(), _CellsOnly(), StaticComponent(["static row"])])
+def test_column_renders_mixed_native_children() -> None:
+    column = Column([_CellsOnly(), StaticComponent(["static row"])])
 
-    via_render = column.render(30)
-    via_cells = _render_via_cells(column, 30)
-    assert _rstrip_all(via_render) == _rstrip_all(via_cells)
+    lines = _rstrip_all(_render_via_cells(column, 30))
+    assert len(lines) == 2
+    assert lines[1] == "static row"
 
 
-def test_box_wraps_overflow_from_legacy_render_function() -> None:
+def test_box_wraps_overflow_from_an_ansi_producing_function() -> None:
     content = "boxed-" + ("x" * 40) + "-tail"
     box = Box(lambda _width: [content], padding_x=1)
 

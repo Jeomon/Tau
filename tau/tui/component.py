@@ -15,86 +15,22 @@ class Component:
     """
     Base class for all TUI components.
 
-    Two render contracts coexist during the migration onto the Buffer/Cell
-    render layer (see ``tau/tui/buffer.py``, ``ansi_bridge.py``):
-
-    - ``render(width) -> list[str]`` — the original contract. Each string is
-      one ANSI-laden terminal line; the renderer diffs lines that changed.
-    - ``render_cells(area, buf) -> int`` — writes directly into a real
-      ``Buffer`` starting at ``area.y`` (growing it as needed via
-      ``buf.grow_to``) and returns the number of rows written.
-
-    A subclass overrides exactly one; the other is synthesized automatically
-    via ``ansi_bridge`` (ANSI string <-> Cell/Style conversion), so old and
-    new components can be freely mixed in the same tree. Overriding neither
-    recurses indefinitely — always implement at least one.
+    ``render_cells(area, buf) -> int`` is the sole render contract: write
+    directly into ``buf`` starting at row ``area.y`` and return the number of
+    rows written. Every subclass must override it.
     """
-
-    def render(self, width: int) -> list[str]:
-        """Return the component's visual representation as a list of strings.
-
-        Default: bridges from ``render_cells`` by rendering into a scratch
-        ``Buffer`` and flattening each row back to an ANSI string. Override
-        directly instead if the component hasn't moved onto ``render_cells``.
-
-        ``buf.cursor_position``, if a native ``render_cells`` override set
-        one, gets re-embedded as a ``CURSOR_MARKER`` in the matching row so
-        callers still on the legacy ``render(width)`` contract (e.g.
-        ``Layout`` before its own migration) keep seeing IME cursor
-        placement despite going through the string bridge.
-        """
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer
-
-        buf = Buffer.empty(Rect(0, 0, max(0, width), 0))
-        used = self.render_cells(Rect(0, 0, max(0, width), 0), buf)
-        cursor = buf.cursor_position
-        return [
-            row_to_ansi(buf, y, cursor_x=cursor.x if cursor is not None and cursor.y == y else None)
-            for y in range(used)
-        ]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Render into ``buf`` starting at row ``area.y``; return rows written.
 
-        ``buf`` starts at height 0 and grows on demand — a native override
-        must call ``buf.grow_to(area.y + n)`` before writing row
+        ``buf`` starts at height 0 and grows on demand — an override must
+        call ``buf.grow_to(area.y + n)`` before writing row
         ``area.y + n - 1``; ``Buffer.set``/``set_string`` silently no-op on
         an out-of-bounds row rather than growing it themselves (growing
         implicitly on every write would be surprising for the fixed-size
         buffers the ratatui-style widgets in ``tui/widgets/`` render into).
-
-        Default: bridges from ``render(width)`` by parsing each returned
-        ANSI line back into real ``Cell``/``Style`` objects. Override
-        directly instead of ``render`` for a Buffer-native component.
-
-        A ``CURSOR_MARKER`` embedded in the legacy output (see
-        ``utils.py`` — TextInput's IME-cursor hack) is extracted into
-        ``buf.cursor_position`` rather than silently dropped, since the new
-        contract has no string to embed it in.
         """
-        from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into
-        from tau.tui.geometry import Position
-        from tau.tui.utils import CURSOR_MARKER, visible_width, wrap
-
-        raw_lines = self.render(area.width)
-        row = 0
-        for line in raw_lines:
-            if CURSOR_MARKER in line:
-                marker_i = line.index(CURSOR_MARKER)
-                col = area.x + visible_width(line[:marker_i])
-                line = line[:marker_i] + line[marker_i + len(CURSOR_MARKER) :]
-                # Cursor-marker compatibility is the one remaining string
-                # bridge: preserve its established wrapped-row coordinates.
-                lines = wrap(line, area.width)
-                buf.cursor_position = Position(col, area.y + row)
-                buf.grow_to(area.y + row + len(lines))
-                for offset, fitted in enumerate(lines):
-                    parse_ansi_into(buf, area.x, area.y + row + offset, fitted, area.width)
-                row += len(lines)
-            else:
-                row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        raise NotImplementedError
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """
@@ -129,9 +65,11 @@ class Focusable:
     Example::
 
         class MyInput(Component, Focusable):
-            def render(self, width):
+            def render_cells(self, area, buf):
                 cursor = "█" if self.focused else ""
-                return [f"> {self._text}{cursor}"]
+                buf.grow_to(area.y + 1)
+                buf.set_string(area.x, area.y, f"> {self._text}{cursor}")
+                return 1
     """
 
     focused: bool = False
@@ -203,9 +141,6 @@ class StaticComponent(Component):
     def __init__(self, lines: list[str]) -> None:
         self._lines = lines
 
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        return self._lines
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
@@ -238,14 +173,6 @@ class Text(Component):
     def set_text(self, text: str) -> None:
         """Replace the rendered text."""
         self._text = text
-
-    def render(self, width: int) -> list[str]:
-        from tau.tui.utils import wrap
-
-        lines = wrap(self._text, width)
-        if self._style is None:
-            return lines
-        return [self._style(line) for line in lines]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
@@ -305,10 +232,9 @@ class Row(Component):
     - right content is flush-right
     - center content sits in the middle (best-effort)
 
-    Each child's ``render()`` is called with its measured slot width and only
-    the **first line** of the result is used.  This keeps Row a single-line
-    primitive; stack multiple Rows inside a Column/Container for multi-line
-    horizontal layouts.
+    Each child is rendered at its measured slot width and only its first row
+    is used.  This keeps Row a single-line primitive; stack multiple Rows
+    inside a Column/Container for multi-line horizontal layouts.
 
     Usage::
 
@@ -325,53 +251,6 @@ class Row(Component):
     def add_slot(self, component: Component, align: str = "left") -> None:
         """Append a component with the given alignment (``"left"``, ``"center"``, ``"right"``)."""
         self._slots.append((component, align))
-
-    def render(self, width: int) -> list[str]:
-        from tau.tui.utils import truncate, visible_width
-
-        left_parts: list[str] = []
-        center_parts: list[str] = []
-        right_parts: list[str] = []
-
-        for component, align in self._slots:
-            lines = component.render(width)
-            text = lines[0] if lines else ""
-            if align == "right":
-                right_parts.append(text)
-            elif align == "center":
-                center_parts.append(text)
-            else:
-                left_parts.append(text)
-
-        left = "  ".join(left_parts)
-        center = "  ".join(center_parts)
-        right = "  ".join(right_parts)
-
-        lw = visible_width(left)
-        cw = visible_width(center)
-        rw = visible_width(right)
-
-        if center:
-            # left | center (centered) | right
-            center_start = max(lw + 1, (width - cw) // 2)
-            right_start = width - rw
-            if center_start + cw > right_start:
-                center_start = max(lw + 1, right_start - cw - 1)
-            line = left
-            line += " " * max(0, center_start - lw)
-            line += center
-            cur = center_start + cw
-            line += " " * max(0, right_start - cur)
-            line += right
-        else:
-            # left | right
-            gap = width - lw - rw
-            if gap >= 0:
-                line = left + " " * gap + right
-            else:
-                line = truncate(left, max(0, width - rw)) + right
-
-        return [line]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.buffer import Buffer
@@ -475,20 +354,6 @@ class Constrained(Component):
         self._width = width
         self._align = align
 
-    def render(self, width: int) -> list[str]:
-        from tau.tui.utils import pad, truncate, visible_width
-
-        target = max(1, _resolve_width(self._width, width))
-        raw = self._child.render(target)
-        out: list[str] = []
-        for line in raw:
-            fitted = truncate(line, target) if visible_width(line) > target else line
-            # Pad the content to a solid `target`-wide rectangle, then place the
-            # rectangle within the full parent width using the same alignment.
-            block = pad(fitted, target, align=self._align)
-            out.append(pad(block, width, align=self._align))
-        return out
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.buffer import Buffer
 
@@ -561,37 +426,6 @@ class Columns(Component):
                 widths[i] = share + (1 if j < rem else 0)
         return widths
 
-    def render(self, width: int) -> list[str]:
-        from tau.tui.utils import pad, truncate, visible_width
-
-        widths = self._column_widths(width)
-        columns: list[list[str]] = []
-        height = 0
-        for (child, _), cw in zip(self._slots, widths, strict=True):
-            if cw <= 0:
-                columns.append([])
-                continue
-            col: list[str] = []
-            for line in child.render(cw):
-                fitted = truncate(line, cw) if visible_width(line) > cw else line
-                col.append(pad(fitted, cw))
-            columns.append(col)
-            height = max(height, len(col))
-
-        gap = " " * self._gap
-        out: list[str] = []
-        for r in range(height):
-            parts: list[str] = []
-            for col, cw in zip(columns, widths, strict=True):
-                if cw <= 0:
-                    continue
-                parts.append(col[r] if r < len(col) else " " * cw)
-            line = gap.join(parts)
-            if visible_width(line) > width:
-                line = truncate(line, width)
-            out.append(line)
-        return out
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.buffer import Buffer
 
@@ -629,8 +463,8 @@ class Rows(Component):
     separate rows. Each child is padded (with blank lines) or truncated to its
     row height so the total layout is predictable.
 
-    Because ``render()`` only receives the available *width*, the total height
-    budget must be supplied explicitly via ``height`` — e.g. an overlay's
+    Because ``render_cells`` only receives the available *width* via ``area``,
+    the total height budget must be supplied explicitly via ``height`` — e.g. an overlay's
     ``max_height`` or a fixed dashboard region. When ``height`` is ``None``,
     percent/flex rows fall back to their natural content height and only
     absolute rows are constrained, so it behaves like a height-capped
@@ -691,20 +525,6 @@ class Rows(Component):
             for j, i in enumerate(flex):
                 heights[i] = share + (1 if j < rem else 0)
         return heights
-
-    def render(self, width: int) -> list[str]:
-        rendered = [child.render(width) for child, _ in self._slots]
-        heights = self._row_heights([len(r) for r in rendered])
-
-        out: list[str] = []
-        for idx, (lines, rh) in enumerate(zip(rendered, heights, strict=True)):
-            if idx > 0 and self._gap:
-                out.extend([""] * self._gap)
-            if rh <= 0:
-                continue
-            block = lines[:rh] if len(lines) > rh else lines + [""] * (rh - len(lines))
-            out.extend(block)
-        return out
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.buffer import Buffer

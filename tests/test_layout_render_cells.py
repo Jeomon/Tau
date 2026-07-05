@@ -1,12 +1,8 @@
-"""Tests for Layout's render-composition moving onto render_cells (Buffer-native).
+"""Tests for Layout's render composition on render_cells (Buffer-native).
 
-Layout's editor zone (status lines, dividers, input, pickers, footer) used to
-build an intermediate list[str] via string concatenation. render_cells writes
-directly into a Buffer instead — Container/TextInput children (already
-Buffer-native) get render_cells calls straight through; the remaining
-peripheral pickers (SelectorController, TextPrompt — plain classes, not
-Component subclasses) still return list[str], parsed in the same way
-Component's own default bridge would.
+Layout's editor zone (status lines, dividers, input, pickers, footer) writes
+directly into a Buffer via render_cells — Container/TextInput/pickers all
+write straight into it with no intermediate list[str] round trip.
 """
 
 from __future__ import annotations
@@ -46,30 +42,26 @@ def _make_layout() -> tuple[TUI, Layout]:
     async def _build() -> tuple[TUI, Layout]:
         term = FakeTerminal()
         tui = TUI(terminal=term)  # type: ignore[arg-type]
-        layout = Layout(tui)
+        # Cursor blink starts an asyncio task lazily on first render_cells
+        # call; these tests call render_cells synchronously outside any
+        # running loop, so keep blink off to avoid a timing-dependent
+        # "no running event loop" error unrelated to what's under test.
+        layout = Layout(tui, cursor_blink=False)
         return tui, layout
 
     return asyncio.run(_build())
 
 
-def test_render_and_render_cells_agree_on_content() -> None:
+def test_render_cells_produces_content() -> None:
     _tui, layout = _make_layout()
     layout.input.set_text("hello world")
 
-    via_render = layout.render(60)
-
     buf = Buffer.empty(Rect(0, 0, 60, 0))
     used = layout.render_cells(Rect(0, 0, 60, 0), buf)
-    via_cells = [row_to_ansi(buf, y) for y in range(used)]
+    lines = [row_to_ansi(buf, y).rstrip() for y in range(used)]
 
-    # via_render (legacy path) re-embeds CURSOR_MARKER via the default
-    # Component bridge; direct render_cells doesn't unless asked — strip it
-    # for a content comparison, cursor position is checked separately below.
-    from tau.tui.utils import CURSOR_MARKER
-
-    stripped_render = [line.replace(CURSOR_MARKER, "").rstrip() for line in via_render]
-    stripped_cells = [line.rstrip() for line in via_cells]
-    assert stripped_render == stripped_cells
+    assert used > 0
+    assert any("hello world" in line for line in lines)
 
 
 def test_editor_row_bookkeeping_matches_cursor_position() -> None:

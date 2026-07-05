@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import render_markdown
 from tau.tui.style import Style, apply_style
@@ -170,7 +171,14 @@ class MessageBlock:
             from tau.tui.components.image import Image
 
             self._image_components[key] = Image(b64, mime)
-        return self._image_components[key].render(width)
+
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.geometry import Rect
+
+        image = self._image_components[key]
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = image.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, y) for y in range(rows)]
 
     @property
     def message(self) -> object:
@@ -910,6 +918,22 @@ class MessageList(Component):
         # (b) old messages naturally flow into the terminal's scrollback buffer
         #     as new content pushes them off the visible viewport.
         return self._render_blocks(width)
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Generic Buffer-native path for embedding a MessageList directly.
+
+        The live TUI never calls this — ``tui.py``'s Container.render_cells
+        special-cases MessageList via ``render_split_cells`` (its own
+        frozen-cell cache) instead, splicing rows in directly for
+        performance. This exists so MessageList is self-sufficient wherever
+        it's used outside that special-cased Container path.
+        """
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self._render_blocks(area.width):
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def _iter_units(self, width: int):
         """Yield (start_block_index, end_block_index, lines) for each renderable unit.

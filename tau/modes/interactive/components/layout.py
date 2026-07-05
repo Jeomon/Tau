@@ -72,7 +72,7 @@ class TextPrompt:
 
         prompt.open(label, on_commit, on_cancel, secret=False)
         prompt.handle_input(event) -> bool   # True = consumed (modal)
-        prompt.render(width) -> list[str]
+        prompt.render_cells(area, buf) -> int
         prompt.active                        # True while visible
     """
 
@@ -127,14 +127,19 @@ class TextPrompt:
                 self._value += ch
         return True
 
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
         from tau.tui.utils import BOLD, DIM, RESET
 
         display = ("*" * len(self._value)) if self._secret else self._value
-        return [
+        lines = [
             f"  {BOLD}{self._label}{RESET}  {DIM}(Enter to confirm · Esc to cancel){RESET}",
             f"  {display}█",
         ]
+        row = 0
+        for line in lines:
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def _close(self) -> None:
         self._label = ""
@@ -148,13 +153,18 @@ class TextPrompt:
 
 
 class _PendingLines(Component):
-    """Mutable list of pre-rendered lines for the pending-queue display."""
+    """Mutable list of pre-rendered ANSI lines for the pending-queue display."""
 
     def __init__(self) -> None:
         self.lines: list[str] = []
 
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        return list(self.lines)
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self.lines:
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def invalidate(self) -> None:
         pass
@@ -338,12 +348,8 @@ class Layout(Component):
 
         The editor zone's own composition (dividers/input/widgets stacking)
         writes directly into buf — Container/TextInput/SelectorController/
-        CommandPalette/FilePicker/AutocompleteManager children (already
-        Buffer-native) get render_cells calls straight through with no round
-        trip. TextPrompt is the one plain class left on the legacy
-        render(width) contract; its output is parsed in via
-        parse_ansi_wrapped_into exactly like Component's own default bridge
-        would.
+        CommandPalette/FilePicker/AutocompleteManager/TextPrompt children all
+        write straight into it via render_cells, with no string round trip.
         """
         y = area.y
 
@@ -394,7 +400,7 @@ class Layout(Component):
             elif self._settings_panel is not None:
                 write_lines(self._settings_panel)
             elif self._prompt.active:
-                write_lines(self._prompt.render(area.width))
+                y += self._prompt.render_cells(Rect(area.x, y, area.width, 0), buf)
             elif self._oauth_status_lines is not None:
                 write_lines(self._oauth_status_lines)
         else:

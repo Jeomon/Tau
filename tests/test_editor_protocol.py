@@ -33,9 +33,6 @@ class _CoreEditor:
 
     on_submit = on_followup = on_dequeue = None
 
-    def render(self, width: int) -> list[str]:
-        return [""]
-
     def render_cells(self, area, buf) -> int:
         return 0
 
@@ -64,8 +61,8 @@ class TestPartialEditor:
 
     def test_missing_core_member_fails_component(self):
         class NotAnEditor:
-            def render(self, width: int) -> list[str]:
-                return [""]
+            def render_cells(self, area, buf) -> int:
+                return 0
 
             # no handle_input / text / cursor / submit / callbacks
 

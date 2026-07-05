@@ -27,14 +27,24 @@ def test_public_api_exports_core_tui_primitives() -> None:
     assert OverlayOptions is not None
 
 
+def _lines(component: Component, width: int) -> list[str]:
+    from tau.tui.ansi_bridge import row_to_ansi
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
+
+    buf = Buffer.empty(Rect(0, 0, width, 0))
+    rows = component.render_cells(Rect(0, 0, width, 0), buf)
+    return [row_to_ansi(buf, y).rstrip() for y in range(rows)]
+
+
 def test_text_wraps_and_updates() -> None:
     text = Text("alpha beta")
 
-    assert text.render(6) == ["alpha ", "beta"]
+    assert _lines(text, 6) == ["alpha", "beta"]
 
     text.set_text("updated")
     assert text.text == "updated"
-    assert text.render(20) == ["updated"]
+    assert _lines(text, 20) == ["updated"]
 
 
 def test_tui_package_has_no_application_layer_imports() -> None:

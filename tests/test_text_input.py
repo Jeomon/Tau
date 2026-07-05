@@ -10,6 +10,14 @@ from tau.tui.input import KeyEvent, configure_keybindings
 from tau.tui.utils import is_window_focused, set_window_focused
 
 
+def _render(editor: TextInput, width: int) -> None:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
+
+    buf = Buffer.empty(Rect(0, 0, width, 0))
+    editor.render_cells(Rect(0, 0, width, 0), buf)
+
+
 @pytest.fixture(autouse=True)
 def restore_keybindings() -> Iterator[None]:
     original = input_module._keybindings_instance
@@ -88,7 +96,7 @@ class TestUpDownSoftWrap:
         editor.replace_history(["first message", "second message"])
         # prefix "> " is 2 cols; render(20) -> available == 18 columns.
         editor.set_text("a" * 10 + " " + "b" * 10 + " " + "c" * 10)
-        editor.render(width)
+        _render(editor, width)
         return editor
 
     def test_up_from_last_row_moves_within_wrapped_line_first(self) -> None:
@@ -123,7 +131,7 @@ class TestUpDownSoftWrap:
         editor = TextInput()
         editor.replace_history(["prior"])
         editor.set_text("short")
-        editor.render(80)
+        _render(editor, 80)
 
         assert editor.handle_input(KeyEvent(key="up")) is True
         assert editor.text == "prior"
@@ -133,7 +141,7 @@ class TestMouseCursorMovement:
     def test_click_moves_cursor_across_hard_lines(self) -> None:
         editor = TextInput(prefix="> ")
         editor.set_text("first\nsecond")
-        editor.render(40)
+        _render(editor, 40)
 
         assert editor.move_cursor_to_visual(1, 5) is True
         assert editor.cursor == len("first\nsec")
@@ -141,7 +149,7 @@ class TestMouseCursorMovement:
     def test_click_moves_cursor_across_soft_wrapping(self) -> None:
         editor = TextInput(prefix="> ")
         editor.set_text("abcdefgh")
-        editor.render(6)  # Four text columns after the prefix.
+        _render(editor, 6)  # Four text columns after the prefix.
 
         assert editor.move_cursor_to_visual(1, 4) is True
         assert editor.cursor == 6
@@ -149,7 +157,7 @@ class TestMouseCursorMovement:
     def test_click_clamps_to_end_of_visual_row(self) -> None:
         editor = TextInput(prefix="> ")
         editor.set_text("abc")
-        editor.render(40)
+        _render(editor, 40)
 
         assert editor.move_cursor_to_visual(0, 30) is True
         assert editor.cursor == 3
@@ -157,7 +165,7 @@ class TestMouseCursorMovement:
     def test_click_outside_editor_is_ignored(self) -> None:
         editor = TextInput()
         editor.set_text("abc")
-        editor.render(40)
+        _render(editor, 40)
 
         assert editor.move_cursor_to_visual(2, 2) is False
         assert editor.cursor == 3
@@ -184,7 +192,7 @@ class TestCursorBlink:
         set_window_focused(True)
 
         async def scenario() -> bool:
-            editor.render(40)  # lazily starts the blink task (needs a running loop)
+            _render(editor, 40)  # lazily starts the blink task (needs a running loop)
             editor._last_activity = time.monotonic() - 10  # noqa: SLF001 — force "idle"
             for _ in range(20):
                 await asyncio.sleep(0.05)
@@ -217,13 +225,13 @@ class TestCursorBlink:
 
     def test_no_tui_never_starts_blink_task(self) -> None:
         editor = TextInput()
-        editor.render(40)
+        _render(editor, 40)
         assert editor._blink_task is None  # noqa: SLF001
 
     def test_cursor_blink_disabled_never_starts_task_and_stays_solid(self) -> None:
         editor = TextInput(tui=_FakeTUI(), cursor_blink=False)  # type: ignore[arg-type]
         set_window_focused(True)
-        editor.render(40)
+        _render(editor, 40)
         assert editor._blink_task is None  # noqa: SLF001
 
         cell = editor._effective_cursor_cell()  # noqa: SLF001
@@ -234,7 +242,7 @@ class TestCursorBlink:
         set_window_focused(True)
 
         async def scenario() -> None:
-            editor.render(40)  # starts the blink task (needs a running loop)
+            _render(editor, 40)  # starts the blink task (needs a running loop)
             assert editor._blink_task is not None  # noqa: SLF001
             editor._blink_on = False  # noqa: SLF001 — simulate mid-blink "off" phase
 
@@ -242,7 +250,7 @@ class TestCursorBlink:
 
             assert editor._blink_task is None  # noqa: SLF001
             assert editor._blink_on is True  # noqa: SLF001 — forced solid immediately
-            editor.render(40)  # must not restart the task while disabled
+            _render(editor, 40)  # must not restart the task while disabled
             assert editor._blink_task is None  # noqa: SLF001
 
         asyncio.run(scenario())
@@ -252,11 +260,11 @@ class TestCursorBlink:
         set_window_focused(True)
 
         async def scenario() -> None:
-            editor.render(40)
+            _render(editor, 40)
             assert editor._blink_task is None  # noqa: SLF001
 
             editor.set_cursor_blink(True)
-            editor.render(40)
+            _render(editor, 40)
             assert editor._blink_task is not None  # noqa: SLF001
             editor._blink_task.cancel()  # noqa: SLF001
 
@@ -266,7 +274,7 @@ class TestCursorBlink:
         editor = TextInput(tui=_FakeTUI())  # type: ignore[arg-type]
 
         async def scenario() -> None:
-            editor.render(40)
+            _render(editor, 40)
             task = editor._blink_task  # noqa: SLF001
             assert task is not None
 

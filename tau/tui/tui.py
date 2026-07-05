@@ -347,10 +347,9 @@ class Renderer:
     Scrollback-mode differential renderer.
 
     A thin wrapper over ``ScrollbackTerminal`` (``frame.py``): builds one
-    ``Buffer`` for the whole tree per frame — via ``Component.render_cells``,
-    so old (``render(width)``) and new (Buffer-native) components compose
-    freely — composites overlays into it as a real Buffer blit, then hands
-    the finished buffer to the diff engine. Old lines still scroll into the
+    ``Buffer`` for the whole tree per frame via ``Component.render_cells``,
+    composites overlays into it as a real Buffer blit, then hands the
+    finished buffer to the diff engine. Lines still scroll into the
     terminal's native scrollback; ``ScrollbackTerminal`` owns that behavior.
     """
 
@@ -557,22 +556,12 @@ class TUI(Container):
     # Container overrides — request render after structural changes
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
-        """Render children and record their logical starting rows."""
-        lines: list[str] = []
-        self._child_rows = {}
-        for child in self.children:
-            self._child_rows[id(child)] = len(lines)
-            lines.extend(child.render(width))
-        return lines
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Buffer-native counterpart to render() — same child-row bookkeeping.
+        """Render children into buf, recording their logical starting rows.
 
-        Renderer.render() calls render_cells directly (not render()), so
-        without this override Container's generic render_cells would be used
-        instead, silently leaving _child_rows empty and breaking
-        mouse_position_for for every mouse-aware child (e.g. Layout).
+        Overrides Container's generic render_cells to also track
+        _child_rows — without this override, _child_rows would stay empty,
+        breaking mouse_position_for for every mouse-aware child (e.g. Layout).
 
         A child exposing ``render_split_cells`` (currently just MessageList)
         gets special-cased: its already-finalized rows are spliced in by

@@ -51,7 +51,7 @@ class SelectList[T](Component):
         lst = SelectList(items, max_visible=5, theme=theme.select)
         lst.set_query(current_input)
         lst.on_confirm(lambda item: ...)
-        lines = lst.render(width)
+        rows = lst.render_cells(area, buf)
     """
 
     def __init__(
@@ -322,10 +322,3 @@ class InlineSelector[T]:
     def selected_value(self) -> T | None:
         item = self.selector.selected_item
         return item.value if item is not None else None
-
-    # -------------------------------------------------------------------------
-    # Render
-    # -------------------------------------------------------------------------
-
-    def render(self, width: int) -> list[str]:
-        return self.selector.render(width)

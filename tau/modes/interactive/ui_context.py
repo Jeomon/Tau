@@ -46,7 +46,7 @@ class _InterceptComponent:
     """Wraps a Component and runs an on_handle interceptor before its handle_input.
 
     Intentionally does not subclass Component to avoid the ABC machinery —
-    duck-typing is sufficient since TUI only calls render/handle_input/invalidate.
+    duck-typing is sufficient since TUI only calls render_cells/handle_input/invalidate.
     """
 
     def __init__(
@@ -56,9 +56,6 @@ class _InterceptComponent:
     ) -> None:
         self._inner = inner
         self._on_handle = on_handle
-
-    def render(self, width: int) -> list[str]:
-        return self._inner.render(width)
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         return self._inner.render_cells(area, buf)
@@ -355,8 +352,12 @@ class UIContext:
                     self._count = 0
                     self._done = done
 
-                def render(self, width):
-                    return [f"  Count: {self._count}  (Enter to confirm, Esc to cancel)"]
+                def render_cells(self, area, buf):
+                    buf.grow_to(area.y + 1)
+                    buf.set_string(
+                        area.x, area.y, f"  Count: {self._count}  (Enter to confirm, Esc to cancel)"
+                    )
+                    return 1
 
                 def handle_input(self, event):
                     if event.matches("enter"):

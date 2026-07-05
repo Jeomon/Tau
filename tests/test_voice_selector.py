@@ -21,8 +21,18 @@ def _selector(
     )
 
 
+def _render(selector: VoiceSelector, width: int) -> list[str]:
+    from tau.tui.ansi_bridge import row_to_ansi
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
+
+    buf = Buffer.empty(Rect(0, 0, width, 0))
+    rows = selector.render_cells(Rect(0, 0, width, 0), buf)
+    return [row_to_ansi(buf, y) for y in range(rows)]
+
+
 def test_render_shows_model_voices_and_current_selection() -> None:
-    output = "\n".join(_selector(current="coral").render(80))
+    output = "\n".join(_render(_selector(current="coral"), 80))
     assert "Speak Voice" in output
     assert "TTS-1" in output
     assert "alloy" in output
