@@ -23,6 +23,11 @@ _STOP_REASON: dict[str, AudioStopReason] = {
     "error": AudioStopReason.Error,
 }
 
+_JSON_ONLY_TRANSCRIPTION_MODELS = {
+    "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe",
+}
+
 
 class OpenAIAudioAPI(BaseAPI):
     """
@@ -96,16 +101,17 @@ class OpenAIAudioAPI(BaseAPI):
         filename = f"audio.{context.format.value}"
         audio_file = (filename, context.audio, f"audio/{context.format.value}")
 
+        supports_detailed_timestamps = model.id not in _JSON_ONLY_TRANSCRIPTION_MODELS
         params: dict[str, Any] = {
             "model": model.id,
             "file": audio_file,
-            "response_format": "verbose_json",
+            "response_format": "verbose_json" if supports_detailed_timestamps else "json",
         }
         if context.language:
             params["language"] = context.language
         if context.temperature != 0.0:
             params["temperature"] = context.temperature
-        if context.timestamp_granularities:
+        if context.timestamp_granularities and supports_detailed_timestamps:
             params["timestamp_granularities"] = [g.value for g in context.timestamp_granularities]
         if context.prompt:
             params["prompt"] = context.prompt

@@ -161,6 +161,17 @@ tau --model ollama/mistral -p "Say hello"
 
 ## Switching Providers
 
+## Speech-to-Text Timestamps
+
+Pass `TimestampGranularity.Word` or `TimestampGranularity.Segment` in
+`STTContext.timestamp_granularities` when using the Python API.
+
+- OpenAI `whisper-1` and Groq Whisper models support word and segment timestamps.
+- OpenAI GPT-4o transcription models return plain JSON and do not expose detailed
+  timestamps through this API.
+- ElevenLabs Scribe and Sarvam Saaras support word timestamps. Sarvam receives
+  `with_timestamps=true` when word timestamps are requested.
+
 ### Command Line
 
 Use a specific provider for a single session:

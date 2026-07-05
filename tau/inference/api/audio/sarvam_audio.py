@@ -16,6 +16,7 @@ from tau.inference.types import (
     SynthesizedAudio,
     TranscribedAudio,
     TTSContext,
+    TimestampGranularity,
     WordTimestamp,
 )
 
@@ -113,6 +114,8 @@ class SarvamAudioAPI(BaseAPI):
         if context.prompt:
             # prompt field carries Sarvam's mode: transcribe/translate/verbatim/translit/codemix
             data["mode"] = context.prompt
+        if TimestampGranularity.Word in context.timestamp_granularities:
+            data["with_timestamps"] = "true"
 
         if self.options.on_payload:
             modified = self.options.on_payload({**data, "_files": files})
@@ -136,9 +139,12 @@ class SarvamAudioAPI(BaseAPI):
 
             words: list[WordTimestamp] = []
             if ts := result.get("timestamps"):
+                timestamp_words = ts.get("words", [])
+                starts = ts.get("start_time_seconds", [])
+                ends = ts.get("end_time_seconds", [])
                 words = [
-                    WordTimestamp(word=w["word"], start=w["start"], end=w["end"])
-                    for w in ts.get("words", [])
+                    WordTimestamp(word=word, start=start, end=end)
+                    for word, start, end in zip(timestamp_words, starts, ends, strict=False)
                 ]
 
             return TranscribedAudio(
