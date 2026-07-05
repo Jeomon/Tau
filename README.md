@@ -1,154 +1,175 @@
 # Tau (τ)
 
-Inspired by [Pi](https://pi.dev), **Tau** brings the same agent framework capabilities to Python developers. A self-extensible agent CLI with a terminal UI, multi-provider LLM support, session management with branching, and a plugin system for tools, commands, and customization.
+Tau is a Python agent framework and terminal coding assistant. It combines an
+interactive terminal UI, multiple model providers, persistent sessions, tool
+execution, and an extension system in one package.
 
 <p align="center">
-  <img src="assets/tui.jpeg" alt="Tau TUI" width="700">
+  <img src="assets/tui.jpeg" alt="Tau interactive terminal interface" width="700">
 </p>
 
-Start a conversation with the agent in the terminal.
+## Quick start
 
----
-
-## Quick Start
-
-### Installation
+Tau requires Python 3.12 or later.
 
 ```bash
 pip install tau-coding-agent
 ```
 
-Or install from source:
+Set a provider API key and start Tau:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+tau
+```
+
+Google AI Studio works through the `google` provider:
+
+```bash
+export GOOGLE_API_KEY=...
+tau --model google/gemini-2.5-flash
+```
+
+You can also run `/login` inside Tau to save provider credentials.
+
+Then ask Tau to work in the current directory:
+
+```text
+Explain this repository, run its tests, and fix any failures.
+```
+
+## Common workflows
+
+```bash
+tau                                      # Start an interactive session
+tau --resume                             # Resume the latest session
+tau --model claude-sonnet-4-6            # Start with a specific model
+tau --print "Summarize this repository"  # Run once and print the result
+tau --mode json "Summarize this repo"    # Emit structured JSON events
+tau --mode rpc                           # Start JSON-RPC mode for IDE clients
+```
+
+Inside an interactive session:
+
+```text
+/model       Choose a model
+/resume      Resume another session
+/tree        Navigate session branches
+/compact     Compact a long conversation
+/theme       Change the terminal theme
+/login       Save provider credentials
+/help        Show commands and shortcuts
+```
+
+See the [CLI reference](docs/cli-reference.md) for every option and command.
+
+## What Tau provides
+
+- **Interactive terminal UI** with multiline editing, searchable pickers,
+  syntax highlighting, Markdown, and terminal-readable LaTeX math.
+- **Multiple model providers**, including Anthropic, OpenAI, Google Gemini,
+  Mistral, Ollama, Groq, xAI, Bedrock, OpenRouter, and others.
+- **Persistent session trees** with resume, fork, clone, branch navigation,
+  summarization, and automatic context compaction.
+- **Built-in tools** for terminal commands, file operations, globbing, and
+  search. Long-running terminal commands stream into one persistent output
+  block.
+- **Media support** for images, audio, video, and text files through file
+  references, clipboard input, and the Python API.
+- **Speech APIs** for text-to-speech and speech-to-text, including word or
+  segment timestamps when supported by the selected provider.
+- **Extensibility** through custom tools, slash commands, hooks, themes,
+  skills, prompts, and in-memory Python extensions.
+- **Embedding and integration** through the Python API, JSON event mode, and
+  bidirectional JSON-RPC.
+
+## Referencing files
+
+Type `@` in the interactive editor to search for a project file:
+
+```text
+Review @src/service.py and add tests for its error handling.
+```
+
+For one-shot execution, attach a file explicitly:
+
+```bash
+tau --print --prompt "Explain this file" --file src/service.py
+```
+
+Tau also discovers project instructions from `AGENTS.md` and `CLAUDE.md`.
+See [Project Context Files](docs/project-context.md) for trust and discovery
+behavior.
+
+## Authentication and configuration
+
+Tau resolves provider credentials in this order:
+
+1. A programmatic runtime override
+2. A credential saved in `~/.tau/auth.json` (including keys saved by `/login`)
+3. A provider environment variable such as `ANTHROPIC_API_KEY`,
+   `OPENAI_API_KEY`, and `GOOGLE_API_KEY`
+
+Settings are merged in this order:
+
+1. Built-in defaults
+2. `~/.tau/settings.json`
+3. `.tau/settings.json`
+4. Environment variables
+5. Command-line options
+
+See [Authentication](docs/auth.md), [Installation](docs/installation.md), and
+[Inference Providers](docs/inference-providers.md) for provider-specific
+setup.
+
+## Documentation
+
+- [Quickstart](docs/quickstart.md) — First session in five minutes
+- [Usage](docs/usage.md) — Interactive workflows and commands
+- [CLI Reference](docs/cli-reference.md) — Command-line options and modes
+- [Inference Providers](docs/inference-providers.md) — Providers and speech timestamps
+- [Sessions](docs/sessions.md) — Persistence, branching, and compaction
+- [Tools](docs/tools.md) — Built-in and custom tools
+- [Extensions](docs/extensions.md) — Tools, commands, hooks, and plugins
+- [Terminal UI](docs/tui.md) — Rendering, Markdown, math, and components
+- [Python API](docs/python-api.md) — Embed Tau in another application
+- [Architecture](docs/architecture.md) — Internal design and data flow
+
+The complete documentation index is available at [docs/index.md](docs/index.md).
+
+## Install from source
 
 ```bash
 git clone https://github.com/Jeomon/Tau.git
 cd Tau
 pip install -e .
-```
-
-### Launch
-
-```bash
 tau
 ```
 
-Authenticate with your LLM provider using `/login` or set environment variables (e.g., `NVIDIA_API_KEY`).
+## Security
 
-### Common Commands
+Tau executes enabled tools with the operating-system permissions of the process
+that launched it. Review project instructions and commands before approving
+work in untrusted repositories. Use a container or external sandbox when
+stronger isolation is required.
 
-```bash
-tau                                           # Interactive mode
-tau --resume                                  # Resume most recent session
-tau --model claude-sonnet-4-6                 # Use specific model
-tau --print "Summarize this repo"             # One-shot mode
-tau --provider anthropic --print "Explain this code"  # Print mode with provider
-tau --mode rpc                                # RPC mode for IDE extensions
-```
-
-> For detailed options, see [CLI Reference](docs/cli-reference.md)
-
-## Features
-
-- **Multi-provider LLM support** — Anthropic, OpenAI, Google Gemini, Mistral AI, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Z.ai, and more
-- **Terminal UI** — Built-in chat interface with syntax highlighting, markdown rendering, and keyboard navigation
-- **Rich media support** — Work with text files, images, audio files, and video files via file references or clipboard input
-- **Session management** — Persistent sessions with branching, forking, and resuming capabilities
-- **Tool execution** — Built-in tools (terminal, file I/O, search) with full user permissions and extensibility
-- **Plugin system** — Add custom tools, slash commands, hooks, themes, and skills without modifying core code
-- **Themes** — Dark and light base themes, customizable and extensible via YAML
-- **Context management** — Automatic context compaction and branch summarization for long conversations
-- **Python API** — Embed Tau in your own applications programmatically
-- **Multiple run modes** — Interactive TUI, print mode (one-shot), JSON event stream, and JSON-RPC for IDE integration
-
-## Documentation
-
-Start here: [**Tau Documentation**](docs/index.md)
-
-**Key resources:**
-- [Quickstart](docs/quickstart.md) — Five-minute getting started guide
-- [Installation & Setup](docs/installation.md) — Provider authentication and configuration
-- [Usage Guide](docs/usage.md) — Interactive mode and slash commands
-- [Architecture](docs/architecture.md) — System design and data flow
-- [Extensions](docs/extensions.md) — Building tools, commands, and plugins
-- [Python API](docs/python-api.md) — Programmatic usage
-
-## Core Architecture
-
-```
-Console (CLI) → TUI (Terminal UI) → Runtime (Agent Execution) → Engine (Tools) → Inference (LLM)
-```
-
-User input flows through the TUI to the runtime, which executes tools via the engine and calls the LLM provider for inference. Results are rendered back in the TUI and persisted to sessions.
-
-## Configuration
-
-Settings are loaded in order of precedence:
-1. Built-in defaults
-2. `~/.tau/settings.json` (global user settings)
-3. `.tau/settings.json` (project-level settings)
-4. Environment variables
-5. Command-line flags
-
-Sessions are saved to `~/.tau/sessions/` and can be resumed, forked, or cloned.
-
-### Project Context Files
-
-Tau automatically discovers and includes project-specific instructions from `AGENTS.md` or `CLAUDE.md` in the system prompt. This allows you to:
-- Define project rules and coding guidelines for the agent
-- Standardize how the agent handles project-specific conventions
-- Store project context separately from tool configuration
-
-**Example usage:**
-```bash
-# Auto-discover AGENTS.md in the project (default behavior)
-tau
-
-# Disable project context file loading
-tau --no-context-files
-
-# Trust project files explicitly
-tau --approve
-
-# Don't trust project files for this run
-tau --no-approve
-```
-
-See [Project Context Files](docs/project-context.md) for detailed instructions.
-
-## Security & Permissions
-
-Tau executes tools (terminal, file I/O, web operations) with the permissions of the user and process that launched it. There is no built-in permission system for restricting filesystem, process, network, or credential access.
-
-If you need stronger boundaries, consider:
-- Running Tau inside a container or sandbox
-- Using OS-level security policies
-- Configuring environment variables to limit tool access
-
-## Supply Chain Security
-
-We treat dependency changes as reviewed code changes with these practices:
-
-- **Exact version pinning** — All direct dependencies pinned to specific versions in `pyproject.toml`
-- **Lockfile integrity** — `uv.lock` is the source of truth; changes require explicit review
-- **Dependency auditing** — Use `pip-audit` or `safety` to scan for known vulnerabilities
-- **Safe installation** — Install with `--no-deps` to prevent malicious lifecycle scripts
-
-See [SECURITY.md](SECURITY.md) for detailed practices and vulnerability reporting.
+Dependency versions are pinned and recorded in `uv.lock`. See
+[SECURITY.md](SECURITY.md) for vulnerability reporting and supply-chain
+practices.
 
 ## Development
 
 ```bash
-python -m pytest              # Run tests
-pyright tau/                   # Type checking
-python -m tau                  # Launch from source
+mypy tau/
+pyright tau/
+ruff check tau/
+ruff format tau/
+python -m pytest
 ```
 
-See [Development Setup](docs/development.md) for detailed instructions.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules.
+See [Development Setup](docs/development.md) and
+[Contributing](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+Tau is licensed under the [MIT License](LICENSE).

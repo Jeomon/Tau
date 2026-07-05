@@ -61,9 +61,12 @@ Get your API key from [OpenAI's platform](https://platform.openai.com/account/ap
 
 ```bash
 export GOOGLE_API_KEY=...
+tau --model google/gemini-2.5-flash
 ```
 
-Create a key at [Google AI Studio](https://aistudio.google.com).
+Create a key at [Google AI Studio](https://aistudio.google.com). The `google`
+provider uses the Gemini Developer API and is separate from the Google Vertex
+AI provider.
 
 ### Mistral AI
 
@@ -144,7 +147,7 @@ When you start Tau, it will load your models. Press `/model` to see all availabl
 To remove Tau:
 
 ```bash
-pip uninstall tau
+pip uninstall tau-coding-agent
 ```
 
 This removes the tau command but leaves configuration and session data in `~/.tau/`.

@@ -33,6 +33,7 @@ export OPENAI_API_KEY=sk-...
 
 ```bash
 export GOOGLE_API_KEY=...
+tau --model google/gemini-2.5-flash
 ```
 
 ### Other Providers
@@ -65,6 +66,10 @@ Summarize this repository and tell me how to run its checks.
 ```
 
 The agent will read files, run commands, and respond with a summary.
+
+Markdown responses support terminal-readable inline and display LaTeX math.
+Long-running terminal tools update their existing output block while streaming
+instead of printing a new block for every chunk.
 
 ### Media Support
 
