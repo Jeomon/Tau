@@ -447,9 +447,7 @@ class EditorOverlay(Component):
             inner.set_line(0, row, Line([Span(f"↕ {pct}%", t.muted)]), inner_w)
         row += 1
 
-        inner.set_line(
-            0, row, Line([Span("Ctrl+S to save  ·  Esc to cancel", t.muted)]), inner_w
-        )
+        inner.set_line(0, row, Line([Span("Ctrl+S to save  ·  Esc to cancel", t.muted)]), inner_w)
         row += 1
 
         return _box_cells(buf, area, inner, row, self._title, t)

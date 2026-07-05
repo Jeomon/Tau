@@ -12,6 +12,7 @@ def _rstrip_all(lines: list[str]) -> list[str]:
     # isn't meaningful for content-equality checks below.
     return [line.rstrip() for line in lines]
 
+
 # ── Constrained ───────────────────────────────────────────────────────────────
 
 

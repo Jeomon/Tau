@@ -3,17 +3,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import Literal, TypeVar
 
-from tau.tui.utils import BOLD, RESET, fuzzy_filter, truncate, visible_width
-
-if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.buffer import Buffer
+from tau.tui.geometry import Rect
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
+from tau.tui.utils import fuzzy_filter
 
 T = TypeVar("T")
-
-ColorFn = Callable[[str], str]
 
 FilterMode = Literal["default", "no-tools", "user-only", "labeled-only", "all"]
 
@@ -63,18 +62,18 @@ class TreeSelectList[T]:
     def __init__(
         self,
         rows: list[TreeRow[T]],
-        role_color: Callable[[str, str], ColorFn],
-        accent_color: ColorFn,
-        dim_color: ColorFn,
+        role_style: Callable[[str, str], Style],
+        accent_style: Style,
+        dim_style: Style,
         max_visible: int = 10,
-        selected_bg: ColorFn | None = None,
+        selected_bg: Style | None = None,
         on_label_change: Callable[[T, str | None], None] | None = None,
     ) -> None:
         self._all_rows: list[TreeRow[T]] = rows
         self._filtered: list[TreeRow[T]] = list(rows)
-        self._role_color = role_color
-        self._accent_color = accent_color
-        self._dim_color = dim_color
+        self._role_style = role_style
+        self._accent_style = accent_style
+        self._dim_style = dim_style
         self._max_visible = max(1, max_visible)
         self._selected_bg = selected_bg
         self._on_label_change = on_label_change
@@ -446,7 +445,7 @@ class TreeSelectList[T]:
         return ""
 
     @staticmethod
-    def _help_lines(dim: ColorFn, width: int) -> list[str]:
+    def _help_lines(width: int) -> list[str]:
         """Render key-hint chunks onto as many lines as needed (greedy wrap)."""
         hints = [
             "↑/↓ move",
@@ -467,10 +466,10 @@ class TreeSelectList[T]:
             if not current or len(candidate) <= width:
                 current = candidate
             else:
-                out.append(dim(current))
+                out.append(current)
                 current = indent + hint
         if current:
-            out.append(dim(current))
+            out.append(current)
         return out
 
     @staticmethod
@@ -495,48 +494,51 @@ class TreeSelectList[T]:
     # ------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
-        return self._render_lines(width)
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+        output_row = area.y
 
-        row = 0
-        for line in self._render_lines(area.width):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        def write(spans: list[Span], background: Style | None = None) -> None:
+            nonlocal output_row
+            buf.grow_to(output_row + 1)
+            buf.set_line(area.x, output_row, Line(spans), area.width)
+            if background is not None:
+                buf.set_style(Rect(area.x, output_row, area.width, 1), background)
+            output_row += 1
 
-    def _render_lines(self, width: int) -> list[str]:
-        title = f"{BOLD}  Session Tree{RESET}"
-
+        write([Span("  Session Tree", Style().bold())])
+        for help_line in self._help_lines(area.width):
+            write([Span(help_line, self._dim_style)])
         if self._query:
-            search_display = (
-                self._dim_color("  Type to search: ")
-                + self._accent_color(self._query)
-                + self._dim_color("█")
+            write(
+                [
+                    Span("  Type to search: ", self._dim_style),
+                    Span(self._query, self._accent_style),
+                    Span("█", self._dim_style),
+                ]
             )
         else:
-            search_display = self._dim_color("  Type to search:")
-
-        lines: list[str] = (
-            [title]
-            + self._help_lines(self._dim_color, width)
-            + [search_display, self._dim_color("─" * width), ""]
-        )
+            write([Span("  Type to search:", self._dim_style)])
+        write([Span("─" * area.width, self._dim_style)])
+        write([])
 
         # Label-editing sub-mode: replace tree items with input prompt
         if self._label_editing:
-            lines.append(self._dim_color("  Label (empty to remove):"))
-            lines.append(f"  {self._label_input}█")
-            lines.append(self._dim_color("  enter: save  ·  esc: cancel"))
-            lines.append("")
-            return lines
+            write([Span("  Label (empty to remove):", self._dim_style)])
+            write([Span(f"  {self._label_input}█")])
+            write([Span("  enter: save  ·  esc: cancel", self._dim_style)])
+            write([])
+            return output_row - area.y
 
         items = self._filtered
         if not items:
-            lines.append(self._dim_color("  no matches"))
-            lines.append(self._dim_color(f"  (0/0){self._status_label()}"))
-            lines.append("")
-            return lines
+            write([Span("  no matches", self._dim_style)])
+            write([Span(f"  (0/0){self._status_label()}", self._dim_style)])
+            write([])
+            return output_row - area.y
 
         count = len(items)
         visible = min(self._max_visible, count)
@@ -548,7 +550,7 @@ class TreeSelectList[T]:
             is_sel = i == self._selected
             val = row.value
 
-            cursor = self._accent_color("› ") if is_sel else "  "
+            spans = [Span("› ", self._accent_style) if is_sel else Span("  ")]
 
             # Fold marker: replace ─ in connector with ⊟ (foldable) or ⊞ (folded)
             is_folded = val in self._folded_nodes if val is not None else False
@@ -560,54 +562,44 @@ class TreeSelectList[T]:
                     raw_prefix = raw_prefix.replace("├─", "├⊞", 1).replace("└─", "└⊞", 1)
                 elif is_foldable:
                     raw_prefix = raw_prefix.replace("├─", "├⊟", 1).replace("└─", "└⊟", 1)
-            prefix = self._dim_color(raw_prefix)
+            spans.append(Span(raw_prefix, self._dim_style))
 
             # Folded root nodes (no connector) get a ⊞ fold marker before the path marker
-            fold_root_marker = ""
             if is_folded and not has_connector:
-                fold_root_marker = self._accent_color("⊞ ")
+                spans.append(Span("⊞ ", self._accent_style))
 
             # Active path: "" for non-active nodes (no reserved space)
-            marker = self._accent_color("• ") if row.on_active_path else ""
+            if row.on_active_path:
+                spans.append(Span("• ", self._accent_style))
 
             # Label (in-memory override takes precedence over row.label)
-            label_str = ""
             stored = self._labels.get(val) if val is not None else None
             lbl_text = (stored[0] if stored else None) or row.label
             if lbl_text:
-                label_str = f"\x1b[33m[{lbl_text}]\x1b[0m "  # warning yellow
+                spans.append(Span(f"[{lbl_text}] ", Style().with_fg("yellow")))
                 if self._show_label_timestamps:
                     ts = (stored[1] if stored else None) or row.label_timestamp
                     if ts:
-                        label_str += self._dim_color(self._format_label_ts(ts) + " ")
+                        spans.append(Span(self._format_label_ts(ts) + " ", self._dim_style))
 
             # Entry content
-            color = self._dim_color if not row.selectable else self._role_color(row.role, row.text)
+            style = self._dim_style if not row.selectable else self._role_style(row.role, row.text)
             if row.role in ("user", "assistant"):
-                content = color(f"{row.role}: ") + row.text
+                spans.extend([Span(f"{row.role}: ", style), Span(row.text)])
             elif row.text:
-                content = color(f"[{row.role}]: {row.text}")
+                spans.append(Span(f"[{row.role}]: {row.text}", style))
             else:
-                content = color(f"[{row.role}]")
+                spans.append(Span(f"[{row.role}]", style))
             if not row.selectable:
-                content += self._dim_color("  (pending tool result — can't branch here)")
+                spans.append(Span("  (pending tool result — can't branch here)", self._dim_style))
             elif row.is_current:
-                content += self._dim_color("  (current)")
-
-            line = truncate(
-                cursor + prefix + fold_root_marker + marker + label_str + content, width
-            )
-            if is_sel and self._selected_bg is not None:
-                fill = max(0, width - visible_width(line))
-                line = self._selected_bg(line + " " * fill)
-
-            lines.append(line)
+                spans.append(Span("  (current)", self._dim_style))
+            write(spans, self._selected_bg if is_sel else None)
 
         # counter then blank line
         status = self._status_label()
         if self._show_label_timestamps:
             status += "  [+label time]"
-        lines.append(self._dim_color(f"  ({self._selected + 1}/{count}){status}"))
-        lines.append("")
-
-        return lines
+        write([Span(f"  ({self._selected + 1}/{count}){status}", self._dim_style)])
+        write([])
+        return output_row - area.y

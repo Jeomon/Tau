@@ -74,7 +74,7 @@ class TestCallLine:
         assert len(lines) == 1
         assert "\n" not in lines[0]
         plain = strip_ansi(lines[0])
-        assert "python3 -c \"\\nfrom a import b\\n\"" in plain
+        assert 'python3 -c "\\nfrom a import b\\n"' in plain
 
 
 class TestToolResult:

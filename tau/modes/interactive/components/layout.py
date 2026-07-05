@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +25,7 @@ from tau.tui.input import (
     PasteEvent,
     get_keybindings,
 )  # MouseEvent kept for type narrowing
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
 from tau.tui.theme import LayoutTheme
 
 if TYPE_CHECKING:
@@ -1306,7 +1305,7 @@ class Layout(Component):
         """Open the session branch-history tree selector (role-colored, tree-connector rows)."""
         m = self._theme.message
 
-        def role_color(role: str, text: str) -> Callable[[str], str]:
+        def role_style(role: str, text: str) -> Style:
             if role == "user":
                 style = m.you_label
             elif role == "assistant":
@@ -1317,18 +1316,18 @@ class Layout(Component):
                 style = m.tool_result_err if text.startswith("[error]") else m.tool_result_ok
             else:
                 style = m.dim
-            return partial(apply_style, style)
+            return style
 
         # Size the tree to half the terminal height (min 5), not a fixed picker size.
         tree_max_visible = max(5, self._tui.terminal.height // 2)
         selected_bg = self._theme.select_list.selected_bg
         selector = TreeSelectList(
             rows,
-            role_color=role_color,
-            accent_color=partial(apply_style, m.you_label),
-            dim_color=partial(apply_style, m.dim),
+            role_style=role_style,
+            accent_style=m.you_label,
+            dim_style=m.dim,
             max_visible=tree_max_visible,
-            selected_bg=partial(apply_style, selected_bg) if selected_bg is not None else None,
+            selected_bg=selected_bg,
         )
         self._active_selector = InlineSelector(
             kind="tree",

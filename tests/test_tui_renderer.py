@@ -109,6 +109,7 @@ class TestRendererWrapper:
 
         assert _content_writes(term) == []
 
+
 class _DisposableComponent(Component):
     def __init__(self) -> None:
         self.disposed = False

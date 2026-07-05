@@ -78,15 +78,11 @@ class TrustScreen(Component):
         write([Span(indent), Span(cwd_display, t.accent)])
         blank()
 
-        write(
-            [Span(indent), Span("This allows tau to load .py settings and resources,", t.muted)]
-        )
+        write([Span(indent), Span("This allows tau to load .py settings and resources,", t.muted)])
         write(
             [
                 Span(indent),
-                Span(
-                    "install missing project packages, and run project extensions.", t.muted
-                ),
+                Span("install missing project packages, and run project extensions.", t.muted),
             ]
         )
         blank()
