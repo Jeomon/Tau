@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
-from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
@@ -239,11 +238,6 @@ class ModelSelector:
         return (val[0], val[1], sec.modality) if val is not None else None
 
     # ── Render ────────────────────────────────────────────────────────────────
-
-    def render(self, width: int) -> list[str]:
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         row = area.y

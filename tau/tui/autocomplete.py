@@ -153,15 +153,6 @@ class AutocompletePicker(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer
-        from tau.tui.geometry import Rect
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self.active:
             return 0
@@ -265,7 +256,7 @@ class AutocompleteManager:
 
         sync(text, cursor, commands)   — called after every keystroke
         handle_input(event, text, cursor) -> (consumed, new_text | None)
-        render(width) -> list[str]
+        render_cells(area, buf) -> int
 
     Two pickers are managed internally:
     - Extension autocomplete  (_ac_picker)     — trigger chars registered by providers
@@ -421,12 +412,6 @@ class AutocompleteManager:
                     return True, None
 
         return False, None
-
-    def render(self, width: int) -> list[str]:
-        lines: list[str] = []
-        lines.extend(self._ac_picker.render(width))
-        lines.extend(self._cmd_arg_picker.render(width))
-        return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.geometry import Rect

@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Literal, TypeVar
 
-from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
@@ -492,11 +491,6 @@ class TreeSelectList[T]:
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
-
-    def render(self, width: int) -> list[str]:
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         output_row = area.y

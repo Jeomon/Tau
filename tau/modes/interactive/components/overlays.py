@@ -129,13 +129,6 @@ class PickerOverlay[T](Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
         inner_w = max(1, area.width - 4)
@@ -237,13 +230,6 @@ class TextOverlay(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
@@ -315,13 +301,6 @@ class PromptOverlay(Component):
         self._bg = bg
 
     # ── Component ─────────────────────────────────────────────────────────────
-
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
@@ -411,13 +390,6 @@ class EditorOverlay(Component):
             self._scroll_top = self._cursor_row - self.VISIBLE_ROWS + 1
 
     # ── Component ─────────────────────────────────────────────────────────────
-
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         inner_w = max(1, area.width - 4)
@@ -599,13 +571,6 @@ class FormOverlay(Component):
         )
 
     # ── Component ─────────────────────────────────────────────────────────────
-
-    def render(self, width: int) -> list[str]:
-        from tau.tui.ansi_bridge import row_to_ansi
-
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         inner_w = max(1, area.width - 4)

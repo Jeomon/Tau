@@ -29,20 +29,15 @@ def render_widget_lines(widget: Widget, width: int, height: int) -> list[str]:
 
 
 class WidgetComponent(Component):
-    """Wraps a ``Widget`` (or a ``width -> Widget`` factory) as a legacy ``Component``.
+    """Wrap a ``Widget`` (or a ``width -> Widget`` factory) as a ``Component``.
 
     ``height`` is fixed since a ``Buffer`` needs a concrete area; compose
-    with the existing ``Column``/``Rows`` on the legacy side for multi-part
-    layouts, same as any other ``Component``.
+    with ``Column`` or ``Rows`` for multi-part layouts.
     """
 
     def __init__(self, widget: Widget | Callable[[int], Widget], height: int = 1) -> None:
         self._widget = widget
         self._height = max(1, height)
-
-    def render(self, width: int) -> list[str]:
-        widget = self._widget(width) if callable(self._widget) else self._widget
-        return render_widget_lines(widget, width, self._height)
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         widget = self._widget(area.width) if callable(self._widget) else self._widget

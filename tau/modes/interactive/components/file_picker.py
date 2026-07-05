@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
@@ -157,11 +156,6 @@ class FilePicker(Component):
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
-
-    def render(self, width: int) -> list[str]:
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = self.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, row) for row in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self._active:

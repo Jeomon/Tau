@@ -1,6 +1,6 @@
 """Buffer / Cell: the grid widgets render into, mirroring ratatui's ``buffer`` module.
 
-This is the piece that was missing: ``Component.render()`` today returns
+This is the piece that was missing: legacy components returned
 ``list[str]`` (ANSI baked into the string), and the renderer's ``_diff_row``
 (``tui.py``) has to re-parse those strings back into ``(symbol, style)``
 cells before it can diff two frames. A ``Buffer`` is that cell grid *live* —

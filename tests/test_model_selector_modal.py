@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tau.inference.model.types import Cost, Modality, Model
 from tau.modes.interactive.components.model_selector import ModelSelectorModal
+from tests.render_helpers import render_cells_to_lines
 
 
 def _m(
@@ -184,13 +185,13 @@ class TestScope:
 class TestRender:
     def test_tab_strip_lists_modalities(self):
         modal = ModelSelectorModal(_sections())
-        out = "\n".join(modal.render(80))
+        out = "\n".join(render_cells_to_lines(modal, 80))
         assert "Text" in out and "Voice" in out and "Speak" in out
         assert "tab: modality" in out
 
     def test_text_model_shows_context_and_modalities(self):
         modal = ModelSelectorModal(_sections())
-        lines = modal.render(100)
+        lines = render_cells_to_lines(modal, 100)
         out = "\n".join(lines)
         detail_line = next(line for line in lines if "Context: 128K" in line)
         assert "Modalities: text+image → text" in detail_line
@@ -205,19 +206,19 @@ class TestRender:
                 "",
             )
         ]
-        out = "\n".join(ModelSelectorModal(sections).render(100))
+        out = "\n".join(render_cells_to_lines(ModelSelectorModal(sections), 100))
         assert "reasoning-model (thinking)" in out
         assert "Reasoning:" not in out
 
     def test_non_text_model_shows_modalities_without_context(self):
         modal = ModelSelectorModal(_sections(), initial="voice")
-        out = "\n".join(modal.render(100))
+        out = "\n".join(render_cells_to_lines(modal, 100))
         assert "Context:" not in out
         assert "Modalities: audio → text" in out
 
     def test_speak_model_shows_text_to_audio(self):
         modal = ModelSelectorModal(_sections(), initial="speak")
-        out = "\n".join(modal.render(100))
+        out = "\n".join(render_cells_to_lines(modal, 100))
         assert "Modalities: text → audio" in out
 
     def test_image_and_video_models_show_output_modality(self):
@@ -249,18 +250,22 @@ class TestRender:
                 "",
             ),
         ]
-        image_out = "\n".join(ModelSelectorModal(sections, initial="image").render(100))
-        video_out = "\n".join(ModelSelectorModal(sections, initial="video").render(100))
+        image_out = "\n".join(
+            render_cells_to_lines(ModelSelectorModal(sections, initial="image"), 100)
+        )
+        video_out = "\n".join(
+            render_cells_to_lines(ModelSelectorModal(sections, initial="video"), 100)
+        )
         assert "Modalities: text+image → image" in image_out
         assert "Modalities: text+image → video" in video_out
 
     def test_render_shows_active_section_models(self):
         modal = ModelSelectorModal(_sections(), initial="voice")
-        out = "\n".join(modal.render(80))
+        out = "\n".join(render_cells_to_lines(modal, 80))
         assert "whisper-1" in out
 
     def test_render_empty_when_no_sections(self):
         modal = ModelSelectorModal([("image", "Image", [], "")])
-        out = "\n".join(modal.render(80))
+        out = "\n".join(render_cells_to_lines(modal, 80))
         assert "No models available" in out
         assert modal.selected_value() is None
