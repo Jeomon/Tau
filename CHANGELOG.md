@@ -2,6 +2,56 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.0 — 2026-07-05
+
+### Added
+
+-   Add LaTeX math rendering support to Markdown.
+-   Support Gemini thinking signatures and new Google models.
+-   Implement live theme preview and restoration in settings submenu.
+-   Implement quiet_startup to hide session replay.
+-   Add read-only `get_extensions` accessor to `ExtensionRuntime`.
+-   Implement collision-resistant per-line content hashing for anchor-based file editing.
+-   Implement extension priority resolution to suppress duplicate identity discovery across source locations.
+-   Implement terminal tool for non-interactive shell command execution.
+-   Optimize TUI rendering by implementing Ratatui-style incremental cell diffing to minimize terminal writes.
+-   Optimize TUI rendering by reusing unchanged trailing segments during in-place line diffs.
+-   Replace line-diffing with a true Ratatui-style Buffer/Cell grid renderer.
+
+### Fixed
+
+-   Built-in extensions now install their declared `manifest.json` dependencies on first load.
+-   Disable startup resume flag on new session and ensure history replay during quiet startup.
+-   Enable toggling message details for frozen blocks by triggering cache invalidation instead of restricting access to the live tail.
+-   Prevent premature freezing of streaming units by ensuring only non-final, non-streaming units are frozen.
+-   Update `settings_path` resolution to handle builtin extension paths correctly.
+-   Prevent markdown hyperlink rendering leaks.
+-   Restore CI checks.
+
+### Refactored
+
+-   Move and centralize Gemini tool schema transformation logic in utils.
+-   Remove message list render compatibility API.
+-   Make box compose native components.
+-   Remove legacy component render shims.
+-   Migrate extension widgets to buffer rendering.
+-   Migrate tree selector to buffer rendering.
+-   Standardize `Component` as an ABC, enforce `render_cells` implementation, and consolidate render testing helpers.
+-   Finalize TUI migration by deprecating `render()` and enforcing Buffer-native `render_cells` across all components.
+-   Migrate UI components to use the direct `render_cells` buffer-writing contract instead of returning string lists.
+-   Move line hashing utility from `hashline.py` to `utils.py`.
+-   Fix indentation and formatting in `WebSearchTool` class definition.
+-   Improve code formatting, documentation, and logic for block expansion in message list.
+-   Add explicit `finalize` method to `MessageBlock` to enable immediate freezing of completed message units.
+-   Optimize rendering by freezing completed units immediately rather than keeping a fixed tail buffer.
+-   Improve code readability through formatting and indentation adjustments across multiple modules.
+-   Import peer types in utils and remove redundant daemon thread helpers from telemetry service.
+-   Optimize Buffer memory allocation by using a shared blank `Cell` sentinel with copy-on-write semantics.
+-   Clean up formatting and whitespace in LSP tool and update telemetry field examples.
+-   Update interactive component selectors and add simple picker.
+-   Modernize TUI component architecture with new cell-based buffer rendering system and extensive widget library.
+-   Optimize TUI rendering by reusing unchanged trailing segments during in-place line diffs.
+
 ## 0.5.7 — 2026-07-03
 
 ### Fixed
