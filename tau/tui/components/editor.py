@@ -23,9 +23,13 @@ inheritance required).
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from tau.tui.input import InputEvent
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 
 @runtime_checkable
@@ -34,6 +38,7 @@ class EditorComponent(Protocol):
 
     # ── Rendering + input (the Component contract) ─────────────────────────────
     def render(self, width: int) -> list[str]: ...
+    def render_cells(self, area: Rect, buf: Buffer) -> int: ...
     def handle_input(self, event: InputEvent) -> bool: ...
 
     # ── Buffer access ──────────────────────────────────────────────────────────

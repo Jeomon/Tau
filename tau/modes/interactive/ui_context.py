@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from tau.modes.interactive.components.layout import Layout
     from tau.settings.manager import SettingsManager
+    from tau.tui.buffer import Buffer
     from tau.tui.component import Component
+    from tau.tui.geometry import Rect
     from tau.tui.input import InputEvent
     from tau.tui.theme import LayoutTheme
 
@@ -57,6 +59,9 @@ class _InterceptComponent:
 
     def render(self, width: int) -> list[str]:
         return self._inner.render(width)
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        return self._inner.render_cells(area, buf)
 
     def handle_input(self, event: InputEvent) -> bool:
         if self._on_handle(event) is True:

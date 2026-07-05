@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tau.message.types import TextContent
 from tau.session.types import MessageEntry
@@ -10,6 +10,10 @@ from tau.session.utils import read_session_file
 from tau.tui.input import InputEvent, KeyEvent
 
 from .types import AgentRecord, AgentStatus
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 _ACTIVE_STATUSES = {AgentStatus.QUEUED, AgentStatus.RUNNING}
 
@@ -35,6 +39,14 @@ class AgentWidget:
         if len(records) > 5:
             lines.append(f"  ↓ {len(records) - 5} more")
         return lines
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self.render(area.width):
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def handle_input(self, _event: InputEvent) -> bool:
         return False
@@ -96,6 +108,14 @@ class ConversationViewer:
             "─" * width,
             footer,
         ]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self.render(area.width):
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

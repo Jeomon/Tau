@@ -337,12 +337,13 @@ class Layout(Component):
         """Render the editor zone: status-map, dividers, input, pickers, footer.
 
         The editor zone's own composition (dividers/input/widgets stacking)
-        writes directly into buf — Container/TextInput children (already
-        Buffer-native) get render_cells calls straight through with no
-        round trip. Peripheral pickers/modals not yet on the render_cells
-        contract (SelectorController, TextPrompt — plain classes, not
-        Component subclasses) still return list[str], parsed in via
-        parse_ansi_into exactly like Component's own default bridge would.
+        writes directly into buf — Container/TextInput/SelectorController/
+        CommandPalette/FilePicker/AutocompleteManager children (already
+        Buffer-native) get render_cells calls straight through with no round
+        trip. TextPrompt is the one plain class left on the legacy
+        render(width) contract; its output is parsed in via
+        parse_ansi_wrapped_into exactly like Component's own default bridge
+        would.
         """
         y = area.y
 
@@ -389,7 +390,7 @@ class Layout(Component):
             self._editor_row_count = 0
             # Modal replaces the input between the two dividers
             if self._selectors.is_active:
-                write_lines(self._selectors.render(area.width))
+                y += self._selectors.render_cells(Rect(area.x, y, area.width, 0), buf)
             elif self._settings_panel is not None:
                 write_lines(self._settings_panel)
             elif self._prompt.active:
@@ -414,9 +415,9 @@ class Layout(Component):
         # the input, the same way the '/' command palette does.
         any_inline = any_modal or self.palette.active or self.file_picker.active
         if not any_modal:
-            write_lines(self.palette.render(area.width))
-            write_lines(self.file_picker.render(area.width))
-            write_lines(self._autocomplete.render(area.width))
+            y += self.palette.render_cells(Rect(area.x, y, area.width, 0), buf)
+            y += self.file_picker.render_cells(Rect(area.x, y, area.width, 0), buf)
+            y += self._autocomplete.render_cells(Rect(area.x, y, area.width, 0), buf)
 
         # Footer — hidden when any picker/modal is active
         if not any_inline:

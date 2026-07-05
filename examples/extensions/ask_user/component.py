@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from schema import AskUserOption
+from schema import AskUserOption  # type: ignore[import-not-found]
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 FREEFORM_LABEL = "Type something…"
 
@@ -81,8 +85,20 @@ class _AskUserComponent(Component):
 
     # ── Render ────────────────────────────────────────────────────────────
 
-    def render(self, width: int) -> list[str]:
-        from tau.modes.interactive.components.overlays import _box
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.modes.interactive.components.overlays import _box_cells
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+        from tau.tui.buffer import Buffer as _Buffer
+        from tau.tui.geometry import Rect as _Rect
+
+        inner_w = max(1, area.width - 4)
+
+        def _boxed(lines: list[str]) -> int:
+            inner_buf = _Buffer.empty(_Rect(0, 0, inner_w, 0))
+            row = 0
+            for line in lines:
+                row += parse_ansi_wrapped_into(inner_buf, 0, row, line, inner_w)
+            return _box_cells(buf, area, inner_buf, row, "", None)
 
         inner: list[str] = []
         if self._context:
@@ -120,14 +136,14 @@ class _AskUserComponent(Component):
                 "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
                 f"{back}\x1b[0m"
             )
-            return _box(inner, "", width, bg="")
+            return _boxed(inner)
 
         if self._mode == "freeform":
             inner.append(f"  {self._freeform_value}█")
             inner.append("")
             back = "Esc to cancel" if not self._options else "Esc to go back"
             inner.append(f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m")
-            return _box(inner, "", width, bg="")
+            return _boxed(inner)
 
         for i in range(self._row_count):
             is_freeform_row = i == self._freeform_index
@@ -164,7 +180,7 @@ class _AskUserComponent(Component):
         if self._allow_multiple:
             hints.insert(1, "Space toggle")
         inner.append("  \x1b[2m" + "  ·  ".join(hints) + "\x1b[0m")
-        return _box(inner, "", width)
+        return _boxed(inner)
 
     # ── Input ─────────────────────────────────────────────────────────────
 

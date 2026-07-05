@@ -206,6 +206,14 @@ class StaticComponent(Component):
     def render(self, width: int) -> list[str]:  # noqa: ARG002
         return self._lines
 
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self._lines:
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
+
 
 class Text(Component):
     """Mutable width-aware text component.
@@ -238,6 +246,15 @@ class Text(Component):
         if self._style is None:
             return lines
         return [self._style(line) for line in lines]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        content = self._style(self._text) if self._style is not None else self._text
+        row = 0
+        for line in content.split("\n"):
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
 
 class Column(Component):
@@ -356,6 +373,51 @@ class Row(Component):
 
         return [line]
 
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.buffer import Buffer
+        from tau.tui.style import Style
+
+        groups: dict[str, list[tuple[Buffer, int]]] = {
+            "left": [],
+            "center": [],
+            "right": [],
+        }
+        for component, align in self._slots:
+            child = Buffer.empty(Rect(0, 0, area.width, 0))
+            rows = component.render_cells(Rect(0, 0, area.width, 0), child)
+            content_width = 0
+            if rows:
+                for column in range(area.width):
+                    cell = child.get(column, 0)
+                    if cell.symbol != " " or cell.style != Style() or cell.skip:
+                        content_width = column + 1
+            groups[align if align in groups else "left"].append((child, content_width))
+
+        def group_width(group: list[tuple[Buffer, int]]) -> int:
+            return sum(width for _, width in group) + 2 * max(0, len(group) - 1)
+
+        left_width = group_width(groups["left"])
+        center_width = group_width(groups["center"])
+        right_width = group_width(groups["right"])
+        starts = {
+            "left": 0,
+            "center": max(left_width + 1, (area.width - center_width) // 2),
+            "right": max(0, area.width - right_width),
+        }
+        if groups["center"] and starts["center"] + center_width > starts["right"]:
+            starts["center"] = max(left_width + 1, starts["right"] - center_width - 1)
+
+        buf.grow_to(area.y + 1)
+        for align in ("left", "center", "right"):
+            column = starts[align]
+            for index, (child, width) in enumerate(groups[align]):
+                if index:
+                    column += 2
+                if width:
+                    buf.blit(child, area.x + column, area.y, Rect(0, 0, width, 1))
+                column += width
+        return 1
+
     def handle_input(self, event: InputEvent) -> bool:
         return any(component.handle_input(event) for component, _ in self._slots)
 
@@ -426,6 +488,21 @@ class Constrained(Component):
             block = pad(fitted, target, align=self._align)
             out.append(pad(block, width, align=self._align))
         return out
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.buffer import Buffer
+
+        target = max(1, _resolve_width(self._width, area.width))
+        child = Buffer.empty(Rect(0, 0, target, 0))
+        rows = self._child.render_cells(Rect(0, 0, target, 0), child)
+        offset = 0
+        if self._align == "center":
+            offset = max(0, (area.width - target) // 2)
+        elif self._align == "right":
+            offset = max(0, area.width - target)
+        buf.grow_to(area.y + rows)
+        buf.blit(child, area.x + offset, area.y)
+        return rows
 
     def handle_input(self, event: InputEvent) -> bool:
         return self._child.handle_input(event)
@@ -514,6 +591,25 @@ class Columns(Component):
                 line = truncate(line, width)
             out.append(line)
         return out
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.buffer import Buffer
+
+        widths = self._column_widths(area.width)
+        rendered: list[tuple[Buffer, int]] = []
+        height = 0
+        for (child, _), width in zip(self._slots, widths, strict=True):
+            child_buf = Buffer.empty(Rect(0, 0, width, 0))
+            rows = child.render_cells(Rect(0, 0, width, 0), child_buf) if width > 0 else 0
+            rendered.append((child_buf, rows))
+            height = max(height, rows)
+        buf.grow_to(area.y + height)
+        x = area.x
+        for (child_buf, _), width in zip(rendered, widths, strict=True):
+            if width > 0:
+                buf.blit(child_buf, x, area.y)
+                x += width + self._gap
+        return height
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child, _ in self._slots)
@@ -609,6 +705,31 @@ class Rows(Component):
             block = lines[:rh] if len(lines) > rh else lines + [""] * (rh - len(lines))
             out.extend(block)
         return out
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.buffer import Buffer
+
+        children: list[tuple[Buffer, int]] = []
+        for child, _ in self._slots:
+            child_buf = Buffer.empty(Rect(0, 0, area.width, 0))
+            rows = child.render_cells(Rect(0, 0, area.width, 0), child_buf)
+            children.append((child_buf, rows))
+        heights = self._row_heights([rows for _, rows in children])
+        y = area.y
+        for index, ((child_buf, rows), height) in enumerate(zip(children, heights, strict=True)):
+            if index and self._gap:
+                y += self._gap
+            if height <= 0:
+                continue
+            buf.blit(
+                child_buf,
+                area.x,
+                y,
+                Rect(0, 0, area.width, min(rows, height)),
+            )
+            y += height
+        buf.grow_to(y)
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child, _ in self._slots)

@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
+
 from .utils import read_branch, shorten_home
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 
 class GitBadge:
@@ -20,6 +29,11 @@ class GitBadge:
         from tau.tui.utils import DIM, RESET
 
         return [DIM + self._text + RESET]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        buf.grow_to(area.y + 1)
+        buf.set_line(area.x, area.y, Line([Span(self._text, Style().dim())]), area.width)
+        return 1
 
     def handle_input(self, event: object) -> bool:  # noqa: ARG002
         return False

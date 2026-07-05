@@ -50,5 +50,11 @@ class WidgetComponent(Component):
         widget = self._widget(width) if callable(self._widget) else self._widget
         return render_widget_lines(widget, width, self._height)
 
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        widget = self._widget(area.width) if callable(self._widget) else self._widget
+        buf.grow_to(area.y + self._height)
+        widget.render(Rect(area.x, area.y, area.width, self._height), buf)
+        return self._height
+
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         return False

@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import apply_style
-from tau.tui.utils import fuzzy_filter, visible_width
+from tau.tui.text import Line, Span
+from tau.tui.utils import fuzzy_filter
 
 if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
     from tau.tui.theme import SelectListTheme
 
 _log = logging.getLogger(__name__)
@@ -152,8 +154,17 @@ class AutocompletePicker(Component):
     # -------------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer
+        from tau.tui.geometry import Rect
+
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self.active:
-            return []
+            return 0
 
         count = len(self._items)
         visible = min(self._max_visible, count)
@@ -166,13 +177,19 @@ class AutocompletePicker(Component):
                 24,
             ),
         )
-        desc_w = max(0, width - label_w - 4)
+        desc_w = max(0, area.width - label_w - 4)
 
         t = self._theme
-        lines: list[str] = []
+        row = area.y
+
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
 
         if start > 0:
-            lines.append(apply_style(t.indicator, f"  ↑ {start} more"))
+            write([Span(f"  ↑ {start} more", t.indicator)])
 
         for i in range(start, start + visible):
             item = self._items[i]
@@ -181,24 +198,31 @@ class AutocompletePicker(Component):
             desc = item.description[:desc_w] if desc_w > 0 else ""
 
             if is_sel:
-                label_s = apply_style(t.selected_label, label)
-                desc_s = apply_style(t.selected_desc, desc)
-                row = f"  {label_s}  {desc_s}"
+                write(
+                    [
+                        Span("  "),
+                        Span(label, t.selected_label),
+                        Span("  "),
+                        Span(desc, t.selected_desc),
+                    ]
+                )
                 if t.selected_bg:
-                    fill = max(0, width - visible_width(row))
-                    row = apply_style(t.selected_bg, row + " " * fill)
+                    buf.set_style(Rect(area.x, row - 1, area.width, 1), t.selected_bg)
             else:
-                label_s = apply_style(t.normal_label, label)
-                desc_s = apply_style(t.normal_desc, desc)
-                row = f"  {label_s}  {desc_s}"
-
-            lines.append(row)
+                write(
+                    [
+                        Span("  "),
+                        Span(label, t.normal_label),
+                        Span("  "),
+                        Span(desc, t.normal_desc),
+                    ]
+                )
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(apply_style(t.indicator, f"  ↓ {remaining} more"))
+            write([Span(f"  ↓ {remaining} more", t.indicator)])
 
-        return lines
+        return row - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -403,6 +427,14 @@ class AutocompleteManager:
         lines.extend(self._ac_picker.render(width))
         lines.extend(self._cmd_arg_picker.render(width))
         return lines
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.geometry import Rect
+
+        row = area.y
+        row += self._ac_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
+        row += self._cmd_arg_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
+        return row - area.y
 
     # -------------------------------------------------------------------------
     # Trigger detection

@@ -36,6 +36,9 @@ class _CoreEditor:
     def render(self, width: int) -> list[str]:
         return [""]
 
+    def render_cells(self, area, buf) -> int:
+        return 0
+
     def handle_input(self, event) -> bool:
         return False
 

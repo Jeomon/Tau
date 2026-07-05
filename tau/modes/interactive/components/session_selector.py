@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
-from tau.tui.style import Style, apply_style
+from tau.tui.style import Style
 from tau.tui.text import Line, Span
 
 if TYPE_CHECKING:
@@ -243,50 +243,69 @@ class ResumeSelector:
         return self._meta_cache[sid]
 
     def render(self, width: int) -> list[str]:
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
+        row = area.y
+
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
+
+        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
+            write([Span(prefix), Span(content, style or Style())])
+
+        def divider() -> None:
+            text("─" * area.width, t.border)
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
-        if self._scope == "current":
-            folder_label = apply_style(t.emphasis, "[Folder]")
-        else:
-            folder_label = apply_style(t.muted, "Folder")
-        all_label = (
-            apply_style(t.emphasis, "[All]")
-            if self._scope == "all"
-            else apply_style(t.muted, "All")
+        write(
+            [
+                Span("  "),
+                Span(
+                    "[Folder]" if self._scope == "current" else "Folder",
+                    t.emphasis if self._scope == "current" else t.muted,
+                ),
+                Span("  "),
+                Span(
+                    "[All]" if self._scope == "all" else "All",
+                    t.emphasis if self._scope == "all" else t.muted,
+                ),
+                Span("    "),
+                Span(f"Sort: {self._SORT_LABELS[self._sort_idx]}", t.muted),
+            ]
         )
-        sort_label = apply_style(t.muted, f"Sort: {self._SORT_LABELS[self._sort_idx]}")
-        lines.append(f"  {folder_label}  {all_label}    {sort_label}")
-        lines.append(divider)
+        divider()
 
         # ── Search box ─────────────────────────────────────────────────────────
         if self._search:
-            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}█")
+            write([Span("  "), Span("⊘", t.muted), Span(f" {self._search}█")])
         else:
-            lines.append("  " + apply_style(t.muted, "⊘ Search sessions…"))
-        lines.append(divider)
+            text("⊘ Search sessions…", t.muted, "  ")
+        divider()
 
         # ── Delete confirmation ────────────────────────────────────────────────
         if self._confirming_delete is not None:
             del_path = self._confirming_delete
-            short = _shorten(del_path)[: width - 20]
-            msg = apply_style(t.error, f"Delete '{short}'?  Enter: yes  ·  Esc: no")
-            lines.append("  " + msg)
-            lines.append(divider)
+            short = _shorten(del_path)[: area.width - 20]
+            text(f"Delete '{short}'?  Enter: yes  ·  Esc: no", t.error, "  ")
+            divider()
 
         # ── Session list (two-line entries) ────────────────────────────────────
         show_project = self._scope == "all"
 
         if not self._filtered:
             if self._search:
-                lines.append("  " + apply_style(t.muted, f"No sessions match '{self._search}'"))
+                text(f"No sessions match '{self._search}'", t.muted, "  ")
             elif self._scope == "current":
-                hint = "No sessions in current folder — Tab for all"
-                lines.append("  " + apply_style(t.muted, hint))
+                text("No sessions in current folder — Tab for all", t.muted, "  ")
             else:
-                lines.append("  " + apply_style(t.muted, "No sessions found"))
+                text("No sessions found", t.muted, "  ")
         else:
             from tau.tui.widgets.list import List, ListItem, ListState
 
@@ -295,7 +314,7 @@ class ResumeSelector:
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
+                text(f"↑ {start} more above", t.muted, "  ")
 
             end_idx = min(start + visible, count)
 
@@ -315,7 +334,9 @@ class ResumeSelector:
                 is_del_target = sel_path == self._confirming_delete
 
                 # Named sessions show the name; unnamed show a short ID prefix
-                display = session.name[: max(12, width - 6)] if session.name else session.id[:12]
+                display = (
+                    session.name[: max(12, area.width - 6)] if session.name else session.id[:12]
+                )
 
                 size = self._session_meta(session)
 
@@ -359,27 +380,28 @@ class ResumeSelector:
             state = ListState()
             state.select((self._selected - start) * 3 if list_items else None)
             state.offset = 0
-            buf = Buffer.empty(Rect(0, 0, width, len(list_items)))
+            buf.grow_to(row + len(list_items))
             List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-                Rect(0, 0, width, len(list_items)), buf, state
+                Rect(area.x, row, area.width, len(list_items)), buf, state
             )
-            lines.extend(row_to_ansi(buf, y) for y in range(len(list_items)))
+            row += len(list_items)
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
+                text(f"↓ {remaining} more below", t.muted, "  ")
 
-        lines.append(divider)
+        divider()
 
         # ── Status bar ─────────────────────────────────────────────────────────
         if self._status_msg:
-            lines.append("  " + apply_style(t.warning, self._status_msg))
+            text(self._status_msg, t.warning, "  ")
         else:
-            hint = apply_style(
-                t.muted, "tab: scope  ·  ctrl+r: sort  ·  ctrl+d: delete  ·  Esc: cancel"
+            text(
+                "tab: scope  ·  ctrl+r: sort  ·  ctrl+d: delete  ·  Esc: cancel",
+                t.muted,
+                "  ",
             )
-            lines.append("  " + hint)
-        return lines
+        return row - area.y
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

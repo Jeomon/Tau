@@ -3,9 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC
-from typing import Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from tau.tui.utils import BOLD, RESET, fuzzy_filter, truncate, visible_width
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 T = TypeVar("T")
 
@@ -491,6 +495,17 @@ class TreeSelectList[T]:
     # ------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
+        return self._render_lines(width)
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        row = 0
+        for line in self._render_lines(area.width):
+            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
+
+    def _render_lines(self, width: int) -> list[str]:
         title = f"{BOLD}  Session Tree{RESET}"
 
         if self._query:

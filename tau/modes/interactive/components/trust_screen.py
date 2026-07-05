@@ -5,10 +5,12 @@ from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import apply_style
+from tau.tui.text import Line, Span
 
 if TYPE_CHECKING:
     from tau.trust.manager import TrustOption
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
     from tau.tui.theme import LayoutTheme
 
 
@@ -42,44 +44,65 @@ class TrustScreen(Component):
     # -------------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer
+        from tau.tui.geometry import Rect
+
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        lines: list[str] = []
         indent = "  "
+        row = area.y
 
-        lines.append("")
-        lines.append("")
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
 
-        lines.append(indent + apply_style(t.emphasis, "Trust project folder?"))
-        lines.append("")
+        def blank() -> None:
+            write([])
+
+        blank()
+        blank()
+
+        write([Span(indent), Span("Trust project folder?", t.emphasis)])
+        blank()
 
         cwd_display = self._cwd
-        if len(cwd_display) > width - len(indent) - 2:
-            cwd_display = "…" + cwd_display[-(width - len(indent) - 3) :]
-        lines.append(indent + apply_style(t.accent, cwd_display))
-        lines.append("")
+        if len(cwd_display) > area.width - len(indent) - 2:
+            cwd_display = "…" + cwd_display[-(area.width - len(indent) - 3) :]
+        write([Span(indent), Span(cwd_display, t.accent)])
+        blank()
 
-        line1 = apply_style(t.muted, "This allows tau to load .py settings and resources,")
-        line2 = apply_style(
-            t.muted, "install missing project packages, and run project extensions."
+        write(
+            [Span(indent), Span("This allows tau to load .py settings and resources,", t.muted)]
         )
-        lines.append(indent + line1)
-        lines.append(indent + line2)
-        lines.append("")
-        lines.append("")
+        write(
+            [
+                Span(indent),
+                Span(
+                    "install missing project packages, and run project extensions.", t.muted
+                ),
+            ]
+        )
+        blank()
+        blank()
 
         for i, opt in enumerate(self._options):
             is_sel = i == self._selected
             prefix = "› " if is_sel else "  "
-            row = indent + prefix + opt.label
-            lines.append(apply_style(t.emphasis if is_sel else t.muted, row))
+            write([Span(indent + prefix + opt.label, t.emphasis if is_sel else t.muted)])
 
-        lines.append("")
-        lines.append("")
+        blank()
+        blank()
 
-        hint = apply_style(t.muted, "↑↓ navigate  ·  Enter select  ·  Esc cancel")
-        lines.append(indent + hint)
+        write([Span(indent), Span("↑↓ navigate  ·  Enter select  ·  Esc cancel", t.muted)])
 
-        return lines
+        return row - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

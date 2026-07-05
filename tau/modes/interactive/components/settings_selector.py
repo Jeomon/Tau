@@ -8,8 +8,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.style import apply_style
-from tau.tui.utils import cursor_block
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.buffer import Buffer
+from tau.tui.geometry import Rect
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
+from tau.tui.utils import is_window_focused
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -70,35 +74,44 @@ class ListSelector:
         self._theme = theme
 
     def render(self, width: int) -> list[str]:
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
+        row = area.y
 
-        lines.append("  " + apply_style(t.emphasis, self._title))
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
+
+        write([Span("  "), Span(self._title, t.emphasis)])
         if self._subtitle:
-            lines.append("  " + apply_style(t.muted, self._subtitle))
+            write([Span("  "), Span(self._subtitle, t.muted)])
 
-        lines.append(divider)
+        write([Span("─" * area.width, t.border)])
 
         if not self._items:
-            lines.append("  " + apply_style(t.muted, "(no items)"))
+            write([Span("  "), Span("(no items)", t.muted)])
         else:
             for i, item in enumerate(self._items):
                 is_sel = i == self._selected
                 is_current = item == self._current
-                check = f" {apply_style(t.success, '✓')}" if is_current else ""
                 if is_sel:
-                    marker = apply_style(t.accent, ">")
-                    label = apply_style(t.emphasis, item)
-                    lines.append(f"  {marker} {label}{check}")
+                    spans = [Span("  "), Span(">", t.accent), Span(" "), Span(item, t.emphasis)]
                 else:
-                    lines.append(f"    {apply_style(t.muted, item)}{check}")
+                    spans = [Span("    "), Span(item, t.muted)]
+                if is_current:
+                    spans.extend([Span(" "), Span("✓", t.success)])
+                write(spans)
 
-        lines.append(divider)
-        hint = apply_style(t.muted, "↑/↓ move  ·  enter select  ·  esc cancel")
-        lines.append("  " + hint)
+        write([Span("─" * area.width, t.border)])
+        write([Span("  "), Span("↑/↓ move  ·  enter select  ·  esc cancel", t.muted)])
 
-        return lines
+        return row - area.y
 
 
 # ── SettingsSelector ──────────────────────────────────────────────────────────
@@ -326,38 +339,68 @@ class SettingsSelector:
     # ── Render ────────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         if self._submenu is not None:
-            return self._submenu.render(width)  # type: ignore[attr-defined]
+            if isinstance(self._submenu, (SettingsSelector, ListSelector)):
+                return self._submenu.render_cells(area, buf)
+            raise TypeError(f"Unsupported settings submenu: {type(self._submenu).__name__}")
 
         t = self._theme
-        divider = apply_style(t.border, "─" * width)
-        lines: list[str] = []
+        row = area.y
+
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
+
+        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
+            write([Span(prefix), Span(content, style or Style())])
+
+        def divider() -> None:
+            text("─" * area.width, t.border)
 
         # ── Tab bar ────────────────────────────────────────────────────────────
         if self._tabs:
-            parts = []
+            spans = [Span("  ")]
             for i, (label, _) in enumerate(self._tabs):
-                if i == self._active_tab:
-                    parts.append(apply_style(t.emphasis, f"[{label}]"))
-                else:
-                    parts.append(apply_style(t.muted, label))
-            lines.append("  " + "  ".join(parts))
+                if i:
+                    spans.append(Span("  "))
+                spans.append(
+                    Span(
+                        f"[{label}]" if i == self._active_tab else label,
+                        t.emphasis if i == self._active_tab else t.muted,
+                    )
+                )
+            write(spans)
         elif self._title:
-            lines.append("  " + apply_style(t.emphasis, self._title))
-        lines.append(divider)
+            text(self._title, t.emphasis, "  ")
+        divider()
 
         # ── Search box ─────────────────────────────────────────────────────────
         if self._editing:
-            lines.append("  " + apply_style(t.muted, "editing — enter to confirm, esc to cancel"))
+            text("editing — enter to confirm, esc to cancel", t.muted, "  ")
         elif self._search:
-            lines.append(f"  {apply_style(t.muted, '⊘')} {self._search}{cursor_block()}")
+            cursor_style = Style().reversed() if is_window_focused() else Style()
+            write(
+                [
+                    Span("  "),
+                    Span("⊘", t.muted),
+                    Span(f" {self._search}"),
+                    Span(" ", cursor_style),
+                ]
+            )
         else:
-            lines.append("  " + apply_style(t.muted, "⊘ Search settings…"))
-        lines.append(divider)
+            text("⊘ Search settings…", t.muted, "  ")
+        divider()
 
         # ── Items list ─────────────────────────────────────────────────────────
         if not self._filtered:
-            lines.append("  " + apply_style(t.muted, "No matching settings"))
+            text("No matching settings", t.muted, "  ")
         else:
             max_label = min(28, max(len(i.label) for i in self._filtered))
             count = len(self._filtered)
@@ -365,7 +408,7 @@ class SettingsSelector:
             start = max(0, min(self._selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + apply_style(t.muted, f"↑ {start} more above"))
+                text(f"↑ {start} more above", t.muted, "  ")
 
             for i in range(start, min(start + visible, count)):
                 item = self._filtered[i]
@@ -380,45 +423,57 @@ class SettingsSelector:
                 )
 
                 if is_sel and self._editing:
-                    val_display = self._edit_buffer + cursor_block()
-                    marker = apply_style(t.accent, ">")
-                    label_s = apply_style(t.emphasis, label_padded)
-                    val_s = apply_style(t.emphasis, val_display)
-                    row = f"  {marker} {label_s}  {val_s}"
+                    cursor_style = Style().reversed() if is_window_focused() else Style()
+                    write(
+                        [
+                            Span("  "),
+                            Span(">", t.accent),
+                            Span(" "),
+                            Span(label_padded, t.emphasis),
+                            Span("  "),
+                            Span(self._edit_buffer, t.emphasis),
+                            Span(" ", t.emphasis.patch(cursor_style)),
+                        ]
+                    )
                 elif is_sel:
-                    marker = apply_style(t.accent, ">")
-                    label_s = apply_style(t.emphasis, label_padded)
-                    val_s = apply_style(t.accent, val_display)
-                    row = f"  {marker} {label_s}  {val_s}"
+                    write(
+                        [
+                            Span("  "),
+                            Span(">", t.accent),
+                            Span(" "),
+                            Span(label_padded, t.emphasis),
+                            Span("  "),
+                            Span(val_display, t.accent),
+                        ]
+                    )
                 else:
-                    row = f"    {apply_style(t.muted, label_padded)}  {val_display}"
-                lines.append(row)
+                    write([Span("    "), Span(label_padded, t.muted), Span(f"  {val_display}")])
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + apply_style(t.muted, f"↓ {remaining} more below"))
+                text(f"↓ {remaining} more below", t.muted, "  ")
 
-        lines.append(divider)
+        divider()
 
         # ── Description of selected item ───────────────────────────────────────
         desc = ""
         if self._filtered and 0 <= self._selected < len(self._filtered):
             desc = self._filtered[self._selected].description
-        lines.append("  " + apply_style(t.muted, desc if desc else "—"))
-        lines.append(divider)
+        text(desc if desc else "—", t.muted, "  ")
+        divider()
 
         # ── Status bar ─────────────────────────────────────────────────────────
         if self._editing:
-            lines.append("  " + apply_style(t.muted, "enter: confirm  ·  esc: cancel"))
+            text("enter: confirm  ·  esc: cancel", t.muted, "  ")
         else:
             tab_hint = "  ·  tab: switch" if len(self._tabs) > 1 else ""
             back_or_close = "back" if (self._title or self._tabs) else "close & save"
             hint_text = (
                 f"Enter/Space to change  ·  / to search{tab_hint}  ·  Esc to {back_or_close}"
             )
-            lines.append("  " + apply_style(t.muted, hint_text))
+            text(hint_text, t.muted, "  ")
 
-        return lines
+        return row - area.y
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

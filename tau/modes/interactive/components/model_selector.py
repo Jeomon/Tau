@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
 from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
-from tau.tui.style import Style, apply_style
+from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.widgets.list import List, ListItem, ListState
 from tau.tui.widgets.tabs import Tabs
@@ -242,33 +241,44 @@ class ModelSelector:
     # ── Render ────────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
-        muted = partial(apply_style, self._muted)
-        emphasis = partial(apply_style, self._emphasis)
-        border = partial(apply_style, self._border)
-        divider = border("─" * width)
-        lines: list[str] = []
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        row = area.y
+
+        def write(spans: list[Span]) -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line(spans), area.width)
+            row += 1
+
+        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
+            write([Span(prefix), Span(content, style or Style())])
+
+        def divider() -> None:
+            text("─" * area.width, self._border)
 
         sec = self._section
         if sec is None:
-            lines.append("  " + muted("No models available. Use /login to add providers."))
-            return lines
+            text("No models available. Use /login to add providers.", self._muted, "  ")
+            return row - area.y
 
-        # ── Tab bar (modality sections) ────────────────────────────────────────
         titles = [
             f"[{s.label}]" if i == self._active else s.label for i, s in enumerate(self._sections)
         ]
-        tabs_buf = Buffer.empty(Rect(0, 0, width, 1))
+        buf.grow_to(row + 1)
         Tabs(
             titles=titles,
             selected=self._active,
             style=self._muted,
             highlight_style=self._emphasis,
             divider="  ",
-        ).render(Rect(2, 0, max(0, width - 2), 1), tabs_buf)
-        lines.append(row_to_ansi(tabs_buf, 0))
-        lines.append(divider)
+        ).render(Rect(area.x + 2, row, max(0, area.width - 2), 1), buf)
+        row += 1
+        divider()
 
-        # ── Scope row (only when tab spans multiple providers) ─────────────────
         if sec.can_scope:
             if sec.scope == "scoped" and sec.scope_provider:
                 scope_label = f"scoped ({sec.scope_provider})"
@@ -276,25 +286,32 @@ class ModelSelector:
                 scope_label = "scoped"
             else:
                 scope_label = "all"
-            lines.append(f"  {muted('←')}  {emphasis(scope_label)}  {muted('→')}")
+            write(
+                [
+                    Span("  "),
+                    Span("←", self._muted),
+                    Span("  "),
+                    Span(scope_label, self._emphasis),
+                    Span("  "),
+                    Span("→", self._muted),
+                ]
+            )
 
-        # ── Search box ─────────────────────────────────────────────────────────
         if sec.search:
-            lines.append(f"  {muted('⊘')} {sec.search}█")
+            write([Span("  "), Span("⊘", self._muted), Span(f" {sec.search}█")])
         else:
-            lines.append("  " + muted("⊘ Search models…"))
-        lines.append(divider)
+            text("⊘ Search models…", self._muted, "  ")
+        divider()
 
-        # ── Model list ─────────────────────────────────────────────────────────
         if not sec.filtered:
-            lines.append("  " + muted("No models match"))
+            text("No models match", self._muted, "  ")
         else:
             count = len(sec.filtered)
             visible = min(VISIBLE_ROWS, count)
             start = max(0, min(sec.selected - visible // 2, count - visible))
 
             if start > 0:
-                lines.append("  " + muted(f"↑ {start} more above"))
+                text(f"↑ {start} more above", self._muted, "  ")
 
             max_id = min(36, max(len(m.id) for m in sec.filtered[start : start + visible]))
             list_items: list[ListItem] = []
@@ -329,42 +346,39 @@ class ModelSelector:
             state = ListState()
             state.select(sec.selected - start)
             state.offset = 0
-            list_buf = Buffer.empty(Rect(0, 0, width, visible))
+            buf.grow_to(row + visible)
             List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-                Rect(0, 0, width, visible), list_buf, state
+                Rect(area.x, row, area.width, visible), buf, state
             )
-            lines.extend(row_to_ansi(list_buf, y) for y in range(visible))
+            row += visible
 
             remaining = count - (start + visible)
             if remaining > 0:
-                lines.append("  " + muted(f"↓ {remaining} more below"))
+                text(f"↓ {remaining} more below", self._muted, "  ")
 
-        lines.append(divider)
+        divider()
 
-        # ── Selected model name ────────────────────────────────────────────────
         if sec.filtered:
             sel_m = sec.filtered[sec.selected]
             name = getattr(sel_m, "name", None) or sel_m.id
             if sec.modality == "text" and sel_m.thinking:
                 name += " (thinking)"
-            lines.append("  " + emphasis(name))
+            text(name, self._emphasis, "  ")
             inputs = _format_modalities(sel_m.input)
             outputs = _format_modalities(sel_m.output)
             if sec.modality == "text":
                 context = _format_token_count(sel_m.context_window)
-                lines.append(f"  Context: {context} · Modalities: {inputs} → {outputs}")
+                text(f"Context: {context} · Modalities: {inputs} → {outputs}", prefix="  ")
             else:
-                lines.append(f"  Modalities: {inputs} → {outputs}")
+                text(f"Modalities: {inputs} → {outputs}", prefix="  ")
         else:
-            lines.append("  " + muted("—"))
-        lines.append(divider)
+            text("—", self._muted, "  ")
+        divider()
 
-        # ── Status bar ─────────────────────────────────────────────────────────
         scope_hint = "  ·  ←/→: scope" if sec.can_scope else ""
         tab_hint = "  ·  tab: modality" if len(self._sections) > 1 else ""
-        lines.append("  " + muted(f"Enter: select{scope_hint}{tab_hint}  ·  Esc: cancel"))
-
-        return lines
+        text(f"Enter: select{scope_hint}{tab_hint}  ·  Esc: cancel", self._muted, "  ")
+        return row - area.y
 
 
 # Backward-compatible public name retained for extensions built before the

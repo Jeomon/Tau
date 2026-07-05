@@ -1,6 +1,16 @@
 from tau.tui.ansi_bridge import parse_ansi_into, row_to_ansi
 from tau.tui.buffer import Buffer
-from tau.tui.component import Column, Component, Container, StaticComponent
+from tau.tui.component import (
+    Column,
+    Columns,
+    Component,
+    Constrained,
+    Container,
+    Row,
+    Rows,
+    StaticComponent,
+    Text,
+)
 from tau.tui.components.box import Box
 from tau.tui.frame import _diff_row_cells
 from tau.tui.geometry import Rect
@@ -74,6 +84,11 @@ def test_box_wraps_overflow_from_legacy_render_function() -> None:
 
     assert len(lines) > 1
     assert content in "".join(line.strip() for line in lines)
+
+
+def test_core_components_own_native_render_paths() -> None:
+    for component_type in (StaticComponent, Text, Row, Constrained, Columns, Rows):
+        assert component_type.render_cells is not Component.render_cells
 
 
 def test_ansi_bridge_round_trip_preserves_style_and_double_width() -> None:

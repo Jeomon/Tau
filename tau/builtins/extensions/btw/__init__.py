@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
     from tau.extensions.context import ExtensionContext
     from tau.inference.api.text.service import TextLLM
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
 
 
 # ── Widget component ───────────────────────────────────────────────────────────
@@ -35,11 +37,20 @@ class BtwWidget(Component):
     def set_lines(self, lines: list[str]) -> None:
         self._lines = list(lines)
 
-    def render(self, width: int) -> list[str]:
-        from tau.modes.interactive.components.overlays import _box
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.modes.interactive.components.overlays import _box_cells
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+        from tau.tui.buffer import Buffer as _Buffer
+        from tau.tui.geometry import Rect as _Rect
 
-        inner = list(self._lines) or ["  (empty)"]
-        return _box(inner, "btw", width)
+        inner_w = max(1, area.width - 4)
+        inner = _Buffer.empty(_Rect(0, 0, inner_w, 0))
+        lines = list(self._lines) or ["  (empty)"]
+        row = 0
+        for line in lines:
+            row += parse_ansi_wrapped_into(inner, 0, row, line, inner_w)
+
+        return _box_cells(buf, area, inner, row, "btw", None)
 
     def handle_input(self, event: Any) -> bool:
         return False  # never captures input — editor stays focused

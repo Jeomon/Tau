@@ -4,9 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import apply_style
+from tau.tui.text import Line, Span
 from tau.tui.utils import fuzzy_filter
 
 if TYPE_CHECKING:
@@ -156,22 +159,33 @@ class FilePicker(Component):
     # -------------------------------------------------------------------------
 
     def render(self, width: int) -> list[str]:
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        rows = self.render_cells(Rect(0, 0, width, 0), buf)
+        return [row_to_ansi(buf, row) for row in range(rows)]
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
         if not self._active:
-            return []
+            return 0
 
         t = self._theme
-        lines: list[str] = []
+        row = area.y
+
+        def write(content: str, style, prefix: str = "") -> None:
+            nonlocal row
+            buf.grow_to(row + 1)
+            buf.set_line(area.x, row, Line([Span(prefix), Span(content, style)]), area.width)
+            row += 1
 
         if self._cwd != self._root:
             try:
                 rel = str(self._cwd.relative_to(self._root))
             except ValueError:
                 rel = str(self._cwd)
-            lines.append(apply_style(t.indicator, f"  @ {rel}/"))
+            write(f"@ {rel}/", t.indicator, "  ")
 
         if not self._entries:
-            lines.append(apply_style(t.empty, "  (no matches)"))
-            return lines
+            write("(no matches)", t.empty, "  ")
+            return row - area.y
 
         count = len(self._entries)
         visible = min(VISIBLE_ROWS, count)
@@ -189,7 +203,7 @@ class FilePicker(Component):
         )
 
         if start > 0:
-            lines.append(apply_style(t.indicator, f"  ↑ {start} more"))
+            write(f"↑ {start} more", t.indicator, "  ")
 
         for i in range(start, start + visible):
             entry = self._entries[i]
@@ -198,17 +212,15 @@ class FilePicker(Component):
 
             if is_sel:
                 style = t.selected_dir if entry.is_dir else t.selected_label
-                row = "  " + apply_style(style, label)
             else:
-                row = "  " + apply_style(t.normal_label, label)
-
-            lines.append(row)
+                style = t.normal_label
+            write(label, style, "  ")
 
         remaining = count - (start + visible)
         if remaining > 0:
-            lines.append(apply_style(t.indicator, f"  ↓ {remaining} more"))
+            write(f"↓ {remaining} more", t.indicator, "  ")
 
-        return lines
+        return row - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

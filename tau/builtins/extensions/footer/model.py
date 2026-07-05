@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from tau.tui.style import Style
+from tau.tui.text import Line, Span
+
+if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
+
 
 class ModelBadge:
     """Renders ``(provider) model ∙ Level|context%`` for the footer Row right slot.
@@ -76,18 +85,28 @@ class ModelBadge:
     def render(self, width: int) -> list[str]:  # noqa: ARG002
         from tau.tui.utils import DIM, RESET
 
-        if not self._provider and not self._model:
-            return []
+        text = self._text()
+        return [DIM + text + RESET] if text else []
 
+    def _text(self) -> str:
+        if not self._provider and not self._model:
+            return ""
         left = f"({self._provider}) {self._model}" if self._provider else self._model
         if self._thinking and self._thinking_level and self._thinking_level != "off":
             left += f" ∙ {self._thinking_level.title()}"
-
         if self._context_window > 0 and self._tokens > 0:
             pct = self._tokens / self._context_window * 100
             label = f"{pct:.1f}%" if pct < 1 else f"{int(round(pct))}%"
-            return [DIM + f"{left}|{label}" + RESET]
-        return [DIM + left + RESET]
+            return f"{left}|{label}"
+        return left
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        text = self._text()
+        if not text:
+            return 0
+        buf.grow_to(area.y + 1)
+        buf.set_line(area.x, area.y, Line([Span(text, Style().dim())]), area.width)
+        return 1
 
     def handle_input(self, event: object) -> bool:  # noqa: ARG002
         return False

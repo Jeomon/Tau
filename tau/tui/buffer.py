@@ -196,6 +196,30 @@ class Buffer:
             for xx in range(target.left, target.right):
                 self.get(xx, yy).set_style(style)
 
+    def blit(self, source: Buffer, x: int, y: int, source_area: Rect | None = None) -> None:
+        """Copy a rectangular region from ``source`` into this buffer."""
+        region = source.area if source_area is None else source.area.intersection(source_area)
+        self.grow_to(y + region.height)
+        for source_y in range(region.top, region.bottom):
+            for source_x in range(region.left, region.right):
+                target_x = x + source_x - region.x
+                target_y = y + source_y - region.y
+                if not self.area.contains(target_x, target_y):
+                    continue
+                cell = source.get(source_x, source_y)
+                index = self.index_of(target_x, target_y)
+                self.content[index] = Cell(cell.symbol, cell.style, cell.skip)
+        self.raw_writes.extend(
+            RawWrite(
+                x=x + raw.x - region.x,
+                y=y + raw.y - region.y,
+                data=raw.data,
+                token=raw.token,
+            )
+            for raw in source.raw_writes
+            if region.contains(raw.x, raw.y)
+        )
+
     def diff(self, other: Buffer) -> list[tuple[int, int, Cell]]:
         """Return the ``(x, y, cell)`` triples where ``other`` differs from ``self``.
 
