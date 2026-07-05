@@ -30,7 +30,12 @@ class Wrap:
 
 def _flatten(line: Line) -> list[tuple[str, Style]]:
     """Break a line into (grapheme cluster, style) pairs — never mid-cluster."""
-    return [(g, span.style) for span in line for g in grapheme.graphemes(span.content)]
+    return [
+        (cluster, span.style)
+        for span in line
+        for cluster in grapheme.graphemes(span.content)
+        if cluster is not None
+    ]
 
 
 def _rebuild(chars: list[tuple[str, Style]], alignment: Alignment | None) -> Line:

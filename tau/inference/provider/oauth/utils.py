@@ -34,6 +34,7 @@ def get_oauth_ssl_context() -> ssl.SSLContext:
 
     return ssl.create_default_context(cafile=certifi.where())
 
+
 OAUTH_SUCCESS_HTML = b"""<!DOCTYPE html><html><head><title>Auth complete</title></head><body>
 <h2>Authentication successful!</h2>
 <p>You can close this window and return to the application.</p>

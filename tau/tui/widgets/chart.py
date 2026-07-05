@@ -104,8 +104,8 @@ class Chart:
                     grid.set(px, py, ds.style)
             elif ds.graph_type is GraphType.LINE:
                 for (x1p, y1p), (x2p, y2p) in zip(pixels, pixels[1:], strict=False):
-                    for px, py in _CanvasLine(x1p, y1p, x2p, y2p).points():
-                        grid.set(int(px), int(py), ds.style)
+                    for canvas_x, canvas_y in _CanvasLine(x1p, y1p, x2p, y2p).points():
+                        grid.set(int(canvas_x), int(canvas_y), ds.style)
             elif ds.graph_type is GraphType.BAR:
                 for px, py in pixels:
                     lo, hi = sorted((py, baseline_y))
@@ -113,11 +113,11 @@ class Chart:
                         grid.set(px, yy, ds.style)
             else:  # AREA
                 for (x1p, y1p), (x2p, y2p) in zip(pixels, pixels[1:], strict=False):
-                    for px, py in _CanvasLine(x1p, y1p, x2p, y2p).points():
-                        px, py = int(px), int(py)
-                        lo, hi = sorted((py, baseline_y))
+                    for canvas_x, canvas_y in _CanvasLine(x1p, y1p, x2p, y2p).points():
+                        pixel_x, pixel_y = int(canvas_x), int(canvas_y)
+                        lo, hi = sorted((pixel_y, baseline_y))
                         for yy in range(lo, hi + 1):
-                            grid.set(px, yy, ds.style)
+                            grid.set(pixel_x, yy, ds.style)
 
         cell_w = px_w // 2
         for cy in range(plot.height):

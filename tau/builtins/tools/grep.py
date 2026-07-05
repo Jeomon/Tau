@@ -232,9 +232,7 @@ class GrepTool(Tool):
             output += f"\n\n[Results truncated at {_MAX_MATCHES} matches.]"
         return {"matches": lines, "output": output, "metadata": metadata}
 
-    async def _ast_grep(
-        self, params: GrepParams, target: Path, signal: AbortSignal | None
-    ) -> dict:
+    async def _ast_grep(self, params: GrepParams, target: Path, signal: AbortSignal | None) -> dict:
         cmd = ["ast-grep", "run", "--pattern", params.pattern, "--json=stream"]
         if params.include:
             cmd += ["--globs", params.include]
@@ -250,9 +248,7 @@ class GrepTool(Tool):
         cmd += [str(target)]
         return await self._run_ast_grep(cmd, params.rule, signal)
 
-    async def _run_ast_grep(
-        self, cmd: list[str], query: str, signal: AbortSignal | None
-    ) -> dict:
+    async def _run_ast_grep(self, cmd: list[str], query: str, signal: AbortSignal | None) -> dict:
         try:
             returncode, lines, cancelled = await run_bounded_lines(
                 cmd, max_lines=_MAX_MATCHES, signal=signal

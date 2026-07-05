@@ -104,9 +104,7 @@ class MessageTheme:
     # a full reset here would also clear the enclosing line's color for
     # everything after the highlighted word. Style's close is always a full
     # reset (see apply_style), so this one case doesn't fit that model.
-    diff_inverse: ColorFn = field(
-        default_factory=lambda: (lambda s: "\x1b[7m" + s + "\x1b[27m")
-    )
+    diff_inverse: ColorFn = field(default_factory=lambda: lambda s: "\x1b[7m" + s + "\x1b[27m")
     # Semantic colour roles exposed to tool render_result() callbacks via
     # ToolRenderOptions.theme. Defaults mirror LayoutTheme's roles; when this
     # MessageTheme is part of a LayoutTheme they are overwritten from the

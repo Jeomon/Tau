@@ -21,4 +21,8 @@ class BaseTelemetryEvent(ABC):
 @dataclass
 class InstallTelemetryEvent(BaseTelemetryEvent):
     version: str
-    event_name: str = "tau"
+
+    @property
+    def event_name(self) -> str:
+        """Return the PostHog event name."""
+        return "tau"

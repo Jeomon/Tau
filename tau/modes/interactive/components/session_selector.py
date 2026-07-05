@@ -252,8 +252,10 @@ class ResumeSelector:
             folder_label = apply_style(t.emphasis, "[Folder]")
         else:
             folder_label = apply_style(t.muted, "Folder")
-        all_label = apply_style(t.emphasis, "[All]") if self._scope == "all" else apply_style(
-            t.muted, "All"
+        all_label = (
+            apply_style(t.emphasis, "[All]")
+            if self._scope == "all"
+            else apply_style(t.muted, "All")
         )
         sort_label = apply_style(t.muted, f"Sort: {self._SORT_LABELS[self._sort_idx]}")
         lines.append(f"  {folder_label}  {all_label}    {sort_label}")
@@ -333,9 +335,7 @@ class ResumeSelector:
 
                 list_items.append(
                     ListItem(
-                        Line(
-                            [Span("  ", Style()), *indicator_spans, Span(display, name_style)]
-                        )
+                        Line([Span("  ", Style()), *indicator_spans, Span(display, name_style)])
                     )
                 )
 
@@ -350,9 +350,7 @@ class ResumeSelector:
                     meta_parts.append(f"⚙ {mc}")
 
                 meta_line = "  ·  ".join(meta_parts)
-                list_items.append(
-                    ListItem(Line([Span("    ", Style()), Span(meta_line, t.muted)]))
-                )
+                list_items.append(ListItem(Line([Span("    ", Style()), Span(meta_line, t.muted)])))
 
                 # blank line between entries for readability
                 if i < end_idx - 1:

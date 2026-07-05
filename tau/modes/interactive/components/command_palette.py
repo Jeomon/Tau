@@ -113,7 +113,7 @@ class CommandPalette(Component):
             from tau.tui.ansi_bridge import parse_ansi_into
             from tau.tui.utils import visible_width, wrap
 
-            for wl in (wrap(line, area.width) if visible_width(line) > area.width else [line]):
+            for wl in wrap(line, area.width) if visible_width(line) > area.width else [line]:
                 buf.grow_to(y + 1)
                 parse_ansi_into(buf, area.x, y, wl, area.width)
                 y += 1

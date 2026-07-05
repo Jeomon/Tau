@@ -36,10 +36,23 @@ RESET_COLOR = _ResetColor()
 Color = str | tuple[int, int, int] | int | _ResetColor
 
 _NAMED_FG = {
-    "black": 30, "red": 31, "green": 32, "yellow": 33,
-    "blue": 34, "magenta": 35, "cyan": 36, "white": 37, "default": 39,
-    "bright_black": 90, "bright_red": 91, "bright_green": 92, "bright_yellow": 93,
-    "bright_blue": 94, "bright_magenta": 95, "bright_cyan": 96, "bright_white": 97,
+    "black": 30,
+    "red": 31,
+    "green": 32,
+    "yellow": 33,
+    "blue": 34,
+    "magenta": 35,
+    "cyan": 36,
+    "white": 37,
+    "default": 39,
+    "bright_black": 90,
+    "bright_red": 91,
+    "bright_green": 92,
+    "bright_yellow": 93,
+    "bright_blue": 94,
+    "bright_magenta": 95,
+    "bright_cyan": 96,
+    "bright_white": 97,
 }
 _NAMED_BG = {name: code + 10 for name, code in _NAMED_FG.items()}
 
@@ -86,10 +99,22 @@ def _color_sgr(color: Color, *, background: bool) -> str:
 # 16-color palette index for each name — used by underline color, which only
 # has an indexed/truecolor SGR form (58;5;n / 58;2;r;g;b), no plain "58;n" form.
 _NAMED_INDEX = {
-    "black": 0, "red": 1, "green": 2, "yellow": 3,
-    "blue": 4, "magenta": 5, "cyan": 6, "white": 7,
-    "bright_black": 8, "bright_red": 9, "bright_green": 10, "bright_yellow": 11,
-    "bright_blue": 12, "bright_magenta": 13, "bright_cyan": 14, "bright_white": 15,
+    "black": 0,
+    "red": 1,
+    "green": 2,
+    "yellow": 3,
+    "blue": 4,
+    "magenta": 5,
+    "cyan": 6,
+    "white": 7,
+    "bright_black": 8,
+    "bright_red": 9,
+    "bright_green": 10,
+    "bright_yellow": 11,
+    "bright_blue": 12,
+    "bright_magenta": 13,
+    "bright_cyan": 14,
+    "bright_white": 15,
 }
 
 

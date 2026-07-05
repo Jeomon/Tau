@@ -28,9 +28,23 @@ from tau.tui.theme import (
 # the color values themselves (`parse_color` resolves those).
 _NAMED_COLORS: frozenset[str] = frozenset(
     {
-        "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "default",
-        "bright_black", "bright_red", "bright_green", "bright_yellow",
-        "bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "white",
+        "default",
+        "bright_black",
+        "bright_red",
+        "bright_green",
+        "bright_yellow",
+        "bright_blue",
+        "bright_magenta",
+        "bright_cyan",
+        "bright_white",
     }
 )
 

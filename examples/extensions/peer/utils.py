@@ -7,10 +7,11 @@ import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# Import Peer and PeerMessage types
-from .types import Peer, PeerMessage
+if TYPE_CHECKING:
+    from .service import Peer
+    from .types import PeerMessage
 
 # Constants (mirrored from the original implementation)
 # ----------------------------------------------------------------------

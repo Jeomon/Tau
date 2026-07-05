@@ -5249,9 +5249,7 @@ models = [
         name="Z.ai: GLM 4 32B ",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.099, output=0.099, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.099, output=0.099, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=128000,
         max_output_tokens=16384,
@@ -5696,9 +5694,7 @@ models = [
         name="Arcee AI: Maestro Reasoning",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.89, output=3.39, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.89, output=3.39, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=131072,
         max_output_tokens=32000,
@@ -5823,9 +5819,7 @@ models = [
         name="Qwen: Qwen3 235B A22B",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.45, output=1.81, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.45, output=1.81, cache_read=0.0, cache_write=0.0),
         thinking=True,
         context_window=131072,
         max_output_tokens=8192,
@@ -6105,9 +6099,7 @@ models = [
         name="Reka Flash 3",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.09, output=0.19, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.09, output=0.19, cache_read=0.0, cache_write=0.0),
         thinking=True,
         context_window=65536,
         max_output_tokens=65536,
@@ -6307,9 +6299,7 @@ models = [
         name="AionLabs: Aion-RP 1.0 (8B)",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.79, output=1.59, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.79, output=1.59, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=32768,
         max_output_tokens=32768,
@@ -6609,9 +6599,7 @@ models = [
         name="Amazon: Nova Pro 1.0",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.79, output=3.19, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.79, output=3.19, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=300000,
         max_output_tokens=5120,
@@ -6701,9 +6689,7 @@ models = [
         name="TheDrummer: UnslopNemo 12B",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.39, output=0.39, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.39, output=0.39, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=32768,
         max_output_tokens=32768,
@@ -7003,9 +6989,7 @@ models = [
         name="Meta: Llama 3.1 70B Instruct",
         provider="openrouter",
         thinking_format="openrouter",
-        cost=Cost(
-            input=0.39, output=0.39, cache_read=0.0, cache_write=0.0
-        ),
+        cost=Cost(input=0.39, output=0.39, cache_read=0.0, cache_write=0.0),
         thinking=False,
         context_window=131072,
         max_output_tokens=16384,

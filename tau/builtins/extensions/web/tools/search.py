@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from engines import BaseSearchEngine
-from engines import SearchMode as _SearchMode
+from engines import BaseSearchEngine  # type: ignore[import-not-found]
+from engines import SearchMode as _SearchMode  # type: ignore[import-not-found]
 from pydantic import BaseModel, Field
 
 from tau.tool.render import call_line
@@ -42,10 +42,7 @@ class _WebSearchSchema(BaseModel):
     )
     max_results: int = Field(
         default=10,
-        description=(
-            "Results to return (default 10). "
-            "Increase to 20+ for broader coverage."
-        ),
+        description=("Results to return (default 10). Increase to 20+ for broader coverage."),
         examples=[10, 20],
     )
 
@@ -160,7 +157,7 @@ class WebSearchTool(Tool):
         max_results = invocation.params.get("max_results", 10)
 
         if not self._engine.supports(mode):
-            modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
+            modes_list = ", ".join(sorted(m.value for m in self._engine.supported_modes))
             return ToolResult.error(
                 invocation.id,
                 f"The '{self._engine.name}' engine does not support '{mode}' mode. "
@@ -173,13 +170,13 @@ class WebSearchTool(Tool):
             return ToolResult.error(invocation.id, f"Search failed: {e}")
 
         metadata = {
-                "query": query,
-                "mode": str(mode),
-                "result_count": len(results),
-                "max_results": max_results,
-                "results": results,
-                "engine": self._engine.name,
-            }
+            "query": query,
+            "mode": str(mode),
+            "result_count": len(results),
+            "max_results": max_results,
+            "results": results,
+            "engine": self._engine.name,
+        }
 
         if not results:
             return ToolResult.ok(

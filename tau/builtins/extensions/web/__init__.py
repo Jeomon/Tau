@@ -40,9 +40,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from engines import build_engine
-from tools.fetch import WebFetchTool
-from tools.search import WebSearchTool
+from engines import build_engine  # type: ignore[import-not-found]
+from tools.fetch import WebFetchTool  # type: ignore[import-not-found]
+from tools.search import WebSearchTool  # type: ignore[import-not-found]
 
 
 def register(tau) -> None:

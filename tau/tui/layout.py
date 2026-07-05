@@ -203,7 +203,7 @@ class Layout:
             for v, w in fill_vars[1:]:
                 solver.addConstraint((v * base_w == base_var * w) | kiwi.strength.weak)
 
-        total = size_vars[0]
+        total: kiwi.Expression = size_vars[0] + 0
         for v in size_vars[1:]:
             total = total + v
         solver.addConstraint((total == usable) | kiwi.strength.medium)

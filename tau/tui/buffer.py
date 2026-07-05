@@ -156,6 +156,8 @@ class Buffer:
         limit = self.area.right if max_width is None else min(self.area.right, x + max_width)
         col = x
         for cluster in grapheme.graphemes(text):
+            if cluster is None:
+                continue
             w = grapheme_width(cluster)
             if w == 0:
                 continue

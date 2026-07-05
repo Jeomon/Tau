@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from component import _AskUserComponent
-from schema import AskUserParams, normalize_options
+from component import _AskUserComponent  # type: ignore[import-not-found]
+from schema import AskUserParams, normalize_options  # type: ignore[import-not-found]
 
 from tau.tool.render import call_line
 from tau.tool.types import (

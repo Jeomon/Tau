@@ -36,7 +36,23 @@ class _Shades:
 def _row(hexes: str) -> _Shades:
     """Build a shade row from a space-separated string of hex codes (50 -> 900[-950])."""
     rgb = [_hex(h) for h in hexes.split()]
-    return _Shades(*rgb) if len(rgb) == 11 else _Shades(*rgb, None)
+    if len(rgb) == 10:
+        rgb.append(None)  # type: ignore[arg-type]
+    if len(rgb) != 11:
+        raise ValueError(f"Expected 10 or 11 shades, got {len(rgb)}")
+    return _Shades(
+        c50=rgb[0],
+        c100=rgb[1],
+        c200=rgb[2],
+        c300=rgb[3],
+        c400=rgb[4],
+        c500=rgb[5],
+        c600=rgb[6],
+        c700=rgb[7],
+        c800=rgb[8],
+        c900=rgb[9],
+        c950=rgb[10],
+    )
 
 
 class tailwind:

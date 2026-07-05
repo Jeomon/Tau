@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-_EXTENSIONS_DIR = Path(__file__).parents[1] / ".tau" / "extensions"
+_EXTENSIONS_DIR = Path(__file__).parents[1] / "examples" / "extensions"
 if str(_EXTENSIONS_DIR) not in sys.path:
     sys.path.insert(0, str(_EXTENSIONS_DIR))
 

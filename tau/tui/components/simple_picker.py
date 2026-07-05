@@ -90,7 +90,7 @@ def render_picker_cells(
         # Match Component's default render_cells bridge: a line that
         # overflows area.width wraps onto more rows rather than being cut
         # off by parse_ansi_into's max_width bound.
-        for wl in (wrap(line, area.width) if visible_width(line) > area.width else [line]):
+        for wl in wrap(line, area.width) if visible_width(line) > area.width else [line]:
             buf.grow_to(y + 1)
             parse_ansi_into(buf, area.x, y, wl, area.width)
             y += 1

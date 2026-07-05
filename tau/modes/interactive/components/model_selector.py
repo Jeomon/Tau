@@ -255,8 +255,7 @@ class ModelSelector:
 
         # ── Tab bar (modality sections) ────────────────────────────────────────
         titles = [
-            f"[{s.label}]" if i == self._active else s.label
-            for i, s in enumerate(self._sections)
+            f"[{s.label}]" if i == self._active else s.label for i, s in enumerate(self._sections)
         ]
         tabs_buf = Buffer.empty(Rect(0, 0, width, 1))
         Tabs(

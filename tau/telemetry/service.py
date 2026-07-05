@@ -16,7 +16,7 @@ from tau.telemetry.types import InstallTelemetryEvent
 POSTHOG_API_KEY = "phc_uxdCItyVTjXNU0sMPr97dq3tcz39scQNt3qjTYw5vLV"
 POSTHOG_HOST = "https://us.i.posthog.com"
 _REPORTED_VERSION_PATH = CONFIG_DIR_PATH / "telemetry-version"
-_TIMEOUT = 5.0
+_TIMEOUT = 5
 
 
 async def _run_in_daemon_thread(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:

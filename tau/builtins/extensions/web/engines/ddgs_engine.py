@@ -27,7 +27,7 @@ class DDGSearchEngine(BaseSearchEngine):
         region, safe = self._region, self._safesearch
 
         if mode is SearchMode.books:
-            from ddgs import DDGS
+            from ddgs import DDGS  # type: ignore[import-not-found]
 
             raw = await asyncio.to_thread(
                 lambda: DDGS().books(query, max_results=max_results) or []
@@ -43,7 +43,7 @@ class DDGSearchEngine(BaseSearchEngine):
                 for r in raw
             ]
 
-        from asyncddgs import aDDGS
+        from asyncddgs import aDDGS  # type: ignore[import-not-found]
 
         async with aDDGS() as d:
             match mode:
@@ -106,7 +106,7 @@ class DDGSearchEngine(BaseSearchEngine):
                     ]
 
     async def fetch(self, url: str, timeout: int) -> str:
-        from ddgs import DDGS
+        from ddgs import DDGS  # type: ignore[import-not-found]
 
         def _fetch() -> str:
             ddgs = DDGS(timeout=timeout)

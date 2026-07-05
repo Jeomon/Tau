@@ -41,7 +41,11 @@ class Span(Stylize):
 
     @property
     def width(self) -> int:
-        return sum(grapheme_width(g) for g in grapheme.graphemes(self.content))
+        return sum(
+            grapheme_width(cluster)
+            for cluster in grapheme.graphemes(self.content)
+            if cluster is not None
+        )
 
     @staticmethod
     def from_like(value: Span | str) -> Span:

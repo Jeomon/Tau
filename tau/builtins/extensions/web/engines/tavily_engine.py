@@ -22,7 +22,7 @@ class TavilySearchEngine(BaseSearchEngine):
 
     def _get_client(self):
         if self._client is None:
-            from tavily import TavilyClient
+            from tavily import TavilyClient  # type: ignore[import-not-found]
 
             self._client = TavilyClient(api_key=self._api_key)
         return self._client

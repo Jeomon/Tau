@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from schema import AskUserOption
+from schema import AskUserOption  # type: ignore[import-not-found]
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent

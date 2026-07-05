@@ -9,7 +9,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tau.builtins.tools.utils import atomic_write_text, compute_line_hashes, serialize_file_mutation
-from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -222,7 +221,7 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
 _ANCHOR_FORMAT_HINT = (
     "The 'edit' tool takes content-based hashline anchors, not line numbers. Call 'read' "
     "on this file first, then copy the '<line>:<hash>' anchor from its output for the "
-    "first and last line to replace — e.g. start_anchor=\"12:a3f1\", end_anchor=\"14:9c8a\". "
+    'first and last line to replace — e.g. start_anchor="12:a3f1", end_anchor="14:9c8a". '
     "Use the same anchor for both fields on a single-line edit."
 )
 

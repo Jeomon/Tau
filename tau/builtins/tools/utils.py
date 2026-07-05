@@ -5,6 +5,7 @@ Both tools must compute the exact same hash for the exact same line, since
 any state carried over from a prior ``read`` call. Keeping the algorithm in
 one place is what keeps them in agreement.
 """
+
 from __future__ import annotations
 
 import asyncio

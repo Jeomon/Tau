@@ -26,7 +26,7 @@ import re
 import grapheme
 
 from tau.tui.buffer import Buffer, RawWrite
-from tau.tui.style import OSC8_CLOSE, Modifier, Style, style_transition
+from tau.tui.style import OSC8_CLOSE, Color, Modifier, Style, style_transition
 from tau.tui.utils import _ANSI_RE, grapheme_width
 
 _RESET = "\x1b[0m"
@@ -103,7 +103,7 @@ class _SgrState:
             elif n in (38, 48, 58) and i + 1 < len(nums):
                 target = nums[i + 1]
                 if target == 5 and i + 2 < len(nums):
-                    color = nums[i + 2]
+                    color: Color = nums[i + 2]
                     i += 2
                 elif target == 2 and i + 4 < len(nums):
                     color = (nums[i + 2], nums[i + 3], nums[i + 4])
@@ -122,10 +122,22 @@ class _SgrState:
 
 
 _BASE_NAMES = {
-    30: "black", 31: "red", 32: "green", 33: "yellow",
-    34: "blue", 35: "magenta", 36: "cyan", 37: "white",
-    90: "bright_black", 91: "bright_red", 92: "bright_green", 93: "bright_yellow",
-    94: "bright_blue", 95: "bright_magenta", 96: "bright_cyan", 97: "bright_white",
+    30: "black",
+    31: "red",
+    32: "green",
+    33: "yellow",
+    34: "blue",
+    35: "magenta",
+    36: "cyan",
+    37: "white",
+    90: "bright_black",
+    91: "bright_red",
+    92: "bright_green",
+    93: "bright_yellow",
+    94: "bright_blue",
+    95: "bright_magenta",
+    96: "bright_cyan",
+    97: "bright_white",
 }
 
 
@@ -187,9 +199,7 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     return col
 
 
-def row_to_ansi(
-    buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: bool = True
-) -> str:
+def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: bool = True) -> str:
     """Flatten one ``Buffer`` row back into an ANSI string (skip cells excluded).
 
     Double-width glyphs occupy two cells (the glyph, then a continuation
