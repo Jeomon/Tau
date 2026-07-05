@@ -51,9 +51,9 @@ def test_column_renders_mixed_native_children() -> None:
     assert lines[1] == "static row"
 
 
-def test_box_wraps_overflow_from_an_ansi_producing_function() -> None:
+def test_box_composes_a_buffer_native_child() -> None:
     content = "boxed-" + ("x" * 40) + "-tail"
-    box = Box(lambda _width: [content], padding_x=1)
+    box = Box(StaticComponent([content]), padding_x=1)
 
     lines = _rstrip_all(_render_via_cells(box, 20))
 

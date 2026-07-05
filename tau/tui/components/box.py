@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
@@ -17,18 +14,17 @@ class Box(Component):
 
     Usage::
 
-        box = Box(my_component.render, padding_x=1, padding_y=0, bg_style=theme.selected)
-        lines = box.render(width)
+        box = Box(my_component, padding_x=1, padding_y=0, bg_style=theme.selected)
     """
 
     def __init__(
         self,
-        render_fn: Callable[[int], list[str]],
+        child: Component,
         padding_x: int = 0,
         padding_y: int = 0,
         bg_style: Style | None = None,
     ) -> None:
-        self._render_fn = render_fn
+        self._child = child
         self._padding_x = max(0, padding_x)
         self._padding_y = max(0, padding_y)
         self._bg_style = bg_style
@@ -41,6 +37,7 @@ class Box(Component):
 
     def invalidate(self) -> None:
         self._cache = None
+        self._child.invalidate()
 
     def set_bg_style(self, bg_style: Style | None) -> None:
         self._bg_style = bg_style
@@ -64,8 +61,11 @@ class Box(Component):
                 buf.set(area.x + x, area.y + y, cell.symbol, cell.style)
         return rows
 
-    def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
-        return False
+    def handle_input(self, event: InputEvent) -> bool:
+        return self._child.handle_input(event)
+
+    def dispose(self) -> None:
+        self._child.dispose()
 
     # -------------------------------------------------------------------------
     # Internal
@@ -73,13 +73,16 @@ class Box(Component):
 
     def _build(self, width: int) -> Buffer:
         inner_w = max(1, width - self._padding_x * 2)
-        raw = self._render_fn(inner_w)
+        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
+        inner_rows = self._child.render_cells(Rect(0, 0, inner_w, 0), inner)
         buf = Buffer.empty(Rect(0, 0, width, 0))
-
-        y = self._padding_y
-        for line in raw:
-            y += parse_ansi_wrapped_into(buf, self._padding_x, y, line, inner_w)
-        buf.grow_to(y + self._padding_y)
+        buf.grow_to(self._padding_y + inner_rows + self._padding_y)
+        buf.blit(
+            inner,
+            self._padding_x,
+            self._padding_y,
+            Rect(0, 0, inner_w, inner_rows),
+        )
 
         # Apply after content so Style.patch merges the background behind
         # whatever fg/modifiers the content itself set, instead of a plain

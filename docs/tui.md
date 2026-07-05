@@ -109,6 +109,8 @@ must respect the provided `Rect`.
 - `Columns` creates multi-line fixed and flexible columns.
 - `Rows` distributes a fixed terminal height across children.
 - `Constrained` places a child at an absolute or percentage width.
+- `Box` wraps a child `Component` with horizontal/vertical padding and an
+  optional background `Style`.
 
 ## Focus and Input
 
