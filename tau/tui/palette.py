@@ -1,7 +1,7 @@
-"""Named color palettes, mirroring ratatui's ``style::palette`` module.
+"""Named color palettes.
 
 Access as ``tailwind.SLATE.c500`` / ``material.INDIGO.c500`` — same shape as
-ratatui's ``palette::tailwind::SLATE.c500``. Values are ``(r, g, b)``
+the Tailwind Slate 500 shade. Values are ``(r, g, b)``
 truecolor triples, i.e. already a valid ``style.Color``.
 
 Not exhaustive — Tailwind ships 22 families x 11 shades; this covers the

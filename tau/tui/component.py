@@ -31,7 +31,7 @@ class Component(ABC):
         ``area.y + n - 1``; ``Buffer.set``/``set_string`` silently no-op on
         an out-of-bounds row rather than growing it themselves (growing
         implicitly on every write would be surprising for the fixed-size
-        buffers the ratatui-style widgets in ``tui/widgets/`` render into).
+        buffers the grid widgets in ``tui/widgets/`` render into).
         """
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002

@@ -1,9 +1,9 @@
-"""Canvas: arbitrary point/line plotting, mirroring ratatui's ``widgets::canvas::Canvas``.
+"""Canvas: arbitrary point/line plotting.
 
-Six ``Marker`` styles, matching ratatui: ``DOT``/``BLOCK``/``BAR`` place one
+Six ``Marker`` styles: ``DOT``/``BLOCK``/``BAR`` place one
 glyph per terminal cell; ``HALF_BLOCK`` (1x2), ``QUADRANT`` (2x2), and
 ``BRAILLE`` (2x4, default, highest resolution) pack a subpixel grid into
-each cell. Not built: ratatui's ``Sextant``/``Octant`` markers — verified
+each cell. Not built: ``Sextant``/``Octant`` markers — verified
 there's no reliable source for their exact Unicode codepoint layout (unlike
 Braille/Quadrant, which follow documented, checkable tables).
 

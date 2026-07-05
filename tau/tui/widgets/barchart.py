@@ -1,4 +1,4 @@
-"""BarChart: vertical bars with labels, mirroring ratatui's ``widgets::BarChart``.
+"""BarChart: vertical bars with labels.
 
 Height uses full eighth-block resolution (``symbols.FILL_VERTICAL``). Bars
 can be flat (``bars=[...]``, unchanged from before) or clustered into

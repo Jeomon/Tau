@@ -1,4 +1,4 @@
-"""Table/TableState: rows/columns with a header, mirroring ratatui's ``widgets::Table``.
+"""Table/TableState: rows/columns with a header.
 
 Column sizing is delegated to ``Layout`` (real ``Flex`` support, one solver
 instead of two) rather than the hand-rolled width math this used to carry.

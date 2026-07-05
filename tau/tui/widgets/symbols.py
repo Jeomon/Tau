@@ -1,4 +1,4 @@
-"""Character sets shared by widgets, mirroring ratatui's ``symbols`` module.
+"""Character sets shared by widgets.
 
 Keeping these as named sets (rather than hardcoding a glyph per widget, as
 ``components/box.py``'s single ``─`` divider does today) is what lets
@@ -43,7 +43,7 @@ class ScrollbarSet:
 SCROLLBAR_VERTICAL = ScrollbarSet(track="│", thumb="█", begin="▲", end="▼")
 SCROLLBAR_HORIZONTAL = ScrollbarSet(track="─", thumb="█", begin="◄", end="►")
 
-# Braille dot bit layout (2 cols x 4 rows per cell), matching ratatui's Canvas:
+# Braille dot bit layout (2 cols x 4 rows per cell):
 # each cell packs 8 subpixels into one U+28xx codepoint.
 BRAILLE_BASE = 0x2800
 BRAILLE_BITS = (

@@ -99,7 +99,7 @@ class Box(Component):
 class DynamicBorder(Component):
     """Full-width horizontal rule that adapts to the terminal width.
 
-    Renders via the ratatui-style ``Block`` widget directly (a Buffer with
+    Renders via the grid-based ``Block`` widget directly (a Buffer with
     only the top border enabled draws exactly this rule) — Buffer-native,
     no ANSI round-trip.
     """

@@ -1,4 +1,4 @@
-"""Frame / BufferedTerminal: the double-buffered render loop, mirroring ratatui's ``Terminal<B>``.
+"""Frame / BufferedTerminal: the double-buffered render loop.
 
 This is the piece that ties the rest of the render layer together:
 ``BufferedTerminal.draw()`` hands a ``Frame`` to a callback, the callback
@@ -45,10 +45,10 @@ class Fixed:
 class Inline:
     """Renders ``height`` rows into the normal scrollback at the current cursor row.
 
-    Mirrors ratatui's ``Viewport::Inline`` — everything above the viewport
+    Everything above the viewport
     stays real terminal scrollback, matching what ``tui.py``'s existing
     ``Renderer`` already does by hand for Tau's actual chat UI. Simplified
-    versus ratatui here: the cursor row is fixed at construction rather than
+    The cursor row is fixed at construction rather than
     dynamically tracked, so it doesn't auto-scroll the terminal to keep the
     viewport visible as content grows — the caller is responsible for that.
     """
@@ -62,7 +62,7 @@ Viewport = Fullscreen | Fixed | Inline
 
 @dataclass(slots=True)
 class Frame:
-    """The per-draw-call handle widgets render into; mirrors ratatui's ``Frame``."""
+    """The per-draw-call handle widgets render into."""
 
     buffer: Buffer
     area: Rect
@@ -76,7 +76,7 @@ class Frame:
 
 
 class BufferedTerminal:
-    """Owns two ``Buffer``s and diffs them each frame, mirroring ratatui's ``Terminal<B>``."""
+    """Own two ``Buffer`` objects and diff them each frame."""
 
     def __init__(self, backend: Backend, viewport: Viewport | None = None) -> None:
         self._backend = backend
@@ -106,7 +106,7 @@ class BufferedTerminal:
 
     def _resize_if_needed(self) -> None:
         if isinstance(self._viewport, Fixed):
-            return  # "Fixed viewports are not automatically resized" (ratatui docs)
+            return  # Fixed viewports are not automatically resized.
         size = self._compute_area(self._backend.size())
         if size != self._buffers[self._current].area:
             self._buffers = [Buffer.empty(size), Buffer.empty(size)]
@@ -135,7 +135,7 @@ class BufferedTerminal:
 
 # ── ScrollbackTerminal ───────────────────────────────────────────────────────
 #
-# BufferedTerminal/Inline above mirrors ratatui directly: a fixed-size
+# BufferedTerminal/Inline uses a fixed-size
 # viewport, addressed with absolute cursor moves via Backend.draw(). That
 # model cannot represent Tau's actual live UI — chat content grows without
 # bound and old rows scroll into the terminal's real scrollback history,
@@ -174,7 +174,7 @@ def _row_equal(prev: Buffer, cur: Buffer, y: int, width: int) -> bool:
 
 
 def _diff_row_cells(prev: Buffer, cur: Buffer, y: int, width: int) -> str:
-    """Ratatui ``Buffer::diff`` for one terminal row, sourced from real Cells.
+    """Compute a cell-buffer diff for one terminal row.
 
     Emits the minimal escapes to repaint just the cells that changed: an
     absolute column move only when the next write isn't immediately adjacent

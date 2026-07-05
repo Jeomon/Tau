@@ -32,6 +32,14 @@ from tau.tui import (
 | Overlays | `OverlayOptions`, `OverlayHandle` |
 | Styling | Theme dataclasses, color helpers, `render_markdown` |
 
+### Markdown math
+
+`render_markdown` converts inline (`$...$`) and display (`$$...$$`) LaTeX math
+to terminal-readable Unicode text through `pylatexenc`. Display math is placed
+on separate lines. Code spans and fenced code blocks retain their original
+LaTeX source. This is a readable plain-text representation, not fully typeset
+mathematical layout.
+
 ## Minimal Application
 
 ```python

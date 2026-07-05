@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
@@ -8,6 +9,11 @@ from urllib.parse import urlsplit
 
 from mistletoe.base_renderer import BaseRenderer
 from mistletoe.block_token import Document
+from pygments import highlight as _pyg_highlight
+from pygments.formatters import Terminal256Formatter
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
+from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped]
 
 from tau.tui.style import apply_style
 from tau.tui.utils import RESET, visible_width, wrap
@@ -16,12 +22,83 @@ if TYPE_CHECKING:
     from tau.tui.theme import MarkdownTheme
 
 
-# ── Syntax highlighting (pygments) ──────────────────────────────────────────────
+# ── LaTeX math ────────────────────────────────────────────────────────────────
 
-from pygments import highlight as _pyg_highlight
-from pygments.formatters import Terminal256Formatter
-from pygments.lexers import get_lexer_by_name
-from pygments.util import ClassNotFound
+_DISPLAY_MATH_RE = re.compile(
+    r"(?<!\\)\$\$(?!\s)(.+?)(?<![\s\\])\$\$",
+    re.DOTALL,
+)
+_INLINE_MATH_RE = re.compile(
+    r"(?<![\\$])\$(?![\s$])(.+?)(?<![\s\\])\$(?![\d$])",
+    re.DOTALL,
+)
+_SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
+_SUPERSCRIPTS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
+_SUBSCRIPTS = str.maketrans(
+    "0123456789+-=()aehijklmnoprstuvx",
+    "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ",
+)
+
+
+def _convert_script(marker: str, value: str) -> str:
+    """Convert a LaTeX script body to Unicode where suitable glyphs exist."""
+    plain = LatexNodes2Text(math_mode="text").latex_to_text(f"${value}$").strip()
+    table = _SUPERSCRIPTS if marker == "^" else _SUBSCRIPTS
+    converted = plain.translate(table)
+    supported = all(ord(char) in table for char in plain)
+    if supported:
+        return converted
+    # Unicode has no general superscript alphabet and no superscript infinity.
+    # Keep explicit notation and separate it from a following expression.
+    return f"{marker}{plain}{' ' if marker == '^' else ''}"
+
+
+def _unicode_scripts(expression: str) -> str:
+    """Replace braced and single-character LaTeX scripts with readable Unicode."""
+
+    def replace(match: re.Match[str]) -> str:
+        marker = match.group(1) or match.group(3)
+        value = match.group(2) or match.group(4)
+        return _convert_script(marker, value)
+
+    # Keep a converted Unicode script from becoming part of the preceding
+    # control-word name (for example ``\sumₙ``). An empty group terminates the
+    # LaTeX macro without changing its rendered output.
+    expression = re.sub(r"(\\[A-Za-z]+)(?=[_^])", r"\1{}", expression)
+    return _SCRIPT_RE.sub(replace, expression)
+
+
+def _normalize_math_spacing(text: str) -> str:
+    """Add terminal-friendly spacing around binary relation operators."""
+    text = re.sub(r"\s*(≤|≥|≈|≠|=)\s*", r" \1 ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+@lru_cache(maxsize=512)
+def _latex_math_to_text(expression: str) -> str:
+    """Convert one LaTeX math expression to terminal-readable Unicode text."""
+    try:
+        expression = _unicode_scripts(expression)
+        converted = LatexNodes2Text(math_mode="text").latex_to_text(f"${expression}$")
+    except Exception:
+        return expression
+    converted = " ".join(line.strip() for line in converted.splitlines() if line.strip())
+    return _normalize_math_spacing(converted) or expression
+
+
+def _render_latex_math(text: str) -> str:
+    """Render Markdown math delimiters without touching ordinary dollar amounts."""
+
+    def display(match: re.Match[str]) -> str:
+        return f"\n{_latex_math_to_text(match.group(1))}\n"
+
+    def inline(match: re.Match[str]) -> str:
+        return _latex_math_to_text(match.group(1))
+
+    return _INLINE_MATH_RE.sub(inline, _DISPLAY_MATH_RE.sub(display, text))
+
+
+# ── Syntax highlighting (pygments) ──────────────────────────────────────────────
 
 
 @lru_cache(maxsize=8)
@@ -352,7 +429,7 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                parts.append(node.content)
+                parts.append(_render_latex_math(node.content))
             elif name == "LineBreak":
                 soft = getattr(node, "soft", True)
                 parts.append("\n" if not soft or self.preserve_soft_breaks else " ")

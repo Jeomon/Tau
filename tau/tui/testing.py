@@ -13,7 +13,7 @@ from tau.tui.buffer import Buffer
 def assert_buffer_eq(actual: Buffer, expected: Buffer) -> None:
     """Assert two buffers are identical, raising with a readable per-cell diff if not.
 
-    Mirrors ratatui's ``assert_buffer_eq!`` — the failure message shows both
+    The failure message shows both
     buffers' text content plus the exact ``(x, y)`` cells that differ,
     instead of a single opaque ``!=``.
     """

@@ -2,7 +2,7 @@
 
 Consolidates what used to be ~9 near-identical hand-rolled implementations
 (ExtensionSelector, ThemeSelector, ThinkingSelector, VoiceSelector,
-OAuthSelector, CommandPalette, ...) onto the ratatui-style ``List``/
+OAuthSelector, CommandPalette, ...) onto the grid-based ``List``/
 ``ListState`` widgets (``tau/tui/widgets/list.py``) for the scroll-window
 slicing — ``List.render``'s ``state.offset``/``area.height`` logic replaces
 each selector's own ``range(start, start + visible)`` loop.
@@ -27,7 +27,7 @@ one. Keeping ``highlight_style=Style()`` (a true no-op patch) and
 ``highlight_symbol=""`` sidesteps that; the "> " marker and label/suffix
 colors are just spans in the row's own Line, exactly as before.
 
-Known limitation: a single ``ListItem`` is always one row (ratatui's List
+Known limitation: a single ``ListItem`` is always one row (the List
 has no concept of a wrapped multi-row item). The legacy ``render(width)``
 path let an overlong row (long label + description, e.g.
 ThinkingSelector's) wrap onto extra rows via the generic wrap-aware

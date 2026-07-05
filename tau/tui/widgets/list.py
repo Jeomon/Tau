@@ -1,8 +1,8 @@
-"""List/ListState: scrollable item list, mirroring ratatui's ``widgets::List``.
+"""List/ListState: scrollable item list.
 
 ``components/select_list.py``'s ``SelectList`` bakes the item model, fuzzy
 filter, key handling, *and* rendering into one class. Here rendering and
-selection state are split the way ratatui splits them: ``ListState`` is
+selection state are split cleanly: ``ListState`` is
 just data (``selected``, ``offset``) the caller owns and mutates on key
 events; ``List`` is a stateless renderer for a given item slice + that state.
 """

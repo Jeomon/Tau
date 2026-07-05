@@ -1,4 +1,4 @@
-"""Clear: blank a Rect before an overlay draws over it, mirroring ratatui's ``widgets::Clear``.
+"""Clear: blank a Rect before an overlay draws over it.
 
 Tau's overlay system (``TUI.set_widget`` in ``tui.py``) already clears space
 for popovers ad hoc; this is the same operation as a reusable widget so any

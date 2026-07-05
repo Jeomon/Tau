@@ -1,4 +1,4 @@
-"""Bridge a ratatui-style Widget into the Component tree.
+"""Bridge a grid-based Widget into the Component tree.
 
 A ``Widget`` (``tau/tui/widget.py``) paints into a ``Rect`` of a shared
 ``Buffer`` directly, with no owned return value — this wraps one as a

@@ -1,4 +1,4 @@
-"""Structured styling: the Style/Modifier/Color layer, mirroring ratatui's ``style`` module.
+"""Structured styling: the Style/Modifier/Color layer.
 
 The rest of the TUI (``utils.py`` SGR constants, ``_AnsiStateTracker``) bakes
 style directly into ANSI-laden strings and re-parses it back out for diffing.
@@ -18,7 +18,7 @@ class _ResetColor:
     """Sentinel: explicitly reset to the terminal's default color.
 
     Distinct from ``None`` (which means "inherit whatever this patches
-    onto" — see ``Style.patch``). Mirrors ratatui's ``Color::Reset``: a
+    onto" — see ``Style.patch``). A
     style can now *force* the default color back on, not just leave it
     untouched. Singleton — use the module-level ``RESET`` instance.
     """
@@ -62,7 +62,7 @@ _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 def parse_color(spec: str) -> Color:
     """Parse a color from ``"#rrggbb"``, a named color, ``"reset"``, or a bare palette index.
 
-    Mirrors ratatui's ``Color::from_str`` — for config-driven theming
+    For config-driven theming,
     (e.g. a theme file specifying colors as plain strings) instead of
     requiring Python code to construct tuples/lookup names by hand.
     """
@@ -190,7 +190,7 @@ class Style:
     def patch(self, other: Style) -> Style:
         """Layer ``other`` on top of ``self`` (``other`` wins where it sets something).
 
-        Mirrors ratatui's ``Style::patch``: colors/link are simple overrides,
+        Colors/link are simple overrides,
         modifiers are bitwise so ``other`` can turn an inherited modifier back
         off via ``sub_modifier`` without needing to know what ``self`` set.
         """
@@ -219,7 +219,7 @@ class Style:
             out += f"\x1b]8;;{self.link}\x1b\\"
         return out
 
-    # -- fluent builders (mirrors ratatui's Stylize trait) ----------------------
+    # -- fluent builders --------------------------------------------------------
 
     def with_fg(self, color: Color) -> Style:
         return replace(self, fg=color)
@@ -296,7 +296,7 @@ def apply_style(style: Style, text: str) -> str:
 class Stylize:
     """Mixin giving any ``.patch_style(Style) -> Self`` type the same fluent sugar as ``Style``.
 
-    Mirrors ratatui's ``Stylize`` trait, which lets ``"hi".red().bold()``
+    Allows fluent expressions such as ``"hi".red().bold()``
     work directly on strings/spans instead of requiring a separately
     constructed ``Style``. ``Span``/``Line``/``Text`` mix this in; each only
     has to implement ``patch_style``.

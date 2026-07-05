@@ -1,4 +1,4 @@
-"""Gauge/LineGauge: progress indicators, mirroring ratatui's ``widgets::Gauge``/``LineGauge``.
+"""Gauge/LineGauge: progress indicators.
 
 ``Gauge`` fills a full-height bar one eighth-block at a time and centers a
 percentage label over it. ``LineGauge`` is the compact single-row form

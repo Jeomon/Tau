@@ -1,6 +1,6 @@
 """Rect: the coordinate type widgets render into.
 
-Mirrors ratatui's ``Rect`` — layout code hands a widget a ``Rect`` describing
+Layout code hands a widget a ``Rect`` describing
 its slice of the terminal grid; the widget never sees the full screen.
 """
 
@@ -104,7 +104,7 @@ class Rect:
 class Position:
     """A bare (x, y) point — distinct from Rect, used for cursor placement.
 
-    Mirrors ratatui's ``Position`` (what ``Frame::set_cursor_position`` takes).
+    Represents the position accepted by ``Frame.set_cursor_position``.
     Tau's ``CURSOR_MARKER`` APC-sequence hack in ``utils.py`` is the ANSI-string
     version of the same concept.
     """

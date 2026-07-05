@@ -1,11 +1,11 @@
-"""Paragraph: wrapped/scrollable styled text, mirroring ratatui's ``widgets::Paragraph``.
+"""Paragraph: wrapped/scrollable styled text.
 
 Wrapping runs first (turning each ``Text`` line into 0+ display lines while
 preserving per-span style across the break), then ``scroll`` clips the
 result — vertically by dropping leading display lines, horizontally by
 slicing columns out of what's left. This ordering (wrap, then scroll) is
 what makes ``scroll`` behave like a viewport rather than a raw offset into
-the unwrapped text, matching ratatui.
+the unwrapped text.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ class Paragraph:
         return len(self._wrapped_lines(width))
 
     def line_width(self) -> int:
-        """Widest line in the unwrapped source text (ratatui's ``Paragraph::line_width``)."""
+        """Return the widest line in the unwrapped source text."""
         return self.text.width
 
     def render(self, area: Rect, buf: Buffer) -> None:

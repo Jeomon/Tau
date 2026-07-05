@@ -1,4 +1,4 @@
-"""Backend: what a Terminal draws through, mirroring ratatui's ``backend`` module.
+"""Backend: what a Terminal draws through.
 
 ``Backend`` is a ``Protocol`` (structural, no inheritance needed) so a
 render loop can target either a real terminal or an in-memory one without

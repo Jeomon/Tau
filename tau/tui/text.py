@@ -1,4 +1,4 @@
-"""Span / Line / Text: the content layer, mirroring ratatui's ``text`` module.
+"""Span / Line / Text: the content layer.
 
 Composition is fixed: a ``Text`` holds ``Line``s, a ``Line`` holds ``Span``s,
 a ``Span`` is one run of text with one ``Style``. Style at each level is a
@@ -56,8 +56,8 @@ class Span(Stylize):
 class Masked:
     """A value that renders as a repeated mask glyph but measures/edits as itself.
 
-    Mirrors ratatui's ``text::Masked`` — the one gap flagged when comparing
-    against ``TextInput``, which has no password-style masking today.
+    Masks text content while retaining its display width. ``TextInput`` has
+    no password-style masking today.
     ``.to_span()`` is what a widget actually renders; ``.value`` stays the
     real content for callers that need it (e.g. to submit the real text).
     """

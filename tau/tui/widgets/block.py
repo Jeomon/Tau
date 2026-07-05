@@ -1,4 +1,4 @@
-"""Block: bordered/titled container, mirroring ratatui's ``widgets::Block``.
+"""Block: bordered/titled container.
 
 A Block never wraps another widget by inheritance — it renders its own
 border into the outer ``Rect``, then callers ask it for ``.inner(area)`` (a

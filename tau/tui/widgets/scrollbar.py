@@ -1,4 +1,4 @@
-"""Scrollbar/ScrollbarState, mirroring ratatui's ``widgets::Scrollbar``.
+"""Scrollbar/ScrollbarState widgets.
 
 Renders into a single-column (vertical) or single-row (horizontal) strip
 of a ``Rect`` — typically the last column/row of a panel next to whatever

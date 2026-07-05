@@ -55,11 +55,11 @@ class SelectList[T](Component):
     - Escape fires on_dismiss.
     - Shows a scroll indicator when items overflow the viewport.
 
-    Rendering is built on the ratatui-style ``List``/``ListState`` widgets
+    Rendering is built on the grid-based ``List``/``ListState`` widgets
     (``tau/tui/widgets/list.py``): selection/scroll-offset state lives in a
     real ``ListState``, and each row's two-column label/description layout
     is two ``Span``s in a ``ListItem``'s ``Line``. The scroll "N more"
-    indicators aren't part of ``List`` itself (ratatui's List has no such
+    indicators aren't part of ``List`` itself (it has no such
     concept) — they're rendered as their own rows above/below it, same as
     before.
 

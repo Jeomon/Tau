@@ -1,10 +1,10 @@
-"""Widget / StatefulWidget: the render contract, mirroring ratatui's ``Widget`` trait.
+"""Widget / StatefulWidget: the render contract.
 
 Rust's ``Widget::render(self, area, buf)`` consumes ``self`` because a widget
 is a one-shot draw *command*, not a thing you hold onto. Python has no
 ownership to enforce that, and Tau's components are already long-lived
 mutable objects (``SelectList`` keeps its own selection index, ``TextInput``
-its own cursor) — closer to ratatui's retained ``StatefulWidget`` split than
+its own cursor) — a retained ``StatefulWidget`` split rather than
 its default immediate-mode ``Widget``. These protocols name both shapes
 structurally (``Protocol``, so nothing has to inherit from them) rather than
 picking one and forcing a rewrite.
@@ -25,7 +25,7 @@ class Widget(Protocol):
     Structurally close to ``Component.render_cells(area, buf)``, but writes
     into a caller-supplied ``Buffer`` with no owned return value — composition
     happens by writing into non-overlapping ``Rect``s of the same ``Buffer``,
-    used by the ratatui-style widgets in ``tui/widgets/`` rather than the
+    used by the grid widgets in ``tui/widgets/`` rather than the
     ``Component`` tree directly (see ``widget_bridge.py`` for the adapter
     between the two).
     """
@@ -45,5 +45,5 @@ class StatefulWidget(Protocol):
 
 
 def render_widget(widget: Widget, area: Rect, buf: Buffer) -> None:
-    """Equivalent of ratatui's ``Frame::render_widget`` — a naming anchor for the call site."""
+    """Render a widget into a frame buffer."""
     widget.render(area, buf)

@@ -149,6 +149,39 @@ class TestInlineFormatting:
         assert "\x1b[" in raw
 
 
+class TestLatexMath:
+    def test_inline_math_converts_to_unicode_text(self):
+        assert plain(r"Euler showed that $\pi^2 \le 10$.") == ["Euler showed that π² ≤ 10."]
+
+    def test_display_math_renders_on_separate_line(self):
+        lines = plain(r"Using Euler: $$\pi^2 = 6 \sum_{n=1}^{\infty} \frac{1}{n^2}$$ Therefore.")
+        assert lines == [
+            "Using Euler: ",
+            "π² = 6 ∑ₙ₌₁^∞ 1/n²",
+            " Therefore.",
+        ]
+
+    def test_multiple_math_expressions(self):
+        combined = "\n".join(
+            plain(
+                r"$\sum_{n=1}^{\infty} \frac{1}{n^2} \le \frac{5}{3}$, "
+                r"so $\pi^2 \le 10$."
+            )
+        )
+        assert "∑ₙ₌₁^∞ 1/n² ≤ 5/3" in combined
+        assert "π² ≤ 10" in combined
+
+    def test_inline_code_is_not_converted(self):
+        assert plain(r"Use `$\pi^2$` literally.") == [r"Use $\pi^2$ literally."]
+
+    def test_fenced_code_is_not_converted(self):
+        combined = "\n".join(plain("```tex\n$\\pi^2 \\le 10$\n```"))
+        assert r"$\pi^2 \le 10$" in combined
+
+    def test_currency_is_not_treated_as_math(self):
+        assert plain("It costs $5 and then $10.") == ["It costs $5 and then $10."]
+
+
 class TestLinks:
     def test_link_text_rendered(self):
         lines = plain("[click here](https://example.com)")

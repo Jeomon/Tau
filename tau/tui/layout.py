@@ -1,4 +1,4 @@
-"""Layout: split one Rect into many, mirroring ratatui's ``layout`` module.
+"""Layout: split one Rect into many.
 
 Unlike ``component.py``'s ``Columns``/``Rows`` (which compute sizes *and*
 render children in the same method), ``Layout.split(area)`` only computes
@@ -12,7 +12,7 @@ are ``STRONG`` preferences; the "sizes sum to the available space" rule is
 ``MEDIUM`` (yields if the strong preferences don't fit); Fill/Min/Max
 segments splitting leftover space proportionally is ``WEAK`` (lowest
 priority — this is a defensible priority scheme, not a claim of matching
-ratatui's own undocumented internal strengths exactly). Leftover-space
+the solver's undocumented internal strengths exactly). Leftover-space
 *placement* (``Flex``) stays a separate closed-form step below — it's a
 simple positional rule per variant, not something a constraint solver adds
 value to.

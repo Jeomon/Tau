@@ -1,9 +1,9 @@
-"""Monthly: a month calendar grid, mirroring ratatui's ``widgets::calendar::Monthly``.
+"""Monthly: a month calendar grid.
 
 Per-date styling is pluggable via ``DateStyler`` (a structural ``Protocol``,
-matching ratatui's trait) rather than the single ``highlighted_days: set[int]``
+matching the rendering protocol) rather than the single ``highlighted_days: set[int]``
 this used to carry — ``CalendarEventStore`` is the built-in dict-backed
-implementation, same as ratatui's.
+implementation.
 """
 
 from __future__ import annotations

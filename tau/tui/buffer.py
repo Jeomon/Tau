@@ -1,4 +1,4 @@
-"""Buffer / Cell: the grid widgets render into, mirroring ratatui's ``buffer`` module.
+"""Buffer / Cell: the grid widgets render into.
 
 This is the piece that was missing: legacy components returned
 ``list[str]`` (ANSI baked into the string), and the renderer's ``_diff_row``
@@ -83,7 +83,7 @@ class Buffer:
     area: Rect
     content: list[Cell] = field(default_factory=list)
     # Set by whichever component owns the current text cursor (e.g. a
-    # focused input) — mirrors ratatui's Frame.cursor_position. Each
+    # focused input). Each
     # component that needs cursor placement (e.g. TextInput) sets this
     # directly in its own render_cells.
     cursor_position: Position | None = None
@@ -150,7 +150,7 @@ class Buffer:
         accent or a ZWJ emoji sequence lands in one cell instead of getting
         split across several. Double-width clusters occupy an extra
         continuation cell (empty symbol) so column math stays exact,
-        matching ratatui's ``set_stringn``.
+        while respecting the requested width.
         """
         limit = self.area.right if max_width is None else min(self.area.right, x + max_width)
         col = x
@@ -222,7 +222,7 @@ class Buffer:
     def diff(self, other: Buffer) -> list[tuple[int, int, Cell]]:
         """Return the ``(x, y, cell)`` triples where ``other`` differs from ``self``.
 
-        Both buffers must share the same area. Mirrors ratatui's
+        Both buffers must share the same area. Uses
         ``Buffer::diff``: a run of cells is invalidated one extra step past
         any cell whose glyph width changed, so a shrinking/growing
         double-width glyph never leaves a stale trailing cell on screen.

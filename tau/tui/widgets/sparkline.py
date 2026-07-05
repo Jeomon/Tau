@@ -1,4 +1,4 @@
-"""Sparkline: a compact trend line, mirroring ratatui's ``widgets::Sparkline``.
+"""Sparkline: a compact trend line.
 
 Uses the same eighth-block vertical stacking as ``BarChart`` across the
 full ``area.height`` (not just a single row), plus ``direction`` — which

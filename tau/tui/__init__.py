@@ -122,7 +122,7 @@ __all__ = [
     "InlineSelector",
     "Box",
     "DynamicBorder",
-    # Buffer/Cell/Rect/Style/Widget (ratatui-style render layer)
+    # Buffer/Cell/Rect/Style/Widget (grid render layer)
     "Rect",
     "Position",
     "Buffer",
@@ -149,7 +149,7 @@ __all__ = [
     "Fullscreen",
     "Fixed",
     "Inline",
-    # Layout (ratatui-style constraint solver)
+    # Layout constraint solver
     "Layout",
     "Constraint",
     "Direction",

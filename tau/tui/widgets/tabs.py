@@ -1,6 +1,6 @@
 """Tabs: a horizontal strip of titles with one highlighted.
 
-Mirrors ratatui's ``widgets::Tabs``.
+Supports styled tab titles, selection, dividers, and padding.
 """
 
 from __future__ import annotations

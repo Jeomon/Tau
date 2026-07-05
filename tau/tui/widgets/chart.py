@@ -1,4 +1,4 @@
-"""Chart: axis-based line/scatter plotting, mirroring ratatui's ``widgets::Chart``.
+"""Chart: axis-based line/scatter plotting.
 
 Distinct from ``Canvas`` (arbitrary shapes at arbitrary coordinates): ``Chart``
 is specifically "plot labeled ``Dataset``s against X/Y axes with a legend" —

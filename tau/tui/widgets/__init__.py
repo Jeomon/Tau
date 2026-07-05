@@ -1,8 +1,7 @@
 """Concrete widgets built on the Buffer/Rect/Widget render layer (see ``tau.tui.widget``).
 
-Ratatui itself splits the ``Widget`` trait (its ``ratatui-core`` crate) from
-its widget library (``ratatui-widgets``); this package is that split's Tau
-counterpart. Everything here writes into a ``Buffer`` via ``Rect`` — none of
+The core rendering contract is separate from this widget library. Everything
+here writes into a ``Buffer`` via ``Rect`` — none of
 it touches ``Component``/``list[str]`` rendering in ``tau.tui.component``.
 
 Exports are lazy (see ``tau.tui.__init__`` for why): nothing is imported

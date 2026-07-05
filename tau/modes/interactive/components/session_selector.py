@@ -315,7 +315,7 @@ class ResumeSelector:
             # Each session is 2 content rows (name, meta) plus a blank
             # separator between entries — never after the last one in the
             # window. Built as a flat run of ListItems (one row per
-            # ListItem, matching ratatui's List); only "name" rows are ever
+            # ListItem); only "name" rows are ever
             # the selected one, so state.selected always points at a
             # 3k-th item within this windowed slice.
             list_items: list[ListItem] = []
