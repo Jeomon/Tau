@@ -923,17 +923,6 @@ class MessageList(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def all_lines(self, width: int) -> list[str]:
-        return self._render_blocks(width)
-
-    def render(self, width: int) -> list[str]:
-        # In scrollback mode the terminal's own buffer handles scrolling.
-        # Return all rendered lines without any clipping or top-padding so that
-        # (a) no blank lines appear above content when the list is short, and
-        # (b) old messages naturally flow into the terminal's scrollback buffer
-        #     as new content pushes them off the visible viewport.
-        return self._render_blocks(width)
-
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Generic Buffer-native path for embedding a MessageList directly.
 

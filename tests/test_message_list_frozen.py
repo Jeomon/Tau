@@ -1,4 +1,4 @@
-"""render_split_cells must visually agree with the full render(width).
+"""render_split_cells must visually agree with the full native render.
 
 MessageList caches "finalized" render units as Cell rows (render_split_cells)
 so a long session doesn't re-parse and re-diff its entire history every
@@ -52,11 +52,9 @@ def _split_as_lines(ml: MessageList, width: int) -> list[str]:
 
 
 def _render_as_lines(ml: MessageList, width: int) -> list[str]:
-    """Canonicalize the compatibility render through the native cell writer."""
+    """Render the complete message list through its native component contract."""
     buf = Buffer.empty(Rect(0, 0, width, 0))
-    row = 0
-    for line in ml.render(width):
-        row += parse_ansi_wrapped_into(buf, 0, row, line, width)
+    row = ml.render_cells(Rect(0, 0, width, 0), buf)
     return [row_to_ansi(buf, y).rstrip() for y in range(row)]
 
 
@@ -151,12 +149,12 @@ def test_toggle_details_expanded_invalidates_frozen_cache() -> None:
                 contents=[ThinkingContent(content=long_thinking), TextContent(content=f"a{i}")]
             )
         )
-    before = ml.render(WIDTH)
+    before = _render_as_lines(ml, WIDTH)
     ml.render_split_cells(WIDTH)  # populate the frozen cache
 
     ml.toggle_details_expanded()
 
-    assert ml.render(WIDTH) != before  # sanity: toggling actually changed output
+    assert _render_as_lines(ml, WIDTH) != before  # sanity: toggling actually changed output
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
@@ -231,7 +229,7 @@ def test_frozen_buf_cell_rows_render_identically_via_row_to_ansi() -> None:
     reference instead of re-parsing them."""
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 10)
-    full_lines = ml.render(WIDTH)
+    full_lines = _render_as_lines(ml, WIDTH)
 
     frozen_buf, _live_lines = ml.render_split_cells(WIDTH)
     assert frozen_buf is not None
@@ -336,10 +334,10 @@ def test_toggle_details_expanded_reaches_an_already_frozen_block() -> None:
     ml.render_split_cells(WIDTH)
     assert ml._frozen_block_count == len(ml._blocks) - 1  # confirms it's actually frozen
 
-    before = ml.render(WIDTH)
+    before = _render_as_lines(ml, WIDTH)
     ml.toggle_details_expanded()
 
-    assert ml.render(WIDTH) != before
+    assert _render_as_lines(ml, WIDTH) != before
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
@@ -354,11 +352,11 @@ def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
             contents=[ThinkingContent(content=long_thinking), TextContent(content="a")]
         )
     )
-    before = ml.render(WIDTH)
+    before = _render_as_lines(ml, WIDTH)
 
     ml.toggle_details_expanded()
 
-    assert ml.render(WIDTH) != before
+    assert _render_as_lines(ml, WIDTH) != before
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
@@ -382,8 +380,8 @@ def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
     block.invalidate()
     ml.render_split_cells(WIDTH)  # one more frame after the reply completes
 
-    before = ml.render(WIDTH)
+    before = _render_as_lines(ml, WIDTH)
     ml.toggle_details_expanded()
 
-    assert ml.render(WIDTH) != before
+    assert _render_as_lines(ml, WIDTH) != before
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
