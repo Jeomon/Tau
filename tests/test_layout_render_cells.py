@@ -94,3 +94,27 @@ def test_modal_hides_input_and_zeroes_editor_row_count() -> None:
 
     assert layout._editor_row_count == 0
     assert used > 0
+
+
+def test_long_status_line_wraps_and_reflows_on_resize() -> None:
+    _tui, layout = _make_layout()
+    content = "status-" + ("x" * 60) + "-tail"
+    layout._status_map["extension"] = content
+
+    def status_lines(width: int) -> list[str]:
+        from tau.tui.utils import strip_ansi
+
+        buf = Buffer.empty(Rect(0, 0, width, 0))
+        used = layout.render_cells(Rect(0, 0, width, 0), buf)
+        lines = [strip_ansi(row_to_ansi(buf, y)).rstrip() for y in range(used)]
+        divider_index = next(index for index, line in enumerate(lines) if "─" in line)
+        return lines[:divider_index]
+
+    narrow = status_lines(20)
+    wide = status_lines(40)
+
+    assert len(narrow) > len(wide) > 1
+    assert all(len(line) <= 20 for line in narrow)
+    assert all(len(line) <= 40 for line in wide)
+    assert content in "".join(line.strip() for line in narrow)
+    assert content in "".join(line.strip() for line in wide)

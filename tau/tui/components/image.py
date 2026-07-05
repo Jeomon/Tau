@@ -7,7 +7,7 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 from tau.tui.buffer import Buffer, RawWrite
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
@@ -207,8 +207,8 @@ class Image(Component):
 
         buf.grow_to(area.y + rows)
         if kind == "fallback":
-            parse_ansi_into(buf, area.x, area.y, self._fallback_color(content), area.width)
-            return 1
+            line = self._fallback_color(content)
+            return parse_ansi_wrapped_into(buf, area.x, area.y, line, area.width)
 
         # The whole block's cells are invisible to the terminal's normal text
         # grid — the terminal itself owns those pixels once it draws them, so

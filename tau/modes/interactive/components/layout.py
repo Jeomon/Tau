@@ -10,7 +10,7 @@ from tau.modes.interactive.components.file_picker import FilePicker
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.modes.interactive.components.selector_controller import SelectorController
 from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
-from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 from tau.tui.autocomplete import AutocompleteManager
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component, Container, StaticComponent
@@ -349,8 +349,7 @@ class Layout(Component):
         def write_lines(lines: list[str]) -> None:
             nonlocal y
             for line in lines:
-                parse_ansi_into(buf, area.x, y, line, area.width)
-                y += 1
+                y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
 
         # Status zone — keyed status lines above the editor
         if self._status_map:

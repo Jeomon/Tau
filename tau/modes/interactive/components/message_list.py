@@ -943,7 +943,8 @@ class MessageList(Component):
     def _render_blocks(self, width: int) -> list[str]:
         lines: list[str] = []
         for _start_idx, _end_idx, unit_lines in self._iter_units(width):
-            lines.extend(unit_lines)
+            for line in unit_lines:
+                lines.extend(wrap(line, width) if visible_width(line) > width else [line])
         return lines
 
     def render_split_cells(self, width: int) -> tuple[Buffer | None, list[str]]:
@@ -977,7 +978,7 @@ class MessageList(Component):
         and any mutation bumps _invalidation_seq — both force a one-time full
         rebuild rather than corrupting state.
         """
-        from tau.tui.ansi_bridge import parse_ansi_into
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
         from tau.tui.geometry import Rect
 
         if width != self._frozen_width or self._frozen_seq != self._invalidation_seq:
@@ -1001,9 +1002,8 @@ class MessageList(Component):
             if self._frozen_buf is None:
                 self._frozen_buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
             base = self._frozen_buf.area.height
-            self._frozen_buf.grow_to(base + len(unit_lines))
-            for j, line in enumerate(unit_lines):
-                parse_ansi_into(self._frozen_buf, 0, base + j, line, width)
+            for line in unit_lines:
+                base += parse_ansi_wrapped_into(self._frozen_buf, 0, base, line, width)
             self._frozen_block_count = end_idx
         return self._frozen_buf, live_lines
 

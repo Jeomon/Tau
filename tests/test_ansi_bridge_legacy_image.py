@@ -12,10 +12,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import tau.tui.terminal as term_mod
-from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.ansi_bridge import parse_ansi_into, row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.component import Container, StaticComponent
-from tau.tui.components.image import Image
+from tau.tui.components.image import Image, ImageOptions
 from tau.tui.geometry import Rect
 
 
@@ -71,6 +71,25 @@ def test_fallback_text_has_no_raw_writes() -> None:
     container.render_cells(Rect(0, 0, 40, 0), buf)
 
     assert buf.raw_writes == []
+
+
+def test_direct_fallback_image_wraps_long_filename() -> None:
+    class _FakeCaps:
+        images = None
+
+    filename = "screenshot-" + ("x" * 40) + ".png"
+    with patch.object(term_mod, "get_capabilities", return_value=_FakeCaps()):
+        image = Image(
+            b"\x89PNG fakebytes",
+            "image/png",
+            options=ImageOptions(filename=filename),
+        )
+        buf = Buffer.empty(Rect(0, 0, 20, 0))
+        rows = image.render_cells(Rect(0, 0, 20, 0), buf)
+
+    assert rows > 1
+    rendered = "".join(row_to_ansi(buf, row).strip() for row in range(rows))
+    assert filename in rendered
 
 
 def test_parse_ansi_into_returns_col_unchanged_for_image_line() -> None:

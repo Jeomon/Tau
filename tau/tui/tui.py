@@ -582,7 +582,7 @@ class TUI(Container):
         guaranteed identical to last frame's buffer (Renderer reads this to
         let ScrollbackTerminal skip re-diffing them).
         """
-        from tau.tui.ansi_bridge import parse_ansi_into
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
         y = area.y
         self._child_rows = {}
@@ -608,10 +608,8 @@ class TUI(Container):
                     frozen_rows_this_frame = frozen_rows
                     y += frozen_rows
                 if live_lines:
-                    buf.grow_to(y + len(live_lines))
-                    for i, line in enumerate(live_lines):
-                        parse_ansi_into(buf, area.x, y + i, line, area.width)
-                    y += len(live_lines)
+                    for line in live_lines:
+                        y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
             else:
                 y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
         # Rows are only safe to skip re-diffing if they were ALSO the frozen

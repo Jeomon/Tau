@@ -1,6 +1,7 @@
 from tau.tui.ansi_bridge import parse_ansi_into, row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.component import Column, Component, Container, StaticComponent
+from tau.tui.components.box import Box
 from tau.tui.frame import _diff_row_cells
 from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
@@ -63,6 +64,16 @@ def test_column_mixes_legacy_and_cells_components_identically() -> None:
     via_render = column.render(30)
     via_cells = _render_via_cells(column, 30)
     assert _rstrip_all(via_render) == _rstrip_all(via_cells)
+
+
+def test_box_wraps_overflow_from_legacy_render_function() -> None:
+    content = "boxed-" + ("x" * 40) + "-tail"
+    box = Box(lambda _width: [content], padding_x=1)
+
+    lines = _rstrip_all(_render_via_cells(box, 20))
+
+    assert len(lines) > 1
+    assert content in "".join(line.strip() for line in lines)
 
 
 def test_ansi_bridge_round_trip_preserves_style_and_double_width() -> None:

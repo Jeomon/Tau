@@ -1,11 +1,10 @@
-"""render_split_cells must always agree byte-for-byte with the full render(width)
+"""render_split_cells must visually agree with the full render(width).
 
 MessageList caches "finalized" render units as Cell rows (render_split_cells)
 so a long session doesn't re-parse and re-diff its entire history every
 frame. These tests pin the one invariant that matters: whatever the cache
-returns, converted back to text, must be identical to what the slow,
-always-correct full-render path (_render_blocks/render) produces — across
-growth, streaming, undo, toggling, theme changes, and resize.
+returns must produce the same styled cells as the compatibility render path —
+across growth, streaming, undo, toggling, theme changes, and resize.
 """
 
 from __future__ import annotations
@@ -20,10 +19,11 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.modes.interactive.components.message_list import MessageList
-from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui.ansi_bridge import parse_ansi_wrapped_into, row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.theme import MessageTheme
+from tau.tui.utils import strip_ansi, visible_width
 
 WIDTH = 60
 
@@ -43,8 +43,21 @@ def _split_as_lines(ml: MessageList, width: int) -> list[str]:
     if frozen_buf is not None:
         for y in range(frozen_buf.area.height):
             lines.append(row_to_ansi(frozen_buf, y).rstrip())
-    lines.extend(line.rstrip() for line in live_lines)
+    live_buf = Buffer.empty(Rect(0, 0, width, 0))
+    live_row = 0
+    for line in live_lines:
+        live_row += parse_ansi_wrapped_into(live_buf, 0, live_row, line, width)
+    lines.extend(row_to_ansi(live_buf, y).rstrip() for y in range(live_row))
     return lines
+
+
+def _render_as_lines(ml: MessageList, width: int) -> list[str]:
+    """Canonicalize the compatibility render through the native cell writer."""
+    buf = Buffer.empty(Rect(0, 0, width, 0))
+    row = 0
+    for line in ml.render(width):
+        row += parse_ansi_wrapped_into(buf, 0, row, line, width)
+    return [row_to_ansi(buf, y).rstrip() for y in range(row)]
 
 
 def _add_conversation(ml: MessageList, n: int) -> None:
@@ -58,7 +71,7 @@ def test_split_matches_full_render_as_history_grows() -> None:
     for i in range(40):
         ml.add_message(UserMessage.from_text(f"question {i}"))
         ml.add_message(AssistantMessage.from_text(f"answer {i}"))
-        assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+        assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_split_matches_full_render_with_tool_call_pairing() -> None:
@@ -74,7 +87,7 @@ def test_split_matches_full_render_with_tool_call_pairing() -> None:
     ml.add_message(tool_msg)
     _add_conversation(ml, 5)
 
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_split_matches_full_render_during_streaming() -> None:
@@ -88,10 +101,10 @@ def test_split_matches_full_render_during_streaming() -> None:
             streaming_block.message.text_content() + chunk
         )
         streaming_block.invalidate()
-        assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+        assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
     streaming_block.set_streaming(False)
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_frozen_cache_survives_incremental_calls_without_rebuilding() -> None:
@@ -125,7 +138,7 @@ def test_undo_pops_only_the_live_tail() -> None:
     assert ml.remove_last()
 
     assert ml._frozen_block_count == frozen_before
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_toggle_details_expanded_invalidates_frozen_cache() -> None:
@@ -144,7 +157,7 @@ def test_toggle_details_expanded_invalidates_frozen_cache() -> None:
     ml.toggle_details_expanded()
 
     assert ml.render(WIDTH) != before  # sanity: toggling actually changed output
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_set_theme_invalidates_frozen_cache() -> None:
@@ -157,7 +170,7 @@ def test_set_theme_invalidates_frozen_cache() -> None:
     new_theme = MessageTheme(you_label=Style())
     ml.set_theme(new_theme)
 
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_width_change_invalidates_frozen_cache() -> None:
@@ -166,7 +179,34 @@ def test_width_change_invalidates_frozen_cache() -> None:
     ml.render_split_cells(WIDTH)
 
     narrower = WIDTH - 10
-    assert _split_as_lines(ml, narrower) == [line.rstrip() for line in ml.render(narrower)]
+    assert _split_as_lines(ml, narrower) == _render_as_lines(ml, narrower)
+
+
+def test_long_tool_error_wraps_without_losing_content_and_reflows_on_resize() -> None:
+    ml = MessageList(theme=MessageTheme())
+    content = "request-failed-" + ("x" * 80) + "-tail"
+    block = ml.add_message(
+        ToolMessage(
+            contents=[
+                ToolResultContent(
+                    id="tool-1",
+                    tool_name="web_fetch",
+                    content=content,
+                    is_error=True,
+                )
+            ]
+        )
+    )
+    block.finalize()
+
+    narrow = _split_as_lines(ml, 24)
+    wide = _split_as_lines(ml, 48)
+
+    assert len(narrow) > len(wide) > 1
+    assert all(visible_width(line) <= 24 for line in narrow)
+    assert all(visible_width(line) <= 48 for line in wide)
+    assert content in "".join(strip_ansi(line).strip() for line in narrow)
+    assert content in "".join(strip_ansi(line).strip() for line in wide)
 
 
 def test_clear_resets_frozen_cache() -> None:
@@ -278,7 +318,7 @@ def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
     placeholder.invalidate()
     _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
     assert any("Hi there!" in line for line in live_lines)
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_toggle_details_expanded_reaches_an_already_frozen_block() -> None:
@@ -300,7 +340,7 @@ def test_toggle_details_expanded_reaches_an_already_frozen_block() -> None:
     ml.toggle_details_expanded()
 
     assert ml.render(WIDTH) != before
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
@@ -319,7 +359,7 @@ def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
     ml.toggle_details_expanded()
 
     assert ml.render(WIDTH) != before
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
 def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
@@ -346,4 +386,4 @@ def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
     ml.toggle_details_expanded()
 
     assert ml.render(WIDTH) != before
-    assert _split_as_lines(ml, WIDTH) == [line.rstrip() for line in ml.render(WIDTH)]
+    assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)

@@ -166,7 +166,8 @@ Runtime-aware behavior belongs in `tau.modes.interactive`.
 
 This boundary is enforced by `tests/test_tui_public_api.py`.
 
-The renderer retains only the current transcript frame and its current
-line-wrapping cache. Unchanged lines reuse width calculations across frames so
-streaming updates do not repeatedly parse ANSI styling across the complete
-session.
+The renderer retains only the current transcript frame. Styled content that
+exceeds its available width wraps directly into Buffer rows without losing
+content, and reflows when the terminal is resized. Finalized message rows are
+cached as cells so streaming updates do not repeatedly parse ANSI styling
+across the complete session.

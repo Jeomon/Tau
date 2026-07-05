@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from tau.tui.ansi_bridge import parse_ansi_into
+from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
@@ -74,14 +74,12 @@ class Box(Component):
     def _build(self, width: int) -> Buffer:
         inner_w = max(1, width - self._padding_x * 2)
         raw = self._render_fn(inner_w)
-        total_rows = self._padding_y * 2 + len(raw)
-
-        buf = Buffer.empty(Rect(0, 0, width, total_rows))
+        buf = Buffer.empty(Rect(0, 0, width, 0))
 
         y = self._padding_y
         for line in raw:
-            parse_ansi_into(buf, self._padding_x, y, line, width - self._padding_x)
-            y += 1
+            y += parse_ansi_wrapped_into(buf, self._padding_x, y, line, inner_w)
+        buf.grow_to(y + self._padding_y)
 
         # Apply after content so Style.patch merges the background behind
         # whatever fg/modifiers the content itself set, instead of a plain

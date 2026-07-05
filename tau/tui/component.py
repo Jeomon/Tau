@@ -73,30 +73,28 @@ class Component:
         ``buf.cursor_position`` rather than silently dropped, since the new
         contract has no string to embed it in.
         """
-        from tau.tui.ansi_bridge import parse_ansi_into
+        from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into
         from tau.tui.geometry import Position
         from tau.tui.utils import CURSOR_MARKER, visible_width, wrap
 
         raw_lines = self.render(area.width)
-        # A legacy line can exceed area.width (the old string Renderer wraps
-        # it after the fact); parse_ansi_into only truncates, so wrap first
-        # to avoid silently dropping content that used to wrap onto more rows.
-        lines: list[str] = []
+        row = 0
         for line in raw_lines:
             if CURSOR_MARKER in line:
                 marker_i = line.index(CURSOR_MARKER)
                 col = area.x + visible_width(line[:marker_i])
                 line = line[:marker_i] + line[marker_i + len(CURSOR_MARKER) :]
-                buf.cursor_position = Position(col, area.y + len(lines))
-            if visible_width(line) > area.width:
-                lines.extend(wrap(line, area.width))
+                # Cursor-marker compatibility is the one remaining string
+                # bridge: preserve its established wrapped-row coordinates.
+                lines = wrap(line, area.width)
+                buf.cursor_position = Position(col, area.y + row)
+                buf.grow_to(area.y + row + len(lines))
+                for offset, fitted in enumerate(lines):
+                    parse_ansi_into(buf, area.x, area.y + row + offset, fitted, area.width)
+                row += len(lines)
             else:
-                lines.append(line)
-
-        buf.grow_to(area.y + len(lines))
-        for i, line in enumerate(lines):
-            parse_ansi_into(buf, area.x, area.y + i, line, area.width)
-        return len(lines)
+                row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+        return row
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """

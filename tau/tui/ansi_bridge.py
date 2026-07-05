@@ -199,6 +199,87 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     return col
 
 
+def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> int:
+    """Parse ANSI text into styled cells, wrapping overflow across buffer rows.
+
+    Returns the number of rows written. Wrapping is performed on styled
+    grapheme tokens, so no ANSI string is reconstructed or reparsed per row.
+    """
+    if max_width <= 0:
+        return 0
+    if "\x1b_G" in line or "\x1b]1337;File=" in line:
+        buf.grow_to(y + 1)
+        token = f"legacy-image:{hash(line)}"
+        buf.raw_writes.append(RawWrite(x, y, line, token))
+        return 1
+
+    state = _SgrState()
+    tokens: list[tuple[str, int, Style]] = []
+    index = 0
+    while index < len(line):
+        match = _ANSI_RE.match(line, index)
+        if match:
+            state.process(match.group(0))
+            index += len(match.group(0))
+            continue
+        cluster = next(iter(grapheme.graphemes(line[index:])), "")
+        if not cluster:
+            index += 1
+            continue
+        index += len(cluster)
+        width = grapheme_width(cluster)
+        if width:
+            tokens.append((cluster, width, state.style))
+
+    if not tokens:
+        buf.grow_to(y + 1)
+        return 1
+
+    indent_end = 0
+    while indent_end < len(tokens) and tokens[indent_end][0].isspace():
+        indent_end += 1
+    indent = tokens[:indent_end]
+    indent_width = sum(token[1] for token in indent)
+    if indent_width >= max_width:
+        indent = []
+        indent_width = 0
+
+    remaining = tokens
+    row = 0
+    first = True
+    while remaining:
+        prefix = [] if first else indent
+        capacity = max_width - (0 if first else indent_width)
+        taken = 0
+        used = 0
+        last_space = 0
+        while taken < len(remaining) and used + remaining[taken][1] <= capacity:
+            used += remaining[taken][1]
+            taken += 1
+            if remaining[taken - 1][0].isspace():
+                last_space = taken
+        if taken < len(remaining) and last_space:
+            taken = last_space
+        if taken == 0:
+            taken = 1
+
+        row_tokens = [*prefix, *remaining[:taken]]
+        buf.grow_to(y + row + 1)
+        col = x
+        limit = x + max_width
+        for cluster, width, style in row_tokens:
+            if col + width > limit:
+                break
+            buf.set(col, y + row, cluster, style)
+            if width == 2 and col + 1 < limit:
+                buf.set(col + 1, y + row, "", style)
+            col += width
+        remaining = remaining[taken:]
+        row += 1
+        first = False
+    return row
+
+
 def row_to_ansi(buf: Buffer, y: int, cursor_x: int | None = None, *, embed_raw: bool = True) -> str:
     """Flatten one ``Buffer`` row back into an ANSI string (skip cells excluded).
 
