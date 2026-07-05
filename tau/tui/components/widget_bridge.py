@@ -1,17 +1,11 @@
-"""Bridge a ratatui-style Widget into the legacy Component tree.
+"""Bridge a ratatui-style Widget into the Component tree.
 
-``tui.py``'s ``Renderer`` (and every ``Container``/``Column``/``Row`` in
-``component.py``) only knows ``Component.render(width) -> list[str]`` — ANSI
-strings, one per line. This renders a ``Widget`` into a real ``Buffer`` and
-converts each row back into an ANSI string, so new Buffer/Widget-based code
-can be dropped into the existing live tree without changing the renderer,
-the diffing, or anything else in ``tui.py``.
-
-One-directional on purpose: legacy ``Component``s are not converted the
-other way (into ``Widget``s), since that would need parsing ANSI strings
-back into styled cells — the exact problem ``tui.py``'s ``_parse_cells``
-already exists to solve for diffing, not something to invoke a second time
-here for content that's already plain Python objects on the new side.
+A ``Widget`` (``tau/tui/widget.py``) paints into a ``Rect`` of a shared
+``Buffer`` directly, with no owned return value — this wraps one as a
+``Component`` so it composes with ``Container``/``Column``/``Row`` the same
+way any other component does. ``render_widget_lines`` additionally exposes
+a plain ANSI-string view of a widget's output, for callers that want a
+``list[str]`` rather than writing into a caller-supplied ``Buffer``.
 """
 
 from __future__ import annotations

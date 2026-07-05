@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -11,15 +12,17 @@ if TYPE_CHECKING:
     from tau.tui.input import InputEvent
 
 
-class Component:
+class Component(ABC):
     """
     Base class for all TUI components.
 
     ``render_cells(area, buf) -> int`` is the sole render contract: write
     directly into ``buf`` starting at row ``area.y`` and return the number of
-    rows written. Every subclass must override it.
+    rows written. Every subclass must override it — a subclass that doesn't
+    fails at construction time (``TypeError``) rather than at first render.
     """
 
+    @abstractmethod
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Render into ``buf`` starting at row ``area.y``; return rows written.
 
@@ -30,7 +33,6 @@ class Component:
         implicitly on every write would be surprising for the fixed-size
         buffers the ratatui-style widgets in ``tui/widgets/`` render into).
         """
-        raise NotImplementedError
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """

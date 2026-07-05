@@ -83,10 +83,9 @@ class Buffer:
     area: Rect
     content: list[Cell] = field(default_factory=list)
     # Set by whichever component owns the current text cursor (e.g. a
-    # focused input) — mirrors ratatui's Frame.cursor_position. The legacy
-    # bridge (ansi_bridge.parse_ansi_into) also populates this from a
-    # CURSOR_MARKER embedded in old-contract ANSI output, so cursor
-    # positioning keeps working for components not yet on render_cells.
+    # focused input) — mirrors ratatui's Frame.cursor_position. Each
+    # component that needs cursor placement (e.g. TextInput) sets this
+    # directly in its own render_cells.
     cursor_position: Position | None = None
     # See RawWrite. Populated by components like Image whose content can't
     # be represented as printable Cells.

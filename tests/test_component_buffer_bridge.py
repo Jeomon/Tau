@@ -15,6 +15,7 @@ from tau.tui.components.box import Box
 from tau.tui.frame import _diff_row_cells
 from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
+from tests.render_helpers import render_cells_to_lines as _render_via_cells
 
 
 class _CellsOnly(Component):
@@ -24,12 +25,6 @@ class _CellsOnly(Component):
         buf.grow_to(area.y + 1)
         buf.set_string(area.x, area.y, "native row", Style().italic())
         return 1
-
-
-def _render_via_cells(component: Component, width: int) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    used = component.render_cells(Rect(0, 0, width, 0), buf)
-    return [row_to_ansi(buf, y) for y in range(used)]
 
 
 def _rstrip_all(lines: list[str]) -> list[str]:

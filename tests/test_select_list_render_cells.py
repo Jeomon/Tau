@@ -7,18 +7,9 @@ the selected row is visually distinguished.
 
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
 from tau.tui.components.select_list import SelectItem, SelectList
-from tau.tui.geometry import Rect
 from tau.tui.style import Style
-
-
-def _lines(select: SelectList, width: int) -> list[str]:
-    from tau.tui.ansi_bridge import row_to_ansi
-
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    used = select.render_cells(Rect(0, 0, width, 0), buf)
-    return [row_to_ansi(buf, y) for y in range(used)]
+from tests.render_helpers import render_cells_to_lines as _lines
 
 
 def test_scroll_indicators_shown_when_scrolled() -> None:

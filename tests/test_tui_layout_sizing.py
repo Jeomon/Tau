@@ -4,16 +4,7 @@ from __future__ import annotations
 
 from tau.tui.component import Columns, Constrained, Rows, StaticComponent
 from tau.tui.utils import visible_width
-
-
-def _lines(component, width: int) -> list[str]:
-    from tau.tui.ansi_bridge import row_to_ansi
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
-
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    rows = component.render_cells(Rect(0, 0, width, 0), buf)
-    return [row_to_ansi(buf, y) for y in range(rows)]
+from tests.render_helpers import render_cells_to_lines as _lines
 
 
 def _rstrip_all(lines: list[str]) -> list[str]:

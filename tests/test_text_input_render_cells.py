@@ -7,21 +7,16 @@ override) still works.
 
 from __future__ import annotations
 
-from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.components.text_input import TextInput
 from tau.tui.geometry import Rect
+from tests.render_helpers import render_cells_to_lines as _lines
 
 
 def _cells(ti: TextInput, width: int) -> tuple[int, Buffer]:
     buf = Buffer.empty(Rect(0, 0, width, 0))
     used = ti.render_cells(Rect(0, 0, width, 0), buf)
     return used, buf
-
-
-def _lines(ti: TextInput, width: int) -> list[str]:
-    used, buf = _cells(ti, width)
-    return [row_to_ansi(buf, y) for y in range(used)]
 
 
 def test_cursor_position_set_on_buffer() -> None:

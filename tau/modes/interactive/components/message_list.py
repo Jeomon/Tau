@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.buffer import Buffer
-from tau.tui.component import Component
+from tau.tui.component import Component, StaticComponent
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import render_markdown
@@ -94,6 +94,12 @@ class MessageBlock:
         self._cached_width = 0
         # Keyed by (content_idx, image_idx) — persisted so Kitty image IDs stay stable
         self._image_components: dict[tuple[int, int], Any] = {}
+        # Keyed by the same (content_idx, image_idx); value is
+        # (width, show_images, lines) — the rendered ANSI lines for an image
+        # depend only on those two things (never on theme colors, prefix, or
+        # tool_lookup), so this survives invalidate() rather than being
+        # rebuilt on every streaming token/theme tweak like self._cached is.
+        self._image_lines_cache: dict[tuple[int, int], tuple[int, bool, list[str]]] = {}
         self._tool_results_cache: list[str] | None = None
         self._tool_results_message: object | None = None
         self._tool_results_width = 0
@@ -163,22 +169,31 @@ class MessageBlock:
         self.invalidate()
 
     def _render_image(self, key: tuple[int, int], b64: str, mime: str, width: int) -> list[str]:
-        if not self._theme.show_images:
+        show_images = self._theme.show_images
+        cached = self._image_lines_cache.get(key)
+        if cached is not None and cached[0] == width and cached[1] == show_images:
+            return cached[2]
+
+        if not show_images:
             from tau.tui.components.image import Image
 
-            return [Image(b64, mime)._fallback_text()]
+            lines = [Image(b64, mime)._fallback_text()]
+            self._image_lines_cache[key] = (width, show_images, lines)
+            return lines
+
         if key not in self._image_components:
             from tau.tui.components.image import Image
 
             self._image_components[key] = Image(b64, mime)
 
         from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.geometry import Rect
 
         image = self._image_components[key]
         buf = Buffer.empty(Rect(0, 0, width, 0))
         rows = image.render_cells(Rect(0, 0, width, 0), buf)
-        return [row_to_ansi(buf, y) for y in range(rows)]
+        lines = [row_to_ansi(buf, y) for y in range(rows)]
+        self._image_lines_cache[key] = (width, show_images, lines)
+        return lines
 
     @property
     def message(self) -> object:
@@ -928,12 +943,7 @@ class MessageList(Component):
         performance. This exists so MessageList is self-sufficient wherever
         it's used outside that special-cased Container path.
         """
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        row = 0
-        for line in self._render_blocks(area.width):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        return StaticComponent(self._render_blocks(area.width)).render_cells(area, buf)
 
     def _iter_units(self, width: int):
         """Yield (start_block_index, end_block_index, lines) for each renderable unit.
@@ -1003,7 +1013,6 @@ class MessageList(Component):
         rebuild rather than corrupting state.
         """
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-        from tau.tui.geometry import Rect
 
         if width != self._frozen_width or self._frozen_seq != self._invalidation_seq:
             self._frozen_buf = None

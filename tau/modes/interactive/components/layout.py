@@ -128,7 +128,6 @@ class TextPrompt:
         return True
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
         from tau.tui.utils import BOLD, DIM, RESET
 
         display = ("*" * len(self._value)) if self._secret else self._value
@@ -136,10 +135,7 @@ class TextPrompt:
             f"  {BOLD}{self._label}{RESET}  {DIM}(Enter to confirm · Esc to cancel){RESET}",
             f"  {display}█",
         ]
-        row = 0
-        for line in lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        return StaticComponent(lines).render_cells(area, buf)
 
     def _close(self) -> None:
         self._label = ""
@@ -159,12 +155,7 @@ class _PendingLines(Component):
         self.lines: list[str] = []
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        row = 0
-        for line in self.lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        return StaticComponent(self.lines).render_cells(area, buf)
 
     def invalidate(self) -> None:
         pass

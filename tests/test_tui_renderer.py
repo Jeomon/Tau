@@ -5,14 +5,15 @@ Renderer itself is now a thin wrapper delegating to ScrollbackTerminal
 repaint, viewport clamping, resize, dispose) are exercised directly against
 that engine in tests/test_scrollback_terminal.py. What's tested here is
 specific to the wrapper: that it correctly builds a Buffer from a
-component's render_cells (bridging legacy render(width) components
-automatically), composites overlays as a real Buffer blit, and that TUI's
-lifecycle (dispose, resize-callback bookkeeping) still holds.
+component's render_cells, composites overlays as a real Buffer blit, and
+that TUI's lifecycle (dispose, resize-callback bookkeeping) still holds.
 """
 
 from __future__ import annotations
 
+from tau.tui.buffer import Buffer
 from tau.tui.component import Component, StaticComponent
+from tau.tui.geometry import Rect
 from tau.tui.tui import TUI, OverlayEntry, OverlayOptions, Renderer
 
 
@@ -112,8 +113,8 @@ class _DisposableComponent(Component):
     def __init__(self) -> None:
         self.disposed = False
 
-    def render(self, width: int) -> list[str]:  # noqa: ARG002
-        return []
+    def render_cells(self, area: Rect, buf: Buffer) -> int:  # noqa: ARG002
+        return 0
 
     def dispose(self) -> None:
         self.disposed = True

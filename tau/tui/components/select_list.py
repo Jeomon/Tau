@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
@@ -17,6 +18,22 @@ if TYPE_CHECKING:
     from tau.tui.theme import SelectListTheme
 
 T = TypeVar("T")
+
+_log = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class SelectorComponent(Protocol):
+    """Minimum interface an ``InlineSelector.selector`` must satisfy.
+
+    ``InlineSelector.selector`` is kept as ``Any`` to avoid a circular
+    import (the concrete selectors live in ``tau.modes.interactive``, which
+    imports this module) — this Protocol lets ``InlineSelector`` still
+    isinstance-check it at construction time instead of only discovering a
+    missing ``render_cells`` mid-render.
+    """
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int: ...
 
 
 @dataclass
@@ -311,6 +328,16 @@ class InlineSelector[T]:
     selector: Any  # inner selector — kept as Any to avoid circular import
     on_commit: Callable[[T], None] | None = None
     on_cancel: Callable[[], None] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.selector, SelectorComponent):
+            _log.warning(
+                "InlineSelector(kind=%r).selector (%r) does not satisfy "
+                "SelectorComponent (missing render_cells); it will crash the "
+                "next render instead of here. See tau.tui.components.select_list.",
+                self.kind,
+                type(self.selector).__name__,
+            )
 
     # -------------------------------------------------------------------------
     # Navigation

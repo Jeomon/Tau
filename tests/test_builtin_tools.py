@@ -15,11 +15,10 @@ import pytest
 from tau.builtins.tools.edit import EditTool, _render_edit_result
 from tau.builtins.tools.glob import GlobTool
 from tau.builtins.tools.grep import GrepTool
-from tau.builtins.tools.utils import compute_line_hashes
 from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.terminal import TerminalTool
-from tau.builtins.tools.utils import OutputAccumulator, human_size
+from tau.builtins.tools.utils import OutputAccumulator, compute_line_hashes, human_size
 from tau.builtins.tools.write import WriteTool
 from tau.tool.types import ToolInvocation, ToolRenderOptions
 

@@ -22,11 +22,12 @@ from tau.tui.geometry import Rect
 class Widget(Protocol):
     """A UI element that paints itself into a ``Rect`` of a ``Buffer``.
 
-    Unlike ``Component.render(width) -> list[str]``, this takes both
-    dimensions of its slot and writes into a shared grid instead of
-    returning owned lines — composition happens by writing into
-    non-overlapping ``Rect``s of the same ``Buffer``, not by concatenating
-    or padding returned strings.
+    Structurally close to ``Component.render_cells(area, buf)``, but writes
+    into a caller-supplied ``Buffer`` with no owned return value — composition
+    happens by writing into non-overlapping ``Rect``s of the same ``Buffer``,
+    used by the ratatui-style widgets in ``tui/widgets/`` rather than the
+    ``Component`` tree directly (see ``widget_bridge.py`` for the adapter
+    between the two).
     """
 
     def render(self, area: Rect, buf: Buffer) -> None: ...
