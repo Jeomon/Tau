@@ -62,7 +62,953 @@
           }
         }
       ],
-      "updatedAt": 1783309079.112211
+      "updatedAt": 1783316999.2422678
+    },
+    "mural": {
+      "tools": [
+        {
+          "name": "list_workspaces",
+          "description": "List Mural workspaces (stripped to id+name)",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {}
+          }
+        },
+        {
+          "name": "list_rooms",
+          "description": "List rooms in a workspace (stripped to id+name+type). Default limit 50.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "description": "Workspace ID"
+              },
+              "limit": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 200,
+                "description": "Max rooms (default 50)"
+              }
+            },
+            "required": [
+              "workspaceId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "list_murals",
+          "description": "List murals in a room or workspace (stripped to id+title+roomId). Default limit 50.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "roomId": {
+                "type": "number",
+                "description": "Room ID (preferred \u2014 more specific)"
+              },
+              "workspaceId": {
+                "type": "string",
+                "description": "Workspace ID (lists all murals in workspace)"
+              },
+              "limit": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 200,
+                "description": "Max murals (default 50)"
+              }
+            },
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_mural",
+          "description": "Get metadata for a specific mural (stripped to key fields)",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              }
+            },
+            "required": [
+              "muralId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_widgets",
+          "description": "List widgets on a mural (stripped to key fields). Default limit 50. Use 'next' cursor to paginate.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "sticky note",
+                  "text",
+                  "shape",
+                  "area",
+                  "image",
+                  "connector",
+                  "icon",
+                  "file",
+                  "framework"
+                ],
+                "description": "Filter by widget type"
+              },
+              "limit": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "Max widgets per page (1\u2013100, default 50)"
+              },
+              "next": {
+                "type": "string",
+                "description": "Pagination cursor from a previous response"
+              }
+            },
+            "required": [
+              "muralId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "get_widget",
+          "description": "Get a single widget by ID (stripped to key fields).",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_sticky_notes",
+          "description": "Create sticky notes on a mural (batch, up to 1000). Returns IDs.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "stickies": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "Horizontal position in px from left of mural"
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Vertical position in px from top of mural"
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Sticky note text"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "shape": {
+                      "type": "string",
+                      "enum": [
+                        "rectangle",
+                        "circle"
+                      ]
+                    },
+                    "style": {
+                      "type": "object",
+                      "properties": {
+                        "fontSize": {
+                          "type": "number"
+                        },
+                        "textAlign": {
+                          "type": "string",
+                          "enum": [
+                            "left",
+                            "center",
+                            "right"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "description": "Only fontSize/textAlign on creation"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "muralId",
+              "stickies"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "update_sticky_note",
+          "description": "Update a sticky note (text, position, color, size)",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID"
+              },
+              "text": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                "description": "Color hex, e.g. #FF0000FF"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_text_boxes",
+          "description": "Create text boxes on a mural (batch, up to 1000). Returns IDs.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "textBoxes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "Horizontal position in px from left of mural"
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Vertical position in px from top of mural"
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "Text content"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "style": {
+                      "type": "object",
+                      "properties": {
+                        "fontSize": {
+                          "type": "number"
+                        },
+                        "textAlign": {
+                          "type": "string",
+                          "enum": [
+                            "left",
+                            "center",
+                            "right"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "muralId",
+              "textBoxes"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "update_text_box",
+          "description": "Update a text box on a mural",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID"
+              },
+              "text": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_shapes",
+          "description": "Create shapes on a mural (batch, up to 1000). Common shapes: rectangle, circle, diamond, triangle, star, hexagon. Full list validated server-side.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "shapes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "Horizontal position in px from left of mural"
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Vertical position in px from top of mural"
+                    },
+                    "width": {
+                      "type": "number",
+                      "description": "Width in px"
+                    },
+                    "height": {
+                      "type": "number",
+                      "description": "Height in px"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "shape": {
+                      "type": "string",
+                      "description": "Shape type (default: rectangle)"
+                    },
+                    "style": {
+                      "type": "object",
+                      "properties": {
+                        "backgroundColor": {
+                          "type": "string",
+                          "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                          "description": "Color hex, e.g. #FF0000FF"
+                        },
+                        "borderColor": {
+                          "$ref": "#/properties/shapes/items/properties/style/properties/backgroundColor"
+                        },
+                        "fontColor": {
+                          "$ref": "#/properties/shapes/items/properties/style/properties/backgroundColor"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 1000
+              }
+            },
+            "required": [
+              "muralId",
+              "shapes"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "update_shape",
+          "description": "Update a shape on a mural",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID"
+              },
+              "text": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                "description": "Color hex, e.g. #FF0000FF"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_area",
+          "description": "Create an area (grouping section) on a mural.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "x": {
+                "type": "number",
+                "description": "Horizontal position in px from left of mural"
+              },
+              "y": {
+                "type": "number",
+                "description": "Vertical position in px from top of mural"
+              },
+              "width": {
+                "type": "number",
+                "description": "Width in px"
+              },
+              "height": {
+                "type": "number",
+                "description": "Height in px"
+              },
+              "title": {
+                "type": "string"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                "description": "Color hex, e.g. #FF0000FF"
+              }
+            },
+            "required": [
+              "muralId",
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "update_area",
+          "description": "Update an area on a mural",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID"
+              },
+              "title": {
+                "type": "string"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                "description": "Color hex, e.g. #FF0000FF"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_image",
+          "description": "Add an image to a mural from a public URL. Auto-detects dimensions. Max 10MB.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "x": {
+                "type": "number",
+                "description": "Horizontal position in px from left of mural"
+              },
+              "y": {
+                "type": "number",
+                "description": "Vertical position in px from top of mural"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Public URL of the image"
+              },
+              "width": {
+                "type": "number",
+                "description": "Override width (default: original)"
+              },
+              "height": {
+                "type": "number",
+                "description": "Override height (default: original)"
+              }
+            },
+            "required": [
+              "muralId",
+              "x",
+              "y",
+              "url"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "connect_widgets",
+          "description": "Draw a connected arrow between two widgets. Provide source/target IDs and positions.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "sourceWidgetId": {
+                "type": "string",
+                "description": "Widget ID arrow starts FROM (tail)"
+              },
+              "targetWidgetId": {
+                "type": "string",
+                "description": "Widget ID arrow points TO (head)"
+              },
+              "sourceX": {
+                "type": "number"
+              },
+              "sourceY": {
+                "type": "number"
+              },
+              "sourceWidth": {
+                "type": "number"
+              },
+              "sourceHeight": {
+                "type": "number"
+              },
+              "targetX": {
+                "type": "number"
+              },
+              "targetY": {
+                "type": "number"
+              },
+              "arrowType": {
+                "type": "string",
+                "enum": [
+                  "bezier",
+                  "straight"
+                ]
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                    "description": "Color hex, e.g. #FF0000FF"
+                  },
+                  "strokeWidth": {
+                    "type": "number"
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "muralId",
+              "sourceWidgetId",
+              "targetWidgetId",
+              "sourceX",
+              "sourceY",
+              "sourceWidth",
+              "sourceHeight",
+              "targetX",
+              "targetY"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "connect_widgets_batch",
+          "description": "Connect multiple widget pairs with arrows in one call. Returns all arrow IDs.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "connections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourceWidgetId": {
+                      "type": "string"
+                    },
+                    "targetWidgetId": {
+                      "type": "string"
+                    },
+                    "sourceX": {
+                      "type": "number"
+                    },
+                    "sourceY": {
+                      "type": "number"
+                    },
+                    "sourceWidth": {
+                      "type": "number"
+                    },
+                    "sourceHeight": {
+                      "type": "number"
+                    },
+                    "targetX": {
+                      "type": "number"
+                    },
+                    "targetY": {
+                      "type": "number"
+                    },
+                    "arrowType": {
+                      "type": "string",
+                      "enum": [
+                        "bezier",
+                        "straight"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sourceWidgetId",
+                    "targetWidgetId",
+                    "sourceX",
+                    "sourceY",
+                    "sourceWidth",
+                    "sourceHeight",
+                    "targetX",
+                    "targetY"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 100
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                    "description": "Color hex, e.g. #FF0000FF"
+                  },
+                  "strokeWidth": {
+                    "type": "number"
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Style applied to all arrows"
+              }
+            },
+            "required": [
+              "muralId",
+              "connections"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_arrow",
+          "description": "Draw a freeform arrow (not snapped to widgets). For connected arrows, use connect_widgets.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "x": {
+                "type": "number",
+                "description": "Horizontal position in px from left of mural"
+              },
+              "y": {
+                "type": "number",
+                "description": "Vertical position in px from top of mural"
+              },
+              "width": {
+                "type": "number",
+                "description": "Bounding box width"
+              },
+              "height": {
+                "type": "number",
+                "description": "Bounding box height"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 2,
+                "description": "Arrow path points. Arrowhead at FIRST point."
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "strokeColor": {
+                    "type": "string",
+                    "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                    "description": "Color hex, e.g. #FF0000FF"
+                  },
+                  "strokeWidth": {
+                    "type": "number"
+                  },
+                  "strokeStyle": {
+                    "type": "string",
+                    "enum": [
+                      "solid",
+                      "dashed"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "muralId",
+              "x",
+              "y",
+              "width",
+              "height",
+              "points"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "delete_widget",
+          "description": "Delete any widget from a mural by ID",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "muralId": {
+                "type": "string",
+                "description": "Mural ID in format \"workspaceId.numericId\" (e.g. myworkspace.1234567890). Also accepts full Mural URLs."
+              },
+              "widgetId": {
+                "type": "string",
+                "description": "Widget ID to delete"
+              }
+            },
+            "required": [
+              "muralId",
+              "widgetId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "create_mural",
+          "description": "Create a new mural in a room. Returns mural ID + title.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "roomId": {
+                "type": "number",
+                "description": "Room ID to create the mural in"
+              },
+              "title": {
+                "type": "string",
+                "description": "Mural title"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6,8}$",
+                "description": "Background color (hex, e.g. #FAFAFAFF)"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 3000,
+                "maximum": 60000,
+                "description": "Width in px (3000\u201360000, default 9216)"
+              },
+              "height": {
+                "type": "number",
+                "minimum": 3000,
+                "maximum": 60000,
+                "description": "Height in px (3000\u201360000, default 6237)"
+              },
+              "infinite": {
+                "type": "boolean",
+                "description": "Borderless canvas that grows as you add widgets"
+              }
+            },
+            "required": [
+              "roomId"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "updatedAt": 1783316999.439421
     }
   }
 }

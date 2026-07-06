@@ -8,11 +8,22 @@
       "directTools": true
     },
     "mural": {
-      "url": "https://api.mcp.ai/p_mural",
-      "transport": "http",
+      "command": "node",
+      "args": [
+        ".tau/mcp-servers/mural-mcp/build/index.js"
+      ],
+      "env": {
+        "MURAL_CLIENT_ID": "$env:MURAL_CLIENT_ID",
+        "MURAL_CLIENT_SECRET": "$env:MURAL_CLIENT_SECRET"
+      },
       "lifecycle": "lazy",
       "idleTimeout": 60,
-      "directTools": true
+      "directTools": [
+        "get_widgets",
+        "get_widget",
+        "update_sticky_note",
+        "update_shape"
+      ]
     }
   }
 }
