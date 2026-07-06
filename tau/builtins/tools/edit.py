@@ -27,7 +27,6 @@ def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
 
 
 class EditParams(BaseModel):
-    """Parameters for the edit tool."""
 
     path: str = Field(
         description="Absolute path to the file to edit.",
@@ -49,10 +48,11 @@ class EditParams(BaseModel):
         ),
         examples=["14:9c8a"],
     )
-    new_content: str = Field(
+    content: str = Field(
+        default="",
         description=(
-            "UTF-8 text replacing the inclusive anchored line range. Use an empty string "
-            "to delete the range."
+            "New UTF-8 content for the inclusive anchored line range. "
+            "Empty content means delete the range."
         ),
         examples=["def new_function():\n    return 5"],
     )
@@ -218,14 +218,6 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     return result
 
 
-_ANCHOR_FORMAT_HINT = (
-    "The 'edit' tool takes content-based hashline anchors, not line numbers. Call 'read' "
-    "on this file first, then copy the '<line>:<hash>' anchor from its output for the "
-    'first and last line to replace — e.g. start_anchor="12:a3f1", end_anchor="14:9c8a". '
-    "Use the same anchor for both fields on a single-line edit."
-)
-
-
 class EditTool(Tool):
     """Tool for replacing line ranges selected by hashline anchors."""
 
@@ -265,8 +257,6 @@ class EditTool(Tool):
         that without changing validation semantics.
         """
         ok, errors = super().validate(params)
-        if not ok and any("start_anchor" in e or "end_anchor" in e for e in errors):
-            errors.append(_ANCHOR_FORMAT_HINT)
         return ok, errors
 
     async def execute(
@@ -312,7 +302,7 @@ class EditTool(Tool):
                 "Resolved end anchor is before the start anchor.",
             )
 
-        replacement_lines = params.new_content.splitlines()
+        replacement_lines = params.content.splitlines()
         updated_lines = lines[:start_index] + replacement_lines + lines[end_index + 1 :]
         updated = "\n".join(updated_lines)
         if original.endswith("\n") and updated_lines:
