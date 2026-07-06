@@ -320,6 +320,24 @@ class TestEditTool:
         assert not result.is_error
         assert "new_name" in f.read_text()
 
+    def test_accepts_legacy_content_parameter(self, tmp_path):
+        f = tmp_path / "legacy.py"
+        f.write_text("old\n")
+        anchor = _anchor(1, "old")
+        result = run(
+            self.tool.execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    content="new",
+                )
+            )
+        )
+        assert not result.is_error
+        assert f.read_text() == "new\n"
+
     def test_file_not_found(self, tmp_path):
         result = run(
             self.tool.execute(
@@ -351,6 +369,9 @@ class TestEditTool:
         )
         assert result.is_error
         assert "not found" in result.content.lower()
+        assert "Current file content near hinted line 1:" in result.content
+        assert f"{_anchor(1, 'hello world')}|hello world" in result.content
+        assert "Re-read the relevant range" in result.content
 
     def test_line_number_params_get_actionable_hint(self):
         """Observed failure mode: model retries with line_start/line_end instead

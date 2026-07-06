@@ -10,8 +10,8 @@ Tau ships with seven built-in tools covering file I/O, search, and shell executi
 
 Read a UTF-8 text file. Invalid byte sequences are replaced during decoding.
 Every returned line is prefixed with a content-based hashline anchor in the form
-`<line>:<hash>|<content>`. Duplicate content, including blank lines, can share a
-hash; the line number acts as a proximity hint when `edit` resolves an anchor.
+`<line>:<hash>|<content>`. Duplicate content, including blank lines, receives
+distinct anchors so `edit` can target the exact displayed line.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -37,6 +37,8 @@ used as a proximity hint and the closest occurrence is selected. An empty
 `new_content` deletes the selected range. Because the complete file is rewritten,
 an edit may normalize line endings. Edit-result diffs also display hashline anchors:
 removed lines use their old hashes, while added and context lines use current hashes.
+If an anchor hash is stale or invalid, the model-visible error includes current
+nearby hashline-anchored file content and asks the agent to re-read before retrying.
 Edit diffs always show every changed line. By default they include three unchanged
 lines around each change and collapse larger unchanged gaps into `… (+N lines)`;
 Ctrl+O expands those gaps to show the complete file context.

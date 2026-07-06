@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import atomic_write_text, compute_line_hashes, serialize_file_mutation
 from tau.tool.render import call_line
@@ -27,7 +27,6 @@ def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
 
 
 class EditParams(BaseModel):
-
     path: str = Field(
         description="Absolute path to the file to edit.",
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
@@ -48,8 +47,8 @@ class EditParams(BaseModel):
         ),
         examples=["14:9c8a"],
     )
-    content: str = Field(
-        default="",
+    new_content: str = Field(
+        validation_alias=AliasChoices("new_content", "content"),
         description=(
             "New UTF-8 content for the inclusive anchored line range. "
             "Empty content means delete the range."
@@ -95,6 +94,60 @@ def _find_anchor(lines: list[str], anchor: str, hashes: list[str] | None = None)
         return matches[0]
     expected_index = line_hint - 1
     return min(matches, key=lambda index: abs(index - expected_index))
+
+
+def _format_anchored_lines(
+    lines: list[str],
+    hashes: list[str],
+    start_index: int,
+    end_index: int,
+) -> str:
+    """Format a current-file excerpt using read-compatible hashline anchors."""
+    return "\n".join(
+        f"{index + 1}:{hashes[index]}|{lines[index]}" for index in range(start_index, end_index)
+    )
+
+
+def _anchor_not_found_message(
+    label: str,
+    anchor: str,
+    lines: list[str],
+    hashes: list[str],
+) -> str:
+    """Build an actionable model-visible error for stale or invalid anchors."""
+    line_hint, expected_hash = _parse_anchor(anchor)
+    total_lines = len(lines)
+    message = [
+        f"{label} anchor hash not found: {anchor}",
+        (
+            f"No current line in the file has hash {expected_hash!r}. "
+            "The file may have changed since the anchor was read, or the anchor "
+            "may have been copied incorrectly."
+        ),
+    ]
+
+    if total_lines == 0:
+        message.append("The current file is empty. Re-read the file before retrying the edit.")
+        return "\n".join(message)
+
+    if 1 <= line_hint <= total_lines:
+        start_index = max(0, line_hint - 3)
+        end_index = min(total_lines, line_hint + 2)
+        message.extend(
+            [
+                f"Current file content near hinted line {line_hint}:",
+                _format_anchored_lines(lines, hashes, start_index, end_index),
+            ]
+        )
+    else:
+        message.append(
+            f"The anchor line hint is {line_hint}, but the current file has {total_lines} lines."
+        )
+
+    message.append(
+        "Re-read the relevant range with read and retry using the current hashline anchors."
+    )
+    return "\n".join(message)
 
 
 def _parse_hunks(diff: str) -> list[list[tuple[str, int, int, str]]]:
@@ -257,6 +310,22 @@ class EditTool(Tool):
         that without changing validation semantics.
         """
         ok, errors = super().validate(params)
+        if ok:
+            return ok, errors
+
+        has_anchor_error = any(
+            error.startswith(("start_anchor:", "end_anchor:"))
+            or "start_anchor" in error
+            or "end_anchor" in error
+            for error in errors
+        )
+        has_legacy_line_params = "line_start" in params or "line_end" in params
+        if has_anchor_error or has_legacy_line_params:
+            errors.append(
+                "Use hashline anchors from read, formatted like '12:a3f1'. "
+                "Read the file first, then pass start_anchor/end_anchor; use the same "
+                "anchor for a single-line edit."
+            )
         return ok, errors
 
     async def execute(
@@ -288,13 +357,13 @@ class EditTool(Tool):
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
-                f"Start anchor hash not found: {params.start_anchor}",
+                _anchor_not_found_message("Start", params.start_anchor, lines, hashes),
             )
         end_index = _find_anchor(lines, params.end_anchor, hashes)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,
-                f"End anchor hash not found: {params.end_anchor}",
+                _anchor_not_found_message("End", params.end_anchor, lines, hashes),
             )
         if end_index < start_index:
             return ToolResult.error(
@@ -302,7 +371,7 @@ class EditTool(Tool):
                 "Resolved end anchor is before the start anchor.",
             )
 
-        replacement_lines = params.content.splitlines()
+        replacement_lines = params.new_content.splitlines()
         updated_lines = lines[:start_index] + replacement_lines + lines[end_index + 1 :]
         updated = "\n".join(updated_lines)
         if original.endswith("\n") and updated_lines:
