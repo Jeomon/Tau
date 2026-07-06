@@ -6,6 +6,13 @@
       "lifecycle": "lazy",
       "idleTimeout": 60,
       "directTools": true
+    },
+    "mural": {
+      "url": "https://api.mcp.ai/p_mural",
+      "transport": "http",
+      "lifecycle": "lazy",
+      "idleTimeout": 60,
+      "directTools": true
     }
   }
 }
