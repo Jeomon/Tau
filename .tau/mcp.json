@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "transport": "http",
+      "lifecycle": "lazy",
+      "idleTimeout": 60,
+      "directTools": true
+    }
+  }
+}
