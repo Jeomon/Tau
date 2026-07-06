@@ -12,3 +12,6 @@ wheels/
 temp
 .env
 experiments
+
+# Locally-installed third-party MCP servers (cloned/built, not project source)
+.tau/mcp-servers/

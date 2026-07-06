@@ -377,7 +377,13 @@ class ExtensionLoader:
         from tau.packages.manager import PackageManager
 
         venv_dir = self._resolve_venv_dir(source)
-        pkg_mgr = PackageManager(venv_dir)
+        # _resolve_venv_dir returns the running interpreter's own sys.prefix (not
+        # a venv to create) when the project .venv's Python version doesn't match
+        # this process — target it directly instead of trying to `uv venv` it.
+        running_interpreter = venv_dir == Path(sys.prefix)
+        pkg_mgr = PackageManager(
+            venv_dir, python_executable=Path(sys.executable) if running_interpreter else None
+        )
 
         digest = hashlib.sha256("\n".join(sorted(deps)).encode("utf-8")).hexdigest()
         cache_file = venv_dir / ".tau_ext_deps.json"

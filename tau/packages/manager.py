@@ -17,14 +17,20 @@ _log = logging.getLogger(__name__)
 class PackageManager:
     """Manages Python extension packages in a dedicated venv."""
 
-    def __init__(self, venv_dir: Path) -> None:
+    def __init__(self, venv_dir: Path, *, python_executable: Path | None = None) -> None:
         self.venv_dir = venv_dir
+        # When set, target this existing interpreter directly instead of managing
+        # a venv under venv_dir — used when venv_dir is the running interpreter's
+        # own (non-venv) installation, e.g. a system Python framework build.
+        self._python_override = python_executable
 
     # ── Venv paths ────────────────────────────────────────────────────────────
 
     @property
     def _python(self) -> Path:
-        """Return the path to the venv's Python executable."""
+        """Return the path to the target Python executable."""
+        if self._python_override is not None:
+            return self._python_override
         if sys.platform == "win32":
             return self.venv_dir / "Scripts" / "python.exe"
         return self.venv_dir / "bin" / "python"
@@ -42,6 +48,8 @@ class PackageManager:
 
     def ensure_venv(self) -> None:
         """Create the venv if it does not already exist."""
+        if self._python_override is not None:
+            return  # targeting an existing interpreter directly; nothing to create
         if self._python.exists():
             return
         self.venv_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +126,7 @@ class PackageManager:
         if self._has_uv():
             cmd = ["uv", "pip", "install", "--python", str(self._python), *dependencies]
         else:
-            cmd = [str(self._pip_exe), "install", *dependencies]
+            cmd = [str(self._python), "-m", "pip", "install", *dependencies]
         subprocess.run(cmd, check=True, capture_output=True)
 
     def update(
