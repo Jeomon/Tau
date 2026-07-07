@@ -7,6 +7,11 @@ instead of running in-process, each delegated task spawns a separate `tau`
 process (`--mode json --ephemeral`), so it gets its own context window rather
 than eating into the parent conversation's.
 
+This extension also ships as a builtin (`tau/builtins/extensions/subagent`),
+enabled by default — its sample agents (scout/planner/reviewer/worker) work
+out of the box there with no manual symlinking. This copy is the standalone
+reference version showing the manual install path below.
+
 ## Structure
 
 ```
