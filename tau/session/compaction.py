@@ -30,7 +30,18 @@ class CompactionSettings:
     """Configuration for context compaction behavior."""
 
     enabled: bool = True
-    reserve_tokens: int = 16_384
+    # Cushion between the compaction threshold and the model's real context
+    # window. Needs to absorb more than just typical next-turn growth: the
+    # threshold check itself runs against estimate_context_tokens(), which is
+    # exact only at the last real usage anchor and heuristic (chars/4) for
+    # everything since — a heuristic that reliably undercounts code, JSON-heavy
+    # tool output, and non-English text. On a long, content-heavy session that
+    # drift can quietly eat through a smaller reserve, so should_compact() keeps
+    # reading "safely under" while the real (tokenizer-counted) prompt has
+    # already overflowed the provider's window. See estimate_tokens's
+    # _TOKEN_ESTIMATE_SAFETY_FACTOR for the complementary fix on the estimate
+    # side.
+    reserve_tokens: int = 32_768
     keep_recent_tokens: int = 20_000
 
 
@@ -38,6 +49,15 @@ DEFAULT_COMPACTION_SETTINGS = CompactionSettings()
 
 TOOL_RESULT_MAX_CHARS = 2_000
 ESTIMATED_IMAGE_CHARS = 4_800
+
+# chars/4 is a rough per-message token estimate — cheap, but it reliably
+# undercounts code, JSON-heavy tool output, and non-English text (exactly what
+# a long coding session accumulates). Biasing it to overcount instead trades a
+# small amount of "compacts slightly earlier than strictly necessary" for
+# avoiding the alternative: should_compact() reading comfortably under
+# threshold while the real prompt has already silently overflowed the model's
+# context window (see CompactionSettings.reserve_tokens).
+_TOKEN_ESTIMATE_SAFETY_FACTOR = 1.15
 SUMMARY_SAFETY_TOKENS = 2_048
 
 
@@ -136,7 +156,7 @@ def estimate_tokens(message: Any) -> int:
             if isinstance(c, TextContent):
                 chars += len(c.content)
 
-    return max(1, chars // 4)
+    return max(1, int(chars * _TOKEN_ESTIMATE_SAFETY_FACTOR) // 4)
 
 
 def effective_usage_tokens(usage: Any) -> int:
@@ -161,7 +181,7 @@ def _request_overhead_tokens(system_prompt: str, tools: list[Any]) -> int:
         if schema is not None:
             with contextlib.suppress(AttributeError, TypeError, ValueError):
                 chars += len(json.dumps(schema.model_json_schema()))
-    return chars // 4
+    return int(chars * _TOKEN_ESTIMATE_SAFETY_FACTOR) // 4
 
 
 def estimate_context_tokens(

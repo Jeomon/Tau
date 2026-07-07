@@ -32,13 +32,19 @@ from tau.session.compaction import (
     should_compact,
     validated_compaction_settings,
 )
+from tau.session.compaction import _TOKEN_ESTIMATE_SAFETY_FACTOR as _SAFETY
+
+
+def _expected_tokens(chars: int) -> int:
+    """Mirror estimate_tokens's chars/4-with-safety-factor formula."""
+    return max(1, int(chars * _SAFETY) // 4)
 
 
 class TestEstimateTokens:
     def test_user_text_message(self):
         msg = UserMessage.from_text("hello world")
         tokens = estimate_tokens(msg)
-        assert tokens == max(1, len("hello world") // 4)
+        assert tokens == _expected_tokens(len("hello world"))
 
     def test_empty_user_message(self):
         msg = UserMessage()
@@ -48,46 +54,46 @@ class TestEstimateTokens:
     def test_assistant_text_message(self):
         msg = AssistantMessage.from_text("a" * 400)
         tokens = estimate_tokens(msg)
-        assert tokens == 100  # 400 chars / 4
+        assert tokens == _expected_tokens(400)
 
     def test_assistant_thinking_counted(self):
         msg = AssistantMessage(contents=[ThinkingContent(content="t" * 200)])
         tokens = estimate_tokens(msg)
-        assert tokens == 50  # 200 // 4
+        assert tokens == _expected_tokens(200)
 
     def test_assistant_tool_call_counted(self):
         args = {"path": "/a/b"}
         name = "read_file"
         msg = AssistantMessage(contents=[ToolCallContent(id="1", name=name, args=args)])
-        expected = max(1, (len(name) + len(json.dumps(args))) // 4)
+        expected = _expected_tokens(len(name) + len(json.dumps(args)))
         assert estimate_tokens(msg) == expected
 
     def test_tool_message_result(self):
         result = ToolResultContent(id="1", content="r" * 800)
         msg = ToolMessage.from_result(result)
         tokens = estimate_tokens(msg)
-        assert tokens == 200  # 800 // 4
+        assert tokens == _expected_tokens(800)
 
     def test_terminal_execution_message(self):
         msg = TerminalExecutionMessage(command="ls", output="file1\nfile2")
         tokens = estimate_tokens(msg)
-        expected = max(1, (len("ls") + len("file1\nfile2")) // 4)
+        expected = _expected_tokens(len("ls") + len("file1\nfile2"))
         assert tokens == expected
 
     def test_compaction_summary_message(self):
         msg = CompactionSummaryMessage(summary="s" * 400)
         tokens = estimate_tokens(msg)
-        assert tokens == 100
+        assert tokens == _expected_tokens(400)
 
     def test_branch_summary_message(self):
         msg = BranchSummaryMessage(summary="s" * 200)
         tokens = estimate_tokens(msg)
-        assert tokens == 50
+        assert tokens == _expected_tokens(200)
 
     def test_custom_message_text_counted(self):
         msg = CustomMessage(custom_type="info", contents=[TextContent(content="c" * 100)])
         tokens = estimate_tokens(msg)
-        assert tokens == 25
+        assert tokens == _expected_tokens(100)
 
 
 class TestEstimateContextTokens:

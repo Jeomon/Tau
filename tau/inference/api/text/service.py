@@ -170,15 +170,6 @@ class TextLLM:
         if merged.max_tokens is None:
             merged.max_tokens = model.max_output_tokens
 
-        # Belt-and-suspenders: a zero/negative value here would reach the
-        # provider as an invalid request (some providers reject it outright,
-        # e.g. "max_tokens must be at least 1, got -128") regardless of
-        # whether it came from a model default or an explicit override.
-        # Clamping to at least 1 turns a guaranteed crash into a (possibly
-        # useless but harmless) minimal-output request instead.
-        if merged.max_tokens is not None:
-            merged.max_tokens = max(1, merged.max_tokens)
-
         # Resolve any "$ENV_VAR" / "!command" references in custom headers to
         # their values. Done once here (per provider/model selection); the
         # resolver memoizes, so a !command runs only the first time it's seen.
