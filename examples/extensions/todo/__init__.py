@@ -96,6 +96,123 @@ class TodoBoard:
         self._widget = None
 
 
+AUTO_CONTINUE_WIDGET_KEY = "todo-autocontinue"
+
+
+class TodoAutoContinue:
+    """Forces the agent to keep working through pending tasks between turns.
+
+    Mirrors pi-til-done's design: on agent_end, if pending tasks remain and
+    nothing is already queued, wait out a short interruptible countdown, then
+    inject a follow-up turn naming the next task. A circuit breaker caps
+    consecutive no-progress cycles — but any todo mutation resets it (matching
+    pi-til-done's own reset-on-mutation semantics), so genuine progress on a
+    long plan is never capped.
+    """
+
+    MAX_ITERATIONS = 20
+    COUNTDOWN_SECONDS = 3
+
+    def __init__(self, state: TodoState, runtime_ref: Any, enabled: bool) -> None:
+        self._state = state
+        self._runtime_ref = runtime_ref
+        self._enabled = enabled
+        self._count = 0
+        self._task: Any = None
+
+    def _cancel_task(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+        self._task = None
+
+    def reset(self, ctx: ExtensionContext | None = None) -> None:
+        """Call after any real todo mutation — clears the no-progress counter."""
+        self._count = 0
+        self._cancel_task()
+        if ctx is not None:
+            ui = ctx.ui
+            if ui is not None:
+                ui.remove_widget(AUTO_CONTINUE_WIDGET_KEY)
+
+    def stop(self, ctx: ExtensionContext | None = None) -> None:
+        """Call on session shutdown/switch — same as reset, kept as a separate name for clarity."""
+        self.reset(ctx)
+
+    def on_agent_end(self, event: Any, ctx: ExtensionContext) -> None:
+        if not self._enabled:
+            return
+        from tau.hooks.engine import AgentEndReason
+
+        if getattr(event, "reason", AgentEndReason.Completed) != AgentEndReason.Completed:
+            return
+        pending = self._state.list("pending")
+        if not pending:
+            self._count = 0
+            return
+        if ctx.has_pending_messages():
+            return
+
+        self._cancel_task()
+        self._count += 1
+        if self._count > self.MAX_ITERATIONS:
+            self._count = 0
+            ui = ctx.ui
+            if ui is not None:
+                ui.notify(
+                    f"Todo auto-continue paused after {self.MAX_ITERATIONS} cycles with no "
+                    f"progress — {len(pending)} task(s) still pending. Take over manually.",
+                    type="warning",
+                )
+            return
+
+        import asyncio
+
+        self._task = asyncio.ensure_future(self._countdown(pending[0], len(pending)))
+
+    async def _countdown(self, next_item: Any, pending_count: int) -> None:
+        import asyncio
+
+        from tau.extensions.context import ExtensionContext
+
+        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        if runtime is None:
+            return
+
+        try:
+            for remaining in range(self.COUNTDOWN_SECONDS, 0, -1):
+                ctx = ExtensionContext.from_runtime(runtime)
+                ui = ctx.ui
+                if ui is not None:
+                    ui.set_widget(
+                        AUTO_CONTINUE_WIDGET_KEY,
+                        [f"⏳ Continuing in {remaining}s… (send a message to cancel)"],
+                        placement="above_editor",
+                    )
+                await asyncio.sleep(1)
+
+            ctx = ExtensionContext.from_runtime(runtime)
+            ui = ctx.ui
+            if ui is not None:
+                ui.remove_widget(AUTO_CONTINUE_WIDGET_KEY)
+            if not ctx.is_idle() or ctx.has_pending_messages():
+                return
+
+            prompt = (
+                f"{pending_count} todo task(s) are still pending. Continue with the next one: "
+                f"#{next_item.id} {next_item.subject}. Mark it done via the todo tool once "
+                f"finished, then move on to the next pending task."
+            )
+            await ctx.send_user_message(prompt, deliver_as="follow_up", trigger_turn=True)
+        except asyncio.CancelledError:
+            runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+            if runtime is not None:
+                ctx = ExtensionContext.from_runtime(runtime)
+                ui = ctx.ui
+                if ui is not None:
+                    ui.remove_widget(AUTO_CONTINUE_WIDGET_KEY)
+            raise
+
+
 def register(tau: ExtensionAPI) -> None:
     config = tau.config or {}
     if not config.get("enabled", True):
@@ -103,10 +220,14 @@ def register(tau: ExtensionAPI) -> None:
 
     state = TodoState()
     board = TodoBoard(state)
+    auto_continue = TodoAutoContinue(
+        state, tau._runtime_ref, enabled=bool(config.get("auto_continue", True))
+    )
 
     def _rebuild(_event: Any, ctx: ExtensionContext) -> None:
         state.rebuild(ctx.branch_entries)
         board.sync(ctx)
+        auto_continue.reset(ctx)
 
     tau.on("session_start", _rebuild)
     tau.on("session_tree", _rebuild)
@@ -118,10 +239,17 @@ def register(tau: ExtensionAPI) -> None:
 
     def _on_shutdown(_event: Any, ctx: ExtensionContext) -> None:
         board.hide(ctx)
+        auto_continue.stop(ctx)
 
     tau.on("session_shutdown", _on_shutdown)
 
-    tau.register_tool(TodoTool(state, tau._runtime_ref, on_mutate=board.sync))
+    tau.on("agent_end", auto_continue.on_agent_end)
+
+    def _on_mutate(ctx: ExtensionContext) -> None:
+        board.sync(ctx)
+        auto_continue.reset(ctx)
+
+    tau.register_tool(TodoTool(state, tau._runtime_ref, on_mutate=_on_mutate))
 
     async def cmd_todos(ctx: ExtensionContext, _args: list[str]) -> None:
         ui = ctx.ui

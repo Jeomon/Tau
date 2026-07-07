@@ -5,6 +5,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class TodoTaskInput(BaseModel):
+    subject: str = Field(..., description="Short imperative subject line.")
+    description: str | None = Field(default=None, description="Long-form task description.")
+
+
 class TodoParams(BaseModel):
     action: Literal["create", "update", "list", "get", "delete", "clear"] = Field(
         ..., description="Which operation to perform on the todo list."
@@ -13,11 +18,20 @@ class TodoParams(BaseModel):
         default=None,
         description="Task id. Required for action='update'|'get'|'delete'.",
     )
+    tasks: list[TodoTaskInput] | None = Field(
+        default=None,
+        description=(
+            "For action='create': a batch of tasks to add in one call, each with its own "
+            "'subject' and optional 'description'. Use this to write out the full plan at "
+            "once instead of calling create repeatedly. Takes precedence over the top-level "
+            "'subject'/'description' fields if both are given."
+        ),
+    )
     subject: str | None = Field(
         default=None,
         description=(
-            "Short imperative subject line. Required for action='create'; "
-            "replaces the existing subject for action='update'."
+            "Short imperative subject line for a single task. Required for action='create' "
+            "when 'tasks' is not used; replaces the existing subject for action='update'."
         ),
     )
     description: str | None = Field(

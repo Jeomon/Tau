@@ -173,10 +173,13 @@ class TodoTool(Tool):
             name="todo",
             description=(
                 "Manage a todo list to track multi-step work in this session. Actions: "
-                "'create' adds a task (requires 'subject', optional 'description'); "
-                "'update' changes a task (requires 'id'; optional 'subject', 'description' "
-                "to replace it, 'append_note' to add a paragraph without replacing, 'done' "
-                "to mark complete/incomplete); 'list' shows tasks, optionally filtered by "
+                "'create' adds task(s) — pass 'tasks' (a list of {subject, description}) to "
+                "write out the whole plan in one call once you've gathered enough context to "
+                "know the steps, rather than calling create repeatedly; pass top-level "
+                "'subject'/'description' instead for a single task. 'update' changes a task "
+                "(requires 'id'; optional 'subject', 'description' to replace it, "
+                "'append_note' to add a paragraph without replacing, 'done' to mark "
+                "complete/incomplete); 'list' shows tasks, optionally filtered by "
                 "'filter'='done'|'pending'; 'get' returns full detail for one task (requires "
                 "'id'); 'delete' removes a task (requires 'id'); 'clear' removes every task. "
                 "The list is shown to the user in a board above the input, not in the "
@@ -185,7 +188,9 @@ class TodoTool(Tool):
                 "the user a task was created, updated, or completed unless you actually made "
                 "the matching 'create'/'update' call in this turn — calling 'list' alone does "
                 "not change anything. If it's unclear which task or field to update, ask "
-                "instead of guessing."
+                "instead of guessing. Once a plan is created, keep working through the pending "
+                "tasks yourself (marking each 'done' as you finish it) instead of stopping to "
+                "check in after every single task."
             ),
             schema=TodoParams,
             kind=ToolKind.Read,
@@ -218,9 +223,16 @@ class TodoTool(Tool):
         state = self._state
 
         if params.action == "create":
+            if params.tasks:
+                if any(not t.subject.strip() for t in params.tasks):
+                    return ToolResult.error(invocation.id, "every task in 'tasks' needs a 'subject'")
+                items = [state.create(t.subject.strip(), t.description) for t in params.tasks]
+                self._after_mutation()
+                summary = "\n".join(f"#{i.id}: {i.subject}" for i in items)
+                return ToolResult.ok(invocation.id, f"Created {len(items)} tasks\n{summary}")
             subject = (params.subject or "").strip()
             if not subject:
-                return ToolResult.error(invocation.id, "create requires 'subject'")
+                return ToolResult.error(invocation.id, "create requires 'subject' or 'tasks'")
             item = state.create(subject, params.description)
             self._after_mutation()
             return ToolResult.ok(invocation.id, f"Created #{item.id}: {item.subject}")
