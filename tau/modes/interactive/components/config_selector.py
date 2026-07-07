@@ -120,7 +120,7 @@ class ConfigSelector(Component):
             name_style = t.emphasis if is_sel else t.muted
 
             if is_sel:
-                spans = [Span("  ", Style()), Span(">", t.accent), Span(" ", Style())]
+                spans = [Span("  ", Style()), Span(t.selector_arrow, t.accent), Span(" ", Style())]
             else:
                 spans = [Span("    ", Style())]
             spans.append(Span(checkbox_symbol, checkbox_style))

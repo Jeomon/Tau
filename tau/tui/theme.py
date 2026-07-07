@@ -190,6 +190,12 @@ class LayoutTheme:
         default_factory=lambda: Style().with_fg("bright_black")
     )
 
+    # Selection-cursor glyph shown next to the highlighted row in selector
+    # lists (settings, themes, models, sessions, config, ...). Matches the
+    # input prompt's "❯" by default so the same glyph reads consistently
+    # everywhere; change this once to restyle all of them.
+    selector_arrow: str = "❯"
+
     # Optional terminal background colour applied via OSC 11 when Tau starts.
     # Use a CSS hex string e.g. "#1e1e2e" or an "rgb(r,g,b)" string.
     # None (default) leaves the terminal's own background unchanged.

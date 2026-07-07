@@ -63,6 +63,7 @@ class ExtensionSelector(Component):
             border_style=t.border,
             muted_style=t.muted,
             accent_style=t.accent,
+            arrow=t.selector_arrow,
             emphasis_style=t.emphasis,
             hint=DEFAULT_HINT,
             empty_text="No options available",

@@ -74,6 +74,7 @@ def render_picker_cells(
     emphasis_style: Style,
     hint: str,
     empty_text: str = "No options available",
+    arrow: str = "❯",
 ) -> int:
     """Render the shared picker layout into buf. Returns rows written.
 
@@ -119,7 +120,7 @@ def render_picker_cells(
             if is_sel:
                 spans = [
                     Span("  ", Style()),
-                    Span(">", accent_style),
+                    Span(arrow, accent_style),
                     Span(" ", Style()),
                     Span(row.label, emphasis_style),
                 ]

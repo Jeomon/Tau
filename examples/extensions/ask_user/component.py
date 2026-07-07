@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import textwrap
 from typing import TYPE_CHECKING, Any
 
-from schema import AskUserOption  # type: ignore[import-not-found]
+from schema import FREEFORM_LABEL, AskUserOption  # type: ignore[import-not-found]
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
@@ -10,8 +11,6 @@ from tau.tui.input import InputEvent, KeyEvent
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
     from tau.tui.geometry import Rect
-
-FREEFORM_LABEL = "Type something…"
 
 
 def _typed_char(event: KeyEvent) -> str | None:
@@ -33,6 +32,12 @@ class _AskUserComponent(Component):
 
     ML_VISIBLE_ROWS = 8
     ML_MIN_VISIBLE_ROWS = 4  # pad short buffers so the box visibly reads as multi-line
+
+    # Below this total width there's no room for a legible side-by-side preview
+    # column, so the option list just falls back to full width with no preview.
+    PREVIEW_MIN_TOTAL_WIDTH = 70
+    PREVIEW_GAP = 2
+    PREVIEW_MIN_BOX_HEIGHT = 6
 
     def __init__(
         self,
@@ -85,96 +90,206 @@ class _AskUserComponent(Component):
 
     # ── Render ────────────────────────────────────────────────────────────
 
+    def _has_preview_capable_options(self) -> bool:
+        return not self._allow_multiple and any(o.preview for o in self._options)
+
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
-        def _plain(lines: list[str]) -> int:
+        def _write(lines: list[str], x: int, y: int, width: int) -> int:
             row = 0
             for line in lines:
-                row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+                row += parse_ansi_wrapped_into(buf, x, y + row, line, width)
             return row
 
-        inner: list[str] = []
+        header: list[str] = []
         if self._context:
             for line in self._context.splitlines():
-                inner.append(f"  \x1b[2m{line}\x1b[0m")
-            inner.append("")
-        inner.append(f"  \x1b[1m{self._question}\x1b[0m")
-        inner.append("")
+                header.append(f"  \x1b[2m{line}\x1b[0m")
+            header.append("")
+        header.append(f"  \x1b[1m{self._question}\x1b[0m")
+        header.append("")
 
+        header_rows = _write(header, area.x, area.y, area.width)
+        body_y = area.y + header_rows
+
+        show_preview = (
+            self._has_preview_capable_options() and area.width >= self.PREVIEW_MIN_TOTAL_WIDTH
+        )
+
+        left_width = min(46, max(30, area.width // 3)) if show_preview else area.width
+        content_lines, footer_lines = self._build_body_lines(left_width)
+
+        if not show_preview:
+            body_rows = _write(content_lines, area.x, body_y, area.width)
+            footer_rows = _write(footer_lines, area.x, body_y + body_rows, area.width)
+            return header_rows + body_rows + footer_rows
+
+        right_width = area.width - left_width - self.PREVIEW_GAP
+
+        preview: str | None = None
+        if self._cursor != self._freeform_index and self._options:
+            preview = self._options[self._cursor].preview
+
+        box_height = max(len(content_lines), self.PREVIEW_MIN_BOX_HEIGHT)
+        preview_box = self._build_preview_box(preview, right_width, box_height)
+
+        left_rows = _write(content_lines, area.x, body_y, left_width)
+        right_rows = _write(preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width)
+        col_rows = max(left_rows, right_rows)
+
+        # Footer spans the FULL width beneath both columns — it's not part of
+        # either column, so it never wraps just because the left column is
+        # narrow, and it visually separates from the preview box like the
+        # bottom nav-hint line in the reference screenshot.
+        footer_rows = _write(footer_lines, area.x, body_y + col_rows, area.width)
+        return header_rows + col_rows + footer_rows
+
+    def _build_body_lines(self, width: int) -> tuple[list[str], list[str]]:
+        """Everything below the header: the option list, or whichever freeform
+        editor is active. ``width`` is whatever column this ends up rendered
+        in (full width, or the left column next to a preview pane) — used to
+        wrap option descriptions so they don't run into the next row.
+
+        Returns ``(content_lines, footer_lines)``. The footer is kept separate
+        from the content so the caller can always render it full-width, even
+        when the content itself is confined to a narrow left column.
+        """
         if self._mode == "freeform" and self._multiline:
-            self._clamp_ml_scroll()
-            limit = self._ml_scroll_top + self.ML_VISIBLE_ROWS
-            visible = self._ml_lines[self._ml_scroll_top : limit]
-            for ri, line in enumerate(visible):
-                abs_row = self._ml_scroll_top + ri
-                if abs_row == self._ml_cursor_row:
-                    before = line[: self._ml_cursor_col]
-                    after = line[self._ml_cursor_col :]
-                    inner.append(f"  {before}█{after}")
-                else:
-                    inner.append(f"  {line}")
-            # Pad with blank rows (display-only, not part of the buffer) so an
-            # empty/short answer still shows several rows — a visible cue that
-            # this is a multi-line editor, not a single-line box.
-            for _ in range(self.ML_MIN_VISIBLE_ROWS - len(visible)):
-                inner.append("")
-            total = len(self._ml_lines)
-            if total > self.ML_VISIBLE_ROWS:
-                pct = int(self._ml_scroll_top / max(1, total - self.ML_VISIBLE_ROWS) * 100)
-                inner.append(f"  \x1b[2m↕ {pct}%\x1b[0m")
-            else:
-                inner.append("")
-            back = "Esc to cancel" if not self._options else "Esc to go back"
-            inner.append(
-                "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
-                f"{back}\x1b[0m"
-            )
-            return _plain(inner)
-
+            return self._build_multiline_body()
         if self._mode == "freeform":
-            inner.append(f"  {self._freeform_value}█")
+            return self._build_singleline_body()
+        return self._build_list_body(width)
+
+    def _build_multiline_body(self) -> tuple[list[str], list[str]]:
+        inner: list[str] = []
+        self._clamp_ml_scroll()
+        limit = self._ml_scroll_top + self.ML_VISIBLE_ROWS
+        visible = self._ml_lines[self._ml_scroll_top : limit]
+        for ri, line in enumerate(visible):
+            abs_row = self._ml_scroll_top + ri
+            if abs_row == self._ml_cursor_row:
+                before = line[: self._ml_cursor_col]
+                after = line[self._ml_cursor_col :]
+                inner.append(f"  {before}█{after}")
+            else:
+                inner.append(f"  {line}")
+        # Pad with blank rows (display-only, not part of the buffer) so an
+        # empty/short answer still shows several rows — a visible cue that
+        # this is a multi-line editor, not a single-line box.
+        for _ in range(self.ML_MIN_VISIBLE_ROWS - len(visible)):
             inner.append("")
-            back = "Esc to cancel" if not self._options else "Esc to go back"
-            inner.append(f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m")
-            return _plain(inner)
+        total = len(self._ml_lines)
+        if total > self.ML_VISIBLE_ROWS:
+            pct = int(self._ml_scroll_top / max(1, total - self.ML_VISIBLE_ROWS) * 100)
+            inner.append(f"  \x1b[2m↕ {pct}%\x1b[0m")
+        else:
+            inner.append("")
+        back = "Esc to cancel" if not self._options else "Esc to go back"
+        footer = [
+            "",
+            "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
+            f"{back}\x1b[0m",
+        ]
+        return inner, footer
+
+    def _build_singleline_body(self) -> tuple[list[str], list[str]]:
+        back = "Esc to cancel" if not self._options else "Esc to go back"
+        content = [f"  {self._freeform_value}█"]
+        footer = ["", f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m"]
+        return content, footer
+
+    # Left margin + hanging indent for wrapped description lines beneath a
+    # title row — matches the "  ❯ 1. " prefix width closely enough to read as
+    # aligned without having to compute each row's exact glyph width.
+    DESC_INDENT = "      "
+
+    def _build_list_body(self, width: int) -> tuple[list[str], list[str]]:
+        inner: list[str] = []
+        desc_width = max(width - len(self.DESC_INDENT), 10)
 
         for i in range(self._row_count):
             is_freeform_row = i == self._freeform_index
             title = FREEFORM_LABEL if is_freeform_row else self._options[i].title
             desc = "" if is_freeform_row else (self._options[i].description or "")
             is_cursor = i == self._cursor
-            cursor_mark = "›" if is_cursor else " "
+            cursor_mark = "❯" if is_cursor else " "
 
-            if self._allow_multiple and not is_freeform_row:
-                # Same tick glyphs as the /extensions config panel. Cursor rows
-                # get wrapped in reverse-video below, so leave them uncolored
-                # there — an embedded reset would cut the highlight short.
+            if is_freeform_row:
+                # Synthetic action row, not a countable option — keeps its own
+                # "❯" marker instead of a number.
+                marker = " ❯ "
+            elif self._allow_multiple:
+                # Same tick glyphs as the /extensions config panel, paired with
+                # the option's ordinal number. Cursor rows get wrapped in
+                # reverse-video below, so leave them uncolored here — an
+                # embedded reset would cut the highlight short.
                 if i in self._checked:
                     box = "✔" if is_cursor else "\x1b[32m✔\x1b[0m"
                 else:
                     box = "✖" if is_cursor else "\x1b[2m✖\x1b[0m"
-            elif not is_freeform_row:
-                # Radio-style circles: filled at the cursor position, hollow
-                # elsewhere. Same reverse-video caveat as the checkbox ticks
-                # above — leave the cursor row's glyph uncolored.
-                box = "●" if is_cursor else "\x1b[2m○\x1b[0m"
+                marker = f"{i + 1}. {box}"
             else:
-                box = " > "
+                marker = f"{i + 1}."
 
-            row = f"  {cursor_mark} {box} {title}"
+            row = f"  {cursor_mark} {marker} {title}"
             if is_cursor:
                 row = f"\x1b[7m{row}\x1b[0m"
-            if desc:
-                row += f"  \x1b[2m{desc}\x1b[0m"
             inner.append(row)
 
-        inner.append("")
+            # Description on its own hanging-indented line(s) below the title,
+            # not packed onto the title row — at left-column widths that
+            # would run straight into the next option's row.
+            for line in textwrap.wrap(desc, desc_width) if desc else []:
+                inner.append(f"{self.DESC_INDENT}\x1b[2m{line}\x1b[0m")
+
         hints = ["↑/↓ move", "Enter confirm", "Esc cancel"]
         if self._allow_multiple:
             hints.insert(1, "Space toggle")
-        inner.append("  \x1b[2m" + "  ·  ".join(hints) + "\x1b[0m")
-        return _plain(inner)
+        footer = ["", "  \x1b[2m" + "  ·  ".join(hints) + "\x1b[0m"]
+        return inner, footer
+
+    @staticmethod
+    def _build_preview_box(preview: str | None, width: int, height: int) -> list[str]:
+        """A bordered box of exactly ``height`` lines, sized to ``width``.
+
+        Content beyond the available rows is truncated with a "N lines hidden"
+        footer rather than growing the box — the box height is pinned to the
+        paired option list so the two columns stay aligned row-for-row.
+        """
+        dim, reset = "\x1b[2m", "\x1b[0m"
+        inner_width = max(width - 4, 4)
+        top = f"{dim}┌{'─' * (width - 2)}┐{reset}"
+        bottom = f"{dim}└{'─' * (width - 2)}┘{reset}"
+        content_rows = max(height - 2, 1)
+
+        def pad(text: str) -> str:
+            return text + " " * max(0, inner_width - len(text))
+
+        def framed(text: str) -> str:
+            return f"{dim}│{reset} {pad(text)} {dim}│{reset}"
+
+        if not preview:
+            body = [framed("(no preview for this option)" if content_rows else "")]
+            body += [framed("") for _ in range(content_rows - len(body))]
+            return [top, *body[:content_rows], bottom]
+
+        import textwrap
+
+        wrapped: list[str] = []
+        for src_line in preview.splitlines() or [""]:
+            wrapped.extend(textwrap.wrap(src_line, inner_width) or [""])
+
+        if len(wrapped) > content_rows:
+            visible = wrapped[: max(content_rows - 1, 1)]
+            hidden = len(wrapped) - len(visible)
+            footer = f"✂ {hidden} lines hidden".center(inner_width)
+            body = [framed(line) for line in visible] + [framed(footer)]
+        else:
+            body = [framed(line) for line in wrapped]
+            body += [framed("") for _ in range(content_rows - len(body))]
+
+        return [top, *body[:content_rows], bottom]
 
     # ── Input ─────────────────────────────────────────────────────────────
 

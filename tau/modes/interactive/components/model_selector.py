@@ -186,6 +186,7 @@ class ModelSelector:
         self._emphasis = theme.emphasis
         self._success = theme.success
         self._accent = theme.accent
+        self._arrow = theme.selector_arrow
         self._border = theme.border
         if initial is not None:
             for i, s in enumerate(self._sections):
@@ -319,7 +320,7 @@ class ModelSelector:
                 if is_sel:
                     spans = [
                         Span("  ", Style()),
-                        Span(">", self._accent),
+                        Span(self._arrow, self._accent),
                         Span(" ", Style()),
                         Span(model_id, self._emphasis),
                         Span("  ", Style()),

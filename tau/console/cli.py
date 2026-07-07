@@ -101,6 +101,12 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     help="Replace the generated system prompt completely.",
 )
 @click.option(
+    "--tools",
+    default=None,
+    metavar="NAMES",
+    help="Comma-separated allowlist of tool names to enable (default: all).",
+)
+@click.option(
     "--ephemeral", "-e", is_flag=True, default=False, help="Don't save this session to disk."
 )
 @click.option(
@@ -151,6 +157,7 @@ def cli(
     session_name: str | None,
     files: tuple[Path, ...],
     system: str | None,
+    tools: str | None,
     ephemeral: bool,
     print_flag: bool,
     mode: str | None,
@@ -180,6 +187,7 @@ def cli(
     ctx.obj["session_name"] = session_name
     ctx.obj["files"] = files
     ctx.obj["system"] = system or ""
+    ctx.obj["tools"] = tools
     ctx.obj["ephemeral"] = ephemeral
     ctx.obj["quiet"] = quiet
     ctx.obj["mode"] = resolve_mode(mode, print_flag, prompt, output_format)
@@ -238,6 +246,11 @@ async def _start(opts: dict) -> None:
     elif opts.get("no_approve"):
         project_trusted = False
 
+    tools_opt = opts.get("tools")
+    tool_allowlist = (
+        {name.strip() for name in tools_opt.split(",") if name.strip()} if tools_opt else None
+    )
+
     config = RuntimeConfig(
         cwd=Path.cwd(),
         model_id=resolved_model,
@@ -248,6 +261,7 @@ async def _start(opts: dict) -> None:
         persist_session=not opts["ephemeral"],
         mode=opts["mode"],
         system_prompt=opts.get("system", ""),
+        tool_allowlist=tool_allowlist,
         disable_context_files=opts.get("no_context_files", False),
         project_trusted=project_trusted,
     )

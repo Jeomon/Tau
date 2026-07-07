@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from component import _AskUserComponent
-from schema import AskUserParams, normalize_options
+from schema import AskUserParams, QuestionValidationError, normalize_options, validate_questions
 
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -39,11 +39,14 @@ class AskUserTool(Tool):
                 "Ask the human one or more focused questions and wait for their decision "
                 "before proceeding. Pass multiple questions to run them as a sequence — "
                 "each is shown and answered in turn, like a short interview — instead of "
-                "issuing separate calls. Use for high-impact architectural trade-offs, "
-                "ambiguous or conflicting requirements, or assumptions that would "
-                "materially change the implementation. Each question supports "
-                "single-select, multi-select, and freeform text answers. Only available "
-                "in an interactive TUI session."
+                "issuing separate calls. Do not stack multiple ask_user calls back-to-back; "
+                "group all clarifying questions into one invocation. Use for high-impact "
+                "architectural trade-offs, ambiguous or conflicting requirements, or "
+                "assumptions that would materially change the implementation. Each "
+                "question supports single-select, multi-select, and freeform text "
+                "answers, and up to 4 options when options are given. If you recommend a "
+                "specific option, list it first and append \"(Recommended)\" to its "
+                "title. Only available in an interactive TUI session."
             ),
             schema=AskUserParams,
             kind=ToolKind.Read,
@@ -61,6 +64,11 @@ class AskUserTool(Tool):
         context: ToolContext | None = None,
     ) -> ToolResult:
         params = AskUserParams.model_validate(invocation.params)
+
+        try:
+            validate_questions(params.questions)
+        except QuestionValidationError as e:
+            return ToolResult.error(invocation.id, str(e))
 
         runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
         if runtime is None:

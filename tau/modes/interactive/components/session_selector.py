@@ -337,10 +337,10 @@ class ResumeSelector:
                 # ── Line 1: indicator + session name ──────────────────────────
                 if is_del_target:
                     name_style = t.error
-                    indicator_spans = [Span("> ", t.error)]
+                    indicator_spans = [Span(f"{t.selector_arrow} ", t.error)]
                 elif is_sel:
                     name_style = t.emphasis
-                    indicator_spans = [Span("> ", t.accent)]
+                    indicator_spans = [Span(f"{t.selector_arrow} ", t.accent)]
                 elif session.name:
                     name_style = t.warning
                     indicator_spans = [Span("  ", Style())]

@@ -95,7 +95,7 @@ class ListSelector:
                 is_sel = i == self._selected
                 is_current = item == self._current
                 if is_sel:
-                    spans = [Span("  "), Span(">", t.accent), Span(" "), Span(item, t.emphasis)]
+                    spans = [Span("  "), Span(t.selector_arrow, t.accent), Span(" "), Span(item, t.emphasis)]
                 else:
                     spans = [Span("    "), Span(item, t.muted)]
                 if is_current:
@@ -416,7 +416,7 @@ class SettingsSelector:
                     write(
                         [
                             Span("  "),
-                            Span(">", t.accent),
+                            Span(t.selector_arrow, t.accent),
                             Span(" "),
                             Span(label_padded, t.emphasis),
                             Span("  "),
@@ -428,7 +428,7 @@ class SettingsSelector:
                     write(
                         [
                             Span("  "),
-                            Span(">", t.accent),
+                            Span(t.selector_arrow, t.accent),
                             Span(" "),
                             Span(label_padded, t.emphasis),
                             Span("  "),
