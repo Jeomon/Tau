@@ -13,7 +13,7 @@ from tau.modes.interactive.components.layout import Layout
 from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
-from tau.tui.tui import TUI
+from tau.tui.service import TUI
 
 
 class FakeTerminal:

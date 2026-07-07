@@ -345,7 +345,7 @@ class UIContext:
 
         Usage::
 
-            from tau.tui.tui import CustomOptions, OverlayOptions
+            from tau.tui.service import CustomOptions, OverlayOptions
 
             class CounterComponent(Component):
                 def __init__(self, done):
@@ -381,7 +381,7 @@ class UIContext:
             return None
 
         from tau.tui.input import get_keybindings
-        from tau.tui.tui import CustomOptions as _CO
+        from tau.tui.service import CustomOptions as _CO
 
         opts = options if options is not None else _CO()
         loop = asyncio.get_running_loop()
@@ -478,7 +478,7 @@ class UIContext:
             return _NullHandle()
         from typing import cast as _cast
 
-        from tau.tui.tui import OverlayAnchor, OverlayOptions
+        from tau.tui.service import OverlayAnchor, OverlayOptions
 
         opts = OverlayOptions(
             width=width,

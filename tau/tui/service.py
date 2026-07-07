@@ -416,7 +416,7 @@ class Renderer:
         self._engine.reset_with_clear()
 
     # -------------------------------------------------------------------------
-    # Compatibility accessors (TUI reads these directly — see tui.py below)
+    # Compatibility accessors (TUI reads these directly — see service.py below)
     # -------------------------------------------------------------------------
 
     @property

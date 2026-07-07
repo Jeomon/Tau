@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from tau.message.types import UserMessage
     from tau.modes.interactive.components.layout import Layout
     from tau.runtime.service import Runtime
-    from tau.tui.tui import TUI
+    from tau.tui.service import TUI
 
 _log = logging.getLogger(__name__)
 

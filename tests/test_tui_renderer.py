@@ -1,4 +1,4 @@
-"""Tests for tau/tui/tui.py — the Renderer wrapper's integration with the app.
+"""Tests for tau/tui/service.py — the Renderer wrapper's integration with the app.
 
 Renderer itself is now a thin wrapper delegating to ScrollbackTerminal
 (tau/tui/frame.py) — the differential-render invariants (only changed rows
@@ -14,7 +14,7 @@ from __future__ import annotations
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component, StaticComponent
 from tau.tui.geometry import Rect
-from tau.tui.tui import TUI, OverlayEntry, OverlayOptions, Renderer
+from tau.tui.service import TUI, OverlayEntry, OverlayOptions, Renderer
 
 
 class FakeTerminal:

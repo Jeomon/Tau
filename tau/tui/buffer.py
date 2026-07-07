@@ -2,7 +2,7 @@
 
 This is the piece that was missing: legacy components returned
 ``list[str]`` (ANSI baked into the string), and the renderer's ``_diff_row``
-(``tui.py``) has to re-parse those strings back into ``(symbol, style)``
+(``service.py``) has to re-parse those strings back into ``(symbol, style)``
 cells before it can diff two frames. A ``Buffer`` is that cell grid *live* —
 widgets write structured ``Span``/``Line`` content directly into it, so
 nothing needs to be parsed back out; ``Buffer.diff`` operates on real

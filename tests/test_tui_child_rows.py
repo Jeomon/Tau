@@ -1,7 +1,7 @@
 """Regression test: TUI.render_cells must populate _child_rows the same way
 render() does.
 
-Renderer.render() (tui.py) calls component.render_cells(...) directly, not
+Renderer.render() (service.py) calls component.render_cells(...) directly, not
 render(width) — so without a render_cells override, TUI would inherit
 Container's generic one (which knows nothing about _child_rows), leaving it
 permanently empty and silently breaking mouse_position_for (used by Layout
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from tau.tui.component import StaticComponent
 from tau.tui.input import MouseEvent
-from tau.tui.tui import TUI
+from tau.tui.service import TUI
 
 
 class FakeTerminal:

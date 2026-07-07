@@ -9,7 +9,7 @@ from tau.tui.geometry import Rect
 from tau.tui.theme import SpinnerTheme
 
 if TYPE_CHECKING:
-    from tau.tui.tui import TUI
+    from tau.tui.service import TUI
 
 
 class Spinner(Component):
