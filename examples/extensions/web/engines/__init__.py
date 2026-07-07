@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from .base import BaseSearchEngine, SearchMode, result
+from .base import BaseSearchEngine, SearchMode, SearchRecency, result
 from .ddgs_engine import DDGSearchEngine
 from .exa_engine import ExaSearchEngine
 from .jina_engine import JinaSearchEngine
@@ -18,6 +18,7 @@ from .tavily_engine import TavilySearchEngine
 __all__ = [
     "BaseSearchEngine",
     "SearchMode",
+    "SearchRecency",
     "result",
     "DDGSearchEngine",
     "ExaSearchEngine",

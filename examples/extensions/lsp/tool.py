@@ -32,6 +32,14 @@ _RAW_OPS: frozenset[str] = frozenset()
 # Cross-file operations that need the language server to finish indexing before querying
 _INDEX_OPS = frozenset({"findReferences", "incomingCalls", "outgoingCalls", "workspaceSymbol"})
 
+# Cap on list-shaped results (findReferences, workspaceSymbol, documentSymbol, calls,
+# diagnostics). Unlike every other tool in this codebase (grep, glob, web_search all
+# cap result count), nothing here bounded output — a findReferences on a widely-used
+# symbol, or an empty-query workspaceSymbol ("lists all symbols" by design), could
+# return thousands of entries with attached code snippets and dump the whole thing
+# into the model's context with no truncation.
+_MAX_LIST_RESULTS = 200
+
 # Ops that resolve a symbol at line/character — an empty result usually means the
 # position isn't on a symbol name, so we return positioning guidance instead of a
 # bare "No results".
@@ -697,7 +705,7 @@ class LSPTool(Tool):
         except Exception as exc:
             return ToolResult.error(invocation.id, str(exc))
 
-        metadata = {"operation": params.operation}
+        metadata: dict[str, Any] = {"operation": params.operation}
 
         if not result:
             # Full guidance to the LLM (so it can self-correct); concise first
@@ -721,7 +729,20 @@ class LSPTool(Tool):
             elif params.operation in _SNIPPET_OPS:
                 result = _add_snippets(result, cwd, max_lines=1)
 
-        return ToolResult.ok(invocation.id, json.dumps(result, indent=2), metadata=metadata)
+        truncation_note = ""
+        if isinstance(result, list) and len(result) > _MAX_LIST_RESULTS:
+            total = len(result)
+            result = result[:_MAX_LIST_RESULTS]
+            metadata["truncated"] = True
+            truncation_note = (
+                f"\n\n[Showing {_MAX_LIST_RESULTS} of {total} results. Narrow the query "
+                "(a more specific workspaceSymbol query, or a less common symbol for "
+                "findReferences/calls) to see the rest.]"
+            )
+
+        return ToolResult.ok(
+            invocation.id, json.dumps(result, indent=2) + truncation_note, metadata=metadata
+        )
 
     async def _run(
         self,

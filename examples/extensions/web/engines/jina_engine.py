@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .base import BaseSearchEngine, SearchMode, result
+from .base import BaseSearchEngine, SearchMode, SearchRecency, result
 
 _READER_URL = "https://r.jina.ai/"
 _SEARCH_URL = "https://s.jina.ai/"
@@ -33,7 +33,16 @@ class JinaSearchEngine(BaseSearchEngine):
             h["X-No-Cache"] = "true"
         return h
 
-    async def search(self, query: str, mode: SearchMode, max_results: int) -> list[dict]:
+    async def search(
+        self,
+        query: str,
+        mode: SearchMode,
+        max_results: int,
+        recency: SearchRecency | None = None,
+    ) -> list[dict]:
+        # s.jina.ai has no structured date-range parameter; `recency` is
+        # accepted (per the base interface) but intentionally not applied —
+        # the tool warns the model instead of silently faking support.
         url = f"{_SEARCH_URL}{quote(query, safe='')}"
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(url, headers=self._headers(json=True))

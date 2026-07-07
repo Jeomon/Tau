@@ -131,7 +131,10 @@ class WebFetchTool(Tool):
         from tau.message.types import UserMessage
 
         truncated = (
-            text[:_EXTRACT_LIMIT] + "\n...[truncated]" if len(text) > _EXTRACT_LIMIT else text
+            text[:_EXTRACT_LIMIT]
+            + f"\n\n[Truncated at {_EXTRACT_LIMIT} characters; {len(text)} total.]"
+            if len(text) > _EXTRACT_LIMIT
+            else text
         )
         context = LLMContext(
             messages=[UserMessage.from_text(f"Query: {prompt}\n\nPage content:\n{truncated}")],
@@ -186,7 +189,10 @@ class WebFetchTool(Tool):
 
         truncated = len(text) > _MAX_OUTPUT_CHARS
         if truncated:
-            text = text[:_MAX_OUTPUT_CHARS] + "..."
+            text = (
+                text[:_MAX_OUTPUT_CHARS]
+                + f"\n\n[Output truncated at {_MAX_OUTPUT_CHARS} characters; {len(text)} total.]"
+            )
 
         metadata = {
             "url": url,
