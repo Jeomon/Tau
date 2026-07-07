@@ -479,6 +479,12 @@ _MIN_RENDER_INTERVAL = 1 / 60
 # rather than the start of an escape sequence (seconds)
 _ESC_FLUSH_DELAY = 0.05
 
+# Slightly above terminal.py's Windows resize-poll interval (0.25s) so a
+# continuous window drag — which fires one resize callback per poll tick —
+# coalesces into a single render once the size settles, instead of one
+# full, unthrottled re-render per intermediate size sampled mid-drag.
+_RESIZE_DEBOUNCE = 0.3
+
 
 EventHandler = Callable[[InputEvent], bool | None | Awaitable[None]]
 
@@ -536,6 +542,7 @@ class TUI(Container):
         self._render_timer: asyncio.TimerHandle | None = None
         self._render_requested = False
         self._esc_timer: asyncio.TimerHandle | None = None
+        self._resize_timer: asyncio.TimerHandle | None = None
         self._win32_stdin_watcher: Win32StdinWatcher | None = None
 
         self._input_handlers: list[EventHandler] = []
@@ -1138,16 +1145,31 @@ class TUI(Container):
     # -------------------------------------------------------------------------
 
     def _on_terminal_resize(self) -> None:
-        """Repaint immediately on terminal resize.
+        """Debounce a burst of resize callbacks into a single forced render.
 
         The terminal has already physically reflowed by the time this fires, so
-        any throttled/coalesced paint would leave a stale or blank frame on
-        screen (most visibly: the streaming spinner vanishing until the next
-        token frame). Forcing the render here means resize never piggybacks on
-        the rate-limited streaming loop. ``Renderer._on_resize`` runs first (it
-        registers its callback during construction, before this one) so the
-        renderer's full clear+redraw state is already set when we paint.
+        the eventual paint must never be a throttled/coalesced stale or blank
+        frame (most visibly: the streaming spinner vanishing until the next
+        token frame) — hence still forcing a full render here rather than
+        piggybacking on the rate-limited streaming loop.
+
+        But resize detection isn't one callback per physical resize: SIGWINCH
+        can arrive several times in a row, and Windows detects resize via a
+        poll (see terminal.py), so a continuous window drag delivers one
+        callback per poll tick. A forced render re-wraps and reprints the
+        *entire* scrollback whenever width changes (see MessageList's frozen
+        cache and Frame's full-render path) — doing that once per intermediate
+        size sampled mid-drag turned a single drag into a pile of stacked,
+        several-second-long synchronous re-renders. Debouncing here so only
+        the settled, final size actually triggers a render.
         """
+        if self._resize_timer is not None:
+            self._resize_timer.cancel()
+        loop = asyncio.get_event_loop()
+        self._resize_timer = loop.call_later(_RESIZE_DEBOUNCE, self._do_resize_render)
+
+    def _do_resize_render(self) -> None:
+        self._resize_timer = None
         self._request_render(force=True)
 
     def _request_render(self, force: bool = False) -> None:
@@ -1204,6 +1226,9 @@ class TUI(Container):
         if self._esc_timer is not None:
             self._esc_timer.cancel()
             self._esc_timer = None
+        if self._resize_timer is not None:
+            self._resize_timer.cancel()
+            self._resize_timer = None
 
 
 # ---------------------------------------------------------------------------
