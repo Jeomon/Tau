@@ -88,6 +88,12 @@ class TestClassifyError:
         assert r.kind == ErrorKind.CONTEXT_OVERFLOW
         assert r.should_compact is True
 
+    def test_400_negative_max_tokens_is_context_overflow(self):
+        e = _err("max_tokens must be at least 1, got -128", status=400)
+        r = classify_error(e)
+        assert r.kind == ErrorKind.CONTEXT_OVERFLOW
+        assert r.should_compact is True
+
     def test_400_model_not_found(self):
         e = _err("model not found", status=400)
         r = classify_error(e)

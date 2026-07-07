@@ -107,6 +107,7 @@ _CONTEXT_OVERFLOW_PATTERNS = (
     "上下文长度",
     "max input token",
     "exceeds the maximum number of input tokens",
+    "max_tokens must be at least",
 )
 
 _MODEL_NOT_FOUND_PATTERNS = (
