@@ -41,7 +41,7 @@ def test_ask_user_tool_requires_tui() -> None:
             id="call_1",
             name="ask_user",
             cwd=Path.cwd(),
-            params={"question": "Should we proceed?"},
+            params={"questions": [{"question": "Should we proceed?"}]},
         )
         result = await tool.execute(invocation)
         assert result.is_error

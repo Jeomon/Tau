@@ -8,7 +8,7 @@ class AskUserOption(BaseModel):
     description: str | None = None
 
 
-class AskUserParams(BaseModel):
+class AskUserQuestion(BaseModel):
     question: str = Field(..., description="The question to ask the user")
     context: str | None = Field(
         default=None, description="Relevant context summary shown before the question"
@@ -29,11 +29,28 @@ class AskUserParams(BaseModel):
             "Enter for a newline, Ctrl+S/Ctrl+Enter to submit."
         ),
     )
+
+
+class AskUserParams(BaseModel):
+    questions: list[AskUserQuestion] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One or more questions to ask, in order. Each is shown and answered "
+            "before the next appears — like a short interview. Use a single-item "
+            "list for a standalone question."
+        ),
+    )
     timeout: int | None = Field(
-        default=None, description="Auto-dismiss after N ms and cancel if the prompt times out"
+        default=None,
+        description=(
+            "Auto-dismiss after N ms of inactivity on the current question and "
+            "cancel the rest of the sequence if it times out"
+        ),
     )
 
 
+AskUserQuestion.model_rebuild()
 AskUserParams.model_rebuild()
 
 

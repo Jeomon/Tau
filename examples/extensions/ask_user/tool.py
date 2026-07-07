@@ -18,7 +18,12 @@ from tau.tool.types import (
 
 
 def _render_call(args: dict, _streaming: bool = False) -> list[str]:
-    return call_line("ask_user", args.get("question", ""))
+    questions = args.get("questions") or []
+    if len(questions) <= 1:
+        label = questions[0].get("question", "") if questions else ""
+    else:
+        label = f"{len(questions)} questions"
+    return call_line("ask_user", label)
 
 
 def _render_result(content: str, opts: Any) -> list[str]:
@@ -31,11 +36,14 @@ class AskUserTool(Tool):
         super().__init__(
             name="ask_user",
             description=(
-                "Ask the human a focused question and wait for their decision before "
-                "proceeding. Use for high-impact architectural trade-offs, ambiguous or "
-                "conflicting requirements, or assumptions that would materially change "
-                "the implementation. Supports single-select, multi-select, and freeform "
-                "text answers. Only available in an interactive TUI session."
+                "Ask the human one or more focused questions and wait for their decision "
+                "before proceeding. Pass multiple questions to run them as a sequence — "
+                "each is shown and answered in turn, like a short interview — instead of "
+                "issuing separate calls. Use for high-impact architectural trade-offs, "
+                "ambiguous or conflicting requirements, or assumptions that would "
+                "materially change the implementation. Each question supports "
+                "single-select, multi-select, and freeform text answers. Only available "
+                "in an interactive TUI session."
             ),
             schema=AskUserParams,
             kind=ToolKind.Read,
@@ -53,7 +61,6 @@ class AskUserTool(Tool):
         context: ToolContext | None = None,
     ) -> ToolResult:
         params = AskUserParams.model_validate(invocation.params)
-        options = normalize_options(params.options)
 
         runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
         if runtime is None:
@@ -70,6 +77,45 @@ class AskUserTool(Tool):
                 "unavailable in headless/RPC mode",
             )
 
+        answers: list[dict] = []
+
+        for question in params.questions:
+            options = normalize_options(question.options)
+            response = await self._ask_one(ui, question, options, params.timeout)
+
+            if response is None:
+                return ToolResult.ok(
+                    invocation.id,
+                    self._format_answers(answers, cancelled_at=question.question),
+                    metadata={
+                        "cancelled": True,
+                        "answers": answers,
+                        "cancelled_question": question.question,
+                    },
+                )
+
+            if response["kind"] == "freeform":
+                content = response["text"]
+            else:
+                content = ", ".join(response["selections"])
+
+            answers.append(
+                {"question": question.question, "response": content, "raw": response}
+            )
+
+        return ToolResult.ok(
+            invocation.id,
+            self._format_answers(answers),
+            metadata={"cancelled": False, "answers": answers},
+        )
+
+    async def _ask_one(
+        self,
+        ui: Any,
+        question: Any,
+        options: Any,
+        timeout: int | None,
+    ) -> dict | None:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict | None] = loop.create_future()
         timeout_task_ref: list[asyncio.Task | None] = [None]
@@ -83,16 +129,16 @@ class AskUserTool(Tool):
 
         def _factory(_tui, _theme, _kb, done):
             component = _AskUserComponent(
-                question=params.question,
-                context=params.context,
+                question=question.question,
+                context=question.context,
                 options=options,
-                allow_multiple=params.allow_multiple,
-                allow_freeform=params.allow_freeform,
-                multiline=params.multiline,
+                allow_multiple=question.allow_multiple,
+                allow_freeform=question.allow_freeform,
+                multiline=question.multiline,
                 on_done=lambda v: (_on_done(v), done(v)),
             )
-            timeout_ms = params.timeout
-            if timeout_ms:
+            if timeout:
+                timeout_ms = timeout
 
                 async def _auto_dismiss() -> None:
                     await asyncio.sleep(timeout_ms / 1000)
@@ -103,22 +149,20 @@ class AskUserTool(Tool):
             return component
 
         await ui.custom_inline(_factory, kind="ask_user")
-        response = await fut
+        return await fut
 
-        if response is None:
-            return ToolResult.ok(
-                invocation.id,
-                "The user cancelled the question without answering.",
-                metadata={"cancelled": True, "question": params.question},
-            )
+    @staticmethod
+    def _format_answers(answers: list[dict], cancelled_at: str | None = None) -> str:
+        if not answers and cancelled_at is None:
+            return "The user cancelled the question without answering."
 
-        if response["kind"] == "freeform":
-            content = response["text"]
-        else:
-            content = ", ".join(response["selections"])
+        lines: list[str] = []
+        for i, item in enumerate(answers, start=1):
+            lines.append(f"Q{i}: {item['question']}")
+            lines.append(f"A{i}: {item['response']}")
+            lines.append("")
 
-        return ToolResult.ok(
-            invocation.id,
-            content,
-            metadata={"cancelled": False, "question": params.question, "response": response},
-        )
+        if cancelled_at is not None:
+            lines.append(f"(Cancelled before answering: {cancelled_at})")
+
+        return "\n".join(lines).rstrip()
