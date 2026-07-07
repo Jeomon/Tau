@@ -195,6 +195,20 @@ def bounded_text_tail(
     return bounded, truncated
 
 
+def resolve_tool_path(raw_path: str, cwd: Path | None) -> Path:
+    """Resolve a tool's ``path`` argument against the invocation's working directory.
+
+    Mirrors how ``grep``/``glob`` resolve their ``path`` argument: a relative
+    value is joined to ``cwd`` (the agent's working directory) rather than
+    Tau's own process working directory, so a relative path behaves the same
+    regardless of which directory Tau itself was launched from.
+    """
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return path
+    return (cwd or Path.cwd()) / path
+
+
 def human_size(size: int) -> str:
     """Convert a byte count to compact binary units."""
     value = size

@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import atomic_write_text, serialize_file_mutation
+from tau.builtins.tools.utils import atomic_write_text, resolve_tool_path, serialize_file_mutation
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -26,7 +26,10 @@ class WriteParams(BaseModel):
     """Parameters for the write tool."""
 
     path: str = Field(
-        description="Absolute path to the file to write.",
+        description=(
+            "Path to the file to write. Prefer an absolute path; a relative value is "
+            "resolved from the agent's working directory."
+        ),
         examples=["/home/user/project/src/utils.py", "/home/user/project/config.json"],
     )
     content: str = Field(
@@ -89,7 +92,7 @@ class WriteTool(Tool):
     ) -> ToolResult:
         """Execute the file write operation."""
         params = WriteParams.model_validate(invocation.params)
-        path = Path(params.path)
+        path = resolve_tool_path(params.path, invocation.cwd)
         async with serialize_file_mutation(path):
             return self._write(invocation, params, path)
 

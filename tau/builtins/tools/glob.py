@@ -84,7 +84,10 @@ class GlobTool(Tool):
             render_result=_render_glob_result,
             render_call=_render_glob_call,
             render_shell="default",
-            prompt_guidelines="Use to discover files by pattern before reading or editing them.",
+            prompt_guidelines=(
+                "Use to discover files by pattern before reading or editing them. "
+                "Prefer this over find/ls via terminal."
+            ),
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

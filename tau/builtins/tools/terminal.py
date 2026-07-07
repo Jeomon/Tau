@@ -92,6 +92,8 @@ class TerminalTool(Tool):
             render_shell="default",
             prompt_guidelines=(
                 "Run tests or the build after making code changes to verify correctness."
+                " Use the dedicated read/write/edit/grep/glob tools instead of"
+                " cat/sed/echo/find/grep for file operations. Quote paths containing spaces."
             ),
         )
 

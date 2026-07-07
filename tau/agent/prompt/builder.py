@@ -146,6 +146,18 @@ _GENERAL_GUIDELINES = [
         "Prioritize accuracy over agreement — investigate before confirming, and "
         "disagree when the evidence calls for it."
     ),
+    (
+        "Verify before reporting a task done: run the tests, build, or command that "
+        "exercises the change. Don't present untested, partial, or stubbed-out work as complete."
+    ),
+    (
+        "When fixing a bug, reproduce it before changing code. If the same fix attempt "
+        "fails twice, stop and investigate the root cause instead of retrying it."
+    ),
+    (
+        "Treat git history as shared: never force-push, amend a commit that isn't yours, "
+        "or skip hooks (--no-verify) without the user's explicit go-ahead."
+    ),
 ]
 
 _PRECEDENCE_GUIDELINES = """\

@@ -8,7 +8,12 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, Field
 
-from tau.builtins.tools.utils import atomic_write_text, compute_line_hashes, serialize_file_mutation
+from tau.builtins.tools.utils import (
+    atomic_write_text,
+    compute_line_hashes,
+    resolve_tool_path,
+    serialize_file_mutation,
+)
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -28,7 +33,10 @@ def _render_edit_call(args: dict, _streaming: bool) -> list[str]:
 
 class EditParams(BaseModel):
     path: str = Field(
-        description="Absolute path to the file to edit.",
+        description=(
+            "Path to the file to edit. Prefer an absolute path; a relative value is "
+            "resolved from the agent's working directory."
+        ),
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
     start_anchor: str = Field(
@@ -293,6 +301,8 @@ class EditTool(Tool):
             prompt_guidelines=(
                 "Read the file first and copy its hashline anchors exactly."
                 " Use the same start and end anchor for a single-line edit."
+                " Re-read before editing again if the file may have changed since your"
+                " last read — a formatter, hook, or another edit can shift anchors."
             ),
         )
 
@@ -336,7 +346,7 @@ class EditTool(Tool):
         context: ToolContext | None = None,
     ) -> ToolResult:
         params = EditParams.model_validate(invocation.params)
-        path = Path(params.path)
+        path = resolve_tool_path(params.path, invocation.cwd)
         async with serialize_file_mutation(path):
             return self._edit(invocation, params, path)
 

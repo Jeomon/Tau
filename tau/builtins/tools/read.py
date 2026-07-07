@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import compute_line_hashes
+from tau.builtins.tools.utils import compute_line_hashes, resolve_tool_path
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -27,7 +26,10 @@ class ReadParams(BaseModel):
     """Parameters for the read tool."""
 
     path: str = Field(
-        description="Absolute filesystem path to the UTF-8 text file to read.",
+        description=(
+            "Path to the UTF-8 text file to read. Prefer an absolute path; a relative "
+            "value is resolved from the agent's working directory."
+        ),
         examples=["/home/user/project/src/main.py", "/home/user/project/README.md"],
     )
     offset: int = Field(
@@ -106,7 +108,7 @@ class ReadTool(Tool):
     ) -> ToolResult:
         """Execute the file read operation."""
         params = ReadParams.model_validate(invocation.params)
-        path = Path(params.path)
+        path = resolve_tool_path(params.path, invocation.cwd)
 
         if not path.exists():
             return ToolResult.error(invocation.id, f"File not found: {params.path}")

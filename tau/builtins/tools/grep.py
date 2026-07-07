@@ -86,7 +86,9 @@ class GrepTool(Tool):
             description=(
                 "Search for a regex pattern in files. Returns matches as 'file:line: content', "
                 f"up to {_MAX_MATCHES} matches. Directory searches are recursive and use "
-                "ripgrep's default filtering, which excludes hidden and ignored files."
+                "ripgrep's default filtering, which excludes hidden and ignored files. Pattern "
+                "syntax is Rust regex (RE2-style): alternation is 'foo|bar', not 'foo\\|bar', "
+                "and lookaround/backreferences are not supported."
             ),
             schema=GrepParams,
             kind=ToolKind.Read,
@@ -96,7 +98,8 @@ class GrepTool(Tool):
             render_shell="default",
             prompt_guidelines=(
                 "Prefer over read when searching for a symbol, function, or pattern across "
-                "the codebase. Use the default regex mode."
+                "the codebase. Use the default regex mode. Use this tool instead of "
+                "grep/rg/ag/git grep via terminal, even for a single match."
             ),
         )
 
