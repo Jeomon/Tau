@@ -70,8 +70,16 @@ class Hooks:
 
     # ── Emit ──────────────────────────────────────────────────────────────────
 
-    async def emit(self, event: HookEvent) -> list[Any]:
-        """Fire all handlers and subscribers registered for an event type."""
+    async def emit(self, event: HookEvent, *, timeout: float | None = None) -> list[Any]:
+        """Fire all handlers and subscribers registered for an event type.
+
+        ``timeout`` bounds each individual handler/subscriber await (not the
+        whole emit). Pass it for shutdown-path events (e.g. ``TuiExitEvent``,
+        ``RuntimeStopEvent``) so one slow or hung extension handler can't stall
+        the whole exit — a timed-out handler is logged and skipped, not retried.
+        Left unset (the default) for normal lifecycle events, which may
+        legitimately need more time to run.
+        """
         event_type: str = event.type  # type: ignore[attr-defined]
         handlers = list(self._handlers.get(event_type, []))
         results: list[Any] = []
@@ -80,8 +88,17 @@ class Hooks:
             try:
                 result = handler(event)
                 if asyncio.iscoroutine(result):
-                    result = await result
+                    result = (
+                        await asyncio.wait_for(result, timeout) if timeout is not None else await result
+                    )
                 results.append(result)
+            except TimeoutError:
+                _log.warning(
+                    "Hook handler %r timed out after %.1fs on event %r; skipping",
+                    getattr(handler, "__name__", handler),
+                    timeout,
+                    event_type,
+                )
             except Exception:
                 _log.error(
                     "Hook handler %r raised on event %r:\n%s",
@@ -94,7 +111,17 @@ class Hooks:
             try:
                 result = subscriber(event)
                 if asyncio.iscoroutine(result):
-                    await result
+                    if timeout is not None:
+                        await asyncio.wait_for(result, timeout)
+                    else:
+                        await result
+            except TimeoutError:
+                _log.warning(
+                    "Hook subscriber %r timed out after %.1fs on event %r; skipping",
+                    getattr(subscriber, "__name__", subscriber),
+                    timeout,
+                    event_type,
+                )
             except Exception:
                 _log.error(
                     "Hook subscriber %r raised on event %r:\n%s",

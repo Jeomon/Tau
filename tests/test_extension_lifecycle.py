@@ -200,7 +200,7 @@ def test_shutdown_invalidates_context_and_unsubscribes_extensions(tmp_path: Path
         unsubscribed = False
 
         class _Hooks:
-            async def emit(self, event: object) -> list[object]:
+            async def emit(self, event: object, *, timeout: float | None = None) -> list[object]:
                 events.append(event.type)  # type: ignore[attr-defined]
                 return []
 

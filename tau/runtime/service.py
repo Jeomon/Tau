@@ -40,6 +40,22 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
+# Caps how long shutdown waits for a cancelled background task to actually
+# unwind. Exit should be near-instant; a task stuck in a non-cancellable
+# blocking call (e.g. an HTTP client that doesn't honor cancellation cleanly)
+# shouldn't be able to stall it — a timeout just means we stop waiting, not
+# that cleanup failed.
+_SHUTDOWN_TASK_TIMEOUT = 1.0
+# `runtime_stop` handlers legitimately do multi-second subprocess teardown —
+# e.g. the LSP extension's client.shutdown() already runs its own graceful
+# shutdown-request timeout (2s) THEN a terminate/wait timeout (2s) before
+# falling back to kill(), and the MCP extension disconnects servers
+# sequentially. This cap only needs to rule out a truly hung handler (no
+# internal timeout at all); cutting it too close would cancel an
+# already-well-behaved handler before it reaches its own kill() fallback,
+# orphaning the very subprocess it exists to reap.
+_SHUTDOWN_HOOK_TIMEOUT = 10.0
+
 
 class Runtime:
     """
@@ -1078,19 +1094,19 @@ class Runtime:
         self._extension_generation += 1
         if self._reload_task is not None and not self._reload_task.done():
             self._reload_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._reload_task
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(self._reload_task, _SHUTDOWN_TASK_TIMEOUT)
         self._reload_pending = False
         if self.version_check_task is not None and not self.version_check_task.done():
             self.version_check_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self.version_check_task
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(self.version_check_task, _SHUTDOWN_TASK_TIMEOUT)
         telemetry_task = getattr(self, "telemetry_task", None)
         if telemetry_task is not None and not telemetry_task.done():
             telemetry_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await telemetry_task
-        await self._context.hooks.emit(RuntimeStopEvent())
+            with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+                await asyncio.wait_for(telemetry_task, _SHUTDOWN_TASK_TIMEOUT)
+        await self._context.hooks.emit(RuntimeStopEvent(), timeout=_SHUTDOWN_HOOK_TIMEOUT)
         if self._context.ext_runtime is not None:
             self._context.ext_runtime.unsubscribe()
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
     from tau.runtime.types import RuntimeConfig
 
 _log = logging.getLogger(__name__)
+
+# Caps how long a single shutdown-path hook handler or pending background task
+# can delay exit. Quit should feel instant; a hung extension handler or a task
+# stuck in a non-cancellable blocking call shouldn't be able to stall it.
+_SHUTDOWN_TIMEOUT = 2.0
 
 _RESERVED_EXTENSION_SHORTCUT_ACTIONS = frozenset(
     {
@@ -485,7 +491,7 @@ class App:
         try:
             await self._tui.run()
         finally:
-            await self._runtime.hooks.emit(TuiExitEvent())
+            await self._runtime.hooks.emit(TuiExitEvent(), timeout=_SHUTDOWN_TIMEOUT)
             await self._cleanup()
 
     # -------------------------------------------------------------------------
@@ -788,7 +794,11 @@ class App:
         for task in self._pending_tasks:
             task.cancel()
         if self._pending_tasks:
-            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(*self._pending_tasks, return_exceptions=True),
+                    _SHUTDOWN_TIMEOUT,
+                )
         self._pending_tasks.clear()
         self._tui.dispose()
         sm = self._runtime.settings_manager
