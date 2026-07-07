@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from tau.modes.interactive.components.layout import Layout
     from tau.runtime.service import Runtime
-    from tau.tui.tui import TUI
+    from tau.tui.service import TUI
 
 
 @dataclass

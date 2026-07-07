@@ -31,7 +31,7 @@ from tau.tui.theme import LayoutTheme
 if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
     from tau.tui.autocomplete import AutocompleteRegistration
-    from tau.tui.tui import TUI, CustomOptions, OverlayHandle
+    from tau.tui.service import TUI, CustomOptions, OverlayHandle
 
 
 def _has_editor_extras(editor: object) -> bool:
@@ -880,7 +880,7 @@ class Layout(Component):
         """
         import asyncio
 
-        from tau.tui.tui import CustomOptions as _CustomOptions
+        from tau.tui.service import CustomOptions as _CustomOptions
 
         opts = options or _CustomOptions()
         loop = asyncio.get_event_loop()
@@ -1385,7 +1385,7 @@ class Layout(Component):
     ) -> None:
         """Open a floating multi-line text editor overlay."""
         from tau.modes.interactive.components.overlays import EditorOverlay
-        from tau.tui.tui import OverlayOptions
+        from tau.tui.service import OverlayOptions
 
         handle_ref: list[OverlayHandle] = []
 

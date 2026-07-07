@@ -1,6 +1,6 @@
 """Clear: blank a Rect before an overlay draws over it.
 
-Tau's overlay system (``TUI.set_widget`` in ``tui.py``) already clears space
+Tau's overlay system (``TUI.set_widget`` in ``service.py``) already clears space
 for popovers ad hoc; this is the same operation as a reusable widget so any
 new overlay/modal widget can call ``Clear().render(area, buf)`` instead of
 hand-rolling a blank-fill loop.

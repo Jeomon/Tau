@@ -46,7 +46,7 @@ class Inline:
     """Renders ``height`` rows into the normal scrollback at the current cursor row.
 
     Everything above the viewport
-    stays real terminal scrollback, matching what ``tui.py``'s existing
+    stays real terminal scrollback, matching what ``service.py``'s existing
     ``Renderer`` already does by hand for Tau's actual chat UI. Simplified
     The cursor row is fixed at construction rather than
     dynamically tracked, so it doesn't auto-scroll the terminal to keep the
@@ -145,7 +145,7 @@ class BufferedTerminal:
 # than through the absolute-addressing Backend protocol.
 #
 # The diff/paint algorithm below is a mechanical, behavior-preserving port of
-# tui.py's original string-based Renderer onto real Buffer/Cell rows — same
+# service.py's original string-based Renderer onto real Buffer/Cell rows — same
 # viewport tracking, same relative-move + row-redraw strategy, same IME
 # cursor handling — just sourced from Cell objects instead of re-parsing
 # ANSI strings for every frame.

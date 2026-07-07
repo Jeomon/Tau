@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -17,11 +16,12 @@ from tau.tui.utils import set_window_focused
 _log = logging.getLogger(__name__)
 
 # The asyncio event loops on Windows can't watch a console handle with
-# add_reader, so stdin is pumped from a background thread there instead.
+# add_reader, so stdin is watched via Win32StdinWatcher there instead
+# (see _win32_stdin.py — WaitForMultipleObjects on an executor thread).
 _IS_WINDOWS = sys.platform == "win32"
 
 if TYPE_CHECKING:
-    pass
+    from tau.tui._win32_stdin import Win32StdinWatcher
 
 
 # ── Overlay types ─────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ class OverlayEntry:
     def resolve_width(self, term_w: int) -> int:
         """Compute overlay width from options, applying min/max constraints."""
         opt = self.options
-        mt, mr, mb, ml = opt._margins()
+        _, mr, _, ml = opt._margins()
         h_margin = ml + mr
 
         w = _parse_size(opt.width, term_w)
@@ -416,7 +416,7 @@ class Renderer:
         self._engine.reset_with_clear()
 
     # -------------------------------------------------------------------------
-    # Compatibility accessors (TUI reads these directly — see tui.py below)
+    # Compatibility accessors (TUI reads these directly — see service.py below)
     # -------------------------------------------------------------------------
 
     @property
@@ -536,7 +536,7 @@ class TUI(Container):
         self._render_timer: asyncio.TimerHandle | None = None
         self._render_requested = False
         self._esc_timer: asyncio.TimerHandle | None = None
-        self._stdin_thread: threading.Thread | None = None
+        self._win32_stdin_watcher: Win32StdinWatcher | None = None
 
         self._input_handlers: list[EventHandler] = []
         self._intercept_handlers: list[EventHandler] = []
@@ -698,16 +698,10 @@ class TUI(Container):
 
             self._terminal.enable_kitty_keyboard()
             if _IS_WINDOWS:
-                # Windows event loops can't add_reader() a console handle, so a
-                # daemon thread does the blocking read and hands each chunk back
-                # to the loop thread.
-                self._stdin_thread = threading.Thread(
-                    target=self._win_stdin_loop,
-                    args=(loop,),
-                    name="tau-tui-stdin",
-                    daemon=True,
-                )
-                self._stdin_thread.start()
+                from tau.tui._win32_stdin import Win32StdinWatcher
+
+                self._win32_stdin_watcher = Win32StdinWatcher(loop, self._on_stdin_ready)
+                self._win32_stdin_watcher.start()
             else:
                 loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
 
@@ -723,10 +717,9 @@ class TUI(Container):
                 await self._stop_event.wait()
             finally:
                 if _IS_WINDOWS:
-                    # The daemon reader observes _stop_event and exits after its
-                    # next read returns (or dies with the process); nothing to
-                    # unregister from the loop.
-                    self._stdin_thread = None
+                    if self._win32_stdin_watcher is not None:
+                        self._win32_stdin_watcher.stop()
+                        self._win32_stdin_watcher = None
                 else:
                     loop.remove_reader(sys.stdin.fileno())
                 self._cancel_timers()
@@ -1040,27 +1033,6 @@ class TUI(Container):
 
         if events:
             self._request_render()
-
-    def _win_stdin_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Windows stdin pump: blocking-read on a daemon thread.
-
-        Reads keystrokes with the console in raw/VT mode (set by Terminal) and
-        marshals each chunk onto the event loop via call_soon_threadsafe, since
-        Windows event loops cannot watch a console handle with add_reader.
-        """
-        while not self._stop_event.is_set():
-            try:
-                data = self._terminal.read_raw()
-            except OSError:
-                break
-            if not data:
-                continue
-            if self._stop_event.is_set():
-                break
-            try:
-                loop.call_soon_threadsafe(self._process_input, data)
-            except RuntimeError:
-                break  # event loop already closed
 
     def _schedule_esc_flush(self) -> None:
         if self._esc_timer is not None:

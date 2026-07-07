@@ -755,7 +755,7 @@ class MessageList(Component):
         # the default 0, forcing a full rebuild as before.
         self._pending_invalidation_from: int | None = None
         # Bumped every time _frozen_buf is rebuilt from scratch (width change or
-        # _bump_invalidation) — lets the Container (tui.py) notice that already-frozen
+        # _bump_invalidation) — lets the Container (service.py) notice that already-frozen
         # rows may have changed content even though their row count didn't, so it
         # knows not to trust ScrollbackTerminal's stable_through for that row span
         # until it has re-diffed it at least once post-rebuild.
@@ -972,7 +972,7 @@ class MessageList(Component):
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Generic Buffer-native path for embedding a MessageList directly.
 
-        The live TUI never calls this — ``tui.py``'s Container.render_cells
+        The live TUI never calls this — ``service.py``'s Container.render_cells
         special-cases MessageList via ``render_split_cells`` (its own
         frozen-cell cache) instead, splicing rows in directly for
         performance. This exists so MessageList is self-sufficient wherever

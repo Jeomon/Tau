@@ -70,7 +70,7 @@ class AskUserTool(Tool):
                 "unavailable in headless/RPC mode",
             )
 
-        from tau.tui.tui import CustomOptions, OverlayOptions
+        from tau.tui.service import CustomOptions, OverlayOptions
 
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict | None] = loop.create_future()

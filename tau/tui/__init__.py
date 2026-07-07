@@ -91,7 +91,7 @@ if TYPE_CHECKING:
         rgb_bold,
         rgb_italic,
     )
-    from tau.tui.tui import TUI, OverlayHandle, OverlayOptions, Renderer
+    from tau.tui.service import TUI, OverlayHandle, OverlayOptions, Renderer
     from tau.tui.widget import StatefulWidget, Widget, render_widget
 
 __all__ = [
@@ -283,10 +283,10 @@ _SUBMODULE_OF = {
     "rgb": "tau.tui.theme",
     "rgb_bold": "tau.tui.theme",
     "rgb_italic": "tau.tui.theme",
-    "TUI": "tau.tui.tui",
-    "OverlayHandle": "tau.tui.tui",
-    "OverlayOptions": "tau.tui.tui",
-    "Renderer": "tau.tui.tui",
+    "TUI": "tau.tui.service",
+    "OverlayHandle": "tau.tui.service",
+    "OverlayOptions": "tau.tui.service",
+    "Renderer": "tau.tui.service",
 }
 
 

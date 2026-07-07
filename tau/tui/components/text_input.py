@@ -26,7 +26,7 @@ from tau.tui.utils import (
 )
 
 if TYPE_CHECKING:
-    from tau.tui.tui import TUI
+    from tau.tui.service import TUI
 
 # Cursor blinks only after this many seconds of no keystrokes, so it stays
 # solid while actively typing. Half-cycle length (on/off) once blinking.

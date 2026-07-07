@@ -199,7 +199,7 @@ def register(tau) -> None:
             if ctx.ui is None:
                 _show_command_output(ctx, "The conversation viewer requires interactive TUI mode.")
                 return
-            from tau.tui.tui import CustomOptions, OverlayOptions
+            from tau.tui.service import CustomOptions, OverlayOptions
 
             from .ui import ConversationViewer
 
