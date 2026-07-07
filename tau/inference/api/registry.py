@@ -77,6 +77,20 @@ class LazyAPI:
             object.__setattr__(self, "_real", real)
         return real
 
+    async def resolve_async(self) -> None:
+        """Import the provider SDK and build its client off the event loop.
+
+        The first resolution imports the provider's SDK module (e.g.
+        ``anthropic``), which can take seconds on a cold cache. Running that
+        synchronously on the asyncio event loop stalls everything else driven
+        by it, including the render loop's spinner animation. Call this before
+        the real adapter is needed so the import happens on a worker thread.
+        """
+        if object.__getattribute__(self, "_real") is None:
+            import asyncio
+
+            await asyncio.to_thread(self._resolve)
+
     def __getattr__(self, name: str):
         # Only reached for attributes not set on the proxy itself (e.g. not
         # ``options``), which means the real adapter is genuinely needed.

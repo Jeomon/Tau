@@ -7,15 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from mistletoe.base_renderer import BaseRenderer
-from mistletoe.block_token import Document, HtmlBlock
-from mistletoe.span_token import HtmlSpan
-from pygments import highlight as _pyg_highlight
-from pygments.formatters import Terminal256Formatter
-from pygments.lexers import get_lexer_by_name
-from pygments.util import ClassNotFound
-from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped]
-
 from tau.tui.style import apply_style
 from tau.tui.utils import RESET, visible_width, wrap
 
@@ -44,9 +35,18 @@ _SUBSCRIPTS = str.maketrans(
 )
 
 
+@lru_cache(maxsize=1)
+def _latex_node_cls():
+    # Deferred: pylatexenc is only needed once a message actually contains
+    # LaTeX math, not at import time (which is on the app-startup path).
+    from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped]
+
+    return LatexNodes2Text
+
+
 def _convert_script(marker: str, value: str) -> str:
     """Convert a LaTeX script body to Unicode where suitable glyphs exist."""
-    plain = LatexNodes2Text(math_mode="text").latex_to_text(f"${value}$").strip()
+    plain = _latex_node_cls()(math_mode="text").latex_to_text(f"${value}$").strip()
     table = _SUPERSCRIPTS if marker == "^" else _SUBSCRIPTS
     converted = plain.translate(table)
     supported = all(ord(char) in table for char in plain)
@@ -83,7 +83,7 @@ def _latex_math_to_text(expression: str) -> str:
     """Convert one LaTeX math expression to terminal-readable Unicode text."""
     try:
         expression = _unicode_scripts(expression)
-        converted = LatexNodes2Text(math_mode="text").latex_to_text(f"${expression}$")
+        converted = _latex_node_cls()(math_mode="text").latex_to_text(f"${expression}$")
     except Exception:
         return expression
     converted = " ".join(line.strip() for line in converted.splitlines() if line.strip())
@@ -105,19 +105,33 @@ def _render_latex_math(text: str) -> str:
 # ── Syntax highlighting (pygments) ──────────────────────────────────────────────
 
 
+@lru_cache(maxsize=1)
+def _pygments():
+    # Deferred: pygments is only needed once a code block is actually
+    # highlighted, not at import time (which is on the app-startup path).
+    from pygments import highlight as pyg_highlight
+    from pygments.formatters import Terminal256Formatter
+    from pygments.lexers import get_lexer_by_name
+    from pygments.util import ClassNotFound
+
+    return pyg_highlight, Terminal256Formatter, get_lexer_by_name, ClassNotFound
+
+
 @lru_cache(maxsize=8)
-def _formatter(style: str) -> Terminal256Formatter:
+def _formatter(style: str):
+    _, terminal256_formatter, _, _ = _pygments()
     try:
-        return Terminal256Formatter(style=style)
+        return terminal256_formatter(style=style)
     except Exception:
-        return Terminal256Formatter(style="default")
+        return terminal256_formatter(style="default")
 
 
 @lru_cache(maxsize=128)
 def _lexer(lang: str):
+    _, _, get_lexer_by_name, class_not_found = _pygments()
     try:
         return get_lexer_by_name(lang, stripnl=False)
-    except ClassNotFound:
+    except class_not_found:
         return None
 
 
@@ -133,34 +147,46 @@ def _highlight_code(code: str, lang: str, style: str) -> list[str] | None:
     lexer = _lexer(lang.lower())
     if lexer is None:
         return None
+    pyg_highlight, _, _, _ = _pygments()
     try:
-        out = _pyg_highlight(code, lexer, _formatter(style))
+        out = pyg_highlight(code, lexer, _formatter(style))
     except Exception:
         return None
     return out.rstrip("\n").split("\n")
 
 
-class _MdContext(BaseRenderer):
-    """
-    A no-op renderer subclass.
+@lru_cache(maxsize=1)
+def _mistletoe():
+    # Deferred: mistletoe is only needed once a message is actually rendered
+    # as markdown, not at import time (which is on the app-startup path) —
+    # mistletoe.core_tokens alone classifies every Unicode code point on import.
+    from mistletoe.base_renderer import BaseRenderer
+    from mistletoe.block_token import Document, HtmlBlock
+    from mistletoe.span_token import HtmlSpan
 
-    mistletoe only tokenizes inline (span) content while a renderer is active,
-    so we instantiate one purely to establish that context, then walk the AST
-    ourselves to produce width-aware ANSI lines.  CommonMark + strikethrough are
-    enabled by mistletoe's default token set; HtmlSpan and HtmlBlock are
-    registered as extras so inline HTML tags like `<br>` and standalone HTML
-    blocks are tokenized separately instead of being swallowed into
-    surrounding RawText/Paragraph nodes.
-    """
+    class _MdContext(BaseRenderer):
+        """
+        A no-op renderer subclass.
 
-    def render_inner(self, token: Any) -> str:  # pragma: no cover - unused
-        return ""
+        mistletoe only tokenizes inline (span) content while a renderer is
+        active, so we instantiate one purely to establish that context, then
+        walk the AST ourselves to produce width-aware ANSI lines.  CommonMark +
+        strikethrough are enabled by mistletoe's default token set; HtmlSpan
+        and HtmlBlock are registered as extras so inline HTML tags like `<br>`
+        and standalone HTML blocks are tokenized separately instead of being
+        swallowed into surrounding RawText/Paragraph nodes.
+        """
 
-    def render_html_span(self, token: Any) -> str:  # pragma: no cover - unused
-        return ""
+        def render_inner(self, token: Any) -> str:  # pragma: no cover - unused
+            return ""
 
-    def render_html_block(self, token: Any) -> str:  # pragma: no cover - unused
-        return ""
+        def render_html_span(self, token: Any) -> str:  # pragma: no cover - unused
+            return ""
+
+        def render_html_block(self, token: Any) -> str:  # pragma: no cover - unused
+            return ""
+
+    return Document, HtmlBlock, HtmlSpan, _MdContext
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -174,8 +200,9 @@ def render_markdown(
     preserve_soft_breaks: bool = False,
 ) -> list[str]:
     """Render a markdown string to a list of ANSI-coloured terminal lines."""
-    with _MdContext(HtmlSpan, HtmlBlock):
-        doc = Document(text.splitlines(keepends=True))
+    document, html_block, html_span, md_context = _mistletoe()
+    with md_context(html_span, html_block):
+        doc = document(text.splitlines(keepends=True))
         lines = _Renderer(width, theme, preserve_soft_breaks).render_blocks(doc.children or [])
     while lines and lines[-1] == "":
         lines.pop()

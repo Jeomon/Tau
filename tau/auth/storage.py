@@ -2,8 +2,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from filelock import FileLock
-
 from tau.auth.types import LockResult
 
 
@@ -45,6 +43,8 @@ class FileAuthStorage(AuthStorage):
 
     def with_lock(self, fn: Callable[[str | None], LockResult]) -> LockResult:
         """Execute fn with exclusive access to storage."""
+        from filelock import FileLock
+
         with FileLock(self.lock_path):
             current = (
                 self.store_path.read_text(encoding="utf-8") if self.store_path.exists() else None
@@ -59,6 +59,8 @@ class FileAuthStorage(AuthStorage):
         self, fn: Callable[[str | None], Awaitable[LockResult]]
     ) -> LockResult:
         """Execute async fn with exclusive access to storage."""
+        from filelock import FileLock
+
         with FileLock(self.lock_path):
             current = (
                 self.store_path.read_text(encoding="utf-8") if self.store_path.exists() else None
