@@ -1,0 +1,69 @@
+{
+  "tau": {
+    "name": "Sandbox",
+    "author": "jeomon",
+    "dependencies": ["microsandbox"],
+    "settings": {
+      "title": "Sandbox",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true,
+          "description": "Route the terminal tool's command execution through a microsandbox microVM instead of running it directly on the host. Falls back to the host when the runtime is unavailable (unsupported platform, missing dependency, or boot failure)."
+        },
+        {
+          "key": "image",
+          "label": "Image",
+          "type": "string",
+          "default": "python",
+          "description": "OCI image the sandbox microVM boots from, e.g. python, alpine, node, ubuntu."
+        },
+        {
+          "key": "cpus",
+          "label": "CPUs",
+          "type": "int",
+          "default": 1,
+          "description": "Virtual CPUs allocated to the sandbox."
+        },
+        {
+          "key": "memory_mib",
+          "label": "Memory (MiB)",
+          "type": "int",
+          "default": 1024,
+          "description": "Memory allocated to the sandbox, in MiB."
+        },
+        {
+          "key": "persistent",
+          "label": "Persistent sandbox",
+          "type": "bool",
+          "default": true,
+          "description": "Reuse one microVM for every command in the session (faster, state/installed packages persist). When off, a fresh microVM boots for every command."
+        },
+        {
+          "key": "network",
+          "label": "Network",
+          "type": "enum",
+          "values": ["public", "none"],
+          "default": "public",
+          "description": "\"public\" allows outbound network access from the sandbox; \"none\" fully isolates it."
+        },
+        {
+          "key": "idle_timeout_seconds",
+          "label": "Idle timeout (s)",
+          "type": "int",
+          "default": 1800,
+          "description": "The runtime stops the microVM after this many seconds without activity, so an abandoned or crashed session doesn't leave it running forever. The next command boots a fresh one."
+        },
+        {
+          "key": "prewarm",
+          "label": "Pre-warm on session start",
+          "type": "bool",
+          "default": true,
+          "description": "Start booting the microVM in the background as soon as the session starts, instead of waiting for the first terminal command, so that command doesn't pay boot latency."
+        }
+      ]
+    }
+  }
+}
