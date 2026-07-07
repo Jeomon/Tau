@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import compute_line_hashes, resolve_tool_path
+from tau.builtins.tools.utils import compute_line_hashes, looks_like_binary, resolve_tool_path
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -20,6 +20,23 @@ from tau.tool.types import (
 
 def _render_read_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("read", args.get("path", ""))
+
+
+_MAX_LINE_CHARS = 4000
+
+
+def _display_line(line: str) -> str:
+    """Cap a single line's displayed length.
+
+    Stops one pathologically long line (a minified bundle, a one-line JSON
+    blob) from dumping megabytes into the model's context through a single
+    hashline anchor. The anchor hash is computed over the full untruncated
+    line elsewhere, so this is purely a display cap — it doesn't affect
+    anchor resolution for a later edit.
+    """
+    if len(line) <= _MAX_LINE_CHARS:
+        return line
+    return f"{line[:_MAX_LINE_CHARS]}…[line truncated for display at {_MAX_LINE_CHARS} chars; {len(line)} chars total]"
 
 
 class ReadParams(BaseModel):
@@ -81,7 +98,8 @@ class ReadTool(Tool):
                 "Returns each line with a content-based hashline anchor in the format "
                 "'<line>:<hash>|<content>'. Every line in the file gets a distinct anchor, "
                 "including blank lines and repeated content. Use offset and limit to read "
-                "large files in chunks."
+                f"large files in chunks. A single line longer than {_MAX_LINE_CHARS} characters "
+                "is truncated for display; refuses to read files that look like binary content."
             ),
             schema=ReadParams,
             kind=ToolKind.Read,
@@ -116,9 +134,18 @@ class ReadTool(Tool):
             return ToolResult.error(invocation.id, f"Not a file: {params.path}")
 
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            raw = path.read_bytes()
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
+
+        if looks_like_binary(raw):
+            return ToolResult.error(
+                invocation.id,
+                f"'{params.path}' appears to be a binary file (contains a null byte in the "
+                "first 8 KiB) and cannot be read as text.",
+            )
+
+        lines = raw.decode("utf-8", errors="replace").splitlines()
 
         total = len(lines)
         start = params.offset
@@ -132,7 +159,7 @@ class ReadTool(Tool):
         chunk_hashes = compute_line_hashes(lines)[start:end]
 
         numbered = "\n".join(
-            f"{start + i + 1}:{h}|{line}"
+            f"{start + i + 1}:{h}|{_display_line(line)}"
             for i, (h, line) in enumerate(zip(chunk_hashes, chunk, strict=True))
         )
 

@@ -195,6 +195,20 @@ def bounded_text_tail(
     return bounded, truncated
 
 
+_BINARY_SNIFF_BYTES = 8192
+
+
+def looks_like_binary(data: bytes) -> bool:
+    """Heuristically detect binary content from a leading sample of file bytes.
+
+    A null byte essentially never appears in genuine UTF-8 text but is common
+    in binary formats (images, archives, compiled objects), so its presence in
+    the sampled prefix is a reliable, cheap signal — the same heuristic Git and
+    most text editors use.
+    """
+    return b"\x00" in data[:_BINARY_SNIFF_BYTES]
+
+
 def resolve_tool_path(raw_path: str, cwd: Path | None) -> Path:
     """Resolve a tool's ``path`` argument against the invocation's working directory.
 

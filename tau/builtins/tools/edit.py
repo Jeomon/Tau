@@ -279,10 +279,18 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     return result
 
 
+_NOOP_ESCALATE_AFTER = 3
+
+
 class EditTool(Tool):
     """Tool for replacing line ranges selected by hashline anchors."""
 
     def __init__(self) -> None:
+        # Tracks consecutive byte-identical no-op edits per resolved path, so a
+        # model stuck re-issuing the same already-applied (or misdiagnosed)
+        # edit gets an escalating hard stop instead of silently "succeeding"
+        # forever. Keyed by path; value is (payload_hash, consecutive_count).
+        self._noop_state: dict[Path, tuple[str, int]] = {}
         super().__init__(
             name="edit",
             description=(
@@ -350,6 +358,39 @@ class EditTool(Tool):
         async with serialize_file_mutation(path):
             return self._edit(invocation, params, path)
 
+    def _handle_noop(
+        self, invocation: ToolInvocation, params: EditParams, resolved: Path
+    ) -> ToolResult:
+        """Report an edit that parsed and resolved cleanly but changed nothing.
+
+        Tracks consecutive identical (same anchors, same content) no-ops per
+        file so a model stuck re-issuing an already-applied or misdiagnosed
+        edit gets an escalating hard stop instead of quietly "succeeding"
+        forever — mirrors the failure mode where a soft hint alone doesn't
+        break the retry loop.
+        """
+        payload_hash = hashlib.md5(
+            f"{params.start_anchor}:{params.end_anchor}:{params.new_content}".encode()
+        ).hexdigest()
+        previous_hash, previous_count = self._noop_state.get(resolved, ("", 0))
+        count = previous_count + 1 if payload_hash == previous_hash else 1
+        self._noop_state[resolved] = (payload_hash, count)
+
+        if count >= _NOOP_ESCALATE_AFTER:
+            return ToolResult.error(
+                invocation.id,
+                f"STOP. This exact edit to {params.path} has been a byte-identical no-op "
+                f"{count} times in a row — the content is already present at the anchored "
+                "range. Do not retry this same edit. Re-read the file to see the current "
+                "state, or move on if the change is already there.",
+            )
+        return ToolResult.ok(
+            invocation.id,
+            f"Edit to {params.path} parsed and resolved cleanly, but produced no change: "
+            "the given content is already present at the anchored range. Re-read the file "
+            "before retrying — the anchors may be stale, or this change may already be applied.",
+        )
+
     def _edit(self, invocation: ToolInvocation, params: EditParams, path: Path) -> ToolResult:
         if not path.exists():
             return ToolResult.error(invocation.id, f"File not found: {params.path}")
@@ -387,6 +428,11 @@ class EditTool(Tool):
         if original.endswith("\n") and updated_lines:
             updated += "\n"
         replacements = end_index - start_index + 1
+
+        resolved = path.resolve()
+        if updated == original:
+            return self._handle_noop(invocation, params, resolved)
+        self._noop_state.pop(resolved, None)
 
         try:
             atomic_write_text(path, updated)

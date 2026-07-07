@@ -290,23 +290,26 @@ class TerminalTool(Tool):
         }
 
         if timed_out:
+            note = f"[Command timed out after {params.timeout} seconds]"
             result = ToolResult(
                 id=invocation.id,
-                content=output_text or "(no output before timeout)",
+                content=f"{output_text}\n\n{note}" if output_text else note,
                 is_error=True,
                 metadata=metadata,
             )
         elif cancelled:
+            note = "[Command cancelled]"
             result = ToolResult(
                 id=invocation.id,
-                content=output_text or "(no output before cancellation)",
+                content=f"{output_text}\n\n{note}" if output_text else note,
                 is_error=True,
                 metadata=metadata,
             )
         elif proc.returncode not in (0, None):
+            note = f"[Command exited with code {proc.returncode}]"
             result = ToolResult(
                 id=invocation.id,
-                content=output_text or f"(exit code {proc.returncode}, no output)",
+                content=f"{output_text}\n\n{note}" if output_text else note,
                 is_error=True,
                 metadata=metadata,
             )
