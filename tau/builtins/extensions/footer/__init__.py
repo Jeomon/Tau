@@ -54,6 +54,17 @@ def register(tau: ExtensionAPI) -> None:
         model_badge.update_context_from_ctx(ctx)
         _request_render(ctx)
 
+    @tau.on("agent_start")
+    def on_agent_start(event: Any, ctx: Any) -> None:
+        # Fires right after the user's message is appended to the session but
+        # before the LLM call starts — without this, the badge kept showing
+        # the previous turn's usage until the first response came back, so a
+        # large pasted message wouldn't show up in the percentage until the
+        # model had already replied.
+        if ctx.has_ui:
+            model_badge.update_context_from_ctx(ctx)
+            _request_render(ctx)
+
     @tau.on("thinking_level_select")
     def on_thinking_level_select(event: Any, ctx: Any) -> None:
         if not ctx.has_ui:
