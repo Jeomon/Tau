@@ -947,16 +947,23 @@ class MessageList(Component):
         """
         return StaticComponent(self._render_blocks(area.width)).render_cells(area, buf)
 
-    def _iter_units(self, width: int):
+    def _iter_units(self, width: int, start_index: int = 0):
         """Yield (start_block_index, end_block_index, lines) for each renderable unit.
 
         A unit is either one block, or an assistant+tool pair merged for a
         joint tool-result render — shared by ``_render_blocks`` and
         ``render_split_cells`` so both agree on exactly the same grouping.
+
+        ``start_index`` lets a caller resume after a already-frozen prefix
+        instead of re-rendering (and immediately discarding) every historical
+        block on every call — see ``render_split_cells``, where this is what
+        keeps a per-tick cost proportional to the live tail instead of total
+        session length. Only ever a value previously yielded as an
+        ``end_index`` (a unit boundary), so resuming there can't split a unit.
         """
         from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage
 
-        index = 0
+        index = start_index
         while index < len(self._blocks):
             block = self._blocks[index]
             next_message = (
@@ -1023,11 +1030,9 @@ class MessageList(Component):
             self.frozen_generation += 1
             self._frozen_seq = self._invalidation_seq
 
-        units = list(self._iter_units(width))
+        units = list(self._iter_units(width, start_index=self._frozen_block_count))
         live_lines: list[str] = []
         for i, (start_idx, end_idx, unit_lines) in enumerate(units):
-            if end_idx <= self._frozen_block_count:
-                continue
             blocks = self._blocks[start_idx:end_idx]
             streaming = any(b.is_streaming for b in blocks)
             is_last_unit = i == len(units) - 1

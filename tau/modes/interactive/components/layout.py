@@ -1296,6 +1296,29 @@ class Layout(Component):
         self._active_selector = InlineSelector(kind="config", selector=sel)
         self._tui.request_render()
 
+    def open_custom_selector(self, kind: str, component: Any) -> None:
+        """Show an arbitrary, already-built Component inline, replacing the input editor.
+
+        Unlike the specific open_*_selector methods above, ``component`` owns its
+        entire render_cells/handle_input lifecycle (commit/cancel included) — pair
+        the chosen ``kind`` with an entry in SelectorController's ``delegated`` set
+        so key events reach it unmodified instead of being routed by kind-specific
+        logic there.
+        """
+        self._active_selector = InlineSelector(kind=kind, selector=component)
+        self._tui.request_render()
+
+    def close_custom_selector(self, kind: str) -> None:
+        """Clear the active inline selector if it matches ``kind`` (no-op otherwise).
+
+        ``kind`` is checked so a selector opened after this one (e.g. the user
+        cancelled and immediately opened a different modal before this callback
+        ran) is never clobbered.
+        """
+        if self._active_selector is not None and self._active_selector.kind == kind:
+            self._active_selector = None
+            self._tui.request_render()
+
     def open_branch_tree_selector(
         self,
         rows: list[TreeRow[str]],

@@ -409,6 +409,45 @@ class UIContext:
 
         return await fut
 
+    async def custom_inline(
+        self,
+        factory: Callable[..., Component],
+        kind: str = "custom",
+    ) -> Any:
+        """Show a fully custom focusable component inline, like ``/settings`` does.
+
+        Unlike ``custom()``, this replaces the input editor between the two
+        divider lines instead of floating as a screen overlay — no separate
+        compositing pass, so it can't be silently skipped by the scrollback
+        renderer's frozen-content optimization the way an overlay can.
+
+        ``factory`` is called with ``(tui, theme, keybindings, done)`` and must
+        return a ``Component`` that fully owns its own navigation/commit/cancel
+        via ``handle_input`` — pass a distinct ``kind`` and add it to
+        ``SelectorController``'s ``delegated`` set so key events reach the
+        component unmodified rather than being routed by kind-specific logic
+        there (see ``tau.modes.interactive.components.selector_controller``).
+        """
+        layout = self._layout()
+        if layout is None:
+            return None
+
+        from tau.tui.input import get_keybindings
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[Any] = loop.create_future()
+
+        def _done(value: Any) -> None:
+            if not fut.done():
+                fut.set_result(value)
+            layout.close_custom_selector(kind)
+
+        component = factory(layout._tui, layout._theme, get_keybindings(), _done)
+        layout.open_custom_selector(kind, component)
+        layout._tui.request_render()
+
+        return await fut
+
     def show_overlay(
         self,
         component: Component,

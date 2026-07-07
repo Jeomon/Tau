@@ -86,19 +86,13 @@ class _AskUserComponent(Component):
     # ── Render ────────────────────────────────────────────────────────────
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.modes.interactive.components.overlays import _box_cells
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-        from tau.tui.buffer import Buffer as _Buffer
-        from tau.tui.geometry import Rect as _Rect
 
-        inner_w = max(1, area.width - 4)
-
-        def _boxed(lines: list[str]) -> int:
-            inner_buf = _Buffer.empty(_Rect(0, 0, inner_w, 0))
+        def _plain(lines: list[str]) -> int:
             row = 0
             for line in lines:
-                row += parse_ansi_wrapped_into(inner_buf, 0, row, line, inner_w)
-            return _box_cells(buf, area, inner_buf, row, "", None)
+                row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
+            return row
 
         inner: list[str] = []
         if self._context:
@@ -136,14 +130,14 @@ class _AskUserComponent(Component):
                 "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
                 f"{back}\x1b[0m"
             )
-            return _boxed(inner)
+            return _plain(inner)
 
         if self._mode == "freeform":
             inner.append(f"  {self._freeform_value}█")
             inner.append("")
             back = "Esc to cancel" if not self._options else "Esc to go back"
             inner.append(f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m")
-            return _boxed(inner)
+            return _plain(inner)
 
         for i in range(self._row_count):
             is_freeform_row = i == self._freeform_index
@@ -180,7 +174,7 @@ class _AskUserComponent(Component):
         if self._allow_multiple:
             hints.insert(1, "Space toggle")
         inner.append("  \x1b[2m" + "  ·  ".join(hints) + "\x1b[0m")
-        return _boxed(inner)
+        return _plain(inner)
 
     # ── Input ─────────────────────────────────────────────────────────────
 
