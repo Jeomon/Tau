@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import asyncio
 
-from .base import BaseSearchEngine, SearchMode, result
+from .base import BaseSearchEngine, SearchMode, SearchRecency, result
+
+# ddgs/asyncddgs `timelimit` codes — stable since duckduckgo_search's earliest
+# releases: single-letter day/week/month/year.
+_TIMELIMIT = {
+    SearchRecency.day: "d",
+    SearchRecency.week: "w",
+    SearchRecency.month: "m",
+    SearchRecency.year: "y",
+}
 
 
 class DDGSearchEngine(BaseSearchEngine):
@@ -18,13 +27,21 @@ class DDGSearchEngine(BaseSearchEngine):
             SearchMode.books,
         }
     )
+    supports_recency = True
 
     def __init__(self, region: str = "us-en", safesearch: str = "off") -> None:
         self._region = region or "us-en"
         self._safesearch = safesearch or "off"
 
-    async def search(self, query: str, mode: SearchMode, max_results: int) -> list[dict]:
+    async def search(
+        self,
+        query: str,
+        mode: SearchMode,
+        max_results: int,
+        recency: SearchRecency | None = None,
+    ) -> list[dict]:
         region, safe = self._region, self._safesearch
+        timelimit = _TIMELIMIT.get(recency) if recency else None
 
         if mode is SearchMode.books:
             from ddgs import DDGS  # type: ignore[import-not-found]
@@ -49,7 +66,13 @@ class DDGSearchEngine(BaseSearchEngine):
             match mode:
                 case SearchMode.text:
                     raw = (
-                        await d.text(query, region=region, safesearch=safe, max_results=max_results)
+                        await d.text(
+                            query,
+                            region=region,
+                            safesearch=safe,
+                            timelimit=timelimit,
+                            max_results=max_results,
+                        )
                         or []
                     )
                     return [
@@ -62,7 +85,13 @@ class DDGSearchEngine(BaseSearchEngine):
                     ]
                 case SearchMode.news:
                     raw = (
-                        await d.news(query, region=region, safesearch=safe, max_results=max_results)
+                        await d.news(
+                            query,
+                            region=region,
+                            safesearch=safe,
+                            timelimit=timelimit,
+                            max_results=max_results,
+                        )
                         or []
                     )
                     return [

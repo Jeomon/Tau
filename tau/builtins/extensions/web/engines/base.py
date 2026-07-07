@@ -31,6 +31,13 @@ class SearchMode(StrEnum):
     books = "books"
 
 
+class SearchRecency(StrEnum):
+    day = "day"
+    week = "week"
+    month = "month"
+    year = "year"
+
+
 _RESULT_KEYS = (
     "title",
     "url",
@@ -60,13 +67,29 @@ class BaseSearchEngine(ABC):
 
     name: str = "base"
     supported_modes: frozenset[SearchMode] = frozenset({SearchMode.text})
+    # Whether this engine can restrict results to a recency window (see
+    # SearchRecency). Engines without native date filtering (e.g. Jina) leave
+    # this False; the tool then warns instead of silently ignoring the filter.
+    supports_recency: bool = False
 
     def supports(self, mode: SearchMode) -> bool:
         return mode in self.supported_modes
 
     @abstractmethod
-    async def search(self, query: str, mode: SearchMode, max_results: int) -> list[dict]:
-        """Run a search and return normalized result dicts."""
+    async def search(
+        self,
+        query: str,
+        mode: SearchMode,
+        max_results: int,
+        recency: SearchRecency | None = None,
+    ) -> list[dict]:
+        """Run a search and return normalized result dicts.
+
+        ``recency`` is a best-effort filter — pass it through when
+        ``supports_recency`` is True; engines that can't honor it should
+        ignore it rather than error, since the caller already warns the
+        model when the active engine doesn't support it.
+        """
 
     @abstractmethod
     async def fetch(self, url: str, timeout: int) -> str:

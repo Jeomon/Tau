@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import asyncio
 
-from .base import BaseSearchEngine, SearchMode, result
+from .base import BaseSearchEngine, SearchMode, SearchRecency, result
 
 
 class TavilySearchEngine(BaseSearchEngine):
     name = "tavily"
     supported_modes = frozenset({SearchMode.text, SearchMode.news})
+    supports_recency = True
 
     def __init__(self, api_key: str, search_depth: str = "basic") -> None:
         if not api_key:
@@ -27,15 +28,23 @@ class TavilySearchEngine(BaseSearchEngine):
             self._client = TavilyClient(api_key=self._api_key)
         return self._client
 
-    async def search(self, query: str, mode: SearchMode, max_results: int) -> list[dict]:
+    async def search(
+        self,
+        query: str,
+        mode: SearchMode,
+        max_results: int,
+        recency: SearchRecency | None = None,
+    ) -> list[dict]:
         def _search():
             client = self._get_client()
             topic = "news" if mode is SearchMode.news else "general"
+            # Tavily accepts the same "day"/"week"/"month"/"year" literals we use.
             response = client.search(
                 query,
                 max_results=max_results,
                 topic=topic,
                 search_depth=self._search_depth,
+                time_range=recency.value if recency else None,
             )
             out: list[dict] = []
             for r in response.get("results", []):

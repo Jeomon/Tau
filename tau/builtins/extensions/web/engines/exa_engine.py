@@ -3,13 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
-from .base import BaseSearchEngine, SearchMode, result
+from .base import BaseSearchEngine, SearchMode, SearchRecency, result
+
+# Exa has no recency enum — it takes an ISO 8601 `start_published_date` and
+# filters out anything published before it. Map each window to a day count.
+_RECENCY_DAYS = {
+    SearchRecency.day: 1,
+    SearchRecency.week: 7,
+    SearchRecency.month: 30,
+    SearchRecency.year: 365,
+}
+
+
+def _start_published_date(recency: SearchRecency) -> str:
+    days = _RECENCY_DAYS[recency]
+    since = datetime.now(UTC) - timedelta(days=days)
+    return since.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 class ExaSearchEngine(BaseSearchEngine):
     name = "exa"
     supported_modes = frozenset({SearchMode.text, SearchMode.news})
+    supports_recency = True
 
     def __init__(self, api_key: str, type: str = "auto") -> None:
         if not api_key:
@@ -25,15 +42,23 @@ class ExaSearchEngine(BaseSearchEngine):
             self._client = Exa(self._api_key)
         return self._client
 
-    async def search(self, query: str, mode: SearchMode, max_results: int) -> list[dict]:
+    async def search(
+        self,
+        query: str,
+        mode: SearchMode,
+        max_results: int,
+        recency: SearchRecency | None = None,
+    ) -> list[dict]:
         def _search():
             client = self._get_client()
             category = "news" if mode is SearchMode.news else None
+            start_published_date = _start_published_date(recency) if recency else None
             response = client.search_and_contents(
                 query,
                 num_results=max_results,
                 category=category,
                 type=self._type,
+                start_published_date=start_published_date,
                 text={"max_characters": 500},
             )
             out: list[dict] = []
