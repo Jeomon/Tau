@@ -262,6 +262,21 @@ class VoiceController:
         if not self._enabled or not isinstance(event, KeyEvent):
             return None
 
+        # A modal dialog (e.g. ask_user, a picker) is focused — let it see the
+        # key instead of eating space for push-to-talk. Also make sure any
+        # in-flight hold from before the overlay opened doesn't linger.
+        if self._ui.has_active_selector():
+            if self._mode in ("waiting", "recording"):
+                self._cancel_task(self._activation_task)
+                self._cancel_task(self._watcher_task)
+                self._activation_task = None
+                self._watcher_task = None
+                self._close_stream()
+                self._stop_caret()
+                self._mode = "idle"
+                self._echoed = False
+            return None
+
         is_space = event.matches("space")
 
         # Non-space key while active: abort cleanly and restore the held space

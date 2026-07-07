@@ -70,8 +70,6 @@ class AskUserTool(Tool):
                 "unavailable in headless/RPC mode",
             )
 
-        from tau.tui.service import CustomOptions, OverlayOptions
-
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict | None] = loop.create_future()
         timeout_task_ref: list[asyncio.Task | None] = [None]
@@ -104,10 +102,7 @@ class AskUserTool(Tool):
                 timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
             return component
 
-        await ui.custom(
-            _factory,
-            CustomOptions(overlay_options=OverlayOptions(width="70%", anchor="center", margin=1)),
-        )
+        await ui.custom_inline(_factory, kind="ask_user")
         response = await fut
 
         if response is None:
