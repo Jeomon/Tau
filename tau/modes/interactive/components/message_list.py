@@ -741,6 +741,19 @@ class MessageList(Component):
         self._frozen_width = -1
         self._invalidation_seq = 0
         self._frozen_seq = -1
+        # Parallel lists: for each unit ever spliced into _frozen_buf, the
+        # block index it ends at and the frozen_buf row count immediately
+        # after it was appended. Lets _bump_invalidation's rebuild truncate
+        # back to the last unit boundary before the earliest actually-changed
+        # block instead of discarding the whole frozen buffer — see
+        # render_split_cells.
+        self._frozen_unit_ends: list[int] = []
+        self._frozen_unit_rows: list[int] = []
+        # Earliest block index touched by invalidations since the frozen
+        # cache last caught up (None until the first bump). Consumed by
+        # render_split_cells and reset to None; theme/prefix-wide bumps pass
+        # the default 0, forcing a full rebuild as before.
+        self._pending_invalidation_from: int | None = None
         # Bumped every time _frozen_buf is rebuilt from scratch (width change or
         # _bump_invalidation) — lets the Container (tui.py) notice that already-frozen
         # rows may have changed content even though their row count didn't, so it
@@ -760,14 +773,24 @@ class MessageList(Component):
     def set_height(self, height: int) -> None:
         self._height = max(1, height)
 
-    def _bump_invalidation(self) -> None:
-        """Force the frozen-cell cache to rebuild from scratch on the next render.
+    def _bump_invalidation(self, from_index: int = 0) -> None:
+        """Force the frozen-cell cache to rebuild from ``from_index`` on the next render.
 
         Called by anything that can retroactively change already-frozen
         content (theme/prefix/tool-lookup swaps, expand/collapse-all) so a
-        stale cache is never handed to the renderer.
+        stale cache is never handed to the renderer. ``from_index`` is the
+        earliest block index known to have changed — passing it lets
+        ``render_split_cells`` keep everything before that point (a real cost
+        saving for a long session with a targeted toggle); callers that touch
+        every block (theme/prefix swaps) use the default 0, which still forces
+        a full rebuild. If multiple bumps land before the next render, the
+        smallest ``from_index`` wins.
         """
         self._invalidation_seq += 1
+        if self._pending_invalidation_from is None:
+            self._pending_invalidation_from = from_index
+        else:
+            self._pending_invalidation_from = min(self._pending_invalidation_from, from_index)
 
     def set_theme(self, theme: MessageTheme) -> None:
         self._theme = theme
@@ -800,39 +823,45 @@ class MessageList(Component):
         is not a reliable proxy for "scrolled off-screen" (a message can be
         frozen the instant a short follow-up reply is appended, while still
         fully visible), so restricting this to the live tail broke the
-        feature for the common case. Correctness comes first here: bump the
-        frozen-cache generation so render_split_cells does a full rebuild on
-        the next call — a real cost for a very long session, but this is a
-        deliberate, user-triggered action, not a per-frame one.
+        feature for the common case. The frozen-cache rebuild this triggers
+        is scoped to the earliest touched block onward (see
+        ``_bump_invalidation``/``render_split_cells``) — everything before the
+        first matching block stays untouched, so cost tracks how far back the
+        first thinking/tool block is, not total session length.
         """
         from tau.message.types import AssistantMessage, ToolMessage
 
-        targets = [
-            b for b in self._blocks if isinstance(b.message, (AssistantMessage, ToolMessage))
+        target_indices = [
+            i
+            for i, b in enumerate(self._blocks)
+            if isinstance(b.message, (AssistantMessage, ToolMessage))
         ]
-        if not targets:
+        if not target_indices:
             return
+        targets = [self._blocks[i] for i in target_indices]
         new_state = not targets[-1].is_expanded()
         for b in targets:
             b._expanded = new_state
             b.invalidate()
-        self._bump_invalidation()
+        self._bump_invalidation(target_indices[0])
 
     def toggle_invocations_expanded(self) -> None:
-        """Ctrl+O — toggle expand/collapse for all template and skill invocation blocks.
+        """Ctrl+E — toggle expand/collapse for all template and skill invocation blocks.
 
         See toggle_details_expanded: touches every matching block regardless
-        of frozen state, for the same reason.
+        of frozen state, for the same reason, and likewise only rebuilds the
+        frozen cache from the earliest touched block onward.
         """
         from tau.message.types import SkillInvocationMessage, TemplateInvocationMessage
 
-        targets = [
-            b
-            for b in self._blocks
+        target_indices = [
+            i
+            for i, b in enumerate(self._blocks)
             if isinstance(b.message, (TemplateInvocationMessage, SkillInvocationMessage))
         ]
-        if not targets:
+        if not target_indices:
             return
+        targets = [self._blocks[i] for i in target_indices]
         last_msg = targets[-1].message
         if isinstance(last_msg, (TemplateInvocationMessage, SkillInvocationMessage)):
             new_state = not last_msg.expanded
@@ -840,7 +869,7 @@ class MessageList(Component):
                 if isinstance(b.message, (TemplateInvocationMessage, SkillInvocationMessage)):
                     b.message.expanded = new_state
                     b.invalidate()
-            self._bump_invalidation()
+            self._bump_invalidation(target_indices[0])
 
     def add_block(self, block: MessageBlock) -> None:
         self._blocks.append(block)
@@ -861,6 +890,8 @@ class MessageList(Component):
         if self._frozen_block_count > len(self._blocks):
             self._frozen_buf = None
             self._frozen_block_count = 0
+            self._frozen_unit_ends = []
+            self._frozen_unit_rows = []
 
     def remove_last(self) -> bool:
         """Remove the last block (used to undo a user message on pre-stream abort)."""
@@ -895,6 +926,8 @@ class MessageList(Component):
         self._auto_scroll = True
         self._frozen_buf = None
         self._frozen_block_count = 0
+        self._frozen_unit_ends = []
+        self._frozen_unit_rows = []
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
         block = MessageBlock(
@@ -1018,17 +1051,52 @@ class MessageList(Component):
         again). A unit frozen here that later turns out to still need
         changing (e.g. undo pops it, or a toggle mutates it) is still safe:
         popping past the frozen boundary is caught by _guard_frozen_bounds,
-        and any mutation bumps _invalidation_seq — both force a one-time full
-        rebuild rather than corrupting state.
+        and any mutation bumps _invalidation_seq — both force a rebuild
+        rather than corrupting state, truncated back to the last unit
+        boundary before whatever changed rather than always starting over
+        from block 0 (see the seq-mismatch branch below).
         """
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
-        if width != self._frozen_width or self._frozen_seq != self._invalidation_seq:
+        if width != self._frozen_width:
+            # Every line needs rewrapping at the new width — no prefix survives.
             self._frozen_buf = None
             self._frozen_block_count = 0
+            self._frozen_unit_ends = []
+            self._frozen_unit_rows = []
             self._frozen_width = width
             self.frozen_generation += 1
             self._frozen_seq = self._invalidation_seq
+            self._pending_invalidation_from = None
+        elif self._frozen_seq != self._invalidation_seq:
+            # Only the units from the earliest actually-changed block onward
+            # need to be redone — truncate back to the last unit boundary at
+            # or before that point instead of discarding the whole cache.
+            from_index = (
+                0 if self._pending_invalidation_from is None else self._pending_invalidation_from
+            )
+            self._pending_invalidation_from = None
+            self._frozen_seq = self._invalidation_seq
+            self.frozen_generation += 1
+            keep = 0
+            for end_idx in self._frozen_unit_ends:
+                if end_idx > from_index:
+                    break
+                keep += 1
+            if keep == 0:
+                self._frozen_buf = None
+                self._frozen_block_count = 0
+            else:
+                self._frozen_block_count = self._frozen_unit_ends[keep - 1]
+                keep_rows = self._frozen_unit_rows[keep - 1]
+                if self._frozen_buf is not None:
+                    w = self._frozen_buf.area.width
+                    self._frozen_buf.content = self._frozen_buf.content[: keep_rows * w]
+                    self._frozen_buf.area = Rect(
+                        self._frozen_buf.area.x, self._frozen_buf.area.y, w, keep_rows
+                    )
+            self._frozen_unit_ends = self._frozen_unit_ends[:keep]
+            self._frozen_unit_rows = self._frozen_unit_rows[:keep]
 
         units = list(self._iter_units(width, start_index=self._frozen_block_count))
         live_lines: list[str] = []
@@ -1046,6 +1114,8 @@ class MessageList(Component):
             for line in unit_lines:
                 base += parse_ansi_wrapped_into(self._frozen_buf, 0, base, line, width)
             self._frozen_block_count = end_idx
+            self._frozen_unit_ends.append(end_idx)
+            self._frozen_unit_rows.append(self._frozen_buf.area.height)
         return self._frozen_buf, live_lines
 
     def handle_input(self, event: InputEvent) -> bool:
