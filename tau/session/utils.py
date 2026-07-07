@@ -33,6 +33,14 @@ from tau.settings.paths import get_sessions_dir
 
 _log = logging.getLogger(__name__)
 
+# Built once at import time rather than per-call: constructing a TypeAdapter
+# for a discriminated union costs ~8ms (schema build), which used to be paid
+# on every read_session_file() call and again per file in build_session_info()
+# — the latter runs once per session when listing sessions, so on a project
+# with many saved sessions that added up to real, avoidable startup latency.
+_SESSION_FILE_ENTRY_ADAPTER: TypeAdapter[SessionFileEntry] = TypeAdapter(SessionFileEntry)
+_SESSION_HEADER_ADAPTER: TypeAdapter[SessionHeader] = TypeAdapter(SessionHeader)
+
 
 def create_session_id() -> str:
     """Create a new session ID using UUIDv7."""
@@ -86,8 +94,6 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
     if not session_file.exists():
         return []
 
-    adapter = TypeAdapter(SessionFileEntry)
-
     content = session_file.read_text(encoding="utf-8")
     entries: list[SessionFileEntry] = []
 
@@ -95,7 +101,7 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
         if not line.strip():
             continue
         try:
-            entry = adapter.validate_json(line)
+            entry = _SESSION_FILE_ENTRY_ADAPTER.validate_json(line)
             entries.append(entry)
         except Exception:
             continue
@@ -211,7 +217,6 @@ def build_session_info(file: Path) -> SessionInfo | None:
     except OSError:
         return None
 
-    header_adapter: TypeAdapter[SessionHeader] = TypeAdapter(SessionHeader)
     header: SessionHeader | None = None
     name: str | None = None
     message_count = 0
@@ -226,7 +231,7 @@ def build_session_info(file: Path) -> SessionInfo | None:
                     obj = json.loads(raw)
                     entry_type = obj.get("type")
                     if entry_type == SessionType.SESSION_HEADER and header is None:
-                        header = header_adapter.validate_python(obj)
+                        header = _SESSION_HEADER_ADAPTER.validate_python(obj)
                     elif entry_type == SessionType.SESSION_INFO and name is None:
                         name = obj.get("name")
                     elif entry_type == SessionType.SESSION_MESSAGE:

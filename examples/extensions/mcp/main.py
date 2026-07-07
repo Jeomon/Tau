@@ -7,6 +7,7 @@ been connected at least once, any tools promoted via a server's
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,7 +77,11 @@ def register(tau):
 
     @tau.on("runtime_ready")
     async def _start(_event, _ctx):
-        await manager.start_eager()
+        # Fire-and-forget: eager/keep-alive servers connect in the background
+        # instead of blocking TUI startup on every configured server coming
+        # up. Mirrors the LSP extension's warm-up pattern — tools just aren't
+        # callable yet until their server finishes connecting.
+        asyncio.ensure_future(manager.start_eager())
 
     @tau.on("runtime_stop")
     async def _stop(_event, _ctx):

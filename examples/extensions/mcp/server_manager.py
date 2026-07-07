@@ -228,16 +228,29 @@ class McpServerManager:
         return handle
 
     async def start_eager(self) -> None:
-        """Connect eager/keep-alive servers and start keep-alive health checks."""
-        for name, handle in self._handles.items():
-            if handle.config.lifecycle in ("eager", "keep-alive"):
-                try:
-                    await handle.ensure_connected()
-                    await self.refresh_tools(name)
-                except McpServerError as e:
-                    logger.warning("mcp server %s: eager connect failed: %s", name, e)
-                if handle.config.lifecycle == "keep-alive":
-                    self._keepalive_tasks.append(asyncio.create_task(self._keepalive(name, handle)))
+        """Connect eager/keep-alive servers and start keep-alive health checks.
+
+        Connects all configured servers concurrently rather than one at a
+        time — with several eager/keep-alive servers configured, a sequential
+        loop means each slow-to-start server adds its own full startup latency
+        on top of the others' before the last one is ready.
+        """
+
+        async def _start_one(name: str, handle: McpServerHandle) -> None:
+            try:
+                await handle.ensure_connected()
+                await self.refresh_tools(name)
+            except McpServerError as e:
+                logger.warning("mcp server %s: eager connect failed: %s", name, e)
+            if handle.config.lifecycle == "keep-alive":
+                self._keepalive_tasks.append(asyncio.create_task(self._keepalive(name, handle)))
+
+        eager = [
+            (name, handle)
+            for name, handle in self._handles.items()
+            if handle.config.lifecycle in ("eager", "keep-alive")
+        ]
+        await asyncio.gather(*(_start_one(name, handle) for name, handle in eager))
 
     async def _keepalive(self, name: str, handle: McpServerHandle) -> None:
         try:
