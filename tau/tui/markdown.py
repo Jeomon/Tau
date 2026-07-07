@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from mistletoe.base_renderer import BaseRenderer
-from mistletoe.block_token import Document
+from mistletoe.block_token import Document, HtmlBlock
+from mistletoe.span_token import HtmlSpan
 from pygments import highlight as _pyg_highlight
 from pygments.formatters import Terminal256Formatter
 from pygments.lexers import get_lexer_by_name
@@ -33,6 +34,9 @@ _INLINE_MATH_RE = re.compile(
     re.DOTALL,
 )
 _SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
+_TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\]\s+")
+_BARE_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+_BARE_URL_TRAILING_PUNCT = ".,;:!?'\")]}*_~"
 _SUPERSCRIPTS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
 _SUBSCRIPTS = str.maketrans(
     "0123456789+-=()aehijklmnoprstuvx",
@@ -143,10 +147,19 @@ class _MdContext(BaseRenderer):
     mistletoe only tokenizes inline (span) content while a renderer is active,
     so we instantiate one purely to establish that context, then walk the AST
     ourselves to produce width-aware ANSI lines.  CommonMark + strikethrough are
-    enabled by mistletoe's default token set.
+    enabled by mistletoe's default token set; HtmlSpan and HtmlBlock are
+    registered as extras so inline HTML tags like `<br>` and standalone HTML
+    blocks are tokenized separately instead of being swallowed into
+    surrounding RawText/Paragraph nodes.
     """
 
     def render_inner(self, token: Any) -> str:  # pragma: no cover - unused
+        return ""
+
+    def render_html_span(self, token: Any) -> str:  # pragma: no cover - unused
+        return ""
+
+    def render_html_block(self, token: Any) -> str:  # pragma: no cover - unused
         return ""
 
 
@@ -161,7 +174,7 @@ def render_markdown(
     preserve_soft_breaks: bool = False,
 ) -> list[str]:
     """Render a markdown string to a list of ANSI-coloured terminal lines."""
-    with _MdContext():
+    with _MdContext(HtmlSpan, HtmlBlock):
         doc = Document(text.splitlines(keepends=True))
         lines = _Renderer(width, theme, preserve_soft_breaks).render_blocks(doc.children or [])
     while lines and lines[-1] == "":
@@ -263,7 +276,11 @@ class _Renderer:
                 lines.append("")
 
             elif name in ("HTMLBlock", "HtmlBlock"):
-                lines.append(getattr(node, "content", "").rstrip())
+                content = getattr(node, "content", "").rstrip()
+                for cl in content.split("\n"):
+                    for wl in wrap(cl, self.width) or [""]:
+                        lines.append(wl)
+                lines.append("")
 
         return lines
 
@@ -300,10 +317,19 @@ class _Renderer:
 
     def _render_list_item(self, item: Any, depth: int, inner_w: int) -> list[str]:
         lines: list[str] = []
-        for child in item.children or []:
+        for idx, child in enumerate(item.children or []):
             name = type(child).__name__
             if name == "Paragraph":
-                text = self._render_inline(child.children or [])
+                children = list(child.children or [])
+                checkbox = None
+                if idx == 0 and children and type(children[0]).__name__ == "RawText":
+                    match = _TASK_CHECKBOX_RE.match(children[0].content)
+                    if match:
+                        checkbox = "☑" if match.group(1).lower() == "x" else "☐"
+                        children[0].content = children[0].content[match.end() :]
+                text = self._render_inline(children)
+                if checkbox is not None:
+                    text = apply_style(self.theme.list_bullet, checkbox) + " " + text
                 for wl in wrap(text, inner_w) or [text]:
                     lines.append(wl)
             elif name == "List":
@@ -343,6 +369,9 @@ class _Renderer:
         if not rendered:
             return []
 
+        # Column alignment from the delimiter row: None=left, 0=center, 1=right.
+        column_align: list[int | None] = list(getattr(node, "column_align", None) or [])
+
         # Canonical column count comes from the header row when present.
         # Using max() would inflate ncols when a data cell contains a literal
         # "|" that the parser split into an extra column.
@@ -356,6 +385,8 @@ class _Renderer:
                 r[ncols - 1 :] = ["|".join(r[ncols - 1 :])]
             while len(r) < ncols:
                 r.append("")
+        while len(column_align) < ncols:
+            column_align.append(None)
 
         # Max visible width per column; leave room for outer borders + inner gaps:
         # "│  " + cells joined by "  │  " + "  │" → ncols*5+1 overhead
@@ -392,6 +423,15 @@ class _Renderer:
         mid = _border("├", "┼", "┤")
         bottom = _border("└", "┴", "┘")
 
+        def _pad_cell(cell: str, cw: int, align: int | None) -> str:
+            pad = max(0, cw - visible_width(cell))
+            if align == 1:  # right
+                return " " * pad + cell
+            if align == 0:  # center
+                left = pad // 2
+                return " " * left + cell + " " * (pad - left)
+            return cell + " " * pad  # left (default)
+
         def _row(cells: list[str]) -> list[str]:
             wrapped = [wrap(cell, col_widths[ci]) or [cell] for ci, cell in enumerate(cells)]
             height = max(len(w) for w in wrapped)
@@ -407,7 +447,7 @@ class _Renderer:
                 for ci, lines in enumerate(wrapped):
                     cw = col_widths[ci]
                     cell = lines[li] if li < len(lines) else ""
-                    padded.append("  " + cell + " " * max(2, cw - visible_width(cell) + 2))
+                    padded.append("  " + _pad_cell(cell, cw, column_align[ci]) + "  ")
                 sep = apply_style(self.theme.hr, "│")
                 out.append(sep + sep.join(padded) + sep)
             out.append(blank)
@@ -429,7 +469,7 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                parts.append(_render_latex_math(node.content))
+                parts.append(self._autolink_bare_urls(_render_latex_math(node.content)))
             elif name == "LineBreak":
                 soft = getattr(node, "soft", True)
                 parts.append("\n" if not soft or self.preserve_soft_breaks else " ")
@@ -466,7 +506,11 @@ class _Renderer:
                     else styled_label
                 )
             elif name in ("HTMLSpan", "HtmlSpan"):
-                parts.append(getattr(node, "content", ""))
+                content = getattr(node, "content", "")
+                if re.fullmatch(r"<br\s*/?>", content, re.IGNORECASE):
+                    parts.append("\n")
+                else:
+                    parts.append(content)
             elif name == "EscapeSequence":
                 parts.append(self._raw(node))
             else:
@@ -484,6 +528,29 @@ class _Renderer:
         if children:
             return "".join(getattr(c, "content", "") for c in children)
         return getattr(node, "content", "")
+
+    def _autolink_bare_urls(self, text: str) -> str:
+        """Turn bare ``http(s)://`` URLs into clickable OSC 8 hyperlinks."""
+
+        def replace(match: re.Match[str]) -> str:
+            url = match.group(0)
+            trailing = ""
+            while url and url[-1] in _BARE_URL_TRAILING_PUNCT:
+                # Only strip a trailing ")" if it's an unmatched closer (e.g. the
+                # surrounding "(see https://.../Foo_(bar))." wrapper) — keep one
+                # that balances an opening "(" inside the URL itself, as in a
+                # Wikipedia link ending in "_(disambiguation)".
+                if url[-1] == ")" and url.count(")") <= url.count("("):
+                    break
+                trailing = url[-1] + trailing
+                url = url[:-1]
+            if not url:
+                return match.group(0)
+            target = self._safe_link_target(url)
+            label = apply_style(self.theme.link_url, url)
+            return f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\{trailing}"
+
+        return _BARE_URL_RE.sub(replace, text)
 
     @staticmethod
     def _safe_link_target(target: str) -> str:

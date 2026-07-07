@@ -9,17 +9,6 @@
         }
       },
       {
-        "path": ".tau/extensions/subagents",
-        "settings": {
-          "maxConcurrent": 4,
-          "graceTurns": 5,
-          "joinMode": "smart",
-          "schedulingEnabled": true,
-          "disableDefaultAgents": false,
-          "toolDescriptionMode": "full"
-        }
-      },
-      {
         "path": ".tau/extensions/ask_user",
         "settings": {}
       },
@@ -28,16 +17,6 @@
         "settings": {
           "override_default_compaction": false,
           "debug": false
-        }
-      },
-      {
-        "path": ".tau/extensions/mcp",
-        "settings": {
-          "enabled": true,
-          "toolPrefix": "server",
-          "idleTimeout": "10",
-          "autoApproveElicitation": false,
-          "autoApproveSampling": true
         }
       }
     ]
