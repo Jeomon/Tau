@@ -2,6 +2,41 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.1 — 2026-07-07
+
+### Added
+
+-   Implement a modular LLM service with dynamic provider resolution and auth management.
+-   Add timeout support to hook emit and bound shutdown waits for lifecycle events and background tasks, so a hung extension handler can no longer stall exit.
+-   Implement recency filtering (`day`/`week`/`month`/`year`) for web search engines, plus tool output truncation notices and untrusted-content warnings.
+-   Add no-op detection and escalation to the edit tool, binary-file protection and long-line truncation to the read tool, relative-path support across file tools, and clearer terminal exit feedback (exit code/timeout/cancellation are now part of the model-facing result).
+-   Update the model badge on `agent_start` so context usage reflects the current turn immediately instead of lagging until the next response.
+
+### Performance
+
+-   Parallelize MCP server connections on startup and pre-cache Pydantic `TypeAdapter`s used for session file parsing.
+-   Deduplicate `SettingsManager` instantiation during project-trust resolution and speed up "resume most recent session" lookup, cutting redundant disk I/O on startup.
+-   Optimize frozen-cell cache invalidation by partially rebuilding from the earliest modified block index.
+
+### Fixed
+
+-   Use a real tokenizer and an independent numeric guard for compaction overflow, with improved context estimation accuracy.
+-   Clamp `max_tokens` to a minimum of 1 and update error detection patterns.
+-   Force a full render when overlays are present so frozen rows no longer mask overlay updates, and invalidate stable rows when a child's frozen cache is rebuilt.
+-   Align the edit tool's `content` parameter naming.
+-   Restrict release artifact uploads.
+
+### Refactored
+
+-   Rename `tui.py` to `service.py` and update all references across the codebase.
+-   Replace the `ask_user` overlay with inline component rendering and optimize message list streaming performance.
+-   Remove `ast-grep` support from the grep tool and rename the edit tool parameter to `content`.
+-   Support targeting existing Python interpreters in `PackageManager`.
+
+### Documentation
+
+-   Overhaul README and quickstart documentation with updated setup, workflow, and feature guides.
+
 ## 0.6.0 — 2026-07-06
 
 ### Added
