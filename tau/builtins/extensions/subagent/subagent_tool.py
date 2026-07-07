@@ -188,7 +188,7 @@ def start_background_single(
     task: str,
     cwd: str | None,
     *,
-    fallback_model: str | None = None,
+    main_model: str | None = None,
 ) -> RunState:
     run_id = uuid.uuid4().hex[:12]
     run_cwd = Path(cwd).expanduser().resolve() if cwd else default_cwd
@@ -221,7 +221,7 @@ def start_background_single(
     result = SingleResult(agent=agent_name, agent_source=agent.source, task=task, model=agent.model)
     run.result = result
     args = _build_run_args(
-        agent, task, run_cwd, session_dir=session_dir, fallback_model=fallback_model
+        agent, task, run_cwd, session_dir=session_dir, main_model=main_model
     )
 
     async def _drive() -> None:
@@ -243,7 +243,7 @@ def start_background_chain(
     agents: list[AgentConfig],
     steps: list[Any],
     *,
-    fallback_model: str | None = None,
+    main_model: str | None = None,
 ) -> RunState:
     run_id = uuid.uuid4().hex[:12]
     session_dir = Path(tempfile.mkdtemp(prefix=f"tau-subagent-{run_id}-"))
@@ -298,7 +298,7 @@ def start_background_chain(
             )
             run.chain_results.append(r)
             args = _build_run_args(
-                agent, task_text, run_cwd, session_dir=step_dir, fallback_model=fallback_model
+                agent, task_text, run_cwd, session_dir=step_dir, main_model=main_model
             )
             await _run_process(args, r, run.signal, None)
             run.session_id = _resolve_session_id(step_dir)
@@ -444,7 +444,7 @@ def _build_run_args(
     run_cwd: Path,
     *,
     session_dir: Path | None = None,
-    fallback_model: str | None = None,
+    main_model: str | None = None,
 ) -> list[str]:
     args = ["--mode", "json", "--quiet", "--cwd", str(run_cwd)]
     if session_dir is not None:
@@ -455,7 +455,7 @@ def _build_run_args(
         args += ["--session-dir", str(session_dir), "--approve"]
     else:
         args += ["--ephemeral"]
-    model = agent.model or fallback_model
+    model = main_model or agent.model
     if model:
         args += ["--model", model]
     if agent.tools:
@@ -522,7 +522,7 @@ async def run_single_agent(
     step: int | None,
     signal: AbortSignal | None,
     on_update: Any,
-    fallback_model: str | None = None,
+    main_model: str | None = None,
 ) -> SingleResult:
     """Run one agent to completion in the foreground (ephemeral, no session saved)."""
     agent = next((a for a in agents if a.name == agent_name), None)
@@ -541,7 +541,7 @@ async def run_single_agent(
         agent=agent_name, agent_source=agent.source, task=task, model=agent.model, step=step
     )
     run_cwd = Path(cwd).expanduser().resolve() if cwd else default_cwd
-    args = _build_run_args(agent, task, run_cwd, fallback_model=fallback_model)
+    args = _build_run_args(agent, task, run_cwd, main_model=main_model)
     await _run_process(args, result, signal, on_update)
     return result
 
@@ -1050,7 +1050,7 @@ class SubagentTool(Tool):
 
         agent_scope: AgentScope = params.agent_scope
         agents, project_agents_dir = discover_agents(default_cwd, agent_scope)
-        fallback_model = _parent_model(self._runtime_ref)
+        main_model = _parent_model(self._runtime_ref)
 
         if params.action is not None:
             if params.spawn or params.chain:
@@ -1115,7 +1115,7 @@ class SubagentTool(Tool):
             assert params.chain is not None
             if params.run_async:
                 run = start_background_chain(
-                    default_cwd, agents, params.chain, fallback_model=fallback_model
+                    default_cwd, agents, params.chain, main_model=main_model
                 )
                 return _ok(
                     f'Started background chain run "{run.run_id}" ({len(params.chain)} steps). '
@@ -1136,7 +1136,7 @@ class SubagentTool(Tool):
                     step=i + 1,
                     signal=signal,
                     on_update=lambda res: asyncio.ensure_future(_stream("chain", [*results, res])),
-                    fallback_model=fallback_model,
+                    main_model=main_model,
                 )
                 results.append(r)
                 if r.failed:
@@ -1159,7 +1159,7 @@ class SubagentTool(Tool):
         if params.run_async:
             runs = [
                 start_background_single(
-                    default_cwd, agents, t.agent, t.task, t.cwd, fallback_model=fallback_model
+                    default_cwd, agents, t.agent, t.task, t.cwd, main_model=main_model
                 )
                 for t in params.spawn
             ]
@@ -1189,7 +1189,7 @@ class SubagentTool(Tool):
                     all_results.__setitem__(i, res),
                     asyncio.ensure_future(_stream("spawn", all_results)),
                 ),
-                fallback_model=fallback_model,
+                main_model=main_model,
             )
             all_results[index] = r
             await _stream("spawn", all_results)
