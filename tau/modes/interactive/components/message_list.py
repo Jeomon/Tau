@@ -741,6 +741,12 @@ class MessageList(Component):
         self._frozen_width = -1
         self._invalidation_seq = 0
         self._frozen_seq = -1
+        # Bumped every time _frozen_buf is rebuilt from scratch (width change or
+        # _bump_invalidation) — lets the Container (tui.py) notice that already-frozen
+        # rows may have changed content even though their row count didn't, so it
+        # knows not to trust ScrollbackTerminal's stable_through for that row span
+        # until it has re-diffed it at least once post-rebuild.
+        self.frozen_generation = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -1014,6 +1020,7 @@ class MessageList(Component):
             self._frozen_buf = None
             self._frozen_block_count = 0
             self._frozen_width = width
+            self.frozen_generation += 1
             self._frozen_seq = self._invalidation_seq
 
         units = list(self._iter_units(width))

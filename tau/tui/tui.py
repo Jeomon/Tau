@@ -538,6 +538,11 @@ class TUI(Container):
         # safe for ScrollbackTerminal to skip re-diffing.
         self._stable_rows: int = 0
         self._prev_stable_rows: int = 0
+        # Last-seen child.frozen_generation, keyed by id(child) — lets
+        # render_cells notice a child rebuilt its frozen cache (content changed
+        # without necessarily changing row count) even between frames where
+        # frozen_rows_this_frame happens to match _prev_stable_rows.
+        self._child_frozen_gen: dict[int, int] = {}
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -576,6 +581,7 @@ class TUI(Container):
         y = area.y
         self._child_rows = {}
         frozen_rows_this_frame = 0
+        frozen_content_changed = False
         for child in self.children:
             self._child_rows[id(child)] = y - area.y
             split = getattr(child, "render_split_cells", None)
@@ -596,6 +602,15 @@ class TUI(Container):
                         )
                     frozen_rows_this_frame = frozen_rows
                     y += frozen_rows
+                gen = getattr(child, "frozen_generation", None)
+                if gen is not None and self._child_frozen_gen.get(id(child)) != gen:
+                    # The frozen cache was rebuilt since we last saw this child (e.g.
+                    # a theme/prefix change) — row count may be unchanged while the
+                    # actual cell content differs, which a row-count-only comparison
+                    # below can't detect. Force one full re-diff of the frozen span
+                    # this frame so the renderer can't skip painting the change.
+                    frozen_content_changed = True
+                    self._child_frozen_gen[id(child)] = gen
                 if live_lines:
                     for line in live_lines:
                         y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
@@ -605,7 +620,9 @@ class TUI(Container):
         # prefix last frame (same cached Cell objects both times) — a prefix
         # that just became frozen this frame may still differ from whatever
         # (different) content occupied those rows in last frame's buffer.
-        self._stable_rows = min(frozen_rows_this_frame, self._prev_stable_rows)
+        self._stable_rows = (
+            0 if frozen_content_changed else min(frozen_rows_this_frame, self._prev_stable_rows)
+        )
         self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
 
