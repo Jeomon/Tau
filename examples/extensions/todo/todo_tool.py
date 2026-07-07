@@ -21,39 +21,49 @@ if TYPE_CHECKING:
 CUSTOM_TYPE = "todo:state"
 
 
+TODO_STATUSES = ("pending", "in_progress", "done", "failed")
+
+
 @dataclass
 class TodoItem:
     id: int
     subject: str
     description: str | None = None
-    done: bool = False
+    status: str = "pending"  # one of TODO_STATUSES
     completion_order: int | None = None
+
+    @property
+    def done(self) -> bool:
+        return self.status == "done"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "subject": self.subject,
             "description": self.description,
-            "done": self.done,
+            "status": self.status,
             "completion_order": self.completion_order,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TodoItem:
+        status = data.get("status")
+        if status not in TODO_STATUSES:
+            # Migrate entries persisted before 'status' replaced the 'done' bool.
+            status = "done" if data.get("done") else "pending"
         return cls(
             id=data["id"],
             subject=data["subject"],
             description=data.get("description"),
-            done=bool(data.get("done", False)),
+            status=status,
             completion_order=data.get("completion_order"),
         )
 
     def line(self) -> str:
-        status = "done" if self.done else "pending"
-        return f"[{status}] #{self.id} {self.subject}"
+        return f"[{self.status}] #{self.id} {self.subject}"
 
     def detail(self) -> str:
-        lines = [f"#{self.id} [{'done' if self.done else 'pending'}] {self.subject}"]
+        lines = [f"#{self.id} [{self.status}] {self.subject}"]
         if self.description:
             lines.append("  " + self.description.replace("\n", "\n  "))
         return "\n".join(lines)
@@ -103,7 +113,7 @@ class TodoState:
         subject: str | None = None,
         description: str | None = None,
         append_note: str | None = None,
-        done: bool | None = None,
+        status: str | None = None,
     ) -> TodoItem | None:
         item = self.find(item_id)
         if item is None:
@@ -115,13 +125,13 @@ class TodoState:
         if append_note is not None and append_note.strip():
             note = append_note.strip()
             item.description = f"{item.description}\n\n{note}" if item.description else note
-        if done is not None:
-            was_done = item.done
-            item.done = done
-            if not was_done and done:
+        if status is not None:
+            was_done = item.status == "done"
+            item.status = status
+            if not was_done and status == "done":
                 item.completion_order = self._global_completions
                 self._global_completions += 1
-            elif was_done and not done:
+            elif was_done and status != "done":
                 item.completion_order = None
         return item
 
@@ -137,11 +147,21 @@ class TodoState:
         self._global_completions = 0
 
     def list(self, status_filter: str | None) -> list[TodoItem]:
-        if status_filter == "done":
-            return [i for i in self.items if i.done]
-        if status_filter == "pending":
-            return [i for i in self.items if not i.done]
+        if status_filter in TODO_STATUSES:
+            return [i for i in self.items if i.status == status_filter]
         return list(self.items)
+
+    def remaining(self) -> list[TodoItem]:
+        """Tasks still needing action: not yet done or failed."""
+        return [i for i in self.items if i.status in ("pending", "in_progress")]
+
+    def next_remaining(self) -> TodoItem | None:
+        """The task to work on next: the active in_progress one, else the first pending."""
+        in_progress = self.list("in_progress")
+        if in_progress:
+            return in_progress[0]
+        pending = self.list("pending")
+        return pending[0] if pending else None
 
 
 def _render_call(_args: dict, _streaming: bool = False) -> list[str]:
@@ -174,23 +194,24 @@ class TodoTool(Tool):
             description=(
                 "Manage a todo list to track multi-step work in this session. Actions: "
                 "'create' adds task(s) — pass 'tasks' (a list of {subject, description}) to "
-                "write out the whole plan in one call once you've gathered enough context to "
-                "know the steps, rather than calling create repeatedly; pass top-level "
-                "'subject'/'description' instead for a single task. 'update' changes a task "
-                "(requires 'id'; optional 'subject', 'description' to replace it, "
-                "'append_note' to add a paragraph without replacing, 'done' to mark "
-                "complete/incomplete); 'list' shows tasks, optionally filtered by "
-                "'filter'='done'|'pending'; 'get' returns full detail for one task (requires "
-                "'id'); 'delete' removes a task (requires 'id'); 'clear' removes every task. "
-                "The list is shown to the user in a board above the input, not in the "
-                "transcript, so don't repeat task contents back to the user after "
-                "calling this tool. State persists across branches and restarts. Never tell "
-                "the user a task was created, updated, or completed unless you actually made "
-                "the matching 'create'/'update' call in this turn — calling 'list' alone does "
-                "not change anything. If it's unclear which task or field to update, ask "
-                "instead of guessing. Once a plan is created, keep working through the pending "
-                "tasks yourself (marking each 'done' as you finish it) instead of stopping to "
-                "check in after every single task."
+                "write out a plan in one call instead of calling create repeatedly, or pass "
+                "top-level 'subject'/'description' for a single task. Call 'create' again at "
+                "any point (not just at the start) to add more steps as the plan grows or new "
+                "work is discovered. 'update' changes a task (requires 'id'; optional "
+                "'subject', 'description' to replace it, 'append_note' to add a paragraph "
+                "without replacing, 'status'='pending'|'in_progress'|'done'|'failed' to mark "
+                "progress — use 'failed' when a task turns out to be blocked or not doable, "
+                "not 'delete', so it stays visible instead of disappearing); 'list' shows "
+                "tasks, optionally filtered by "
+                "'filter'='pending'|'in_progress'|'done'|'failed'; 'get' returns full detail "
+                "for one task (requires 'id'); 'delete' removes a task (requires 'id'); "
+                "'clear' removes every task. The list is shown to the user in a board above "
+                "the input, not in the transcript, so don't repeat task contents back to the "
+                "user after calling this tool. State persists across branches and restarts. "
+                "Never tell the user a task was created, updated, or completed unless you "
+                "actually made the matching 'create'/'update' call in this turn — calling "
+                "'list' alone does not change anything. If it's unclear which task or field "
+                "to update, ask instead of guessing."
             ),
             schema=TodoParams,
             kind=ToolKind.Read,
@@ -246,19 +267,19 @@ class TodoTool(Tool):
                 params.subject is None
                 and params.description is None
                 and params.append_note is None
-                and params.done is None
+                and params.status is None
             ):
                 return ToolResult.error(
                     invocation.id,
                     "update requires at least one of 'subject', 'description', "
-                    "'append_note', or 'done'",
+                    "'append_note', or 'status'",
                 )
             item = state.update(
                 params.id,
                 subject=params.subject,
                 description=params.description,
                 append_note=params.append_note,
-                done=params.done,
+                status=params.status,
             )
             if item is None:
                 return ToolResult.error(invocation.id, f"#{params.id} not found")

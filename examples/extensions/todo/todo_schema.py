@@ -45,9 +45,14 @@ class TodoParams(BaseModel):
         default=None,
         description="Append a paragraph to the task's existing description. Only used by action='update'.",
     )
-    done: bool | None = Field(
-        default=None, description="Mark the task done or not done. Only used by action='update'."
+    status: Literal["pending", "in_progress", "done", "failed"] | None = Field(
+        default=None,
+        description=(
+            "New status for the task. Only used by action='update'. Set 'in_progress' when "
+            "you start actively working on it, 'done' when finished, 'failed' if it turns "
+            "out to be blocked or not doable (keeps it visible instead of deleting it)."
+        ),
     )
-    filter: Literal["done", "pending"] | None = Field(
-        default=None, description="Restrict action='list' to only done or only pending tasks."
+    filter: Literal["pending", "in_progress", "done", "failed"] | None = Field(
+        default=None, description="Restrict action='list' to tasks with this status."
     )
