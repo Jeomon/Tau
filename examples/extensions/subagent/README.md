@@ -104,6 +104,73 @@ There are two modes — a single task is just a one-item list in either:
 
 Exactly one of `spawn` or `chain` must be provided per call.
 
+## Background runs (`async`)
+
+Add `async: true` to `spawn`/`chain` to return immediately instead of
+blocking on completion:
+
+```json
+{ "spawn": [{ "agent": "worker", "task": "long-running refactor" }], "async": true }
+```
+
+This returns one run id per spawned task (or one run id for the whole
+chain), which you then check on via `action`:
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `status` | `{action: "status", run_id?}` | Report on one run, or list every tracked run if `run_id` is omitted |
+| `interrupt` | `{action: "interrupt", run_id}` | Stop a running background run, keeping its partial output |
+| `resume` | `{action: "resume", run_id, message}` | Continue a finished or interrupted run with a new message (interrupting it first if it's still running) |
+
+Foreground (non-async) runs are ephemeral — no session is saved, so there's
+nothing to resume. Background runs instead persist a session per run (or per
+chain step) specifically so they can be resumed later. This requires
+treating the run's working directory as trusted (`--approve`) purely so
+session persistence isn't silently skipped by Tau's project-trust gate —
+it does not affect which tools/agents are available, that's still governed
+entirely by `agent_scope`/`target_scope`/`confirm_project_agents` above.
+
+`run_id` accepts a unique prefix, so you don't need to quote the full id back.
+
+There's no separate `steer` action for nudging a still-running child without
+stopping it — that would need a bidirectional channel to the child process
+that Tau's CLI doesn't expose yet. `resume` covers the same need by
+interrupting first, then continuing with the new message.
+
+## Managing agent definitions
+
+Instead of `spawn`/`chain`, pass `action` to manage agent definitions directly
+(mutually exclusive with `spawn`/`chain`). If the model is unsure what agents
+exist, it should call `{"action": "list"}` first — this is how it discovers
+the current roster; nothing is baked into the tool's schema ahead of time.
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `list` | `{action: "list"}` | Discover currently configured agents |
+| `get` | `{action: "get", agent}` | Full detail on one agent |
+| `create` | `{action: "create", agent, config: {description, system_prompt, tools?, model?}, target_scope?}` | Define a new agent |
+| `update` | `{action: "update", agent, config: {...}, target_scope?}` | Edit an existing agent — only given fields change |
+| `delete` | `{action: "delete", agent, target_scope?}` | Remove a custom agent |
+| `eject` | `{action: "eject", agent, target_scope?}` | Copy an agent (from wherever it's currently defined, e.g. a builtin) into `target_scope` as an editable file that shadows the original |
+| `disable` | `{action: "disable", agent, target_scope?}` | Hide an agent from discovery without deleting it |
+| `enable` | `{action: "enable", agent, target_scope?}` | Restore a disabled agent |
+| `reset` | `{action: "reset", agent, target_scope?}` | Delete the scope's custom file and clear any disabled override |
+
+`target_scope` is `"user"` (default, `~/.tau/agents`) or `"project"`
+(`.tau/agents`) — which directory gets written to. This is separate from
+`agent_scope`, which controls which directories are *searched* for
+`spawn`/`chain`/`list`/`get`.
+
+`create`/`update`/`delete`/`eject`/`disable`/`enable`/`reset` targeting
+`target_scope: "project"` prompt for confirmation first when running in an
+interactive TUI session (same `confirm_project_agents` flag gates this as
+running project agents) — writing an agent definition into the repo is a
+repo-affecting side effect, same class of risk as running one.
+
+There's no separate database — these actions just read/write the same
+markdown files described below, plus a small `.disabled.json` per scope for
+disable/enable.
+
 ## Agent definitions
 
 Agents are markdown files with frontmatter:
