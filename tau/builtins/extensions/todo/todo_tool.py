@@ -100,11 +100,32 @@ class TodoState:
     def find(self, item_id: int) -> TodoItem | None:
         return next((i for i in self.items if i.id == item_id), None)
 
-    def create(self, subject: str, description: str | None) -> TodoItem:
-        item = TodoItem(id=self._next_id, subject=subject, description=description or None)
-        self._next_id += 1
-        self.items.append(item)
-        return item
+    def create(
+        self, subject: str, description: str | None, *, after_id: int | None = None
+    ) -> TodoItem:
+        return self.create_many([(subject, description)], after_id=after_id)[0]
+
+    def create_many(
+        self, specs: list[tuple[str, str | None]], *, after_id: int | None = None
+    ) -> list[TodoItem]:
+        """Create tasks, optionally inserted as a contiguous block right after
+        an existing task instead of appended at the end. Caller is responsible
+        for validating after_id exists first — an unknown id here just falls
+        back to appending, so validate before calling if that should error.
+        """
+        new_items: list[TodoItem] = []
+        for subject, description in specs:
+            new_items.append(
+                TodoItem(id=self._next_id, subject=subject, description=description or None)
+            )
+            self._next_id += 1
+        if after_id is None:
+            self.items.extend(new_items)
+        else:
+            idx = next((i for i, existing in enumerate(self.items) if existing.id == after_id), None)
+            insert_at = (idx + 1) if idx is not None else len(self.items)
+            self.items[insert_at:insert_at] = new_items
+        return new_items
 
     def update(
         self,
@@ -141,6 +162,26 @@ class TodoState:
             self.items.remove(item)
         return item
 
+    def move(self, item_id: int, *, after_id: int | None) -> TodoItem | None:
+        """Reposition an existing task without touching its id/status/history.
+
+        after_id=None moves it to the end. Removing item_id before locating
+        after_id's index means the target index always accounts for the
+        item's own removal, so this is safe even if after_id no longer
+        exists by the time this runs (falls back to the end).
+        """
+        item = self.find(item_id)
+        if item is None:
+            return None
+        self.items.remove(item)
+        if after_id is None:
+            self.items.append(item)
+        else:
+            idx = next((i for i, existing in enumerate(self.items) if existing.id == after_id), None)
+            insert_at = (idx + 1) if idx is not None else len(self.items)
+            self.items.insert(insert_at, item)
+        return item
+
     def clear(self) -> None:
         self.items = []
         self._next_id = 1
@@ -164,19 +205,63 @@ class TodoState:
         return pending[0] if pending else None
 
 
-def _render_call(_args: dict, _streaming: bool = False) -> list[str]:
-    # The task list lives in the above-editor board, not the transcript — return
-    # no lines so message_list.py skips the call entirely (see comment on
-    # TodoTool.render_result below for why the result can't vanish the same way).
-    return []
+def _render_call(args: dict, _streaming: bool = False) -> list[str]:
+    from tau.tool.render import call_line
+
+    action = args.get("action", "")
+    detail = ""
+    if action == "create":
+        tasks = args.get("tasks")
+        detail = f"{len(tasks)} tasks" if tasks else (args.get("subject") or "")
+        if args.get("after_id") is not None:
+            detail += f" after #{args['after_id']}"
+    elif action == "list":
+        detail = f"filter={args['filter']}" if args.get("filter") else ""
+    elif args.get("id") is not None:
+        detail = f"#{args['id']}"
+        if action == "update" and args.get("status"):
+            detail += f" status={args['status']}"
+        if action == "update" and args.get("after_id") is not None:
+            detail += f" after #{args['after_id']}"
+    return call_line("todo", action, detail)
 
 
-def _render_result(_content: str, _opts: Any) -> list[str]:
-    # message_list.py falls back to rendering raw content when a custom
-    # render_result returns an empty list, so full suppression isn't possible
-    # here — a single blank line is the smallest footprint a non-empty return
-    # can produce with render_shell="self" (no framing applied).
-    return [""]
+def _render_result(content: str, opts: Any) -> list[str]:
+    # Minimal one-line confirmation, matching the pattern every real pi todo
+    # extension uses (none of them hide the tool call/result — they all show
+    # a compact per-action line). The board above the input is the persistent
+    # overview, so 'list' shows a count instead of repeating the itemized
+    # list already visible there; 'get' is the one place full detail earns
+    # its keep, since the board doesn't show descriptions.
+    theme = opts.theme
+    lines = content.splitlines() or [content]
+    action = opts.metadata.get("action")
+
+    def _style(role: Any, text: str) -> str:
+        if theme is None:
+            return text
+        from tau.tui.style import apply_style
+
+        return apply_style(role, text)
+
+    if opts.is_error:
+        return [_style(theme.error if theme else None, f"✗ {lines[0]}")]
+
+    if action == "list":
+        count = 0 if content == "No tasks" else len(lines)
+        text = "No tasks" if count == 0 else f"{count} task(s)"
+        return [_style(theme.success if theme else None, "✓ ") + _style(theme.muted if theme else None, text)]
+
+    if action == "get":
+        head = _style(theme.success if theme else None, "✓ ") + _style(
+            theme.muted if theme else None, lines[0]
+        )
+        rest = [_style(theme.muted if theme else None, line) for line in lines[1:]]
+        return [head, *rest]
+
+    return [
+        _style(theme.success if theme else None, "✓ ") + _style(theme.muted if theme else None, lines[0])
+    ]
 
 
 class TodoTool(Tool):
@@ -197,11 +282,16 @@ class TodoTool(Tool):
                 "write out a plan in one call instead of calling create repeatedly, or pass "
                 "top-level 'subject'/'description' for a single task. Call 'create' again at "
                 "any point (not just at the start) to add more steps as the plan grows or new "
-                "work is discovered. 'update' changes a task (requires 'id'; optional "
+                "work is discovered; pass 'after_id' to slot the new task(s) into the middle "
+                "of the plan right after an existing task instead of appending at the end. "
+                "'update' changes a task (requires 'id'; optional "
                 "'subject', 'description' to replace it, 'append_note' to add a paragraph "
                 "without replacing, 'status'='pending'|'in_progress'|'done'|'failed' to mark "
                 "progress — use 'failed' when a task turns out to be blocked or not doable, "
-                "not 'delete', so it stays visible instead of disappearing); 'list' shows "
+                "not 'delete', so it stays visible instead of disappearing; 'after_id' "
+                "repositions the task to sit right after another existing task, without "
+                "touching its content or status — use this to reorder the plan instead of "
+                "deleting and recreating a task); 'list' shows "
                 "tasks, optionally filtered by "
                 "'filter'='pending'|'in_progress'|'done'|'failed'; 'get' returns full detail "
                 "for one task (requires 'id'); 'delete' removes a task (requires 'id'); "
@@ -218,7 +308,7 @@ class TodoTool(Tool):
             execution_mode=ToolExecutionMode.Sequential,
             render_call=_render_call,
             render_result=_render_result,
-            render_shell="self",
+            render_shell="default",
         )
 
     def _after_mutation(self) -> None:
@@ -243,36 +333,52 @@ class TodoTool(Tool):
         params = TodoParams.model_validate(invocation.params)
         state = self._state
 
+        def _ok(content: str) -> ToolResult:
+            return ToolResult.ok(invocation.id, content, metadata={"action": params.action})
+
+        def _error(content: str) -> ToolResult:
+            return ToolResult.error(invocation.id, content, metadata={"action": params.action})
+
         if params.action == "create":
+            if params.after_id is not None and state.find(params.after_id) is None:
+                return _error(f"after_id #{params.after_id} not found")
             if params.tasks:
                 if any(not t.subject.strip() for t in params.tasks):
-                    return ToolResult.error(invocation.id, "every task in 'tasks' needs a 'subject'")
-                items = [state.create(t.subject.strip(), t.description) for t in params.tasks]
+                    return _error("every task in 'tasks' needs a 'subject'")
+                items = state.create_many(
+                    [(t.subject.strip(), t.description) for t in params.tasks],
+                    after_id=params.after_id,
+                )
                 self._after_mutation()
                 summary = "\n".join(f"#{i.id}: {i.subject}" for i in items)
-                return ToolResult.ok(invocation.id, f"Created {len(items)} tasks\n{summary}")
+                return _ok(f"Created {len(items)} tasks\n{summary}")
             subject = (params.subject or "").strip()
             if not subject:
-                return ToolResult.error(invocation.id, "create requires 'subject' or 'tasks'")
-            item = state.create(subject, params.description)
+                return _error("create requires 'subject' or 'tasks'")
+            item = state.create(subject, params.description, after_id=params.after_id)
             self._after_mutation()
-            return ToolResult.ok(invocation.id, f"Created #{item.id}: {item.subject}")
+            return _ok(f"Created #{item.id}: {item.subject}")
 
         if params.action == "update":
             if params.id is None:
-                return ToolResult.error(invocation.id, "update requires 'id'")
+                return _error("update requires 'id'")
             if state.find(params.id) is None:
-                return ToolResult.error(invocation.id, f"#{params.id} not found")
+                return _error(f"#{params.id} not found")
+            if params.after_id is not None:
+                if params.after_id == params.id:
+                    return _error("after_id cannot be the same as id")
+                if state.find(params.after_id) is None:
+                    return _error(f"after_id #{params.after_id} not found")
             if (
                 params.subject is None
                 and params.description is None
                 and params.append_note is None
                 and params.status is None
+                and params.after_id is None
             ):
-                return ToolResult.error(
-                    invocation.id,
+                return _error(
                     "update requires at least one of 'subject', 'description', "
-                    "'append_note', or 'status'",
+                    "'append_note', 'status', or 'after_id'",
                 )
             item = state.update(
                 params.id,
@@ -282,36 +388,38 @@ class TodoTool(Tool):
                 status=params.status,
             )
             if item is None:
-                return ToolResult.error(invocation.id, f"#{params.id} not found")
+                return _error(f"#{params.id} not found")
+            if params.after_id is not None:
+                state.move(params.id, after_id=params.after_id)
             self._after_mutation()
-            return ToolResult.ok(invocation.id, f"Updated #{item.id}")
+            return _ok(f"Updated #{item.id}")
 
         if params.action == "list":
             items = state.list(params.filter)
             content = "\n".join(i.line() for i in items) if items else "No tasks"
-            return ToolResult.ok(invocation.id, content)
+            return _ok(content)
 
         if params.action == "get":
             if params.id is None:
-                return ToolResult.error(invocation.id, "get requires 'id'")
+                return _error("get requires 'id'")
             item = state.find(params.id)
             if item is None:
-                return ToolResult.error(invocation.id, f"#{params.id} not found")
-            return ToolResult.ok(invocation.id, item.detail())
+                return _error(f"#{params.id} not found")
+            return _ok(item.detail())
 
         if params.action == "delete":
             if params.id is None:
-                return ToolResult.error(invocation.id, "delete requires 'id'")
+                return _error("delete requires 'id'")
             item = state.delete(params.id)
             if item is None:
-                return ToolResult.error(invocation.id, f"#{params.id} not found")
+                return _error(f"#{params.id} not found")
             self._after_mutation()
-            return ToolResult.ok(invocation.id, f"Deleted #{item.id}: {item.subject}")
+            return _ok(f"Deleted #{item.id}: {item.subject}")
 
         if params.action == "clear":
             count = len(state.items)
             state.clear()
             self._after_mutation()
-            return ToolResult.ok(invocation.id, f"Cleared {count} tasks")
+            return _ok(f"Cleared {count} tasks")
 
-        return ToolResult.error(invocation.id, f"Unknown action: {params.action}")
+        return _error(f"Unknown action: {params.action}")

@@ -27,6 +27,17 @@ class TodoParams(BaseModel):
             "'subject'/'description' fields if both are given."
         ),
     )
+    after_id: int | None = Field(
+        default=None,
+        description=(
+            "For action='create': insert the new task(s) immediately after this existing "
+            "task id instead of appending at the end. For action='update': reposition the "
+            "task being updated to sit immediately after this id, without touching its "
+            "content or status — use this to reorder the plan instead of deleting and "
+            "recreating a task. Omit to append at the end (create) or leave the position "
+            "unchanged (update)."
+        ),
+    )
     subject: str | None = Field(
         default=None,
         description=(
