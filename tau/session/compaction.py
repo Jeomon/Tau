@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -31,16 +32,16 @@ class CompactionSettings:
 
     enabled: bool = True
     # Cushion between the compaction threshold and the model's real context
-    # window. Needs to absorb more than just typical next-turn growth: the
-    # threshold check itself runs against estimate_context_tokens(), which is
-    # exact only at the last real usage anchor and heuristic (chars/4) for
-    # everything since — a heuristic that reliably undercounts code, JSON-heavy
-    # tool output, and non-English text. On a long, content-heavy session that
-    # drift can quietly eat through a smaller reserve, so should_compact() keeps
-    # reading "safely under" while the real (tokenizer-counted) prompt has
-    # already overflowed the provider's window. See estimate_tokens's
-    # _TOKEN_ESTIMATE_SAFETY_FACTOR for the complementary fix on the estimate
-    # side.
+    # window — needs to absorb more than just typical next-turn growth, since
+    # the threshold check runs against estimate_context_tokens(), which can
+    # only be as accurate as its inputs (real tokenizer once loaded, chars/4
+    # fallback otherwise — see _count_text_tokens) and its anchor (the last
+    # provider-reported usage, which validated_compaction_settings's
+    # proportional floor and estimate_context_tokens's local-estimate floor
+    # both defend independently). This is also scaled up by a fraction of the
+    # context window in validated_compaction_settings — see
+    # _PROPORTIONAL_RESERVE_FRACTION — so it doesn't go stale for small-window
+    # models.
     reserve_tokens: int = 32_768
     keep_recent_tokens: int = 20_000
 
@@ -48,17 +49,26 @@ class CompactionSettings:
 DEFAULT_COMPACTION_SETTINGS = CompactionSettings()
 
 TOOL_RESULT_MAX_CHARS = 2_000
-ESTIMATED_IMAGE_CHARS = 4_800
+# Images aren't tokenizable text, so this stays a flat estimate (~4_800 chars'
+# worth, matching what the chars/4 heuristic used to charge for one).
+ESTIMATED_IMAGE_TOKENS = 1_200
 
-# chars/4 is a rough per-message token estimate — cheap, but it reliably
+# Fallback heuristic for _count_text_tokens, used only while the real
+# tokenizer is still loading (or if it's unavailable) — chars/4 reliably
 # undercounts code, JSON-heavy tool output, and non-English text (exactly what
-# a long coding session accumulates). Biasing it to overcount instead trades a
-# small amount of "compacts slightly earlier than strictly necessary" for
-# avoiding the alternative: should_compact() reading comfortably under
+# a long coding session accumulates), so this is biased to overcount instead.
+# Trades a small amount of "compacts slightly earlier than strictly necessary"
+# for avoiding the alternative: should_compact() reading comfortably under
 # threshold while the real prompt has already silently overflowed the model's
 # context window (see CompactionSettings.reserve_tokens).
 _TOKEN_ESTIMATE_SAFETY_FACTOR = 1.15
 SUMMARY_SAFETY_TOKENS = 2_048
+
+# validated_compaction_settings floors the reserve at this fraction of the
+# context window, on top of CompactionSettings.reserve_tokens's fixed
+# constant, so it scales for small-window models instead of staying pinned to
+# a value sized for large ones.
+_PROPORTIONAL_RESERVE_FRACTION = 0.15
 
 
 # ---------------------------------------------------------------------------
@@ -112,9 +122,72 @@ class CutPointResult:
 # Token estimation
 # ---------------------------------------------------------------------------
 
+_encoding: Any = None
+_encoding_lock = threading.Lock()
+_encoding_load_started = False
+# Set once the background load finishes, successfully or not — lets a caller
+# (e.g. a test wanting deterministic behavior) wait for a definite outcome
+# instead of polling `_encoding is not None`, which can't distinguish "still
+# loading" from "loaded and failed".
+_encoding_ready = threading.Event()
+
+
+def _start_loading_encoding() -> None:
+    """Kick off a one-time background load of the cl100k_base tokenizer.
+
+    tiktoken's first ``get_encoding()`` call in a fresh environment fetches its
+    BPE file over the network (cached to disk afterward — subsequent loads are
+    ~0.1s) which took several seconds when measured here. ``_count_text_tokens``
+    is called from the compaction check that runs before every LLM request, so
+    doing this load synchronously on first use would stall the very first turn
+    of a session. Loading in a background thread instead means callers just use
+    the chars/4 fallback until it's ready, then transparently get real counts.
+    """
+    global _encoding_load_started
+
+    def _load() -> None:
+        global _encoding
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = None
+        with _encoding_lock:
+            _encoding = enc
+        _encoding_ready.set()
+
+    with _encoding_lock:
+        if _encoding_load_started:
+            return
+        _encoding_load_started = True
+    threading.Thread(target=_load, name="tau-tokenizer-load", daemon=True).start()
+
+
+def _count_text_tokens(text: str) -> int:
+    """Count tokens in ``text``, using the real tokenizer once it's loaded.
+
+    Falls back to the chars/4-with-safety-factor heuristic (see
+    ``_TOKEN_ESTIMATE_SAFETY_FACTOR``) while the background load is still in
+    flight, or permanently if it failed (e.g. no network on first run in an
+    offline sandbox) — token estimation must never hard-depend on network
+    access.
+    """
+    if not text:
+        return 0
+    _start_loading_encoding()
+    with _encoding_lock:
+        encoding = _encoding
+    if encoding is not None:
+        try:
+            return len(encoding.encode(text, disallowed_special=()))
+        except Exception:
+            pass
+    return int(len(text) * _TOKEN_ESTIMATE_SAFETY_FACTOR) // 4
+
 
 def estimate_tokens(message: Any) -> int:
-    """Estimate token count for any AgentMessage using chars/4 heuristic."""
+    """Estimate token count for any AgentMessage (see _count_text_tokens)."""
     from tau.message.types import (
         AssistantMessage,
         BranchSummaryMessage,
@@ -130,33 +203,36 @@ def estimate_tokens(message: Any) -> int:
         UserMessage,
     )
 
-    chars = 0
+    text_parts: list[str] = []
+    image_tokens = 0
     if isinstance(message, UserMessage):
         for c in message.contents:
             if isinstance(c, TextContent):
-                chars += len(c.content)
+                text_parts.append(c.content)
             elif isinstance(c, ImageContent):
-                chars += ESTIMATED_IMAGE_CHARS
+                image_tokens += ESTIMATED_IMAGE_TOKENS
     elif isinstance(message, AssistantMessage):
         for c in message.contents:
             if isinstance(c, (TextContent, ThinkingContent)):
-                chars += len(c.content)
+                text_parts.append(c.content)
             elif isinstance(c, ToolCallContent):
-                chars += len(c.name) + len(json.dumps(c.args))
+                text_parts.append(c.name)
+                text_parts.append(json.dumps(c.args))
     elif isinstance(message, ToolMessage):
         for c in message.contents:
             if isinstance(c, ToolResultContent):
-                chars += len(c.content)
+                text_parts.append(c.content)
     elif isinstance(message, TerminalExecutionMessage):
-        chars = len(message.command) + len(message.output)
+        text_parts.append(message.command)
+        text_parts.append(message.output)
     elif isinstance(message, (CompactionSummaryMessage, BranchSummaryMessage)):
-        chars = len(message.summary)
+        text_parts.append(message.summary)
     elif isinstance(message, CustomMessage):
         for c in message.contents:
             if isinstance(c, TextContent):
-                chars += len(c.content)
+                text_parts.append(c.content)
 
-    return max(1, int(chars * _TOKEN_ESTIMATE_SAFETY_FACTOR) // 4)
+    return max(1, _count_text_tokens("".join(text_parts)) + image_tokens)
 
 
 def effective_usage_tokens(usage: Any) -> int:
@@ -173,15 +249,15 @@ def effective_usage_tokens(usage: Any) -> int:
 
 
 def _request_overhead_tokens(system_prompt: str, tools: list[Any]) -> int:
-    chars = len(system_prompt)
+    parts = [system_prompt]
     for tool in tools:
-        chars += len(getattr(tool, "name", ""))
-        chars += len(getattr(tool, "description", ""))
+        parts.append(getattr(tool, "name", ""))
+        parts.append(getattr(tool, "description", ""))
         schema = getattr(tool, "schema", None)
         if schema is not None:
             with contextlib.suppress(AttributeError, TypeError, ValueError):
-                chars += len(json.dumps(schema.model_json_schema()))
-    return int(chars * _TOKEN_ESTIMATE_SAFETY_FACTOR) // 4
+                parts.append(json.dumps(schema.model_json_schema()))
+    return _count_text_tokens("".join(parts))
 
 
 def estimate_context_tokens(
@@ -195,7 +271,12 @@ def estimate_context_tokens(
     Estimate total context tokens.
 
     Uses the Usage object from the last non-aborted/non-error assistant message
-    as a precise anchor, then estimates trailing messages with chars/4.
+    as a precise anchor, then estimates trailing messages since it. The result
+    is floored against a fully independent from-scratch local estimate of the
+    whole conversation — a provider that under-reports usage (e.g. a
+    compression/obfuscation transform shrinking what it echoes back), or a
+    stale/mismatched anchor, can't silently deflate the compaction decision
+    below what a from-scratch local estimate would show.
     """
     from tau.inference.types import StopReason
     from tau.message.types import AssistantMessage
@@ -216,9 +297,10 @@ def estimate_context_tokens(
                 last_usage_idx = i
                 break
 
+    overhead = _request_overhead_tokens(system_prompt, tools or [])
+
     if last_usage is None:
-        estimated = sum(estimate_tokens(m) for m in messages)
-        estimated += _request_overhead_tokens(system_prompt, tools or [])
+        estimated = sum(estimate_tokens(m) for m in messages) + overhead
         return ContextUsageEstimate(
             tokens=estimated,
             usage_tokens=0,
@@ -227,8 +309,10 @@ def estimate_context_tokens(
         )
 
     trailing = sum(estimate_tokens(messages[i]) for i in range(last_usage_idx + 1, len(messages)))  # type: ignore[operator]
+    hybrid = last_usage + trailing
+    full_local_estimate = sum(estimate_tokens(m) for m in messages) + overhead
     return ContextUsageEstimate(
-        tokens=last_usage + trailing,
+        tokens=max(hybrid, full_local_estimate),
         usage_tokens=last_usage,
         trailing_tokens=trailing,
         last_usage_index=last_usage_idx,
@@ -256,8 +340,14 @@ def validated_compaction_settings(
         SUMMARY_SAFETY_TOKENS,
         max(1, context_window // 4),
     )
+    # The reserve never drops below a fraction of the window, on top of the
+    # fixed constant — a fixed reserve alone doesn't scale down for a
+    # small-context model (a 100k-token cushion means little on a 1M window,
+    # but a 16k model with the same fixed reserve has far less real margin
+    # relative to its own size).
+    proportional_floor = int(context_window * _PROPORTIONAL_RESERVE_FRACTION)
     reserve = min(
-        max(1, settings.reserve_tokens),
+        max(1, settings.reserve_tokens, proportional_floor),
         max(1, context_window - summary_margin),
     )
     max_recent = max(1, context_window - reserve - summary_margin)

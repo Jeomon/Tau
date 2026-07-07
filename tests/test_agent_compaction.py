@@ -74,6 +74,47 @@ def test_current_compaction_settings_clamps_invalid_live_budgets() -> None:
     assert resolved.reserve_tokens + resolved.keep_recent_tokens < agent._context_window
 
 
+def test_estimate_indicates_overflow_true_when_over_window() -> None:
+    """Numeric guard: independent of error text, a request whose own estimate
+    already reaches the context window should read as overflow — this is what
+    catches a provider that rejects with unusual phrasing (see NVIDIA's
+    "max_tokens must be at least 1, got -128", tau/inference/utils.py)."""
+    agent = _agent(_Settings(), context_window=100)
+    agent._session_manager = SimpleNamespace(
+        build_session_context=lambda: SimpleNamespace(
+            messages=[UserMessage.from_text("word " * 1000)]
+        )
+    )
+    agent._system_prompt = ""
+    agent._engine.tools = []
+
+    assert agent._estimate_indicates_overflow() is True
+
+
+def test_estimate_indicates_overflow_false_when_under_window() -> None:
+    agent = _agent(_Settings(), context_window=100_000)
+    agent._session_manager = SimpleNamespace(
+        build_session_context=lambda: SimpleNamespace(messages=[UserMessage.from_text("hi")])
+    )
+    agent._system_prompt = ""
+    agent._engine.tools = []
+
+    assert agent._estimate_indicates_overflow() is False
+
+
+def test_estimate_indicates_overflow_false_for_zero_context_window() -> None:
+    agent = _agent(_Settings(), context_window=0)
+    agent._session_manager = SimpleNamespace(
+        build_session_context=lambda: SimpleNamespace(
+            messages=[UserMessage.from_text("word " * 1000)]
+        )
+    )
+    agent._system_prompt = ""
+    agent._engine.tools = []
+
+    assert agent._estimate_indicates_overflow() is False
+
+
 def test_circuit_breaker_notifies_once(monkeypatch) -> None:
     agent = _agent(_Settings())
     notifications: list[str] = []

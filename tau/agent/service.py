@@ -509,6 +509,31 @@ class Agent:
             self._record_compaction_failure("Auto-compaction failed")
             return False
 
+    def _estimate_indicates_overflow(self) -> bool:
+        """Numeric fallback for overflow detection, independent of error text.
+
+        A failed request never gets a provider-reported usage back, so there's
+        no "provider said input tokens exceeded the window" signal to check —
+        only Tau's own pre-send estimate for what was just sent. Some providers
+        reject an over-window request with phrasing that matches none of
+        _CONTEXT_OVERFLOW_PATTERNS (tau/inference/utils.py) — NVIDIA's
+        "max_tokens must be at least 1, got -128" was one instance, where the
+        gateway computed context_window - prompt_tokens server-side and
+        rejected the negative result. If Tau's own estimate for the request
+        that just failed already reached the model's context window, treat it
+        as overflow regardless of how the provider phrased the rejection.
+        """
+        from tau.session.compaction import estimate_context_tokens
+
+        if self._context_window <= 0:
+            return False
+        session_ctx = self._session_manager.build_session_context()
+        llm_messages = _to_llm_messages(session_ctx.messages)
+        usage = estimate_context_tokens(
+            llm_messages, system_prompt=self._system_prompt, tools=self._engine.tools
+        )
+        return usage.tokens >= self._context_window
+
     async def _try_overflow_recovery(self) -> bool:
         """If the last turn died with a context-overflow error, compact once and signal a retry.
 
@@ -524,7 +549,9 @@ class Agent:
             return False
 
         last = self._session_manager.find_last_assistant_message()
-        if last is None or last.error_kind != ErrorKind.CONTEXT_OVERFLOW:
+        if last is None:
+            return False
+        if last.error_kind != ErrorKind.CONTEXT_OVERFLOW and not self._estimate_indicates_overflow():
             return False
 
         # Model-switch guard: the overflow error is from a different model if it predates

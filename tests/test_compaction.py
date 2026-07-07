@@ -12,6 +12,7 @@ from tau.message.types import (
     BranchSummaryMessage,
     CompactionSummaryMessage,
     CustomMessage,
+    ImageContent,
     TerminalExecutionMessage,
     TextContent,
     ThinkingContent,
@@ -22,6 +23,7 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.session.compaction import (
+    ESTIMATED_IMAGE_TOKENS,
     TOOL_RESULT_MAX_CHARS,
     CompactionSettings,
     effective_usage_tokens,
@@ -32,19 +34,22 @@ from tau.session.compaction import (
     should_compact,
     validated_compaction_settings,
 )
+from tau.session.compaction import _count_text_tokens as _count_tokens
 from tau.session.compaction import _TOKEN_ESTIMATE_SAFETY_FACTOR as _SAFETY
 
 
-def _expected_tokens(chars: int) -> int:
-    """Mirror estimate_tokens's chars/4-with-safety-factor formula."""
-    return max(1, int(chars * _SAFETY) // 4)
-
-
 class TestEstimateTokens:
+    """estimate_tokens's job is correct per-message-type text extraction and
+    combination (with image/tool-call handling) — the exact tokenizer count for
+    a given string is the tokenizer's own behavior, not ours, so these use
+    _count_text_tokens (the same function estimate_tokens itself calls) as the
+    oracle rather than hardcoding numbers tied to a specific BPE vocabulary.
+    """
+
     def test_user_text_message(self):
         msg = UserMessage.from_text("hello world")
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(len("hello world"))
+        assert tokens == _count_tokens("hello world")
 
     def test_empty_user_message(self):
         msg = UserMessage()
@@ -54,46 +59,79 @@ class TestEstimateTokens:
     def test_assistant_text_message(self):
         msg = AssistantMessage.from_text("a" * 400)
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(400)
+        assert tokens == _count_tokens("a" * 400)
 
     def test_assistant_thinking_counted(self):
         msg = AssistantMessage(contents=[ThinkingContent(content="t" * 200)])
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(200)
+        assert tokens == _count_tokens("t" * 200)
 
     def test_assistant_tool_call_counted(self):
         args = {"path": "/a/b"}
         name = "read_file"
         msg = AssistantMessage(contents=[ToolCallContent(id="1", name=name, args=args)])
-        expected = _expected_tokens(len(name) + len(json.dumps(args)))
+        expected = _count_tokens(name + json.dumps(args))
         assert estimate_tokens(msg) == expected
 
     def test_tool_message_result(self):
         result = ToolResultContent(id="1", content="r" * 800)
         msg = ToolMessage.from_result(result)
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(800)
+        assert tokens == _count_tokens("r" * 800)
 
     def test_terminal_execution_message(self):
         msg = TerminalExecutionMessage(command="ls", output="file1\nfile2")
         tokens = estimate_tokens(msg)
-        expected = _expected_tokens(len("ls") + len("file1\nfile2"))
+        expected = _count_tokens("ls" + "file1\nfile2")
         assert tokens == expected
 
     def test_compaction_summary_message(self):
         msg = CompactionSummaryMessage(summary="s" * 400)
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(400)
+        assert tokens == _count_tokens("s" * 400)
 
     def test_branch_summary_message(self):
         msg = BranchSummaryMessage(summary="s" * 200)
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(200)
+        assert tokens == _count_tokens("s" * 200)
 
     def test_custom_message_text_counted(self):
         msg = CustomMessage(custom_type="info", contents=[TextContent(content="c" * 100)])
         tokens = estimate_tokens(msg)
-        assert tokens == _expected_tokens(100)
+        assert tokens == _count_tokens("c" * 100)
+
+    def test_image_uses_flat_token_estimate(self):
+        msg = UserMessage(contents=[ImageContent(images=["fake-base64"])])
+        assert estimate_tokens(msg) == ESTIMATED_IMAGE_TOKENS
+
+    def test_image_and_text_combined(self):
+        msg = UserMessage(
+            contents=[TextContent(content="hello"), ImageContent(images=["fake-base64"])]
+        )
+        assert estimate_tokens(msg) == _count_tokens("hello") + ESTIMATED_IMAGE_TOKENS
+
+
+class TestCountTextTokensFallback:
+    """Covers the chars/4 heuristic path directly, since conftest.py's
+    session-scoped fixture forces the real tokenizer to be loaded for the rest
+    of the suite — this exercises the fallback formula without needing to
+    actually make the tokenizer unavailable.
+    """
+
+    def test_fallback_formula_matches_safety_factor(self, monkeypatch):
+        from tau.session import compaction as compaction_module
+
+        monkeypatch.setattr(compaction_module, "_encoding", None)
+        # Prevent _start_loading_encoding from clobbering the patched None back
+        # to the real encoding mid-test (it's a no-op once _encoding_load_started
+        # is True, which conftest.py's fixture already guarantees).
+        text = "x" * 400
+        assert compaction_module._count_text_tokens(text) == int(
+            len(text) * _SAFETY
+        ) // 4
+
+    def test_empty_text_is_zero(self):
+        assert _count_tokens("") == 0
 
 
 class TestEstimateContextTokens:
@@ -138,9 +176,10 @@ class TestEstimateContextTokens:
 
     def test_heuristic_includes_request_overhead(self):
         message = UserMessage.from_text("hello")
+        system_prompt = "You are a careful coding assistant. " * 20
         without_overhead = estimate_context_tokens([message])
-        with_overhead = estimate_context_tokens([message], system_prompt="x" * 400)
-        assert with_overhead.tokens >= without_overhead.tokens + 100
+        with_overhead = estimate_context_tokens([message], system_prompt=system_prompt)
+        assert with_overhead.tokens >= without_overhead.tokens + _count_tokens(system_prompt)
 
     def test_ignore_usage_uses_heuristic_after_model_change(self):
         assistant = AssistantMessage.from_text("short")
@@ -527,15 +566,17 @@ class TestPrepareCompaction:
 
         big_text = "word " * 2000
         # Old turn (to be summarised) followed by a new short turn to keep.
-        # With keep_recent_tokens=5, the algorithm keeps only the new short turn
-        # and cuts cleanly at the user boundary — no split turn.
+        # "new question" and "short answer" are ~2 tokens each with the real
+        # tokenizer, so keep_recent_tokens=3 stops the backward walk right at
+        # the "new question" user boundary — a clean cut, no split turn —
+        # without needing to reach into the ~2000-token old turn.
         entries = [
             self._user_entry(big_text),
             self._asst_entry(big_text),
             self._user_entry("new question"),
             self._asst_entry("short answer"),
         ]
-        settings = CompactionSettings(keep_recent_tokens=5)
+        settings = CompactionSettings(keep_recent_tokens=3)
         prep = prepare_compaction(entries, settings)
         assert prep is not None
         assert prep.first_kept_entry_id != ""
