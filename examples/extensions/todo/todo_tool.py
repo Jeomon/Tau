@@ -181,7 +181,11 @@ class TodoTool(Tool):
                 "'id'); 'delete' removes a task (requires 'id'); 'clear' removes every task. "
                 "The list is shown to the user in a board above the input, not in the "
                 "transcript, so don't repeat task contents back to the user after "
-                "calling this tool. State persists across branches and restarts."
+                "calling this tool. State persists across branches and restarts. Never tell "
+                "the user a task was created, updated, or completed unless you actually made "
+                "the matching 'create'/'update' call in this turn — calling 'list' alone does "
+                "not change anything. If it's unclear which task or field to update, ask "
+                "instead of guessing."
             ),
             schema=TodoParams,
             kind=ToolKind.Read,

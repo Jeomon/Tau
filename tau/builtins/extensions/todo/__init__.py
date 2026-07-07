@@ -59,13 +59,14 @@ class TodoBoard:
         self._shown = False
 
     def _lines(self) -> list[str]:
-        from tau.tui.utils import BOLD, DIM, RESET, YELLOW
+        from tau.tui.utils import BOLD, DIM, GREEN, RESET, YELLOW
 
         pending = self._state.list("pending")
-        header = f"{YELLOW}●{RESET} {BOLD}Todos ({len(pending)} pending){RESET}"
+        header = f"{YELLOW}☐{RESET} {BOLD}Todos ({len(pending)} pending){RESET}"
         lines = [header]
-        for item in pending:
-            lines.append(f"  {DIM}○{RESET} #{item.id} {item.subject}")
+        for item in self._state.items:
+            glyph = f"{GREEN}✓{RESET}" if item.done else f"{DIM}☐{RESET}"
+            lines.append(f"  {glyph} {item.id}. {item.subject}")
         return lines
 
     def sync(self, ctx: ExtensionContext) -> None:
