@@ -356,6 +356,12 @@ class Renderer:
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
         self._terminal = terminal
         self._engine = ScrollbackTerminal(terminal, show_hardware_cursor=show_hardware_cursor)
+        # Whether the previous frame composited any overlay pixels into the base
+        # buffer. See render(): overlay compositing happens after stable_through
+        # is computed from the base content alone, so it can land on rows the
+        # base content considers "frozen" — tracked here so we know to force a
+        # full diff both while an overlay is up and on the frame it closes.
+        self._had_overlays = False
 
     # -------------------------------------------------------------------------
     # Public API
@@ -370,10 +376,21 @@ class Renderer:
         rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
         buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
 
-        if overlays:
+        has_overlays = bool(overlays)
+        if has_overlays:
             self._composite_overlays(buf, overlays, width, height)
 
-        stable_through = getattr(component, "_stable_rows", 0)
+        # stable_through only reflects the base content's frozen span — it has
+        # no notion of overlay pixels blitted on top afterward. Trusting it while
+        # an overlay is showing (or on the frame it just closed) can make the
+        # overlay's cells — including live cursor/selection updates — never
+        # reach the real terminal if they land inside that "frozen" span.
+        if has_overlays or self._had_overlays:
+            stable_through = 0
+        else:
+            stable_through = getattr(component, "_stable_rows", 0)
+        self._had_overlays = has_overlays
+
         self._engine.render(buf, stable_through=stable_through)
 
     def clear(self) -> None:
