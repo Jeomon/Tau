@@ -137,18 +137,30 @@ def is_valid_session_file(session_file: Path | str) -> bool:
 
 
 def find_most_recent_session(session_dir: Path | str) -> Path | None:
-    """Find the most recently modified session file in a directory."""
+    """Find the most recently modified session file in a directory.
+
+    Ranks files by mtime first (a cheap ``stat()``, no file open) and only
+    validates them newest-first until one passes — a project accumulates
+    session files forever with nothing to prune them, so validating every
+    file up front (opening and parsing each one) scaled with total lifetime
+    session count instead of stopping at the first valid candidate.
+    """
     session_dir = Path(session_dir)
     if not session_dir.is_dir():
         return None
 
-    candidate_sessions = [p for p in session_dir.glob("*.jsonl") if is_valid_session_file(p)]
+    def _mtime_or_min(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return float("-inf")
 
-    if not candidate_sessions:
-        return None
+    by_mtime = sorted(session_dir.glob("*.jsonl"), key=_mtime_or_min, reverse=True)
 
-    most_recent = max(candidate_sessions, key=lambda x: x.stat().st_mtime)
-    return most_recent
+    for candidate in by_mtime:
+        if is_valid_session_file(candidate):
+            return candidate
+    return None
 
 
 def is_message_with_contents(message: AgentMessage) -> bool:

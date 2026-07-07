@@ -163,6 +163,15 @@ class RuntimeContext:
         if settings_manager is None:
             from tau.trust.manager import has_project_trust_inputs, trust_store
 
+            # Set when the default (non-injected) path builds a SettingsManager
+            # solely to read the project_trust policy — reused below instead of
+            # constructing a second one, since SettingsManager.from_storage()
+            # unconditionally reads BOTH global and project settings from disk
+            # regardless of project_trusted (that flag only gates whether
+            # project_settings is exposed, not whether it's read) — so building
+            # a fresh instance here would re-read the same two files a model
+            # already just read.
+            _trust_probe_sm: SettingsManager | None = None
             if not has_project_trust_inputs(cwd):
                 project_trusted = True
             elif config.project_trusted is not None:
@@ -174,15 +183,15 @@ class RuntimeContext:
                     config_dir=config_dir,
                     project_trusted=False,
                 )
-                _global_sm = (
-                    config.dependencies.settings(settings_context)
-                    if config.dependencies.settings is not None
-                    else SettingsManager.create(
+                if config.dependencies.settings is not None:
+                    _global_sm = config.dependencies.settings(settings_context)
+                else:
+                    _global_sm = SettingsManager.create(
                         cwd=cwd,
                         config_dir=config_dir,
                         project_trusted=False,
                     )
-                )
+                    _trust_probe_sm = _global_sm
                 policy = _global_sm.get_project_trust()
                 match policy:
                     case "always":
@@ -193,20 +202,24 @@ class RuntimeContext:
                         stored = trust_store.get(cwd)
                         project_trusted = stored if stored is not None else False
                         _trust_pending = stored is None  # no prior decision → TrustScreen will show
-            settings_context = SettingsFactoryContext(
-                cwd=cwd,
-                config_dir=config_dir,
-                project_trusted=project_trusted,
-            )
-            settings_manager = (
-                config.dependencies.settings(settings_context)
-                if config.dependencies.settings is not None
-                else SettingsManager.create(
-                    cwd,
+            if _trust_probe_sm is not None:
+                _trust_probe_sm.set_project_trusted(project_trusted)
+                settings_manager = _trust_probe_sm
+            else:
+                settings_context = SettingsFactoryContext(
+                    cwd=cwd,
                     config_dir=config_dir,
                     project_trusted=project_trusted,
                 )
-            )
+                settings_manager = (
+                    config.dependencies.settings(settings_context)
+                    if config.dependencies.settings is not None
+                    else SettingsManager.create(
+                        cwd,
+                        config_dir=config_dir,
+                        project_trusted=project_trusted,
+                    )
+                )
 
         # Kick off the git-status snapshot now (needed later for the system prompt)
         # so its subprocess calls run in a background thread concurrently with the
