@@ -38,8 +38,26 @@ def register(tau: ExtensionAPI) -> None:
 
     async def cmd_todos(ctx: ExtensionContext, _args: list[str]) -> None:
         ui = ctx.ui
-        if ui is not None:
-            ui.notify(state.render())
+        if ui is None:
+            return
+        if not state.items:
+            ui.notify("No todos yet. Ask the agent to add some!")
+            return
+        pending = [i for i in state.items if not i.done]
+        done = [i for i in state.items if i.done]
+        header = " · ".join(
+            part
+            for part in (f"{len(done)} done" if done else "", f"{len(pending)} pending" if pending else "")
+            if part
+        )
+        lines = [header]
+        if pending:
+            lines.append("── Pending ──")
+            lines += [f"  ○ {i.line()}" for i in pending]
+        if done:
+            lines.append("── Done ──")
+            lines += [f"  ✓ {i.line()}" for i in done]
+        ui.notify("\n".join(lines))
 
     tau.register_command(
         "todos",

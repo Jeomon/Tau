@@ -21,15 +21,39 @@ CUSTOM_TYPE = "todo:state"
 @dataclass
 class TodoItem:
     id: int
-    text: str
+    subject: str
+    description: str | None = None
     done: bool = False
+    completion_order: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "text": self.text, "done": self.done}
+        return {
+            "id": self.id,
+            "subject": self.subject,
+            "description": self.description,
+            "done": self.done,
+            "completion_order": self.completion_order,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TodoItem:
-        return cls(id=data["id"], text=data["text"], done=bool(data.get("done", False)))
+        return cls(
+            id=data["id"],
+            subject=data["subject"],
+            description=data.get("description"),
+            done=bool(data.get("done", False)),
+            completion_order=data.get("completion_order"),
+        )
+
+    def line(self) -> str:
+        status = "done" if self.done else "pending"
+        return f"[{status}] #{self.id} {self.subject}"
+
+    def detail(self) -> str:
+        lines = [f"#{self.id} [{'done' if self.done else 'pending'}] {self.subject}"]
+        if self.description:
+            lines.append("  " + self.description.replace("\n", "\n  "))
+        return "\n".join(lines)
 
 
 class TodoState:
@@ -38,52 +62,88 @@ class TodoState:
     def __init__(self) -> None:
         self.items: list[TodoItem] = []
         self._next_id = 1
+        self._global_completions = 0
 
     def rebuild(self, entries: list[Any]) -> None:
         from tau.session.types import CustomInfoEntry
 
         self.items = []
         self._next_id = 1
+        self._global_completions = 0
         for entry in entries:
             if isinstance(entry, CustomInfoEntry) and entry.custom_type == CUSTOM_TYPE:
                 data = entry.data or {}
                 self.items = [TodoItem.from_dict(d) for d in data.get("items", [])]
                 self._next_id = data.get("next_id", 1)
+                self._global_completions = data.get("global_completions", 0)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"items": [i.to_dict() for i in self.items], "next_id": self._next_id}
+        return {
+            "items": [i.to_dict() for i in self.items],
+            "next_id": self._next_id,
+            "global_completions": self._global_completions,
+        }
 
-    def add(self, text: str) -> TodoItem:
-        item = TodoItem(id=self._next_id, text=text)
+    def find(self, item_id: int) -> TodoItem | None:
+        return next((i for i in self.items if i.id == item_id), None)
+
+    def create(self, subject: str, description: str | None) -> TodoItem:
+        item = TodoItem(id=self._next_id, subject=subject, description=description or None)
         self._next_id += 1
         self.items.append(item)
         return item
 
-    def toggle(self, item_id: int) -> TodoItem | None:
-        for item in self.items:
-            if item.id == item_id:
-                item.done = not item.done
-                return item
-        return None
+    def update(
+        self,
+        item_id: int,
+        *,
+        subject: str | None = None,
+        description: str | None = None,
+        append_note: str | None = None,
+        done: bool | None = None,
+    ) -> TodoItem | None:
+        item = self.find(item_id)
+        if item is None:
+            return None
+        if subject is not None:
+            item.subject = subject.strip()
+        if description is not None:
+            item.description = description.strip() or None
+        if append_note is not None and append_note.strip():
+            note = append_note.strip()
+            item.description = f"{item.description}\n\n{note}" if item.description else note
+        if done is not None:
+            was_done = item.done
+            item.done = done
+            if not was_done and done:
+                item.completion_order = self._global_completions
+                self._global_completions += 1
+            elif was_done and not done:
+                item.completion_order = None
+        return item
+
+    def delete(self, item_id: int) -> TodoItem | None:
+        item = self.find(item_id)
+        if item is not None:
+            self.items.remove(item)
+        return item
 
     def clear(self) -> None:
         self.items = []
         self._next_id = 1
+        self._global_completions = 0
 
-    def render(self) -> str:
-        if not self.items:
-            return "(empty)"
-        done = sum(1 for i in self.items if i.done)
-        lines = [f"{done}/{len(self.items)} done"]
-        for item in self.items:
-            mark = "x" if item.done else " "
-            lines.append(f"[{mark}] {item.id}. {item.text}")
-        return "\n".join(lines)
+    def list(self, status_filter: str | None) -> list[TodoItem]:
+        if status_filter == "done":
+            return [i for i in self.items if i.done]
+        if status_filter == "pending":
+            return [i for i in self.items if not i.done]
+        return list(self.items)
 
 
 def _render_call(args: dict, _streaming: bool = False) -> list[str]:
     action = args.get("action", "")
-    detail = args.get("text") or (str(args["id"]) if args.get("id") is not None else "")
+    detail = args.get("subject") or (str(args["id"]) if args.get("id") is not None else "")
     return call_line("todo", action, detail)
 
 
@@ -98,10 +158,14 @@ class TodoTool(Tool):
         super().__init__(
             name="todo",
             description=(
-                "Manage a simple todo list to track multi-step work in this session. "
-                "Actions: 'list' shows all items, 'add' appends a new item (requires "
-                "'text'), 'toggle' flips an item's done state (requires 'id'), 'clear' "
-                "removes every item. State persists across branches and restarts."
+                "Manage a todo list to track multi-step work in this session. Actions: "
+                "'create' adds a task (requires 'subject', optional 'description'); "
+                "'update' changes a task (requires 'id'; optional 'subject', 'description' "
+                "to replace it, 'append_note' to add a paragraph without replacing, 'done' "
+                "to mark complete/incomplete); 'list' shows tasks, optionally filtered by "
+                "'filter'='done'|'pending'; 'get' returns full detail for one task (requires "
+                "'id'); 'delete' removes a task (requires 'id'); 'clear' removes every task. "
+                "State persists across branches and restarts."
             ),
             schema=TodoParams,
             kind=ToolKind.Read,
@@ -130,29 +194,68 @@ class TodoTool(Tool):
         params = TodoParams.model_validate(invocation.params)
         state = self._state
 
-        if params.action == "list":
-            return ToolResult.ok(invocation.id, state.render())
-
-        if params.action == "add":
-            if not params.text:
-                return ToolResult.error(invocation.id, "add requires 'text'")
-            item = state.add(params.text)
+        if params.action == "create":
+            subject = (params.subject or "").strip()
+            if not subject:
+                return ToolResult.error(invocation.id, "create requires 'subject'")
+            item = state.create(subject, params.description)
             self._persist()
-            return ToolResult.ok(invocation.id, f"Added #{item.id}: {item.text}\n\n{state.render()}")
+            return ToolResult.ok(invocation.id, f"Created #{item.id}: {item.subject}")
 
-        if params.action == "toggle":
+        if params.action == "update":
             if params.id is None:
-                return ToolResult.error(invocation.id, "toggle requires 'id'")
-            item = state.toggle(params.id)
+                return ToolResult.error(invocation.id, "update requires 'id'")
+            if state.find(params.id) is None:
+                return ToolResult.error(invocation.id, f"#{params.id} not found")
+            if (
+                params.subject is None
+                and params.description is None
+                and params.append_note is None
+                and params.done is None
+            ):
+                return ToolResult.error(
+                    invocation.id,
+                    "update requires at least one of 'subject', 'description', "
+                    "'append_note', or 'done'",
+                )
+            item = state.update(
+                params.id,
+                subject=params.subject,
+                description=params.description,
+                append_note=params.append_note,
+                done=params.done,
+            )
             if item is None:
-                return ToolResult.error(invocation.id, f"No item with id {params.id}")
+                return ToolResult.error(invocation.id, f"#{params.id} not found")
             self._persist()
-            status = "done" if item.done else "not done"
-            return ToolResult.ok(invocation.id, f"#{item.id} marked {status}\n\n{state.render()}")
+            return ToolResult.ok(invocation.id, f"Updated #{item.id}")
+
+        if params.action == "list":
+            items = state.list(params.filter)
+            content = "\n".join(i.line() for i in items) if items else "No tasks"
+            return ToolResult.ok(invocation.id, content)
+
+        if params.action == "get":
+            if params.id is None:
+                return ToolResult.error(invocation.id, "get requires 'id'")
+            item = state.find(params.id)
+            if item is None:
+                return ToolResult.error(invocation.id, f"#{params.id} not found")
+            return ToolResult.ok(invocation.id, item.detail())
+
+        if params.action == "delete":
+            if params.id is None:
+                return ToolResult.error(invocation.id, "delete requires 'id'")
+            item = state.delete(params.id)
+            if item is None:
+                return ToolResult.error(invocation.id, f"#{params.id} not found")
+            self._persist()
+            return ToolResult.ok(invocation.id, f"Deleted #{item.id}: {item.subject}")
 
         if params.action == "clear":
+            count = len(state.items)
             state.clear()
             self._persist()
-            return ToolResult.ok(invocation.id, "Todo list cleared")
+            return ToolResult.ok(invocation.id, f"Cleared {count} tasks")
 
         return ToolResult.error(invocation.id, f"Unknown action: {params.action}")
