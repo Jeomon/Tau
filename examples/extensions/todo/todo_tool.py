@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from todo_schema import TodoParams
 
-from tau.tool.render import call_line
 from tau.tool.types import (
     Tool,
     ToolContext,
@@ -14,6 +14,9 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+
+if TYPE_CHECKING:
+    from tau.extensions.context import ExtensionContext
 
 CUSTOM_TYPE = "todo:state"
 
@@ -141,20 +144,31 @@ class TodoState:
         return list(self.items)
 
 
-def _render_call(args: dict, _streaming: bool = False) -> list[str]:
-    action = args.get("action", "")
-    detail = args.get("subject") or (str(args["id"]) if args.get("id") is not None else "")
-    return call_line("todo", action, detail)
+def _render_call(_args: dict, _streaming: bool = False) -> list[str]:
+    # The task list lives in the above-editor board, not the transcript — return
+    # no lines so message_list.py skips the call entirely (see comment on
+    # TodoTool.render_result below for why the result can't vanish the same way).
+    return []
 
 
-def _render_result(content: str, opts: Any) -> list[str]:
-    return content.splitlines() or [content]
+def _render_result(_content: str, _opts: Any) -> list[str]:
+    # message_list.py falls back to rendering raw content when a custom
+    # render_result returns an empty list, so full suppression isn't possible
+    # here — a single blank line is the smallest footprint a non-empty return
+    # can produce with render_shell="self" (no framing applied).
+    return [""]
 
 
 class TodoTool(Tool):
-    def __init__(self, state: TodoState, runtime_ref: Any) -> None:
+    def __init__(
+        self,
+        state: TodoState,
+        runtime_ref: Any,
+        on_mutate: Callable[[ExtensionContext], None] | None = None,
+    ) -> None:
         self._state = state
         self._runtime_ref = runtime_ref
+        self._on_mutate = on_mutate
         super().__init__(
             name="todo",
             description=(
@@ -165,24 +179,29 @@ class TodoTool(Tool):
                 "to mark complete/incomplete); 'list' shows tasks, optionally filtered by "
                 "'filter'='done'|'pending'; 'get' returns full detail for one task (requires "
                 "'id'); 'delete' removes a task (requires 'id'); 'clear' removes every task. "
-                "State persists across branches and restarts."
+                "The list is shown to the user in a board above the input, not in the "
+                "transcript, so don't repeat task contents back to the user after "
+                "calling this tool. State persists across branches and restarts."
             ),
             schema=TodoParams,
             kind=ToolKind.Read,
             execution_mode=ToolExecutionMode.Sequential,
             render_call=_render_call,
             render_result=_render_result,
-            render_shell="default",
+            render_shell="self",
         )
 
-    def _persist(self) -> None:
+    def _after_mutation(self) -> None:
         runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
         if runtime is None:
             return
         sm = getattr(runtime, "session_manager", None)
-        if sm is None:
-            return
-        sm.append_custom_info(CUSTOM_TYPE, self._state.to_dict())
+        if sm is not None:
+            sm.append_custom_info(CUSTOM_TYPE, self._state.to_dict())
+        if self._on_mutate is not None:
+            from tau.extensions.context import ExtensionContext
+
+            self._on_mutate(ExtensionContext.from_runtime(runtime))
 
     async def execute(
         self,
@@ -199,7 +218,7 @@ class TodoTool(Tool):
             if not subject:
                 return ToolResult.error(invocation.id, "create requires 'subject'")
             item = state.create(subject, params.description)
-            self._persist()
+            self._after_mutation()
             return ToolResult.ok(invocation.id, f"Created #{item.id}: {item.subject}")
 
         if params.action == "update":
@@ -227,7 +246,7 @@ class TodoTool(Tool):
             )
             if item is None:
                 return ToolResult.error(invocation.id, f"#{params.id} not found")
-            self._persist()
+            self._after_mutation()
             return ToolResult.ok(invocation.id, f"Updated #{item.id}")
 
         if params.action == "list":
@@ -249,13 +268,13 @@ class TodoTool(Tool):
             item = state.delete(params.id)
             if item is None:
                 return ToolResult.error(invocation.id, f"#{params.id} not found")
-            self._persist()
+            self._after_mutation()
             return ToolResult.ok(invocation.id, f"Deleted #{item.id}: {item.subject}")
 
         if params.action == "clear":
             count = len(state.items)
             state.clear()
-            self._persist()
+            self._after_mutation()
             return ToolResult.ok(invocation.id, f"Cleared {count} tasks")
 
         return ToolResult.error(invocation.id, f"Unknown action: {params.action}")

@@ -7,17 +7,6 @@
           "lsp": true,
           "eager": []
         }
-      },
-      {
-        "path": ".tau/extensions/ask_user",
-        "settings": {}
-      },
-      {
-        "path": ".tau/extensions/vcc",
-        "settings": {
-          "override_default_compaction": false,
-          "debug": false
-        }
       }
     ]
   }

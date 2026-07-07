@@ -63,8 +63,27 @@ def open_config_panel(ctx: CommandContext) -> None:
         else []
     )
 
-    all_entries = [_entry(e, "global") for e in global_list] + [
-        _entry(e, "project") for e in project_list
+    def _is_builtin(path: str) -> bool:
+        """True when a settings.json entry's path resolves under the builtins dir.
+
+        Builtins can end up with an explicit entry here purely as storage for
+        their manifest-driven /settings values (see
+        SettingsManager.set_extension_config_key) — that's a legitimate
+        config-persistence detail, not a reason to list them alongside actual
+        installed extensions in the enable/disable panel. Their settings are
+        configured through /settings instead, so exclude them from display
+        without touching the underlying list (on_toggle still writes the full,
+        unfiltered list back — see below).
+        """
+        from tau.settings.paths import get_builtins_dir
+
+        try:
+            return Path(path).expanduser().resolve().is_relative_to(get_builtins_dir().resolve())
+        except Exception:
+            return False
+
+    all_entries = [_entry(e, "global") for e in global_list if not _is_builtin(e.path)] + [
+        _entry(e, "project") for e in project_list if not _is_builtin(e.path)
     ]
 
     if not all_entries:
