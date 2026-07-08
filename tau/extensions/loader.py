@@ -180,6 +180,7 @@ class ExtensionLoader:
         self._entry_configs: dict[str, dict] = entry_configs or {}
         self._subdir_deps: dict[Path, list[str]] = {}
         self._subdir_settings: dict[Path, dict] = {}
+        self._subdir_skills: dict[Path, list[str]] = {}
         self._llm = llm
         self._settings = settings
         self._cwd = cwd or Path(".")
@@ -219,6 +220,10 @@ class ExtensionLoader:
                 settings_schema = app_data.get("settings")
                 if isinstance(settings_schema, dict):
                     self._subdir_settings[subdir.resolve()] = settings_schema
+
+                skills = app_data.get("skills", [])
+                if skills:
+                    self._subdir_skills[subdir.resolve()] = list(skills)
 
                 declared = app_data.get("extensions", [])
                 if declared:
@@ -330,6 +335,38 @@ class ExtensionLoader:
                 best[key] = (path, source)
         return [best[key] for key in order] + unranked
 
+    def _register_declared_skills(self) -> None:
+        """Register skills declared by ``manifest.json``'s ``"skills"`` field.
+
+        Applies to any extension folder discovered by this loader — builtin,
+        project, global, or explicit — not just installed packages (which
+        already get this via ``PackageManager``/``DefaultResourceLoader``).
+
+        Called directly here rather than left to the ``resources_discover``
+        hook: that hook is emitted during resource discovery, which runs
+        *before* ``load()`` executes any extension's ``register(tau)`` — so a
+        hook registered by an extension during its own registration is always
+        one reload generation late. Loading the manifest-declared skill
+        directories synchronously, right after discovery, sidesteps that
+        ordering problem entirely. ``Registry.register()`` is additive, so
+        this is safe to call on every reload without clobbering skills from
+        other sources.
+        """
+        if not self._subdir_skills:
+            return
+
+        from tau.skills.loader import load_skills_from_dir
+        from tau.skills.registry import skill_registry
+
+        for subdir, declared in self._subdir_skills.items():
+            for rel in declared:
+                skills_dir = (subdir / rel).resolve()
+                if not skills_dir.is_dir():
+                    continue
+                result = load_skills_from_dir(skills_dir)
+                for skill in result.skills.values():
+                    skill_registry.register(skill)
+
     # ── Dependency installation ──────────────────────────────────────────────────
 
     def _resolve_venv_dir(self, source: str) -> Path:
@@ -414,6 +451,7 @@ class ExtensionLoader:
         any ``ExtensionError`` entries for files that failed to load.
         """
         discovered = self._discover()
+        self._register_declared_skills()
 
         async def _load(path: Path, source: str) -> tuple[Extension | None, list[ExtensionError]]:
             config_key = path.parent.name if path.name == "__init__.py" else path.stem

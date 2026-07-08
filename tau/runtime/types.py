@@ -315,6 +315,14 @@ class RuntimeContext:
         )
         resources = await resource_loader.discover(resource_context)
 
+        # Apply skills/prompts/themes from the resource snapshot before loading
+        # extensions: ExtensionLoader.load() additively registers any skills an
+        # extension's manifest.json declares, and apply_registries()'s reload()
+        # clears the whole skill registry before rebuilding it from the
+        # snapshot alone — running it first (not after, like the naive order
+        # would) means those declarations survive instead of being wiped.
+        resource_loader.apply_registries(resources, context=resource_context)
+
         if ext_runtime is None:
             runtime_ref = _RuntimeRef()
             el = resource_loader.create_extension_loader(
@@ -371,7 +379,6 @@ class RuntimeContext:
         # ── Skills, prompts, and themes ──────────────────────────────────────
         from tau.skills.registry import skill_registry
 
-        resource_loader.apply_registries(resources, context=resource_context)
         skills = skill_registry.list()
 
         # ── System prompt ─────────────────────────────────────────────────────
