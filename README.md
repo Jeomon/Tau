@@ -2,6 +2,15 @@
   <img src="assets/logo.png" alt="Tau Logo" width="150">
 </p>
 
+<p align="center">
+  <a href="https://pypi.org/project/tau-coding-agent/"><img src="https://img.shields.io/pypi/v/tau-coding-agent.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/tau-coding-agent/"><img src="https://img.shields.io/pypi/dm/tau-coding-agent.svg" alt="PyPI downloads"></a>
+  <a href="https://pypi.org/project/tau-coding-agent/"><img src="https://img.shields.io/pypi/pyversions/tau-coding-agent.svg" alt="Python versions"></a>
+  <a href="https://github.com/Jeomon/Tau/actions/workflows/ci.yml"><img src="https://github.com/Jeomon/Tau/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/Jeomon/Tau/commits/main"><img src="https://img.shields.io/github/last-commit/Jeomon/Tau.svg" alt="Last commit"></a>
+  <a href="https://github.com/Jeomon/Tau/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Jeomon/Tau.svg" alt="License"></a>
+</p>
+
 Tau is a Python agent framework and coding agent, inspired by [Pi](https://github.com/earendil-works/pi). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
 
 <p align="center">
