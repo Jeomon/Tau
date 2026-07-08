@@ -49,14 +49,14 @@ prompt and tool/model configuration.
 
 **Project-local agents** (`.tau/agents/*.md`) are repo-controlled prompts
 that can instruct the model to read files, run shell commands, etc.
+Discovery always merges all three tiers (project + user + builtin) — there
+is no scope switch to opt into seeing project agents, since `list`/`get`
+are read-only and don't execute anything.
 
-**Default behavior:** only loads **builtin sample agents** (bundled with
-this extension) and **user-level agents** from `~/.tau/agents`.
-
-To enable project-local agents, pass `agent_scope: "both"` (or
-`"project"`). Only do this for repositories you trust. When running
-interactively, the tool prompts for confirmation before running
-project-local agents (`confirm_project_agents: false` to disable).
+The safety gate is at *execution* time instead: when running interactively,
+the tool prompts for confirmation before actually running any agent
+sourced from `.tau/agents` (`confirm_project_agents: false` to disable).
+Only approve this for repositories you trust.
 
 ## Usage
 
@@ -114,10 +114,10 @@ tools: read, grep, glob, ls
 System prompt for the agent goes here.
 ```
 
-**Locations, merged in priority order (highest wins):**
-- `.tau/agents/*.md` — project-level (only with `agent_scope: "project"` or `"both"`)
-- `~/.tau/agents/*.md` — user-level (always loaded)
-- `agents/*.md` in this extension — builtin samples (always loaded, lowest priority)
+**Locations, always merged in priority order (highest wins):**
+- `.tau/agents/*.md` — project-level (repo-controlled; confirmed before running, see Security Model)
+- `~/.tau/agents/*.md` — user-level
+- `agents/*.md` in this extension — builtin samples (lowest priority)
 
 ## Sample Agents
 

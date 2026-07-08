@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents import AgentConfig, AgentScope, discover_agents
+from agents import AgentConfig, discover_agents
 
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -380,12 +380,11 @@ def _result_summary(r: SingleResult) -> dict[str, Any]:
 
 
 def _render_call(args: dict, _streaming: bool = False) -> list[str]:
-    scope = args.get("agent_scope", "user")
     action = _resolve_action(args)
 
     match action:
         case "list":
-            return call_line("subagent", "list", f"[{scope}]")
+            return call_line("subagent", "list")
         case "get":
             return call_line("subagent", "get", args.get("agent") or "...")
         case _:
@@ -399,10 +398,10 @@ def _render_call(args: dict, _streaming: bool = False) -> list[str]:
         item = items[0]
         preview = item["task"].replace("{previous}", "").strip()
         preview = preview[:60] + ("..." if len(preview) > 60 else "")
-        return call_line("subagent", item["agent"], f"[{scope}]") + [f"    {preview}"]
+        return call_line("subagent", item["agent"]) + [f"    {preview}"]
 
     unit = "steps" if label == "chain" else "tasks"
-    lines = call_line("subagent", f"{label} ({len(items)} {unit})", f"[{scope}]")
+    lines = call_line("subagent", f"{label} ({len(items)} {unit})")
     for i, item in enumerate(items[:3]):
         preview = item["task"].replace("{previous}", "").strip()
         preview = preview[:40] + ("..." if len(preview) > 40 else "")
@@ -508,9 +507,9 @@ class SubagentTool(Tool):
                 "'scout' (fast read-only recon), 'researcher' (web research), 'planner', "
                 "'context-builder' (requirements + code recon), 'oracle' (second opinion "
                 "/ drift check), 'worker', 'reviewer', and 'delegate' (lightweight "
-                f"full-access) out of the box. Add your own in {user_agents_dir}. To "
-                "enable project-local agents in .tau/agents, set agent_scope='both' or "
-                "'project' (trusted repositories only)."
+                f"full-access) out of the box. Add your own in {user_agents_dir}, or in "
+                ".tau/agents for project-local agents (repo-controlled — the user is "
+                "prompted for confirmation before one actually runs)."
             ),
             schema=SubagentParams,
             kind=ToolKind.Execute,
@@ -554,8 +553,7 @@ class SubagentTool(Tool):
         params = SubagentParams.model_validate(invocation.params)
         default_cwd = invocation.cwd or (context.cwd if context else None) or Path.cwd()
 
-        agent_scope: AgentScope = params.agent_scope
-        agents, project_agents_dir = discover_agents(default_cwd, agent_scope)
+        agents, project_agents_dir = discover_agents(default_cwd)
         main_model = _parent_model(self._runtime_ref)
 
         action = params.action or ("tasks" if (params.spawn or params.chain) else "list")
@@ -635,14 +633,13 @@ class SubagentTool(Tool):
                 [],
             )
 
-        if agent_scope in ("project", "both") and params.confirm_project_agents:
-            requested_names: set[str] = set()
-            if params.chain:
-                requested_names.update(s.agent for s in params.chain)
-            if params.spawn:
-                requested_names.update(t.agent for t in params.spawn)
-            if not await self._confirm_project_agents(agents, requested_names, project_agents_dir):
-                return _err("Canceled: project-local agents not approved.", "spawn", [])
+        requested_names: set[str] = set()
+        if params.chain:
+            requested_names.update(s.agent for s in params.chain)
+        if params.spawn:
+            requested_names.update(t.agent for t in params.spawn)
+        if not await self._confirm_project_agents(agents, requested_names, project_agents_dir):
+            return _err("Canceled: project-local agents not approved.", "spawn", [])
 
         async def _stream(mode: str, results: list[SingleResult]) -> None:
             if tool_execution_update_callback is None:

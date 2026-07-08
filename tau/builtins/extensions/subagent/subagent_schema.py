@@ -49,15 +49,3 @@ class SubagentParams(BaseModel):
             "placeholder '{previous}', replaced with the prior step's final output."
         ),
     )
-    agent_scope: Literal["user", "project", "both"] = Field(
-        default="user",
-        description=(
-            "Which agent directories to search. 'user' (default) only loads ~/.tau/agents. "
-            "'project' or 'both' also load .tau/agents from the current project — only use "
-            "this for trusted repositories."
-        ),
-    )
-    confirm_project_agents: bool = Field(
-        default=True,
-        description="Prompt for confirmation before running project-local agents.",
-    )

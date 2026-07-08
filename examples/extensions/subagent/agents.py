@@ -1,7 +1,9 @@
 """Agent discovery: markdown files with frontmatter define subagent presets.
 
-Discovery merges three tiers by name — project wins over user, user wins
-over the builtin samples shipped alongside this extension.
+Discovery always merges three tiers by name — project (.tau/agents) wins
+over user (~/.tau/agents), which wins over the builtin samples shipped
+alongside this extension. Project agents are repo-controlled, so the tool
+confirms before actually running one rather than gating discovery itself.
 """
 
 from __future__ import annotations
@@ -9,8 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-
-AgentScope = Literal["user", "project", "both"]
 
 
 @dataclass
@@ -87,20 +87,19 @@ def agents_dir_for_scope(cwd: Path, scope: Literal["user", "project"]) -> Path:
     return get_config_dir(None if scope == "user" else cwd) / "agents"
 
 
-def discover_agents(cwd: Path, scope: AgentScope) -> tuple[list[AgentConfig], Path | None]:
-    """Discover agents for the given scope. Returns (agents, project_agents_dir).
+def discover_agents(cwd: Path) -> tuple[list[AgentConfig], Path | None]:
+    """Discover every agent visible from cwd. Returns (agents, project_agents_dir).
 
-    Builtin sample agents (bundled alongside this extension) always load as
-    the base layer, regardless of scope — they're shipped defaults, not
-    project-controlled content. User and project agents of the same name
-    override them.
+    Always merges all three tiers — builtin samples (bundled alongside this
+    extension), user (~/.tau/agents), and project (.tau/agents). Project
+    agents of the same name override user, which overrides builtin.
     """
     user_dir = agents_dir_for_scope(cwd, "user")
     project_dir = agents_dir_for_scope(cwd, "project")
 
     builtin_agents = _load_agents_from_dir(_BUILTIN_AGENTS_DIR, "builtin")
-    user_agents = [] if scope == "project" else _load_agents_from_dir(user_dir, "user")
-    project_agents = [] if scope == "user" else _load_agents_from_dir(project_dir, "project")
+    user_agents = _load_agents_from_dir(user_dir, "user")
+    project_agents = _load_agents_from_dir(project_dir, "project")
 
     merged: dict[str, AgentConfig] = {}
     for a in builtin_agents:
