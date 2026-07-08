@@ -3,10 +3,11 @@
 Runs phases in order; each phase runs one or more subagent tasks, either
 sequentially (chaining {previous}/{results.<label>}) or concurrently
 (`parallel: true`), optionally fanning out over a prior result via
-`for_each`. Every task runs in-process via embedded.run_embedded_agent —
-its own Engine/LLM/tools, fully isolated, no OS subprocess and no shared
-session or registry state with the parent — so there is no LLM tool call
-involved in running a workflow itself, just in the tasks it dispatches.
+`for_each`. Every task runs in-process via tau.agent.embedded.run_embedded_agent
+(shared with the `subagent` tool) — its own Engine/LLM/tools, fully isolated,
+no OS subprocess and no shared session or registry state with the parent —
+so there is no LLM tool call involved in running a workflow itself, just in
+the tasks it dispatches.
 
 Any task failure aborts the run (fail-fast): a workflow is meant to be a
 predictable, rerunnable pipeline, not a best-effort fan-out.
@@ -23,8 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from embedded import TASK_TIMEOUT_S, run_embedded_agent
-from model import WorkflowDef, WorkflowPhase, WorkflowTask
+from model import WorkflowDef, WorkflowPhase, WorkflowTask  # type: ignore[import-not-found]
+
+from tau.agent.embedded import TASK_TIMEOUT_S, run_embedded_agent
 
 MAX_CONCURRENCY = 4
 _PLACEHOLDER_RE = re.compile(r"\{(previous|item|results\.[^{}]+)\}")
@@ -102,7 +104,7 @@ async def _run_agent_process(
     on_tool_start: Callable[[str], None] | None = None,
     timeout_s: float = TASK_TIMEOUT_S,
 ) -> tuple[bool, str, dict[str, Any]]:
-    """Run one subagent task in-process, bounded by ``timeout_s``. See embedded.py."""
+    """Run one subagent task in-process, bounded by ``timeout_s``. See tau/agent/embedded.py."""
     return await run_embedded_agent(
         cwd=cwd,
         model_id=model_id,

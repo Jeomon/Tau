@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 _CONTEXT_DESCRIPTION = (
     "'fresh' starts the subagent with no history — only its task. 'fork' "
     "resumes the parent session's current conversation as read-only context: "

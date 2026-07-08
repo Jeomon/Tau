@@ -1,9 +1,10 @@
 """Subagent tool — delegate tasks to specialized agents.
 
-Spawns a separate `tau` process (in `--mode json` non-interactive mode) for
-each subagent invocation, giving it an isolated context window. NDJSON hook
-events on stdout (`message_end`, `tool_execution_start`, ...) are parsed back
-into usage stats and a lightweight activity log.
+Runs each subagent turn in-process via tau.agent.embedded.run_embedded_agent
+— its own Engine/LLM/tools, fully isolated, no OS subprocess. Raw hook
+events (`message_end`, `tool_execution_start`, ...) are consumed directly as
+Python objects and folded into usage stats and a lightweight activity log,
+same shape as before when they arrived as NDJSON.
 
 Three actions:
   - list:  (default when 'spawn'/'chain' are omitted) list every agent
@@ -12,12 +13,13 @@ Three actions:
              Spawn: {spawn: [{agent, task}, ...]}   concurrent, max 8, 4 at a time
              Chain: {chain: [{agent, task}, ...]}   sequential, task may reference '{previous}'
 
-Every run is ephemeral: no session is saved for the subagent process, and
-there is no background/async mode — the tool call blocks until its
-subagent(s) finish (or are aborted). Context defaults to 'fresh' (no
-history); 'fork' additionally resumes the parent's current session as
-read-only context (--resume + --ephemeral), so the child sees the
-conversation so far without ever writing back to it.
+Every run is ephemeral: no session is saved for the subagent run, and there
+is no background/async mode — the tool call blocks until its subagent(s)
+finish (or are aborted). Context defaults to 'fresh' (no history); 'fork'
+additionally resumes the parent's current session as read-only context —
+reads the parent's session file directly (tau.agent.embedded.load_fork_context)
+and seeds the embedded agent's message history with it, so the child sees
+the conversation so far without ever writing back to it.
 
 Model selection is intentionally simple for now: every subagent inherits the
 parent session's current model rather than picking a model per agent role.
@@ -26,15 +28,17 @@ parent session's current model rather than picking a model per agent role.
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agents import AgentConfig, discover_agents  # type: ignore[import-not-found]
+from subagent_schema import SubagentParams  # type: ignore[import-not-found]
 
+from tau.agent.embedded import TASK_TIMEOUT_S, load_fork_context, run_embedded_agent
+from tau.hooks.engine import MessageEndEvent, ToolExecutionStartEvent
+from tau.message.types import Role
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -47,7 +51,6 @@ from tau.tool.types import (
     ToolResult,
 )
 from tau.utils.format import format_number
-from subagent_schema import SubagentParams  # type: ignore[import-not-found]
 
 MAX_PARALLEL_TASKS = 8
 MAX_CONCURRENCY = 4
@@ -99,13 +102,6 @@ class SingleResult:
         return self.final_text or "(no output)"
 
 
-def _tau_invocation() -> list[str]:
-    exe = shutil.which("tau")
-    if exe:
-        return [exe]
-    return [sys.executable, "-c", "from tau.console.cli import main; main()"]
-
-
 def _truncate(output: str, cap: int) -> str:
     encoded = output.encode("utf-8")
     if len(encoded) <= cap:
@@ -143,154 +139,71 @@ def _parent_session(runtime_ref: Any) -> tuple[str, Path] | None:
     return sm.session_id, sm.session_dir
 
 
-def _build_run_args(
-    agent: AgentConfig,
-    task: str,
-    run_cwd: Path,
-    model: str | None,
-    parent_session: tuple[str, Path] | None,
-) -> list[str]:
-    args = ["--mode", "json", "--quiet", "--cwd", str(run_cwd)]
-    if parent_session is not None:
-        session_id, session_dir = parent_session
-        args += ["--resume", session_id, "--session-dir", str(session_dir)]
-    args += ["--ephemeral"]
-    if model:
-        args += ["--model", model]
-    if agent.tools:
-        args += ["--tools", ",".join(agent.tools)]
-    if agent.system_prompt.strip():
-        args += ["--system", agent.system_prompt]
-    args += ["--prompt", f"Task: {task}"]
-    return args
+_EXTENSION_TOOL_NAMES = ("web_search", "web_fetch")
 
 
-async def _drain_stderr(
-    proc: asyncio.subprocess.Process, result: SingleResult, cap: int = 4096
-) -> None:
-    assert proc.stderr is not None
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await proc.stderr.read(4096)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > cap:
-            break
-    result.stderr_tail = b"".join(chunks).decode("utf-8", errors="replace")[-cap:]
+def _extension_tools(runtime_ref: Any) -> list[Tool]:
+    """Extension-contributed tools an embedded agent can't construct itself
+    (web_search/web_fetch need a configured search engine) — borrowed as
+    already-instantiated, already-configured instances from the parent
+    session's own tool registry, if one is live. Returns [] when there's no
+    runtime (e.g. a headless test harness) or the web extension isn't
+    registered/enabled, in which case an agent that requests these tools
+    simply doesn't get them, same as before this ever existed.
+    """
+    runtime = getattr(runtime_ref, "runtime", None) if runtime_ref is not None else None
+    registry = getattr(getattr(runtime, "_context", None), "tool_registry", None)
+    if registry is None:
+        return []
+    tools = (registry.get(name) for name in _EXTENSION_TOOL_NAMES)
+    return [t for t in tools if t is not None]
 
 
-async def _read_ndjson(
-    proc: asyncio.subprocess.Process,
-    result: SingleResult,
-    signal: AbortSignal | None,
-    emit: Any,
-) -> bool:
-    """Read NDJSON events from stdout. Returns True if the abort signal fired."""
-    assert proc.stdout is not None
-    while True:
-        read_task: asyncio.Future[Any] = asyncio.ensure_future(proc.stdout.readline())
-        signal_task: asyncio.Future[Any] | None = (
-            asyncio.ensure_future(signal.wait()) if signal is not None else None
-        )
-        waiters: set[asyncio.Future[Any]] = {read_task}
-        if signal_task is not None:
-            waiters.add(signal_task)
-        try:
-            done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
-            if signal_task is not None and signal_task in done:
-                return True
-            line = read_task.result()
-        finally:
-            for t in waiters:
-                if not t.done():
-                    t.cancel()
-            await asyncio.gather(*waiters, return_exceptions=True)
+def _split_model_shorthand(model: str | None) -> tuple[str | None, str | None]:
+    """Parse a 'provider/model' shorthand string into (model_id, provider).
 
-        if not line:
-            return False
-
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        _apply_event(event, result)
-        emit()
+    Mirrors resolve_model() in tau/console/cli.py: a bare model id (no "/")
+    is passed through with no provider guess.
+    """
+    if model and "/" in model:
+        provider, _, model_id = model.partition("/")
+        return model_id, provider
+    return model, None
 
 
-def _apply_event(event: dict[str, Any], result: SingleResult) -> None:
-    etype = event.get("type")
-
-    if etype == "tool_execution_start":
-        tool_call = event.get("tool_call") or {}
+def _apply_hook_event(event: Any, result: SingleResult) -> None:
+    """Fold one raw Engine hook event into result — same effect _apply_event
+    (the old NDJSON-dict version) had, just reading attributes instead of
+    dict keys since these are now real event objects, not parsed JSON."""
+    if isinstance(event, ToolExecutionStartEvent):
         result.items.append(
             DisplayItem(
-                kind="tool_call", name=tool_call.get("name", ""), args=tool_call.get("args") or {}
+                kind="tool_call",
+                name=event.tool_call.name,
+                args=event.tool_call.args or {},
             )
         )
         return
 
-    if etype == "message_end":
-        message = event.get("message") or {}
-        if message.get("role") != "assistant":
+    if isinstance(event, MessageEndEvent):
+        message = event.message
+        if getattr(message, "role", None) != Role.ASSISTANT:
             return
         result.usage.turns += 1
-        usage = message.get("usage") or {}
-        result.usage.input_tokens += usage.get("input_tokens", 0)
-        result.usage.output_tokens += usage.get("output_tokens", 0)
-        result.usage.cache_read_tokens += usage.get("cache_read_tokens", 0)
-        result.usage.cache_write_tokens += usage.get("cache_write_tokens", 0)
-        result.usage.cost += (usage.get("cost") or {}).get("total", 0.0)
-        if message.get("stop_reason"):
-            result.stop_reason = message["stop_reason"]
-        if message.get("error"):
-            result.error_message = message["error"]
+        result.usage.input_tokens += message.usage.input_tokens
+        result.usage.output_tokens += message.usage.output_tokens
+        result.usage.cache_read_tokens += message.usage.cache_read_tokens
+        result.usage.cache_write_tokens += message.usage.cache_write_tokens
+        result.usage.cost += message.usage.cost.total
+        if message.stop_reason:
+            result.stop_reason = str(message.stop_reason)
+        if message.error:
+            result.error_message = message.error
 
-        text = "".join(
-            c.get("content", "") for c in message.get("contents", []) if c.get("type") == "text"
-        )
+        text = message.text_content()
         if text:
             result.items.append(DisplayItem(kind="text", text=text))
             result.final_text = text
-
-
-async def _run_process(
-    args: list[str], result: SingleResult, signal: AbortSignal | None, on_update: Any
-) -> None:
-    """Spawn `tau` with args, stream NDJSON into result, and wait for it to exit."""
-    invocation = _tau_invocation()
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *invocation,
-            *args,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError as e:
-        result.exit_code = 1
-        result.error_message = f"Failed to start subagent process: {e}"
-        return
-
-    def _emit() -> None:
-        if on_update is not None:
-            on_update(result)
-
-    stderr_task = asyncio.ensure_future(_drain_stderr(proc, result))
-    aborted = await _read_ndjson(proc, result, signal, _emit)
-    if aborted:
-        proc.kill()
-    result.exit_code = await proc.wait()
-    await asyncio.gather(stderr_task, return_exceptions=True)
-
-    if aborted:
-        result.stop_reason = "abort"
-        result.error_message = result.error_message or "Subagent was aborted."
-
-    _emit()
 
 
 async def run_single_agent(
@@ -306,14 +219,16 @@ async def run_single_agent(
     main_model: str | None,
     requested_context: str | None,
     parent_session: tuple[str, Path] | None,
+    runtime_ref: Any = None,
 ) -> SingleResult:
     """Run one agent to completion.
 
     requested_context is the explicit per-task/step or run-level 'context'
     (whichever was set), or None to fall back to the agent's own frontmatter
     default, or "fresh" if neither says otherwise. "fork" resumes the
-    parent's current session as read-only context via --resume/--ephemeral
-    (see _build_run_args) — never written back regardless of what the child does.
+    parent's current session as read-only context, read directly from its
+    session file via load_fork_context() — never written back regardless of
+    what the child does.
     """
     agent = next((a for a in agents if a.name == agent_name), None)
     if agent is None:
@@ -347,10 +262,38 @@ async def run_single_agent(
         agent=agent_name, agent_source=agent.source, task=task, model=model, step=step
     )
     run_cwd = Path(cwd).expanduser().resolve() if cwd else default_cwd
-    args = _build_run_args(
-        agent, task, run_cwd, model, parent_session if context_mode == "fork" else None
+    model_id, provider = _split_model_shorthand(model)
+
+    initial_messages = None
+    if context_mode == "fork" and parent_session is not None:
+        session_id, session_dir = parent_session
+        initial_messages = load_fork_context(run_cwd, session_id, session_dir)
+
+    def _on_event(event: Any) -> None:
+        _apply_hook_event(event, result)
+        if on_update is not None:
+            on_update(result)
+
+    ok, output, _usage = await run_embedded_agent(
+        cwd=run_cwd,
+        model_id=model_id,
+        provider=provider,
+        system_prompt=agent.system_prompt,
+        tool_names=agent.tools,
+        task_text=task,
+        initial_messages=initial_messages,
+        abort_signal=signal,
+        extra_tools=_extension_tools(runtime_ref),
+        on_event=_on_event,
+        timeout_s=TASK_TIMEOUT_S,
     )
-    await _run_process(args, result, signal, on_update)
+    result.final_text = output
+    result.exit_code = 0 if ok else 1
+    if not ok:
+        result.error_message = result.error_message or output
+        result.stop_reason = result.stop_reason or "error"
+    if on_update is not None:
+        on_update(result)
     return result
 
 
@@ -749,6 +692,7 @@ class SubagentTool(Tool):
                     main_model=main_model,
                     requested_context=step.context or params.context,
                     parent_session=parent_session,
+                    runtime_ref=self._runtime_ref,
                 )
                 results.append(r)
                 if r.failed:
@@ -788,6 +732,7 @@ class SubagentTool(Tool):
                 main_model=main_model,
                 requested_context=t.context or params.context,
                 parent_session=parent_session,
+                runtime_ref=self._runtime_ref,
             )
             all_results[index] = r
             await _stream("spawn", all_results)

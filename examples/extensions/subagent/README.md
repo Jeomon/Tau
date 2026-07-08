@@ -4,11 +4,15 @@ Delegate tasks to specialized subagents with isolated context windows.
 
 ## Features
 
-- **Isolated context**: each subagent runs in a separate `tau` process
+- **Isolated context**: each subagent runs in-process via its own Engine/LLM
+  (`tau.agent.embedded.run_embedded_agent`) — no OS subprocess, no shared
+  session or registry state with the parent
 - **Streaming output**: see tool calls and progress as they happen
 - **Parallel streaming**: all parallel tasks stream updates simultaneously
 - **Usage tracking**: shows turns, tokens, and cost per agent
-- **Abort support**: aborting the parent turn kills the subagent process(es)
+- **Abort support**: aborting the parent turn aborts the subagent(s)
+  cooperatively via the engine's own AbortSignal (same mechanism Esc-cancel
+  uses in the interactive TUI)
 
 ## Structure
 
@@ -30,6 +34,11 @@ subagent/
     └── delegate.md                  # Lightweight full-access, no fixed persona
 ```
 
+Uses `tau.agent.embedded` (`tau/agent/embedded.py`) — the shared in-process
+agent-execution core, also used by the `/workflow` extension. That's where
+`run_embedded_agent()`, `load_fork_context()`, and the timeout/abort logic
+actually live; this extension just calls it with the right agent/task/tools.
+
 ## Installation
 
 This extension ships as a Tau builtin (`tau/builtins/extensions/subagent`),
@@ -44,8 +53,9 @@ ln -sf "$(pwd)/examples/extensions/subagent" ~/.tau/extensions/subagent
 
 ## Security Model
 
-This tool executes a separate `tau` subprocess with a delegated system
-prompt and tool/model configuration.
+This tool runs an isolated in-process agent turn with a delegated system
+prompt and tool/model configuration — its own Engine/LLM instance, no shared
+state with the parent session.
 
 **Project-local agents** (`.tau/agents/*.md`) are repo-controlled prompts
 that can instruct the model to read files, run shell commands, etc.
@@ -133,7 +143,11 @@ System prompt for the agent goes here.
 | `delegate` | Lightweight full-access, no fixed persona | read, grep, glob, ls, terminal, edit, write |
 
 `researcher` and `context-builder`'s web tools require the `web` extension
-(`web_search`/`web_fetch`) to be enabled.
+(`web_search`/`web_fetch`) to be enabled — a live session's own already-
+configured tool instances are borrowed (same engine/API keys the interactive
+`web_search`/`web_fetch` tools use), not reconstructed from scratch. Without
+a live parent session (e.g. a standalone test harness), these two tools
+simply aren't available and the agent proceeds without them.
 
 ## Model Selection
 
@@ -146,17 +160,23 @@ Haiku/Sonnet-style split per role.
 
 ## Error Handling
 
-- **Exit code != 0**: tool returns error with stderr/output
+- **Run failure**: tool returns error with the failure message as output
 - **stop_reason "error"**: LLM error propagated with error message
-- **stop_reason "abort"**: abort kills the subprocess, throws error
+- **stop_reason "abort"**: cooperative abort via AbortSignal, no subprocess to kill
+- **300s timeout**: a task that never produces output (wedged model call,
+  runaway tool use) fails cleanly instead of hanging indefinitely
 - **Chain mode**: stops at the first failing step, reports which step failed
 
 ## Limitations
 
-- Runs are ephemeral — no session is saved for the subagent process, and
+- Runs are ephemeral — no session is saved for the subagent run, and
   there's no background/async mode; the tool call blocks until its
   subagent(s) finish.
 - Parallel/chain output per task is capped at 50 KB in the model-visible
   summary.
 - Agents are discovered fresh on each invocation (safe to edit mid-session).
 - Parallel mode is limited to 8 tasks, 4 concurrent.
+- Only the base coding tools (`read`/`write`/`edit`/`terminal`/`glob`/`grep`/`ls`)
+  and `web_search`/`web_fetch` (when a live parent session has them) are
+  available — other extension-contributed tools (e.g. `todo`, `subagent`
+  itself) can't be requested from within a subagent's own `tools:` list.
