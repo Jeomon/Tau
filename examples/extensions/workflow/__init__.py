@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 sys.path.insert(0, str(Path(__file__).parent))
 
 import store  # noqa: E402
-from agents import discover_agents  # noqa: E402
+from agent_discovery import discover_agents  # noqa: E402
 from model import WorkflowDef  # noqa: E402
 from runner import TaskResult, run_workflow  # noqa: E402
 
