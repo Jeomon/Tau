@@ -2,6 +2,12 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.3 — 2026-07-08
+
+### Fixed
+
+-   `--print`/`--prompt` non-interactive mode never emitted assistant text output: it checked `hasattr(content, "text")`, but `TextContent` stores its value under `.content`, not `.text`, so the check never matched and output was always silently empty regardless of provider. Now uses `AssistantMessage.text_content()`.
+
 ## 0.6.2 — 2026-07-08
 
 ### Added
