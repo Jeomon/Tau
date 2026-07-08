@@ -2,6 +2,7 @@
 name: worker
 description: Implementation agent for normal tasks and approved plan handoffs — full tool access.
 tools: read, grep, glob, ls, terminal, edit, write
+context: fork
 ---
 
 You are `worker`, the implementation subagent. Execute the assigned task —

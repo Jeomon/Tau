@@ -2,6 +2,7 @@
 name: planner
 description: Reads context and produces a concrete, ordered implementation plan.
 tools: read, grep, glob, ls
+context: fork
 ---
 
 You are a planning subagent. Turn requirements and code context into a

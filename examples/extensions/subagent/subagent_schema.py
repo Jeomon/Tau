@@ -5,10 +5,23 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+_CONTEXT_DESCRIPTION = (
+    "'fresh' starts the subagent with no history — only its task. 'fork' "
+    "resumes the parent session's current conversation as read-only context: "
+    "the subagent sees everything so far, but nothing it does is ever "
+    "written back to the parent session or anywhere else. Leave unset to "
+    "use the run-level 'context', or the target agent's own default "
+    "(falling back to 'fresh' if neither is set)."
+)
+
+
 class TaskItem(BaseModel):
     agent: str = Field(..., description="Name of the agent to invoke.")
     task: str = Field(..., description="Task to delegate to the agent.")
     cwd: str | None = Field(default=None, description="Working directory for the agent process.")
+    context: Literal["fresh", "fork"] | None = Field(
+        default=None, description=_CONTEXT_DESCRIPTION
+    )
 
 
 class ChainItem(BaseModel):
@@ -18,6 +31,9 @@ class ChainItem(BaseModel):
         description="Task with an optional '{previous}' placeholder for the prior step's output.",
     )
     cwd: str | None = Field(default=None, description="Working directory for the agent process.")
+    context: Literal["fresh", "fork"] | None = Field(
+        default=None, description=_CONTEXT_DESCRIPTION
+    )
 
 
 class SubagentParams(BaseModel):
@@ -47,5 +63,13 @@ class SubagentParams(BaseModel):
         description=(
             "Steps to run one after another. Each step's 'task' may include the literal "
             "placeholder '{previous}', replaced with the prior step's final output."
+        ),
+    )
+    context: Literal["fresh", "fork"] | None = Field(
+        default=None,
+        description=(
+            "Default context mode for every task/step that doesn't set its own "
+            "'context' (still overridden by each agent's own default when this is "
+            "left unset). " + _CONTEXT_DESCRIPTION
         ),
     )

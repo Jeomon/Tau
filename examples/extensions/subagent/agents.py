@@ -22,6 +22,7 @@ class AgentConfig:
     system_prompt: str
     source: Literal["builtin", "user", "project"]
     file_path: str
+    context: Literal["fresh", "fork"] | None = None
 
 
 _BUILTIN_AGENTS_DIR = Path(__file__).parent / "agents"
@@ -66,6 +67,9 @@ def _load_agents_from_dir(
         tools_raw = frontmatter.get("tools")
         tools = [t.strip() for t in tools_raw.split(",") if t.strip()] if tools_raw else None
 
+        context_raw = (frontmatter.get("context") or "").strip().lower()
+        context = context_raw if context_raw in ("fresh", "fork") else None
+
         agents.append(
             AgentConfig(
                 name=name,
@@ -75,6 +79,7 @@ def _load_agents_from_dir(
                 system_prompt=body,
                 source=source,
                 file_path=str(path),
+                context=context,
             )
         )
 

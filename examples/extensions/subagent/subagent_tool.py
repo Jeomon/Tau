@@ -12,9 +12,12 @@ Three actions:
              Spawn: {spawn: [{agent, task}, ...]}   concurrent, max 8, 4 at a time
              Chain: {chain: [{agent, task}, ...]}   sequential, task may reference '{previous}'
 
-Runs are ephemeral: no session is saved for the subagent process, and there
-is no background/async mode — the tool call blocks until its subagent(s)
-finish (or are aborted).
+Every run is ephemeral: no session is saved for the subagent process, and
+there is no background/async mode — the tool call blocks until its
+subagent(s) finish (or are aborted). Context defaults to 'fresh' (no
+history); 'fork' additionally resumes the parent's current session as
+read-only context (--resume + --ephemeral), so the child sees the
+conversation so far without ever writing back to it.
 
 Model selection is intentionally simple for now: every subagent inherits the
 parent session's current model rather than picking a model per agent role.
@@ -125,8 +128,32 @@ def _parent_model(runtime_ref: Any) -> str | None:
     return f"{ctx.provider_id}/{ctx.model_id}" if ctx.provider_id else ctx.model_id
 
 
-def _build_run_args(agent: AgentConfig, task: str, run_cwd: Path, model: str | None) -> list[str]:
-    args = ["--mode", "json", "--quiet", "--cwd", str(run_cwd), "--ephemeral"]
+def _parent_session(runtime_ref: Any) -> tuple[str, Path] | None:
+    """(session_id, session_dir) of the parent's current persisted session, if any.
+
+    Returns None when there's nothing on disk to fork from: the parent
+    session isn't persisted (e.g. its own run is ephemeral, or trust is
+    still pending), or it has no session_id/session_file yet.
+    """
+    runtime = getattr(runtime_ref, "runtime", None) if runtime_ref is not None else None
+    sm = getattr(runtime, "session_manager", None) if runtime is not None else None
+    if sm is None or not sm.persist or sm.session_id is None or sm.session_file is None:
+        return None
+    return sm.session_id, sm.session_dir
+
+
+def _build_run_args(
+    agent: AgentConfig,
+    task: str,
+    run_cwd: Path,
+    model: str | None,
+    parent_session: tuple[str, Path] | None,
+) -> list[str]:
+    args = ["--mode", "json", "--quiet", "--cwd", str(run_cwd)]
+    if parent_session is not None:
+        session_id, session_dir = parent_session
+        args += ["--resume", session_id, "--session-dir", str(session_dir)]
+    args += ["--ephemeral"]
     if model:
         args += ["--model", model]
     if agent.tools:
@@ -276,8 +303,17 @@ async def run_single_agent(
     signal: AbortSignal | None,
     on_update: Any,
     main_model: str | None,
+    requested_context: str | None,
+    parent_session: tuple[str, Path] | None,
 ) -> SingleResult:
-    """Run one agent to completion (ephemeral, no session saved)."""
+    """Run one agent to completion.
+
+    requested_context is the explicit per-task/step or run-level 'context'
+    (whichever was set), or None to fall back to the agent's own frontmatter
+    default, or "fresh" if neither says otherwise. "fork" resumes the
+    parent's current session as read-only context via --resume/--ephemeral
+    (see _build_run_args) — never written back regardless of what the child does.
+    """
     agent = next((a for a in agents if a.name == agent_name), None)
     if agent is None:
         available = ", ".join(f'"{a.name}"' for a in agents) or "none"
@@ -290,12 +326,29 @@ async def run_single_agent(
             step=step,
         )
 
+    context_mode = requested_context or agent.context or "fresh"
+
+    if context_mode == "fork" and parent_session is None:
+        return SingleResult(
+            agent=agent_name,
+            agent_source=agent.source,
+            task=task,
+            exit_code=1,
+            error_message=(
+                "context='fork' requested but there is no persisted parent session to "
+                "fork from (the current session isn't saved to disk yet)."
+            ),
+            step=step,
+        )
+
     model = main_model or agent.model
     result = SingleResult(
         agent=agent_name, agent_source=agent.source, task=task, model=model, step=step
     )
     run_cwd = Path(cwd).expanduser().resolve() if cwd else default_cwd
-    args = _build_run_args(agent, task, run_cwd, model)
+    args = _build_run_args(
+        agent, task, run_cwd, model, parent_session if context_mode == "fork" else None
+    )
     await _run_process(args, result, signal, on_update)
     return result
 
@@ -503,7 +556,13 @@ class SubagentTool(Tool):
                 "8, 4 at a time; pass 'chain' (list of {agent, task}) to run steps "
                 "sequentially, where a step's task may contain '{previous}' for the "
                 "prior step's output. Each subagent runs as its own process with its own "
-                "context window and inherits the current session's model. Ships with "
+                "context window and inherits the current session's model. Set 'context' "
+                "('fresh' or 'fork') at the run level or per task/step to override an "
+                "agent's default: 'fork' resumes the parent session's current "
+                "conversation as read-only context — the subagent sees everything so "
+                "far but never writes back to the parent session. 'planner', 'worker', "
+                "and 'oracle' default to 'fork' (they benefit from seeing the "
+                "conversation so far); other builtins default to 'fresh'. Ships with "
                 "'scout' (fast read-only recon), 'researcher' (web research), 'planner', "
                 "'context-builder' (requirements + code recon), 'oracle' (second opinion "
                 "/ drift check), 'worker', 'reviewer', and 'delegate' (lightweight "
@@ -555,6 +614,7 @@ class SubagentTool(Tool):
 
         agents, project_agents_dir = discover_agents(default_cwd)
         main_model = _parent_model(self._runtime_ref)
+        parent_session = _parent_session(self._runtime_ref)
 
         action = params.action or ("tasks" if (params.spawn or params.chain) else "list")
 
@@ -669,6 +729,8 @@ class SubagentTool(Tool):
                     signal=signal,
                     on_update=lambda res: asyncio.ensure_future(_stream("chain", [*results, res])),
                     main_model=main_model,
+                    requested_context=step.context or params.context,
+                    parent_session=parent_session,
                 )
                 results.append(r)
                 if r.failed:
@@ -706,6 +768,8 @@ class SubagentTool(Tool):
                     asyncio.ensure_future(_stream("spawn", all_results)),
                 ),
                 main_model=main_model,
+                requested_context=t.context or params.context,
+                parent_session=parent_session,
             )
             all_results[index] = r
             await _stream("spawn", all_results)
