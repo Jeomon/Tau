@@ -2,6 +2,29 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.2 — 2026-07-08
+
+### Added
+
+-   Add a persistent todo list tool for task tracking across sessions, with batch creation, insertion/reordering via `after_id`, fine-grained status tracking (`in_progress`/`failed`), and an above-editor task board.
+-   Add a subagent extension for delegating tasks to specialized agents via markdown presets, with model inheritance from the parent session, `list`/`get` actions for discovering available agents, background task execution with full CRUD lifecycle management, and `context='fresh'|'fork'` for controlling session-history sharing.
+-   Add token usage metrics to subagent steps and markdown rendering for subagent tool outputs, with configurable markdown body text styling.
+-   Add sandboxed terminal execution using microVMs with automatic host fallback, plus documentation for the standalone terminal sandbox extension.
+-   Add robust input validation and side-by-side UI previews to the `ask_user` extension, including support for sequential multi-question workflows.
+
+### Fixed
+
+-   Ensure a full UI theme refresh by clearing the frozen render cache on theme change, so switching themes now recolors previously-rendered rows instead of leaving some in the old theme.
+-   Prevent session header duplication by overwriting the file on initial flush, and verify ephemeral-mode persistence logic.
+
+### Refactored
+
+-   Centralize numeric and byte formatting into a shared `tau.utils.format` module (used by the model picker, session stats, subagent usage line, and tool output rendering) and improve CLI error handling to surface assistant errors in print mode.
+-   Simplify the subagent tool by removing persistent session/background execution in favor of defaulting to the parent model, and rename `fallback_model` to `main_model`.
+-   Remove explicit agent scoping in favor of always-on project-local agent discovery with mandatory confirmation.
+-   Switch `ask_user` to inline rendering and prevent voice recording during modal interaction; improve LSP tool output formatting.
+-   Remove the MCP and VCC extension modules and clean up the subagent implementation accordingly.
+
 ## 0.6.1 — 2026-07-07
 
 ### Added
