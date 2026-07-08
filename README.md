@@ -1,9 +1,7 @@
 <div align="center">
 
-  <img src="assets/logo.png" alt="Tau Logo" width="150">
-
-  <h1>🤖 Tau</h1>
-
+  <img src="assets/wordmark.svg" alt="Tau" height="160">
+  <br>
   <a href="https://pypi.org/project/tau-coding-agent/">
     <img src="https://img.shields.io/pypi/v/tau-coding-agent.svg" alt="PyPI version">
   </a>
