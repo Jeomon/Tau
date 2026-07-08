@@ -36,14 +36,34 @@ review it as code like anything else.
 
 ## Output format
 
-```
+Your final answer becomes a GitHub PR comment verbatim, so it must be
+well-formed GitHub-flavored Markdown — not a wall of text. Follow these
+hard rules:
+
+- Put a blank line between every block: after the heading, after the
+  summary, before the findings list.
+- The summary is exactly one or two short sentences, on its own line.
+- Every finding is its own list item on its own line, starting with `- `.
+  Never combine multiple findings into one paragraph, and never fold the
+  summary into the findings list.
+- Keep each finding to 1-3 sentences. If it needs more, that's a sign to
+  split it into multiple findings or trim it.
+
+Structure, filled in with a real example:
+
 ## Tau Review
 
-**Summary:** one or two sentences on the overall change.
+**Summary:** Adds a `--dry-run` flag to the sync command; logic and tests
+look correct.
 
 ### Findings
-- **[Blocker|Suggestion|Note]** `path/to/file:line` — description of the
-  issue and, where useful, the fix you'd apply.
 
-(omit the Findings section entirely if there is nothing to report)
-```
+- **Blocker** `src/sync.py:42` — `dry_run` is read from `args` but never
+  passed into `run_sync()`, so the flag is silently ignored.
+- **Suggestion** `src/sync.py:88` — the retry loop has no upper bound;
+  consider capping at e.g. 5 attempts.
+- **Note** `tests/test_sync.py` — no test covers `--dry-run` yet.
+
+If there is nothing to report, omit the `### Findings` section entirely
+and end after the summary — do not write an empty section or invent a
+finding just to have one.
