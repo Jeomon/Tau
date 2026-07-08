@@ -60,6 +60,16 @@ project-local agents (`confirm_project_agents: false` to disable).
 
 ## Usage
 
+### Browse agents
+```
+Show me the available subagents
+```
+
+### Agent detail
+```
+Show me the full system prompt for oracle
+```
+
 ### Single agent
 ```
 Use scout to find all authentication code
@@ -74,6 +84,14 @@ Run 2 scouts in parallel: one to find models, one to find providers
 ```
 Use a chain: first have scout find the read tool, then have planner suggest improvements
 ```
+
+## Actions
+
+| Action | Parameters | Description |
+|--------|-----------|-------------|
+| `list` | *(none — this is the default when 'spawn'/'chain' are both omitted)* | Every discovered agent's name, source, description, tools, and model |
+| `get` | `agent` | Full detail for one agent, including its system prompt |
+| `tasks` | `spawn` and/or `chain` *(implicit whenever either is set)* | Execute — see Tool Modes below |
 
 ## Tool Modes
 

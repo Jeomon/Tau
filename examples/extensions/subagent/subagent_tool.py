@@ -5,9 +5,12 @@ each subagent invocation, giving it an isolated context window. NDJSON hook
 events on stdout (`message_end`, `tool_execution_start`, ...) are parsed back
 into usage stats and a lightweight activity log.
 
-Two modes (a single task is just a one-item list in either):
-  - Spawn: {spawn: [{agent, task}, ...]}   concurrent, max 8, 4 at a time
-  - Chain: {chain: [{agent, task}, ...]}   sequential, task may reference '{previous}'
+Three actions:
+  - list:  (default when 'spawn'/'chain' are omitted) list every agent
+  - get:   {agent}                                    full detail on one agent
+  - tasks: (implicit whenever 'spawn'/'chain' is set)  execute:
+             Spawn: {spawn: [{agent, task}, ...]}   concurrent, max 8, 4 at a time
+             Chain: {chain: [{agent, task}, ...]}   sequential, task may reference '{previous}'
 
 Runs are ephemeral: no session is saved for the subagent process, and there
 is no background/async mode — the tool call blocks until its subagent(s)
@@ -338,6 +341,33 @@ def _format_usage(usage: Usage, model: str | None) -> str:
     return " ".join(parts)
 
 
+def _resolve_action(args: dict) -> str:
+    action = args.get("action")
+    if action:
+        return action
+    return "tasks" if (args.get("spawn") or args.get("chain")) else "list"
+
+
+def _format_agent_line(a: AgentConfig) -> str:
+    tools = ", ".join(a.tools) if a.tools else "default"
+    model = a.model or "inherits session model"
+    return f"{a.name} ({a.source}): {a.description} [tools={tools}, model={model}]"
+
+
+def _format_agent_detail(a: AgentConfig) -> str:
+    tools = ", ".join(a.tools) if a.tools else "(default toolset)"
+    model = a.model or "(inherits the parent session's model)"
+    return (
+        f"name: {a.name}\n"
+        f"source: {a.source}\n"
+        f"description: {a.description}\n"
+        f"tools: {tools}\n"
+        f"model: {model}\n"
+        f"file: {a.file_path}\n"
+        f"---\n{a.system_prompt}"
+    )
+
+
 def _result_summary(r: SingleResult) -> dict[str, Any]:
     return {
         "agent": r.agent,
@@ -351,6 +381,15 @@ def _result_summary(r: SingleResult) -> dict[str, Any]:
 
 def _render_call(args: dict, _streaming: bool = False) -> list[str]:
     scope = args.get("agent_scope", "user")
+    action = _resolve_action(args)
+
+    match action:
+        case "list":
+            return call_line("subagent", "list", f"[{scope}]")
+        case "get":
+            return call_line("subagent", "get", args.get("agent") or "...")
+        case _:
+            pass
 
     chain = args.get("chain") or []
     spawn = args.get("spawn") or []
@@ -389,6 +428,32 @@ def _render_result(content: str, opts: Any) -> list[str]:
 
     lines = content.splitlines() or [content]
 
+    match mode:
+        case "list":
+            agents_meta = metadata.get("agents") or []
+            if agents_meta and not opts.is_error:
+                import textwrap
+
+                check = style(theme.success if theme else None, "✓")
+                out: list[str] = []
+                for a in agents_meta:
+                    out.append(f"{check} {a['name']} ({a['source']})")
+                    for line in textwrap.wrap(a["description"], 76) or [a["description"]]:
+                        out.append(f"    {line}")
+                    out.append(f"    [tools={a['tools']}, model={a['model']}]")
+                return out
+            icon = "✗" if opts.is_error else "✓"
+            color = (theme.error if opts.is_error else theme.success) if theme else None
+            return [f"{style(color, icon)} {lines[0]}", *lines[1:]]
+
+        case "get":
+            icon = "✗" if opts.is_error else "✓"
+            color = (theme.error if opts.is_error else theme.success) if theme else None
+            return [f"{style(color, icon)} {lines[0]}", *lines[1:]]
+
+        case _:
+            pass
+
     if len(results) <= 1:
         r = results[0] if results else {}
         icon = "✓" if r.get("status") == "ok" else ("✗" if r.get("status") == "error" else "⏳")
@@ -403,8 +468,6 @@ def _render_result(content: str, opts: Any) -> list[str]:
         )
         header = f"{style(color, icon)} {r.get('agent', '')} ({r.get('source', '')})"
         out = [header, *lines[:COLLAPSED_ITEM_COUNT]]
-        if len(lines) > COLLAPSED_ITEM_COUNT:
-            out.append(style(theme.muted, "(Ctrl+O to expand)") if theme else "(Ctrl+O to expand)")
         if r.get("usage"):
             out.append(style(theme.muted, r["usage"]) if theme else r["usage"])
         return out
@@ -418,7 +481,6 @@ def _render_result(content: str, opts: Any) -> list[str]:
         step_label = f"Step {r['step']}: " if r.get("step") else ""
         rc = "✓" if r.get("status") == "ok" else ("✗" if r.get("status") == "error" else "⏳")
         out.append(f"  {step_label}{r.get('agent', '')} {rc}")
-    out.append(style(theme.muted, "(Ctrl+O to expand)") if theme else "(Ctrl+O to expand)")
     return out
 
 
@@ -431,18 +493,24 @@ class SubagentTool(Tool):
         super().__init__(
             name="subagent",
             description=(
-                "Delegate tasks to specialized subagents with isolated context. Pass "
-                "'spawn' (list of {agent, task}) to run tasks concurrently — a single "
-                "task is just a one-item list — max 8, 4 at a time. Pass 'chain' (list "
-                "of {agent, task}) to run steps sequentially, where a step's task may "
-                "contain '{previous}' for the prior step's output. Each subagent runs as "
-                "its own process with its own context window and inherits the current "
-                "session's model. Ships with 'scout' (fast read-only recon), 'researcher' "
-                "(web research), 'planner', 'context-builder' (requirements + code recon), "
-                "'oracle' (second opinion / drift check), 'worker', 'reviewer', and "
-                "'delegate' (lightweight full-access) out of the box. Add your own in "
-                f"{user_agents_dir}. To enable project-local agents in .tau/agents, set "
-                "agent_scope='both' or 'project' (trusted repositories only)."
+                "Delegate tasks to specialized subagents with isolated context, or "
+                "inspect what agents are available. action='list' (default when "
+                "'spawn'/'chain' are both omitted) lists every agent's name, source, "
+                "description, tools, and model — call this first if unsure what agents "
+                "exist. action='get' returns full detail, including the system prompt, "
+                "for one agent named in 'agent'. action='tasks' (implicit whenever "
+                "'spawn'/'chain' is set) executes: pass 'spawn' (list of {agent, task}) "
+                "to run tasks concurrently — a single task is just a one-item list — max "
+                "8, 4 at a time; pass 'chain' (list of {agent, task}) to run steps "
+                "sequentially, where a step's task may contain '{previous}' for the "
+                "prior step's output. Each subagent runs as its own process with its own "
+                "context window and inherits the current session's model. Ships with "
+                "'scout' (fast read-only recon), 'researcher' (web research), 'planner', "
+                "'context-builder' (requirements + code recon), 'oracle' (second opinion "
+                "/ drift check), 'worker', 'reviewer', and 'delegate' (lightweight "
+                f"full-access) out of the box. Add your own in {user_agents_dir}. To "
+                "enable project-local agents in .tau/agents, set agent_scope='both' or "
+                "'project' (trusted repositories only)."
             ),
             schema=SubagentParams,
             kind=ToolKind.Execute,
@@ -489,6 +557,56 @@ class SubagentTool(Tool):
         agent_scope: AgentScope = params.agent_scope
         agents, project_agents_dir = discover_agents(default_cwd, agent_scope)
         main_model = _parent_model(self._runtime_ref)
+
+        action = params.action or ("tasks" if (params.spawn or params.chain) else "list")
+
+        match action:
+            case "list":
+                sorted_agents = sorted(agents, key=lambda a: a.name)
+                if not sorted_agents:
+                    return ToolResult.ok(
+                        invocation.id,
+                        "No agents configured.",
+                        metadata={"mode": "list", "agents": []},
+                    )
+                lines = [_format_agent_line(a) for a in sorted_agents]
+                return ToolResult.ok(
+                    invocation.id,
+                    "\n".join(lines),
+                    metadata={
+                        "mode": "list",
+                        "agents": [
+                            {
+                                "name": a.name,
+                                "source": a.source,
+                                "description": a.description,
+                                "tools": ", ".join(a.tools) if a.tools else "default",
+                                "model": a.model or "inherits session model",
+                            }
+                            for a in sorted_agents
+                        ],
+                    },
+                )
+
+            case "get":
+                if not params.agent:
+                    return ToolResult.error(
+                        invocation.id, "action='get' requires 'agent'.", metadata={"mode": "get"}
+                    )
+                found = next((a for a in agents if a.name == params.agent), None)
+                if found is None:
+                    available = ", ".join(a.name for a in agents) or "none"
+                    return ToolResult.error(
+                        invocation.id,
+                        f'Unknown agent: "{params.agent}". Available: {available}.',
+                        metadata={"mode": "get"},
+                    )
+                return ToolResult.ok(
+                    invocation.id, _format_agent_detail(found), metadata={"mode": "get"}
+                )
+
+            case _:
+                pass
 
         has_chain = bool(params.chain)
         has_spawn = bool(params.spawn)
