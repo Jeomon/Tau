@@ -7,8 +7,10 @@ enable_persist() is called.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
+from tau.message.types import AssistantMessage, UserMessage
 from tau.session.manager import SessionManager
 
 
@@ -151,3 +153,51 @@ class TestTrustPendingPersistFlag:
         # Directory must not have been created at any point.
         assert not session_dir.exists()
         assert sm.session_file is None
+
+
+# ---------------------------------------------------------------------------
+# --resume + --ephemeral
+#
+# `tau -r <id> -e` should load an existing session's history as context but
+# never write to it: neither the pre-existing entries nor any new turn.
+# This mirrors the `persist_session=not opts["ephemeral"]` wiring in
+# tau/console/cli.py, tested here directly at the SessionManager level.
+# ---------------------------------------------------------------------------
+
+
+class TestResumeEphemeral:
+    def test_ephemeral_resume_loads_history_without_persisting(self, tmp_path):
+        """Resuming a real session file with persist=False must load its
+        entries into memory but must never modify the file on disk."""
+        session_dir = tmp_path / "sessions"
+
+        # Create a real session the way a normal (non-resumed) `tau` run does:
+        # persist=True, no explicit session_file, so new_session() picks the path.
+        seed = SessionManager(cwd=tmp_path, session_dir=session_dir, persist=True)
+        seed.append_message(UserMessage.from_text("what is tau"))
+        seed.append_message(AssistantMessage.from_text("a config language"))
+        session_file = seed.session_file
+        assert session_file is not None
+
+        before_hash = hashlib.sha256(session_file.read_bytes()).hexdigest()
+        before_mtime = session_file.stat().st_mtime
+
+        # Resume it ephemerally, as `tau -r <id> -e` would.
+        resumed = SessionManager(
+            cwd=tmp_path, session_dir=session_dir, session_file=session_file, persist=False
+        )
+
+        assert len(resumed.entries) == 3  # header + 2 messages
+        assert resumed.session_id == seed.session_id
+
+        # Simulate a new turn happening during the ephemeral run.
+        resumed.append_message(UserMessage.from_text("new ephemeral question"))
+        resumed.append_message(AssistantMessage.from_text("new ephemeral answer"))
+
+        after_hash = hashlib.sha256(session_file.read_bytes()).hexdigest()
+        after_mtime = session_file.stat().st_mtime
+
+        assert after_hash == before_hash
+        assert after_mtime == before_mtime
+        # The new turn only ever lived in memory.
+        assert len(resumed.entries) == 5  # header + 2 seed messages + 2 new

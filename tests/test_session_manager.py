@@ -106,6 +106,27 @@ def test_explicit_new_session_file_remains_valid_after_first_turn(tmp_path) -> N
     assert messages == ["first task", "first result"]
 
 
+def test_explicit_new_session_file_has_single_header_after_first_turn(tmp_path) -> None:
+    """set_session() eagerly writes the header for a not-yet-existing explicit
+    path, then flags flushed=True. Appending a user message with no assistant
+    reply yet resets flushed=False (deferred-turn buffering); the first full
+    flush after that must overwrite rather than append, or the header ends up
+    duplicated on disk."""
+    session_file = tmp_path / "explicit.jsonl"
+    manager = SessionManager(
+        cwd=tmp_path,
+        session_dir=tmp_path / "sessions",
+        session_file=session_file,
+        persist=True,
+    )
+    manager.append_message(UserMessage.from_text("first task"))
+    manager.append_message(AssistantMessage.from_text("first result"))
+
+    lines = session_file.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 3
+    assert sum(1 for line in lines if '"type":"session"' in line) == 1
+
+
 def test_persistence_errors_propagate(tmp_path) -> None:
     manager = _manager(tmp_path)
     manager.persist = True

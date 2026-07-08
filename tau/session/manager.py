@@ -223,12 +223,14 @@ class SessionManager:
             self.flushed = False
             return
 
-        with self.session_file.open("a", encoding="utf-8") as f:
-            if not self.flushed:
-                lines = [e.model_dump_json(exclude_none=True) + "\n" for e in self.entries]
-                f.writelines(lines)
-                self.flushed = True
-            else:
+        if not self.flushed:
+            # Full rewrite (not append): the file may already hold a header
+            # written eagerly by set_session(), so overwrite rather than
+            # append to avoid duplicating it.
+            self._rewrite_file()
+            self.flushed = True
+        else:
+            with self.session_file.open("a", encoding="utf-8") as f:
                 f.write(entry.model_dump_json(exclude_none=True) + "\n")
 
     def _append_entry(self, entry: SessionEntry) -> str:
