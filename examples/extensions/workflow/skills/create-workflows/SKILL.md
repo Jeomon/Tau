@@ -96,6 +96,38 @@ phases:
   that phase's label, so it can be fed into a further `for_each`.
 - `{item}` — current item inside a `for_each` phase only.
 
+## Structured output
+
+Give a task an optional `schema` (a flat JSON Schema object) when its output
+feeds a later `for_each` or `{results.<label>}` and needs to be reliably
+parseable — models often wrap plain-text JSON in commentary or code fences,
+which breaks `for_each`'s parser. With `schema` set, the task gets a
+`structured_output` tool it must call exactly once as its final action; the
+validated call arguments (as compact JSON, no wrapping) become the task's
+output instead of whatever prose the model would otherwise write. A task
+that finishes without calling it fails, like any other task failure.
+
+Only flat shapes are supported: `string`, `integer`, `number`, `boolean`,
+and arrays of those. Nested `object` types aren't validated (they pass
+through unconstrained) — keep schemas flat.
+
+```yaml
+- title: Extract Findings
+  tasks:
+    - agent: reviewer
+      task: "List every file with a missing auth check, and why."
+      label: findings
+      schema:
+        type: object
+        properties:
+          files:
+            type: array
+            items: { type: string }
+          reason:
+            type: string
+        required: [files, reason]
+```
+
 ## Failure handling
 
 Any task failure aborts the whole run immediately (fail-fast) — there is no

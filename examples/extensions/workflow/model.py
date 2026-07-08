@@ -25,6 +25,7 @@ class WorkflowTask:
     agent: str
     task: str
     label: str | None = None
+    schema: dict[str, Any] | None = None
 
 
 @dataclass
@@ -69,7 +70,12 @@ def _parse_task(raw: Any, ctx: str) -> WorkflowTask:
     label = raw.get("label")
     if label is not None and (not isinstance(label, str) or not label.strip()):
         raise WorkflowParseError(f"{ctx}: 'label' must be a non-empty string when set")
-    return WorkflowTask(agent=agent, task=task, label=label.strip() if label else None)
+    schema = raw.get("schema")
+    if schema is not None and not isinstance(schema, dict):
+        raise WorkflowParseError(f"{ctx}: 'schema' must be a mapping (JSON Schema) when set")
+    return WorkflowTask(
+        agent=agent, task=task, label=label.strip() if label else None, schema=schema
+    )
 
 
 def _parse_phase(raw: Any, index: int) -> WorkflowPhase:

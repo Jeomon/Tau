@@ -25,9 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, create_model
 
 from tau.builtins.tools import TOOLS
 from tau.engine import Engine, EngineContext
@@ -36,11 +39,17 @@ from tau.hooks.service import Hooks
 from tau.inference import StopReason
 from tau.inference.api.text.service import TextLLM
 from tau.message.types import Role, ToolCallContent, UserMessage
-from tau.tool.types import Tool
+from tau.tool.types import Tool, ToolContext, ToolInvocation, ToolKind, ToolResult
 
 TASK_TIMEOUT_S = 300
 _ABORT_GRACE_S = 15
 _TOOL_ARG_KEYS = ("cmd", "pattern", "path")
+_JSON_SCHEMA_TYPES: dict[str, type] = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+}
 
 # Same fallback Runtime.create() uses when no model is configured — matched
 # here so an embedded agent behaves the same as a real session would.
@@ -66,6 +75,71 @@ def _build_tools(tool_names: list[str] | None) -> list[Tool]:
     return [t.__class__() for t in selected]  # type: ignore[call-arg]
 
 
+def _json_schema_field_type(spec: Any) -> Any:
+    """Map a flat JSON Schema field spec to a Python type. Supports string,
+    integer, number, boolean, and array-of-those — enough for typical
+    workflow result shapes. Anything else (nested object, unset type) falls
+    back to Any, which still validates but doesn't constrain."""
+    if not isinstance(spec, dict):
+        return Any
+    t = spec.get("type")
+    if t == "array":
+        item_type = _json_schema_field_type(spec.get("items"))
+        return list[item_type]  # type: ignore[valid-type]
+    if not isinstance(t, str):
+        return Any
+    return _JSON_SCHEMA_TYPES.get(t, Any)
+
+
+def build_schema_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
+    """Build a Pydantic model from a flat JSON-Schema-shaped dict:
+    ``{"type": "object", "properties": {...}, "required": [...]}``.
+    """
+    properties = schema.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        raise ValueError("schema must have a non-empty 'properties' mapping")
+    required = set(schema.get("required") or [])
+    fields: dict[str, Any] = {}
+    for field_name, spec in properties.items():
+        py_type = _json_schema_field_type(spec)
+        fields[field_name] = (py_type, ...) if field_name in required else (py_type | None, None)
+    return create_model(name, **fields)  # type: ignore[call-overload,no-any-return]
+
+
+class StructuredOutputTool(Tool):
+    """Terminating tool: one call ends the task, its (schema-validated) args
+    become the task's output. Mirrors pi-dynamic-workflows' structured_output
+    tool, built on Engine's native ToolResult.terminate mechanism.
+    """
+
+    def __init__(self, schema_model: type[BaseModel], capture: dict[str, Any]) -> None:
+        self._capture = capture
+        super().__init__(
+            name="structured_output",
+            description=(
+                "Submit the final structured result for this task. Call this exactly once, "
+                "as your last action, with fields matching the required shape. Do not also "
+                "write a prose final answer — this call ends the task immediately."
+            ),
+            schema=schema_model,
+            kind=ToolKind.Read,
+        )
+
+    async def execute(
+        self,
+        invocation: ToolInvocation,
+        tool_execution_update_callback: Any = None,
+        signal: Any = None,
+        context: ToolContext | None = None,
+    ) -> ToolResult:
+        self._capture["called"] = True
+        self._capture["value"] = invocation.params
+        content = json.dumps(invocation.params)
+        return ToolResult(
+            id=invocation.id, content=content, terminate=True, terminate_message=content
+        )
+
+
 async def run_embedded_agent(
     *,
     cwd: Path,
@@ -74,6 +148,7 @@ async def run_embedded_agent(
     system_prompt: str,
     tool_names: list[str] | None,
     task_text: str,
+    schema: dict[str, Any] | None = None,
     on_tool_start: Callable[[str], None] | None = None,
     timeout_s: float = TASK_TIMEOUT_S,
 ) -> tuple[bool, str, dict[str, Any]]:
@@ -82,6 +157,13 @@ async def run_embedded_agent(
     Returns (ok, output_text, usage). Fully self-contained: its own LLM
     instance, its own Hooks(), its own fresh tools, its own message history —
     no session persistence, no shared registries, no OS subprocess.
+
+    When ``schema`` is set (a flat JSON-Schema-shaped dict), the task gets an
+    extra ``structured_output`` tool and must call it exactly once to finish;
+    its validated args (as JSON text) become the output. A task that finishes
+    without calling it fails — this is meant for tasks whose output feeds a
+    later {results.<label>} or for_each, where prose formatting habits
+    (code fences, commentary) would otherwise break parsing.
 
     On timeout, aborts cooperatively via the engine's own AbortSignal (the
     same mechanism Esc-cancel uses in the interactive TUI) and gives it
@@ -99,6 +181,19 @@ async def run_embedded_agent(
         return False, f"Failed to resolve model: {e}", usage
 
     tools = _build_tools(tool_names)
+    structured_capture: dict[str, Any] | None = None
+    if schema is not None:
+        try:
+            schema_model = build_schema_model("StructuredOutput", schema)
+        except Exception as e:
+            return False, f"Invalid task schema: {e}", usage
+        structured_capture = {"called": False, "value": None}
+        tools = [*tools, StructuredOutputTool(schema_model, structured_capture)]
+        system_prompt = (
+            system_prompt
+            + "\n\nFinal output contract: your last action must be a structured_output "
+            "tool call. Do not write a prose final answer instead."
+        )
     known_tool_names = {t.name for t in tools}
     hooks = Hooks()
 
@@ -162,4 +257,10 @@ async def run_embedded_agent(
 
     if failed:
         return False, error_message or final_text or "(no output)", usage
+
+    if structured_capture is not None:
+        if not structured_capture["called"]:
+            return False, "Task required structured output but finished without calling it", usage
+        return True, json.dumps(structured_capture["value"]), usage
+
     return True, final_text or "(no output)", usage
