@@ -793,9 +793,29 @@ class MessageList(Component):
             self._pending_invalidation_from = min(self._pending_invalidation_from, from_index)
 
     def set_theme(self, theme: MessageTheme) -> None:
+        """
+        Apply a new MessageTheme to the whole message list.
+        In addition to updating each block, we must discard any frozen
+        rendering cache. The frozen cache is reused when the scroll
+        position does not change, which means a theme change could be
+        hidden behind stale cached rows. Clearing it forces a full
+        rebuild on the next render, ensuring every line reflects the
+        new colours.
+        """
         self._theme = theme
         for block in self._blocks:
             block.set_theme(theme)
+
+        # ----- NEW -----
+        # Invalidate the frozen rendering buffers so that all rows are
+        # regenerated with the new theme, even if the scroll offset
+        # stays the same.
+        self._frozen_buf = None          # discard rendered frozen rows
+        self._frozen_block_count = 0
+        self._frozen_unit_ends.clear()
+        self._frozen_unit_rows.clear()
+        # ----------------
+
         self._bump_invalidation()
 
     def set_show_images(self, enabled: bool) -> None:

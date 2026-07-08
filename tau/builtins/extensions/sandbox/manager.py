@@ -88,7 +88,7 @@ class SandboxManager:
             raise SandboxUnavailableError(f"microsandbox package not installed: {e}") from e
 
         if not microsandbox.is_installed():
-            await microsandbox.install()
+            await microsandbox.install()  # type: ignore[await]
 
         network = (
             microsandbox.Network.none()
