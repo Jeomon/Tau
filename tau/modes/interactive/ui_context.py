@@ -516,7 +516,10 @@ class UIContext:
         if getattr(tui, "_focused_overlay", None) is not None:
             return True
         selectors = getattr(layout, "_selectors", None)
-        return bool(getattr(selectors, "is_active", False))
+        if bool(getattr(selectors, "is_active", False)):
+            return True
+        prompt = getattr(layout, "_prompt", None)
+        return bool(getattr(prompt, "active", False))
 
     def notify(self, message: str | list[str], type: str = "info") -> None:  # noqa: A002
         """Show an inline system notification in the message list.

@@ -3,19 +3,19 @@
 Modeled on pi-scheduler (https://github.com/manojlds/pi-scheduler)'s runtime
 design (interval parsing, id-derived jitter, 3-day auto-expiry, idle-gated
 dispatch, atomic disk persistence) but trimmed to exactly what's needed here:
-one command, no one-time reminders, no TUI manager, no LLM-callable tool.
+one command, no one-time reminders, no LLM-callable tool.
 
 Usage:
-    /loop <task>                 recurring, default interval (10m)
-    /loop 5m <task>               recurring every 5m
-    /loop <task> every 2h         recurring every 2h
-    /loop list                    list all loops
-    /loop enable <id>             re-enable a disabled loop
-    /loop disable <id>            pause a loop without deleting it
-    /loop remove <id>             delete a loop
-    /loop clear                   delete all loops
+    /loop                         open the interactive loop manager (TUI only)
+    /loop <period> <task>         create directly, e.g. /loop 5m water the plants
+    /loop <task> every <period>   create directly, e.g. /loop water the plants every 2h
 
-Tasks persist to .tau/loop-scheduler.json and survive session restarts.
+The manager lists every loop and lets you toggle enabled/disabled, edit the
+instruction or duration, or delete it — all through the standard select /
+prompt / editor overlays. In headless mode (no TUI), bare /loop just prints
+the current list as text.
+
+Tasks persist to .tau/loop/scheduler.json and survive session restarts.
 A loop only fires while Tau is idle between turns (never mid-turn), and
 auto-expires 3 days after creation.
 """
@@ -30,33 +30,41 @@ from typing import TYPE_CHECKING
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dispatch import _emit, _update_status, run_ticker  # type: ignore[import-not-found]
-from duration import format_duration, parse_loop_args  # type: ignore[import-not-found]
-from state import MAX_TASKS, SchedulerState  # type: ignore[import-not-found]
+from duration import format_duration, parse_duration, parse_loop_args  # type: ignore[import-not-found]
+from state import MAX_TASKS, LoopTask, SchedulerState  # type: ignore[import-not-found]
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
     from tau.extensions.context import ExtensionContext
+    from tau.modes.interactive.ui_context import UIContext
 
-_RESERVED = {"create", "list", "clear", "enable", "disable", "remove", "delete", "rm"}
+_USAGE = "Usage: /loop | /loop <period> <task> | /loop <task> every <period>"
 
-_USAGE = (
-    "Usage: /loop <task> | /loop 5m <task> | /loop <task> every 2h | /loop create <task> <duration> | "
-    "/loop list | /loop enable <id> | /loop disable <id> | /loop remove <id> | /loop clear"
-)
+_COMMON_DURATIONS = ["5m", "10m", "15m", "30m", "1h", "2h", "6h", "12h", "1d"]
 
 
 def _get_argument_completions(prefix: str):
     from tau.tui.autocomplete import AutocompleteItem
 
-    parts = prefix.split()
-    if parts and (len(parts) > 1 or prefix.endswith(" ")):
+    if " " in prefix.strip():
         return []
-    p = parts[0] if parts else ""
     return [
-        AutocompleteItem(label=word, description="loop subcommand")
-        for word in sorted(_RESERVED - {"delete", "rm"})
-        if word.startswith(p)
+        AutocompleteItem(label=d, description="run every…")
+        for d in _COMMON_DURATIONS
+        if d.startswith(prefix.strip())
     ]
+
+
+def _loop_label(task: LoopTask) -> str:
+    glyph = "■" if task.enabled else "☐"
+    duration = format_duration(task.interval_s)
+    preview = task.prompt if len(task.prompt) <= 56 else f"{task.prompt[:53]}..."
+    return f"{glyph} {task.id}  every {duration}  —  {preview}"
+
+
+def _task_id_from_label(label: str) -> str:
+    # "■ abc12345  every 5m  —  preview" -> "abc12345"
+    return label.split(maxsplit=2)[1]
 
 
 def register(tau: ExtensionAPI) -> None:
@@ -87,7 +95,7 @@ def register(tau: ExtensionAPI) -> None:
             return
 
         if len(state.tasks) >= MAX_TASKS:
-            _emit(ctx, f"Loop limit reached ({MAX_TASKS}). Remove one with /loop remove <id>.", "error")
+            _emit(ctx, f"Loop limit reached ({MAX_TASKS}). Delete one via /loop first.", "error")
             return
 
         task = state.add(parsed["prompt"], parsed["interval_s"])
@@ -96,63 +104,103 @@ def register(tau: ExtensionAPI) -> None:
             _emit(ctx, parsed["note"])
         _update_status(ctx, state)
 
+    async def _manage_loop(ctx: ExtensionContext, ui: UIContext, task: LoopTask) -> None:
+        """Action menu for a single loop. Returns to the list when done."""
+        while True:
+            task = state.tasks.get(task.id)  # re-fetch in case it changed/was deleted
+            if task is None:
+                return
+            actions = [
+                "Disable" if task.enabled else "Enable",
+                "Edit instruction",
+                "Edit duration",
+                "Delete",
+                "Back",
+            ]
+            choice = await ui.select(f"Loop {task.id} — every {format_duration(task.interval_s)}", actions)
+            if choice is None or choice == "Back":
+                return
+
+            if choice in ("Enable", "Disable"):
+                state.set_enabled(task.id, choice == "Enable")
+                ui.notify(f"{choice}d loop {task.id}.")
+                _update_status(ctx, state)
+                continue
+
+            if choice == "Edit instruction":
+                text = await ui.editor("Edit loop instruction", prefill=task.prompt)
+                if text is not None and text.strip():
+                    state.update_prompt(task.id, text.strip())
+                    ui.notify(f"Updated instruction for loop {task.id}.")
+                continue
+
+            if choice == "Edit duration":
+                text = await ui.prompt(f"New duration for {task.id} (e.g. 5m, 2h)")
+                if text is None or not text.strip():
+                    continue
+                secs = parse_duration(text.strip())
+                if not secs:
+                    ui.notify(f"Couldn't parse duration: {text.strip()}", "warning")
+                    continue
+                state.update_interval(task.id, secs)
+                ui.notify(f"Loop {task.id} now runs every {format_duration(secs)}.")
+                _update_status(ctx, state)
+                continue
+
+            if choice == "Delete":
+                ok = await ui.confirm(f"Delete loop {task.id}?", task.prompt)
+                if ok:
+                    state.delete(task.id)
+                    ui.notify(f"Deleted loop {task.id}.")
+                    _update_status(ctx, state)
+                    return
+                continue
+
+    async def _show_picker(ctx: ExtensionContext, ui: UIContext) -> None:
+        while True:
+            options = [_loop_label(t) for t in sorted(state.tasks.values(), key=lambda t: t.next_run_at)]
+            options.append("+ New loop")
+            if state.tasks:
+                options.append("Clear all loops")
+
+            choice = await ui.select("Loops", options)
+            if choice is None:
+                return
+
+            if choice == "+ New loop":
+                text = await ui.prompt("New loop (e.g. '5m water the plants')")
+                if text is not None and text.strip():
+                    _create_loop(ctx, text.strip())
+                continue
+
+            if choice == "Clear all loops":
+                ok = await ui.confirm("Clear all loops?", f"This deletes all {len(state.tasks)} loop(s).")
+                if ok:
+                    n = state.clear()
+                    ui.notify(f"Cleared {n} loop{'s' if n != 1 else ''}.")
+                    _update_status(ctx, state)
+                continue
+
+            task_id = _task_id_from_label(choice)
+            task = state.tasks.get(task_id)
+            if task is not None:
+                await _manage_loop(ctx, ui, task)
+
     async def cmd_loop(ctx: ExtensionContext, args: list[str]):
         if not args:
-            _emit(ctx, _USAGE, "warning")
-            return
-
-        first = args[0].lower()
-
-        if first in _RESERVED:
-            if first == "create":
-                raw = " ".join(args[1:]).strip()
-                if not raw:
-                    _emit(ctx, "Usage: /loop create <task> <duration>", "warning")
-                    return
-                _create_loop(ctx, raw)
-                return
-            if first == "list":
+            ui = ctx.ui
+            if ui is None:
                 _emit(ctx, state.format_list())
                 return
-            if first == "clear":
-                n = state.clear()
-                _emit(ctx, f"Cleared {n} loop{'s' if n != 1 else ''}.")
-                _update_status(ctx, state)
-                return
-            if first in ("enable", "disable"):
-                if len(args) < 2:
-                    _emit(ctx, f"Usage: /loop {first} <id>", "warning")
-                    return
-                task_id = args[1]
-                enabled = first == "enable"
-                ok = state.set_enabled(task_id, enabled)
-                if not ok:
-                    _emit(ctx, f"Loop not found: {task_id}", "warning")
-                    return
-                _emit(ctx, f"{'Enabled' if enabled else 'Disabled'} loop {task_id}.")
-                _update_status(ctx, state)
-                return
-            if first in ("remove", "delete", "rm"):
-                if len(args) < 2:
-                    _emit(ctx, "Usage: /loop remove <id>", "warning")
-                    return
-                task_id = args[1]
-                ok = state.delete(task_id)
-                if not ok:
-                    _emit(ctx, f"Loop not found: {task_id}", "warning")
-                    return
-                _emit(ctx, f"Removed loop {task_id}.")
-                _update_status(ctx, state)
-                return
+            await _show_picker(ctx, ui)
+            return
 
-        # Anything else: create a new loop.
         _create_loop(ctx, " ".join(args))
 
     tau.register_command(
         "loop",
-        "Schedule/manage recurring prompts: /loop <task> | 5m <task> | create <task> <duration> | "
-        "list | enable/disable/remove <id> | clear",
+        "Manage recurring prompts: /loop opens the loop manager, /loop <period> <task> creates one directly",
         cmd_loop,
-        argument_hint="<task> | 5m <task> | create <task> <duration> | list | enable <id> | disable <id> | remove <id> | clear",
+        argument_hint="<period> <task>",
         get_argument_completions=_get_argument_completions,
     )

@@ -122,8 +122,8 @@ class TextPrompt:
                     cancel_cb()
             case "backspace":
                 self._value = self._value[:-1]
-            case ch if len(ch) == 1 and ch.isprintable():
-                self._value += ch
+            case _ if event.char is not None and event.char.isprintable():
+                self._value += event.char
         return True
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
