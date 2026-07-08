@@ -465,6 +465,19 @@ def _render_call(args: dict, _streaming: bool = False) -> list[str]:
     return lines
 
 
+def _render_markdown_body(text: str, theme: Any) -> list[str]:
+    """Render a subagent's raw text output as markdown, same as web_fetch does
+    for fetched pages — subagents (planner, worker, ...) routinely return
+    headers/lists/code blocks that read better rendered than as raw source."""
+    if theme is None or not text.strip():
+        return text.splitlines() or [text]
+
+    from tau.tui.markdown import render_markdown
+
+    width = max(1, min(shutil.get_terminal_size(fallback=(100, 24)).columns, 100) - 4)
+    return render_markdown(text, width, theme.markdown) or (text.splitlines() or [text])
+
+
 def _render_result(content: str, opts: Any) -> list[str]:
     theme = opts.theme
     metadata = opts.metadata or {}
@@ -519,7 +532,8 @@ def _render_result(content: str, opts: Any) -> list[str]:
             )
         )
         header = f"{style(color, icon)} {r.get('agent', '')} ({r.get('source', '')})"
-        out = [header, *lines[:COLLAPSED_ITEM_COUNT]]
+        body = _render_markdown_body(content, theme) if not opts.is_error else lines
+        out = [header, *body[:COLLAPSED_ITEM_COUNT]]
         if r.get("usage"):
             out.append(style(theme.muted, r["usage"]) if theme else r["usage"])
         return out

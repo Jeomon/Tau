@@ -220,3 +220,69 @@ class TestBuiltinAgentContextDefaults:
 
         for name in ("scout", "researcher", "context-builder", "reviewer", "delegate"):
             assert by_name[name].context is None, name
+
+
+class TestMarkdownRendering:
+    """Subagent results render markdown the same way web_fetch does — see
+    subagent_tool._render_markdown_body."""
+
+    def test_single_result_renders_markdown_headers_and_lists(self) -> None:
+        from tau.tui.theme import MessageTheme
+
+        theme = MessageTheme()
+        md_text = "# Plan\n\n- step one\n- step two"
+        opts = SimpleNamespace(
+            theme=theme,
+            is_error=False,
+            expanded=False,
+            metadata={
+                "mode": "spawn",
+                "results": [
+                    {"agent": "planner", "source": "builtin", "status": "ok", "usage": "1 turn"}
+                ],
+            },
+        )
+
+        out = subagent_tool._render_result(md_text, opts)
+        joined = "\n".join(out)
+
+        assert "# Plan" not in joined  # markdown syntax consumed, not shown raw
+        assert "Plan" in joined
+        assert "step one" in joined
+        assert "step two" in joined
+
+    def test_no_theme_falls_back_to_raw_lines(self) -> None:
+        opts = SimpleNamespace(
+            theme=None,
+            is_error=False,
+            expanded=False,
+            metadata={
+                "mode": "spawn",
+                "results": [{"agent": "planner", "source": "builtin", "status": "ok"}],
+            },
+        )
+
+        out = subagent_tool._render_result("# Plan\n\n- step one", opts)
+        joined = "\n".join(out)
+
+        # No theme (e.g. non-interactive mode) -> raw content, unrendered.
+        assert "# Plan" in joined
+
+    def test_error_result_is_not_markdown_rendered(self) -> None:
+        from tau.tui.theme import MessageTheme
+
+        theme = MessageTheme()
+        opts = SimpleNamespace(
+            theme=theme,
+            is_error=True,
+            expanded=False,
+            metadata={
+                "mode": "spawn",
+                "results": [{"agent": "planner", "source": "builtin", "status": "error"}],
+            },
+        )
+
+        out = subagent_tool._render_result("# Boom\n\nsomething broke", opts)
+        joined = "\n".join(out)
+
+        assert "# Boom" in joined
