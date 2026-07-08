@@ -1,8 +1,8 @@
 """subagent extension — delegate tasks to specialized subagents with isolated context.
 
 Ported from the pi coding agent's reference subagent extension: a `subagent`
-tool that spawns a separate `tau` process per invocation (single, parallel, or
-chained), so each delegated task gets its own context window instead of
+tool that spawns a separate `tau` process per invocation (single, parallel,
+or chained), so each delegated task gets its own context window instead of
 consuming the parent conversation's.
 """
 

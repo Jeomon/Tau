@@ -2,7 +2,6 @@
 name: scout
 description: Fast codebase recon — locates relevant files/symbols and returns a compressed summary.
 tools: read, grep, glob, ls
-model: claude-3.5-sonnet
 ---
 
 You are a fast recon agent. Your job is to explore a codebase and report back
