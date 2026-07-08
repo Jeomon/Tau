@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from tau.modes.interactive.commands.context import CommandContext
+from tau.utils.format import format_number
 
 
 def open_resume_selector(ctx: CommandContext) -> None:
@@ -472,27 +473,6 @@ def cmd_session(ctx: CommandContext) -> None:
     lines.append("")
     lines.append(f"{BOLD}Tokens{RESET}")
 
-    # Helper to format token counts with K/M/B/T suffixes
-    def _human_readable(num: int) -> str:
-        """Human‑readable token count using K/M/B/T.
-
-        For values < 1 000 we keep the integer representation; otherwise we
-        divide by 1 000 repeatedly and attach the appropriate suffix. One decimal
-        place is retained for readability (e.g. 1.2K, 3.4M).
-        """
-        if num < 1_000:
-            return f"{num}"
-        suffixes = ["", "K", "M", "B", "T"]
-        i = 0
-        value = float(num)
-        while value >= 1_000 and i < len(suffixes) - 1:
-            value /= 1_000
-            i += 1
-        # Drop decimal if the value is an integer after division
-        if value.is_integer():
-            return f"{int(value)}{suffixes[i]}"
-        return f"{value:.1f}{suffixes[i]}"
-
     # Cost rates per token (USD). Use defaults if the LLM didn't report a cost.
     INPUT_RATE = 0.0001 / 1_000  # $0.0001 per 1 k input tokens
     OUTPUT_RATE = 0.0002 / 1_000  # $0.0002 per 1 k output tokens
@@ -500,20 +480,20 @@ def cmd_session(ctx: CommandContext) -> None:
     # Token counts with human‑readable format and inline cost (two decimals)
     input_cost = input_tokens * INPUT_RATE
     output_cost = output_tokens * OUTPUT_RATE
-    lines.append(f"{DIM}{'Input':<{W}}{RESET} {_human_readable(input_tokens)} (${input_cost:.2f})")
+    lines.append(f"{DIM}{'Input':<{W}}{RESET} {format_number(input_tokens)} (${input_cost:.2f})")
     lines.append(
-        f"{DIM}{'Output':<{W}}{RESET} {_human_readable(output_tokens)} (${output_cost:.2f})"
+        f"{DIM}{'Output':<{W}}{RESET} {format_number(output_tokens)} (${output_cost:.2f})"
     )
     if cache_read_tokens:
-        lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {_human_readable(cache_read_tokens)}")
+        lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {format_number(cache_read_tokens)}")
     if cache_write_tokens:
-        lines.append(f"{DIM}{'Cache write':<{W}}{RESET} {_human_readable(cache_write_tokens)}")
+        lines.append(f"{DIM}{'Cache write':<{W}}{RESET} {format_number(cache_write_tokens)}")
     # Total tokens and total cost (use provided total_cost if available, else estimate)
     total_cost_est = (
         total_cost if total_cost > 0 else input_tokens * INPUT_RATE + output_tokens * OUTPUT_RATE
     )
     lines.append(
-        f"{DIM}{'Total':<{W}}{RESET} {_human_readable(total_tokens)} (${total_cost_est:.2f})"
+        f"{DIM}{'Total':<{W}}{RESET} {format_number(total_tokens)} (${total_cost_est:.2f})"
     )
 
     ctx.notify("\n".join(lines))

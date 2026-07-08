@@ -9,20 +9,12 @@ from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.widgets.list import List, ListItem, ListState
 from tau.tui.widgets.tabs import Tabs
+from tau.utils.format import format_number
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
 VISIBLE_ROWS = 10
-
-
-def _format_token_count(tokens: int) -> str:
-    """Format a token count compactly for the model picker."""
-    if tokens >= 1_000_000:
-        return f"{tokens / 1_000_000:.2f}".rstrip("0").rstrip(".") + "M"
-    if tokens >= 1_000:
-        return f"{tokens / 1_000:.0f}K"
-    return str(tokens)
 
 
 def _format_modalities(modalities: list[Modality]) -> str:
@@ -362,7 +354,7 @@ class ModelSelector:
             inputs = _format_modalities(sel_m.input)
             outputs = _format_modalities(sel_m.output)
             if sec.modality == "text":
-                context = _format_token_count(sel_m.context_window)
+                context = format_number(sel_m.context_window)
                 text(f"Context: {context} · Modalities: {inputs} → {outputs}", prefix="  ")
             else:
                 text(f"Modalities: {inputs} → {outputs}", prefix="  ")

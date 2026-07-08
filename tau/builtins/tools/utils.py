@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from tau.engine.types import AbortSignal
+from tau.utils.format import human_size
 
 HASH_LEN = 4
 # Astronomically unlikely to matter for any real file (65536 buckets per
@@ -221,16 +222,6 @@ def resolve_tool_path(raw_path: str, cwd: Path | None) -> Path:
     if path.is_absolute():
         return path
     return (cwd or Path.cwd()) / path
-
-
-def human_size(size: int) -> str:
-    """Convert a byte count to compact binary units."""
-    value = size
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024:
-            return f"{value}{unit}" if unit == "B" else f"{value:.1f}{unit}"
-        value //= 1024
-    return f"{value:.1f}TB"
 
 
 @asynccontextmanager

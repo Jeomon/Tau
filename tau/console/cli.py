@@ -350,6 +350,9 @@ async def _run_print(runtime: Runtime, message: str | None, quiet: bool = False)
     if result is None:
         raise click.ClickException("No response received.")
 
+    if result.error:
+        raise click.ClickException(result.error)
+
     for content in result.contents:
         if hasattr(content, "text"):
             click.echo(content.text, nl=False)

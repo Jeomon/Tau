@@ -15,6 +15,7 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+from tau.utils.format import human_size as _human_size
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -58,14 +59,6 @@ class _WebFetchSchema(BaseModel):
         ),
         examples=[10, 30],
     )
-
-
-def _human_size(n: int) -> str:
-    for unit in ("B", "KB", "MB"):
-        if n < 1024:
-            return f"{n}{unit}" if unit == "B" else f"{n:.1f}{unit}"
-        n //= 1024
-    return f"{n:.1f}GB"
 
 
 def _render_web_fetch(content: str, opts: Any) -> list[str]:

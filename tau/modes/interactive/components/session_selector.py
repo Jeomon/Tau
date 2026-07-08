@@ -13,6 +13,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
+from tau.utils.format import human_size
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -69,14 +70,10 @@ def _humanize_age(dt: datetime) -> str:
 
 
 def _file_size(path: Path) -> str:
-    """Human-readable file size for a session file."""
+    """Compact file size for a session file (narrow UI column: K/M/G, not KB/MB/GB)."""
     try:
-        size = path.stat().st_size
-        if size < 1024:
-            return f"{size}B"
-        if size < 1024 * 1024:
-            return f"{size // 1024}K"
-        return f"{size / (1024 * 1024):.1f}M"
+        size = human_size(path.stat().st_size)
+        return size[:-1] if size[-2:-1].isalpha() else size
     except OSError:
         return ""
 

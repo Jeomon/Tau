@@ -46,6 +46,7 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+from tau.utils.format import format_number
 from subagent_schema import SubagentParams  # type: ignore[import-not-found]
 
 MAX_PARALLEL_TASKS = 8
@@ -380,13 +381,13 @@ def _format_usage(usage: Usage, model: str | None) -> str:
     if usage.turns:
         parts.append(f"{usage.turns} turn{'s' if usage.turns != 1 else ''}")
     if usage.input_tokens:
-        parts.append(f"↑{usage.input_tokens}")
+        parts.append(f"↑{format_number(usage.input_tokens)}")
     if usage.output_tokens:
-        parts.append(f"↓{usage.output_tokens}")
+        parts.append(f"↓{format_number(usage.output_tokens)}")
     if usage.cache_read_tokens:
-        parts.append(f"R{usage.cache_read_tokens}")
+        parts.append(f"R{format_number(usage.cache_read_tokens)}")
     if usage.cache_write_tokens:
-        parts.append(f"W{usage.cache_write_tokens}")
+        parts.append(f"W{format_number(usage.cache_write_tokens)}")
     if usage.cost:
         parts.append(f"${usage.cost:.4f}")
     if model:
@@ -546,7 +547,10 @@ def _render_result(content: str, opts: Any) -> list[str]:
     for r in results:
         step_label = f"Step {r['step']}: " if r.get("step") else ""
         rc = "✓" if r.get("status") == "ok" else ("✗" if r.get("status") == "error" else "⏳")
-        out.append(f"  {step_label}{r.get('agent', '')} {rc}")
+        line = f"  {step_label}{r.get('agent', '')} {rc}"
+        if r.get("usage"):
+            line += f" — {r['usage']}"
+        out.append(line)
     return out
 
 

@@ -20,6 +20,7 @@ from tau.message.utils import strip_unusable_trailing_assistant
 from tau.session.compaction import CompactionSettings
 from tau.session.utils import to_llm_messages as _to_llm_messages
 from tau.tool.types import ToolInvocation, ToolResult
+from tau.utils.format import human_size as _fmt_size
 
 _log = logging.getLogger(__name__)
 
@@ -31,14 +32,6 @@ class _CompactionCancelledError(RuntimeError):
 _TOOL_CAP_BYTES = 50 * 1024  # 50 KB — DEFAULT_MAX_BYTES
 _TOOL_CAP_LINES = 2000  # DEFAULT_MAX_LINES
 _TOOL_LINE_CAP_BYTES = 2 * 1024  # 2 KB — max bytes for a single line
-
-
-def _fmt_size(n: int) -> str:
-    if n < 1024:
-        return f"{n}B"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f}KB"
-    return f"{n / (1024 * 1024):.1f}MB"
 
 
 if TYPE_CHECKING:
