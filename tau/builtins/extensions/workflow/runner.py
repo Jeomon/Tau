@@ -3,9 +3,10 @@
 Runs phases in order; each phase runs one or more subagent tasks, either
 sequentially (chaining {previous}/{results.<label>}) or concurrently
 (`parallel: true`), optionally fanning out over a prior result via
-`for_each`. Every task spawns an isolated `tau` subprocess — the same
-mechanism the `subagent` tool uses — so there is no LLM tool call and no
-in-process code execution involved in running a workflow.
+`for_each`. Every task runs in-process via embedded.run_embedded_agent —
+its own Engine/LLM/tools, fully isolated, no OS subprocess and no shared
+session or registry state with the parent — so there is no LLM tool call
+involved in running a workflow itself, just in the tasks it dispatches.
 
 Any task failure aborts the run (fail-fast): a workflow is meant to be a
 predictable, rerunnable pipeline, not a best-effort fan-out.
@@ -16,14 +17,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import shutil
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from embedded import TASK_TIMEOUT_S, run_embedded_agent  # type: ignore[import-not-found]
 from model import WorkflowDef, WorkflowPhase, WorkflowTask  # type: ignore[import-not-found]
 
 MAX_CONCURRENCY = 4
@@ -92,98 +92,26 @@ class WorkflowRunResult:
     error: str = ""
 
 
-def _tau_invocation() -> list[str]:
-    exe = shutil.which("tau")
-    if exe:
-        return [exe]
-    return [sys.executable, "-c", "from tau.console.cli import main; main()"]
-
-
-def _build_args(cwd: Path, model: str | None, agent_cfg: Any, task_text: str) -> list[str]:
-    args = ["--mode", "json", "--quiet", "--cwd", str(cwd), "--ephemeral"]
-    if model:
-        args += ["--model", model]
-    if agent_cfg.tools:
-        args += ["--tools", ",".join(agent_cfg.tools)]
-    if agent_cfg.system_prompt.strip():
-        args += ["--system", agent_cfg.system_prompt]
-    args += ["--prompt", f"Task: {task_text}"]
-    return args
-
-
 async def _run_agent_process(
-    cwd: Path, model: str | None, agent_cfg: Any, task_text: str
+    cwd: Path,
+    model_id: str | None,
+    provider: str | None,
+    agent_cfg: Any,
+    task_text: str,
+    on_tool_start: Callable[[str], None] | None = None,
+    timeout_s: float = TASK_TIMEOUT_S,
 ) -> tuple[bool, str, dict[str, Any]]:
-    """Spawn one subagent process to completion. Returns (ok, output_text, usage)."""
-    invocation = _tau_invocation()
-    args = _build_args(cwd, model, agent_cfg, task_text)
-    usage: dict[str, Any] = {"turns": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
-    final_text = ""
-    stop_reason: str | None = None
-    error_message: str | None = None
-    stderr_chunks: list[bytes] = []
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *invocation,
-            *args,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError as e:
-        return False, f"Failed to start subagent process: {e}", usage
-
-    async def _drain_stderr() -> None:
-        assert proc.stderr is not None
-        while True:
-            chunk = await proc.stderr.read(4096)
-            if not chunk:
-                return
-            stderr_chunks.append(chunk)
-
-    stderr_task = asyncio.ensure_future(_drain_stderr())
-
-    try:
-        assert proc.stdout is not None
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                break
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            if event.get("type") != "message_end":
-                continue
-            message = event.get("message") or {}
-            if message.get("role") != "assistant":
-                continue
-            usage["turns"] += 1
-            u = message.get("usage") or {}
-            usage["input_tokens"] += u.get("input_tokens", 0)
-            usage["output_tokens"] += u.get("output_tokens", 0)
-            usage["cost"] += (u.get("cost") or {}).get("total", 0.0)
-            if message.get("stop_reason"):
-                stop_reason = message["stop_reason"]
-            if message.get("error"):
-                error_message = message["error"]
-            text = "".join(
-                c.get("content", "") for c in message.get("contents", []) if c.get("type") == "text"
-            )
-            if text:
-                final_text = text
-    finally:
-        if proc.returncode is None:
-            proc.kill()
-        exit_code = await proc.wait()
-        await asyncio.gather(stderr_task, return_exceptions=True)
-
-    failed = exit_code != 0 or stop_reason in ("error", "abort")
-    if failed:
-        stderr_tail = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-2000:]
-        return False, error_message or stderr_tail or final_text or "(no output)", usage
-    return True, final_text or "(no output)", usage
+    """Run one subagent task in-process, bounded by ``timeout_s``. See embedded.py."""
+    return await run_embedded_agent(
+        cwd=cwd,
+        model_id=model_id,
+        provider=provider,
+        system_prompt=agent_cfg.system_prompt,
+        tool_names=agent_cfg.tools,
+        task_text=task_text,
+        on_tool_start=on_tool_start,
+        timeout_s=timeout_s,
+    )
 
 
 async def _map_with_concurrency(
@@ -214,11 +142,13 @@ async def run_workflow(
     wf: WorkflowDef,
     *,
     cwd: Path,
-    model: str | None,
+    model_id: str | None,
+    provider: str | None,
     agents: list[Any],
     on_phase: Callable[[str], None] | None = None,
     on_task_start: Callable[[str, str, str], None] | None = None,
     on_task_end: Callable[[TaskResult], None] | None = None,
+    on_tool_start: Callable[[str, str, str], None] | None = None,
 ) -> WorkflowRunResult:
     start = time.monotonic()
     results: list[TaskResult] = []
@@ -245,7 +175,13 @@ async def run_workflow(
                 error=f'Unknown agent "{task.agent}". Available: {available}.',
             )
         else:
-            ok, output, usage = await _run_agent_process(cwd, model, agent_cfg, text)
+            tool_cb: Callable[[str], None] | None = None
+            if on_tool_start is not None:
+                notify_tool_start = on_tool_start
+                tool_cb = lambda preview: notify_tool_start(phase.title, label, preview)  # noqa: E731
+            ok, output, usage = await _run_agent_process(
+                cwd, model_id, provider, agent_cfg, text, on_tool_start=tool_cb
+            )
             r = TaskResult(
                 phase=phase.title,
                 agent=task.agent,

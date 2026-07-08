@@ -7,8 +7,9 @@ description: Author declarative .tau/workflows/*.yaml files for Tau's /workflow 
 
 A workflow is a static YAML file, not a script. There is no code execution,
 no loops/conditionals, and no LLM tool call involved in running one — the
-`/workflow` extension parses the file and spawns one isolated `tau` subagent
-process per task, in the order and grouping the file declares.
+`/workflow` extension parses the file and runs one isolated in-process
+subagent per task (its own Engine/LLM/tools, no OS subprocess, no shared
+session with the parent), in the order and grouping the file declares.
 
 ## Before writing one
 
@@ -18,6 +19,13 @@ actually available in this project (builtins like `scout`, `worker`,
 plus any project agents in `.tau/agents/` or user agents in `~/.tau/agents/`).
 Only reference agent names that exist — an unknown agent name fails the whole
 run at that task.
+
+Every task's agent only has access to the base coding tools it declares from
+`read`, `write`, `edit`, `terminal`, `glob`, `grep`, `ls` — extension tools
+like `web_search`, `web_fetch`, `subagent`, or `todo` are never available
+inside a workflow task, regardless of what the agent's own frontmatter
+`tools:` lists. Write tasks that fetch URLs via `terminal` (e.g. `curl`), not
+`web_fetch`.
 
 ## File location and identity
 

@@ -14,9 +14,10 @@ starter file with the exact shape.
 
 This is a static, declarative runner, not a scripting engine: there is no
 code execution, no sandbox, and no LLM tool call involved in running a
-workflow. Every task spawns an isolated `tau` subprocess, same as the
-`subagent` tool, so a failed task aborts the run rather than silently
-continuing.
+workflow. Every task runs in-process (see embedded.py) with its own
+isolated Engine/LLM/tools — no OS subprocess, no shared session or registry
+state with the parent — so a failed task aborts the run rather than
+silently continuing.
 """
 
 from __future__ import annotations
@@ -77,7 +78,6 @@ async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
         return
 
     agents = discover_agents(ctx.cwd)
-    model = f"{ctx.provider_id}/{ctx.model_id}" if ctx.provider_id else ctx.model_id
 
     def on_phase(title: str) -> None:
         _emit(ctx, f"▶ {title}")
@@ -86,14 +86,19 @@ async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
         glyph = "✓" if r.ok else "✗"
         _emit(ctx, f"  {glyph} {r.label} ({r.agent})")
 
+    def on_tool_start(_phase_title: str, label: str, preview: str) -> None:
+        _emit(ctx, f"    → {label}: {preview}")
+
     _emit(ctx, f"Running workflow '{wf.slug}'...")
     result = await run_workflow(
         wf,
         cwd=ctx.cwd,
-        model=model,
+        model_id=ctx.model_id or None,
+        provider=ctx.provider_id or None,
         agents=agents,
         on_phase=on_phase,
         on_task_end=on_task_end,
+        on_tool_start=on_tool_start,
     )
 
     total_cost = sum(r.cost for r in result.results)

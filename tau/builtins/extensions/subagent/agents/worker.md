@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implementation agent for normal tasks and approved plan handoffs — full tool access.
-tools: read, grep, glob, ls, terminal, edit, write
+tools: read, grep, glob, ls, terminal, edit, write,web_search, web_fetch
 context: fork
 ---
 
