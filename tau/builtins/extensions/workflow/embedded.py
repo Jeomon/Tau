@@ -35,7 +35,7 @@ from tau.hooks.engine import MessageEndEvent, ToolExecutionStartEvent
 from tau.hooks.service import Hooks
 from tau.inference import StopReason
 from tau.inference.api.text.service import TextLLM
-from tau.message.types import Role, UserMessage
+from tau.message.types import Role, ToolCallContent, UserMessage
 from tau.tool.types import Tool
 
 TASK_TIMEOUT_S = 300
@@ -99,6 +99,7 @@ async def run_embedded_agent(
         return False, f"Failed to resolve model: {e}", usage
 
     tools = _build_tools(tool_names)
+    known_tool_names = {t.name for t in tools}
     hooks = Hooks()
 
     def _on_message_end(event: MessageEndEvent) -> None:
@@ -118,6 +119,16 @@ async def run_embedded_agent(
         text = message.text_content()
         if text:
             final_text = text
+
+        # ToolExecutionStartEvent never fires for a tool name the model
+        # invented (Engine._execute returns an error before emitting it), so
+        # without this a model that hallucinates a tool and won't self-correct
+        # would burn the whole timeout in visible silence — indistinguishable
+        # from a genuine hang. Surface it explicitly instead.
+        if on_tool_start is not None:
+            for content in message.contents:
+                if isinstance(content, ToolCallContent) and content.name not in known_tool_names:
+                    on_tool_start(f"✗ unknown tool requested: {content.name!r} (ignored)")
 
     def _on_tool_start(event: ToolExecutionStartEvent) -> None:
         if on_tool_start is not None:
