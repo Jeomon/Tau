@@ -72,12 +72,35 @@ def _slug_from_label(label: str) -> str:
     return label.split(maxsplit=2)[1]
 
 
+_EXTENSION_TOOL_NAMES = ("web_search", "web_fetch")
+
+
+def _extension_tools(ctx: ExtensionContext) -> list[object]:
+    """Extension-contributed tools an embedded task can't construct itself
+    (web_search/web_fetch need a configured search engine) — borrowed as
+    already-instantiated, already-configured instances from this session's
+    own tool registry, same as the subagent tool does. Returns [] when the
+    context is stale or the web extension isn't registered/enabled; an agent
+    that requests these tools simply doesn't get them in that case.
+    """
+    try:
+        runtime = ctx._runtime  # noqa: SLF001
+    except Exception:
+        return []
+    registry = getattr(getattr(runtime, "_context", None), "tool_registry", None)
+    if registry is None:
+        return []
+    tools = (registry.get(name) for name in _EXTENSION_TOOL_NAMES)
+    return [t for t in tools if t is not None]
+
+
 async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
     if not wf.enabled:
         _emit(ctx, f"Workflow '{wf.slug}' is disabled. Enable it first via /workflow.", "warning")
         return
 
     agents = discover_agents(ctx.cwd)
+    extra_tools = _extension_tools(ctx)
 
     def on_phase(title: str) -> None:
         _emit(ctx, f"▶ {title}")
@@ -96,6 +119,7 @@ async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
         model_id=ctx.model_id or None,
         provider=ctx.provider_id or None,
         agents=agents,
+        extra_tools=extra_tools,
         on_phase=on_phase,
         on_task_end=on_task_end,
         on_tool_start=on_tool_start,

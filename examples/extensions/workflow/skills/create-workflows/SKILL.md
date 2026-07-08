@@ -20,12 +20,13 @@ plus any project agents in `.tau/agents/` or user agents in `~/.tau/agents/`).
 Only reference agent names that exist — an unknown agent name fails the whole
 run at that task.
 
-Every task's agent only has access to the base coding tools it declares from
-`read`, `write`, `edit`, `terminal`, `glob`, `grep`, `ls` — extension tools
-like `web_search`, `web_fetch`, `subagent`, or `todo` are never available
-inside a workflow task, regardless of what the agent's own frontmatter
-`tools:` lists. Write tasks that fetch URLs via `terminal` (e.g. `curl`), not
-`web_fetch`.
+Every task's agent has the base coding tools it declares from `read`,
+`write`, `edit`, `terminal`, `glob`, `grep`, `ls`, plus `web_search` and
+`web_fetch` if the current session has the `web` extension enabled (borrowed
+from the live session's own configured search engine — same as the
+`subagent` tool). Other extension tools (`subagent`, `todo`, ...) are still
+never available inside a workflow task, regardless of what the agent's own
+frontmatter `tools:` lists.
 
 ## File location and identity
 

@@ -101,6 +101,7 @@ async def _run_agent_process(
     agent_cfg: Any,
     task_text: str,
     schema: dict[str, Any] | None = None,
+    extra_tools: list[Any] | None = None,
     on_tool_start: Callable[[str], None] | None = None,
     timeout_s: float = TASK_TIMEOUT_S,
 ) -> tuple[bool, str, dict[str, Any]]:
@@ -113,6 +114,7 @@ async def _run_agent_process(
         tool_names=agent_cfg.tools,
         task_text=task_text,
         schema=schema,
+        extra_tools=extra_tools,
         on_tool_start=on_tool_start,
         timeout_s=timeout_s,
     )
@@ -149,6 +151,7 @@ async def run_workflow(
     model_id: str | None,
     provider: str | None,
     agents: list[Any],
+    extra_tools: list[Any] | None = None,
     on_phase: Callable[[str], None] | None = None,
     on_task_start: Callable[[str, str, str], None] | None = None,
     on_task_end: Callable[[TaskResult], None] | None = None,
@@ -184,7 +187,14 @@ async def run_workflow(
                 notify_tool_start = on_tool_start
                 tool_cb = lambda preview: notify_tool_start(phase.title, label, preview)  # noqa: E731
             ok, output, usage = await _run_agent_process(
-                cwd, model_id, provider, agent_cfg, text, task.schema, on_tool_start=tool_cb
+                cwd,
+                model_id,
+                provider,
+                agent_cfg,
+                text,
+                task.schema,
+                extra_tools=extra_tools,
+                on_tool_start=tool_cb,
             )
             r = TaskResult(
                 phase=phase.title,
