@@ -353,9 +353,7 @@ async def _run_print(runtime: Runtime, message: str | None, quiet: bool = False)
     if result.error:
         raise click.ClickException(result.error)
 
-    for content in result.contents:
-        if hasattr(content, "text"):
-            click.echo(content.text, nl=False)
+    click.echo(result.text_content(), nl=False)
 
 
 async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) -> None:
