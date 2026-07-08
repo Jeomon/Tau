@@ -1,0 +1,57 @@
+name: PR Review (Tau)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Skip forked PRs: they don't have access to the API-key secret below,
+    # and we don't want this job to run against untrusted branches anyway.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Tau
+        run: pip install tau-coding-agent
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr diff "${{ github.event.pull_request.number }}" > pr.diff
+
+      - name: Run Tau review
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          tau \
+            --prompt "Review the pull request diff in pr.diff (already fetched into this directory). Read it, pull in any repo context you need, and produce your review." \
+            --system "$(cat .github/tau/pr-reviewer-system.md)" \
+            --tools read,grep,glob,ls \
+            --provider nvidia \
+            --model nvidia/llama-3.3-nemotron-super-49b-v1.5 \
+            --approve \
+            --ephemeral \
+            --quiet \
+            --output-format text \
+            > review.md
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file review.md
