@@ -496,7 +496,8 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                parts.append(self._autolink_bare_urls(_render_latex_math(node.content)))
+                content = self._autolink_bare_urls(_render_latex_math(node.content))
+                parts.append(apply_style(self.theme.body, content))
             elif name == "LineBreak":
                 soft = getattr(node, "soft", True)
                 parts.append("\n" if not soft or self.preserve_soft_breaks else " ")

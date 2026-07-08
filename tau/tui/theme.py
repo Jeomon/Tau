@@ -63,6 +63,7 @@ class SpinnerTheme:
 class MarkdownTheme:
     """Controls colours for rendered markdown inside assistant messages."""
 
+    body: Style = field(default_factory=Style)
     heading: Style = field(default_factory=lambda: Style().bold().with_fg("bright_cyan"))
     code_inline: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
     code_block: Style = field(default_factory=lambda: Style().with_fg("bright_green"))

@@ -170,6 +170,7 @@ def load_theme_from_dict(data: dict) -> tuple[LayoutTheme | None, str | None]:
     d = LayoutTheme()
 
     md = MarkdownTheme(
+        body=_c(colors, "body") or d.message.markdown.body,
         heading=_c(colors, "heading", bold=True) or d.message.markdown.heading,
         code_inline=_c(colors, "code_inline") or d.message.markdown.code_inline,
         code_block=_c(colors, "code_block") or d.message.markdown.code_block,

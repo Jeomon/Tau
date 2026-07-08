@@ -547,7 +547,10 @@ def _render_result(content: str, opts: Any) -> list[str]:
     for r in results:
         step_label = f"Step {r['step']}: " if r.get("step") else ""
         rc = "✓" if r.get("status") == "ok" else ("✗" if r.get("status") == "error" else "⏳")
-        out.append(f"  {step_label}{r.get('agent', '')} {rc}")
+        line = f"  {step_label}{r.get('agent', '')} {rc}"
+        if r.get("usage"):
+            line += f" — {r['usage']}"
+        out.append(line)
     return out
 
 
