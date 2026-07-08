@@ -62,6 +62,7 @@ def _make_llm(api_invoke_side_effect=None, max_retries: int = 2):
     mock_api = MagicMock()
     mock_api.options = options
     mock_api.invoke = AsyncMock(side_effect=api_invoke_side_effect)
+    mock_api.resolve_async = AsyncMock()
 
     mock_auth = MagicMock()
     mock_auth.get_api_key = AsyncMock(return_value=None)
@@ -108,6 +109,9 @@ def _make_stream_llm(responses, max_retries: int = 2):
                 raise item
             for e in item:
                 yield e
+
+        async def resolve_async(self):
+            pass
 
     class MockAuth:
         async def get_api_key(self, provider_id):
