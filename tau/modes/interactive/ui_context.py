@@ -582,6 +582,36 @@ class UIContext:
             layout.set_header(factory)
 
     # -------------------------------------------------------------------------
+    # Status line
+    # -------------------------------------------------------------------------
+
+    def set_status(self, key: str, text: str | None) -> None:
+        """Set or clear a keyed status line shown above the editor.
+
+        Status lines are rendered as dim text in a dedicated slot between the
+        chat area and the editor, separate from the footer. They persist
+        until explicitly cleared — pass ``text=None`` to clear, or use
+        ``clear_status(key)``.
+
+        Usage::
+
+            ctx.ui.set_status("git", "main (3 commits ahead)")
+            ctx.ui.set_status("git", None)   # clear
+        """
+        layout = self._layout()
+        if layout is not None:
+            layout.set_status(key, text)
+
+    def clear_status(self, key: str) -> None:
+        """Clear a keyed status line previously set with set_status().
+
+        Usage::
+
+            ctx.ui.clear_status("git")
+        """
+        self.set_status(key, None)
+
+    # -------------------------------------------------------------------------
     # Terminal title
     # -------------------------------------------------------------------------
 
