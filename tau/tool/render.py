@@ -24,5 +24,5 @@ def call_line(tool_name: str, *values: str) -> list[str]:
     cursor mid-row instead of staying inside this component's row.
     """
     name = display_name(tool_name)
-    args = ", ".join(v.replace("\n", "\\n") for v in values if v)
+    args = ", ".join(str(v).replace("\n", "\\n") for v in values if v)
     return [f"{_TOOL_INDENT}{BOLD}{name}{RESET}{DIM}({args}){RESET}"]
