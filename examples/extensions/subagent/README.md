@@ -20,10 +20,14 @@ subagent/
 ├── subagent_schema.py     # Pydantic params schema
 ├── agents.py              # Agent discovery logic
 └── agents/                # Sample agent definitions
-    ├── scout.md            # Fast recon, returns compressed context
-    ├── planner.md           # Creates implementation plans
-    ├── reviewer.md          # Code review
-    └── worker.md            # General-purpose (full capabilities)
+    ├── scout.md              # Fast recon, returns compressed context
+    ├── researcher.md          # Web/docs research with sources
+    ├── planner.md              # Creates implementation plans
+    ├── context-builder.md       # Requirements + code recon -> handoff brief
+    ├── oracle.md                 # Second opinion / drift check, no edits
+    ├── worker.md                  # General-purpose (full capabilities)
+    ├── reviewer.md                 # Code review (read-only, suggests fixes)
+    └── delegate.md                  # Lightweight full-access, no fixed persona
 ```
 
 ## Installation
@@ -101,10 +105,17 @@ System prompt for the agent goes here.
 
 | Agent | Purpose | Tools |
 |-------|---------|-------|
-| `scout` | Fast codebase recon | read, grep, glob, ls |
+| `scout` | Fast codebase recon | read, grep, glob, ls, terminal |
+| `researcher` | Web/docs research with sources | read, web_search, web_fetch |
 | `planner` | Implementation plans | read, grep, glob, ls |
-| `reviewer` | Code review | read, grep, glob, ls, terminal |
-| `worker` | General-purpose | (all default) |
+| `context-builder` | Requirements + code recon, produces a handoff brief | read, grep, glob, ls, terminal, web_search |
+| `oracle` | Second opinion — checks for drift and hidden assumptions, never edits | read, grep, glob, ls, terminal |
+| `worker` | General-purpose implementation | read, grep, glob, ls, terminal, edit, write |
+| `reviewer` | Code review — read-only, suggests fixes | read, grep, glob, ls, terminal |
+| `delegate` | Lightweight full-access, no fixed persona | read, grep, glob, ls, terminal, edit, write |
+
+`researcher` and `context-builder`'s web tools require the `web` extension
+(`web_search`/`web_fetch`) to be enabled.
 
 ## Model Selection
 

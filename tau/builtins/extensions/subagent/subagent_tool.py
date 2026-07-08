@@ -437,11 +437,12 @@ class SubagentTool(Tool):
                 "of {agent, task}) to run steps sequentially, where a step's task may "
                 "contain '{previous}' for the prior step's output. Each subagent runs as "
                 "its own process with its own context window and inherits the current "
-                "session's model. Ships with "
-                "'scout' (fast read-only recon), 'planner', 'reviewer', and 'worker' (full "
-                f"access) out of the box. Add your own in {user_agents_dir}. To enable "
-                "project-local agents in .tau/agents, set agent_scope='both' or 'project' "
-                "(trusted repositories only)."
+                "session's model. Ships with 'scout' (fast read-only recon), 'researcher' "
+                "(web research), 'planner', 'context-builder' (requirements + code recon), "
+                "'oracle' (second opinion / drift check), 'worker', 'reviewer', and "
+                "'delegate' (lightweight full-access) out of the box. Add your own in "
+                f"{user_agents_dir}. To enable project-local agents in .tau/agents, set "
+                "agent_scope='both' or 'project' (trusted repositories only)."
             ),
             schema=SubagentParams,
             kind=ToolKind.Execute,

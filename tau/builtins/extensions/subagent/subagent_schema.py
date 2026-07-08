@@ -21,6 +21,20 @@ class ChainItem(BaseModel):
 
 
 class SubagentParams(BaseModel):
+    action: Literal["list", "get", "tasks"] | None = Field(
+        default=None,
+        description=(
+            "What to do. 'list' (default when 'spawn'/'chain' are both omitted) returns "
+            "every discovered agent's name, source, description, tools, and model — call "
+            "this first if unsure what agents exist. 'get' returns full detail (including "
+            "the system prompt) for one agent named in 'agent'. 'tasks' runs 'spawn' and/or "
+            "'chain' — it's the implicit action whenever either is provided, so you rarely "
+            "need to set it explicitly."
+        ),
+    )
+    agent: str | None = Field(
+        default=None, description="Target agent name for action='get'."
+    )
     spawn: list[TaskItem] | None = Field(
         default=None,
         description=(
