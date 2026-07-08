@@ -1,8 +1,8 @@
-# Tau (τ)
+<p align="center">
+  <img src="assets/logo.png" alt="Tau Logo" width="100">
+</p>
 
-Tau is a Python agent framework and terminal coding assistant. It combines an
-interactive terminal UI, multiple model providers, persistent sessions, tool
-execution, and an extension system in one package.
+Tau is a Python agent framework and coding agent, inspired by [Pi](https://github.com/earendil-works/pi). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
 
 <p align="center">
   <img src="assets/tui.jpeg" alt="Tau interactive terminal interface" width="700">
