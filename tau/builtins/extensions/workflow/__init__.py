@@ -233,10 +233,19 @@ async def cmd_workflow(ctx: ExtensionContext, args: list[str]) -> None:
     await _execute(ctx, wf)
 
 
+_SKILLS_DIR = Path(__file__).parent / "skills"
+
+
 def register(tau: ExtensionAPI) -> None:
     config = tau.config or {}
     if not config.get("enabled", True):
         return
+
+    @tau.on("resources_discover")
+    async def _contribute_skills(event, ctx: ExtensionContext):
+        from tau.hooks.runtime import ResourcesDiscoverResult
+
+        return ResourcesDiscoverResult(skill_paths=[str(_SKILLS_DIR)])
 
     tau.register_command(
         "workflow",
