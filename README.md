@@ -173,3 +173,5 @@ See [Development Setup](docs/development.md) and
 ## License
 
 Tau is licensed under the [MIT License](LICENSE).
+
+<!-- test: verifying the Tau PR-review workflow -->
