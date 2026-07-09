@@ -126,6 +126,16 @@ models = [
         output=_TEXT,
     ),
     Model(
+        id="claude-sonnet-4-5-20250929",
+        name="Claude Sonnet 4.5",
+        provider="anthropic-claude-code",
+        cost=Cost(),
+        thinking=True,
+        context_window=200_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
         id="claude-haiku-4-5-20251001",
         name="Claude Haiku 4.5",
         provider="anthropic-claude-code",
