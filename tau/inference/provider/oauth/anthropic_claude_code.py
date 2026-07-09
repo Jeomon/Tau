@@ -273,10 +273,23 @@ async def login_anthropic(callbacks: OAuthLoginCallbacks) -> OAuthCredential:
 async def refresh_anthropic_token(
     credential: OAuthCredential, signal: AbortSignal | None = None
 ) -> OAuthCredential:
-    """Exchange a refresh token for a new OAuthCredential; transparent to the streaming loop."""
-    data = await asyncio.to_thread(_refresh_token_sync, credential.refresh)
-    access, refresh, expires_ms = _parse_token_response(data)
-    return OAuthCredential(access=access, refresh=refresh, expires=expires_ms)
+    """Exchange a refresh token for a new OAuthCredential; transparent to the streaming loop.
+
+    Anthropic's refresh tokens rotate on every use. If Claude Code (the CLI/app) refreshed
+    more recently than we did, our stored refresh token was already invalidated by that
+    rotation and the direct refresh below will fail with invalid_grant. Before giving up,
+    fall back to whatever Claude Code most recently wrote to the OS Keychain — this avoids
+    forcing the user to manually reopen Claude Code and re-run login to "copy" it back in.
+    """
+    try:
+        data = await asyncio.to_thread(_refresh_token_sync, credential.refresh)
+        access, refresh, expires_ms = _parse_token_response(data)
+        return OAuthCredential(access=access, refresh=refresh, expires=expires_ms)
+    except Exception:
+        keychain_cred = await asyncio.to_thread(read_cc_keychain_credential)
+        if keychain_cred is not None and keychain_cred.refresh != credential.refresh:
+            return keychain_cred
+        raise
 
 
 @dataclass
