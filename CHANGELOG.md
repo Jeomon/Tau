@@ -2,6 +2,17 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.0 — 2026-07-09
+
+### Changed
+
+-   Defer the LSP eager-detection `shutil.which()` availability check until a server's language is actually detected in the project, instead of checking every registered server upfront — servers for languages the project doesn't use (e.g. clangd/rust-analyzer/gopls in a pure-Python repo) never pay that PATH×PATHEXT scan at all
+
+### Fixed
+
+-   Fix the sandbox extension's microVM only being stopped on `session_shutdown` (which fires on session transitions like new/resume/clone) and not on actual process exit, leaving the booted microsandbox subprocess running until its own `idle_timeout_seconds` (default 30 min) — it's now also stopped on `runtime_stop`, matching the LSP extension's existing shutdown handling
+-   Fix the LSP client's `_ws_diag_cache` (workspace-diagnostics cache) never being evicted in `close_file()`, unlike its four sibling per-file caches, so it grew for the life of the client with one entry per file ever reported by `workspace/diagnostic`
+
 ## 0.6.9 — 2026-07-10
 
 ### Added
