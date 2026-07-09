@@ -212,10 +212,23 @@ def _detect_machine() -> str:
 
 
 def _detect_shell() -> str:
-    """Detect the user's shell from $SHELL, falling back to common shells on PATH."""
+    """Detect the user's shell from $SHELL, falling back to common shells on PATH.
+
+    On Windows, ``$SHELL`` is a POSIX convention and is essentially never set,
+    so this used to fall through to up to 4 ``shutil.which()`` calls, each
+    scanning every ``PATH`` entry against every ``PATHEXT`` suffix for shells
+    (zsh, fish, sh) that don't exist on Windows. We instead resolve the native
+    shell directly from environment variables the OS always sets, with no
+    PATH scan.
+    """
     shell = os.environ.get("SHELL", "")
     if shell:
         return Path(shell).name
+    if sys.platform == "win32":
+        if os.environ.get("PSModulePath"):
+            return "powershell"
+        comspec = os.environ.get("COMSPEC", "")
+        return Path(comspec).stem if comspec else "cmd"
     for candidate in ("bash", "zsh", "fish", "sh"):
         if shutil.which(candidate):
             return candidate
