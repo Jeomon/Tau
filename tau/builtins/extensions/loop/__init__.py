@@ -30,7 +30,11 @@ from typing import TYPE_CHECKING
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dispatch import _emit, _update_status, run_ticker  # type: ignore[import-not-found]
-from duration import format_duration, parse_duration, parse_loop_args  # type: ignore[import-not-found]
+from duration import (  # type: ignore[import-not-found]
+    format_duration,
+    parse_duration,
+    parse_loop_args,
+)
 from state import MAX_TASKS, LoopTask, SchedulerState  # type: ignore[import-not-found]
 
 if TYPE_CHECKING:
@@ -99,7 +103,11 @@ def register(tau: ExtensionAPI) -> None:
             return
 
         task = state.add(parsed["prompt"], parsed["interval_s"])
-        _emit(ctx, f"Loop scheduled every {format_duration(parsed['interval_s'])} (id: {task.id}). Expires in 3 days.")
+        _emit(
+            ctx,
+            f"Loop scheduled every {format_duration(parsed['interval_s'])} "
+            f"(id: {task.id}). Expires in 3 days.",
+        )
         if parsed.get("note"):
             _emit(ctx, parsed["note"])
         _update_status(ctx, state)
@@ -117,7 +125,9 @@ def register(tau: ExtensionAPI) -> None:
                 "Delete",
                 "Back",
             ]
-            choice = await ui.select(f"Loop {task.id} — every {format_duration(task.interval_s)}", actions)
+            choice = await ui.select(
+                f"Loop {task.id} — every {format_duration(task.interval_s)}", actions
+            )
             if choice is None or choice == "Back":
                 return
 
@@ -158,7 +168,9 @@ def register(tau: ExtensionAPI) -> None:
 
     async def _show_picker(ctx: ExtensionContext, ui: UIContext) -> None:
         while True:
-            options = [_loop_label(t) for t in sorted(state.tasks.values(), key=lambda t: t.next_run_at)]
+            options = [
+                _loop_label(t) for t in sorted(state.tasks.values(), key=lambda t: t.next_run_at)
+            ]
             options.append("+ New loop")
             if state.tasks:
                 options.append("Clear all loops")
@@ -174,7 +186,9 @@ def register(tau: ExtensionAPI) -> None:
                 continue
 
             if choice == "Clear all loops":
-                ok = await ui.confirm("Clear all loops?", f"This deletes all {len(state.tasks)} loop(s).")
+                ok = await ui.confirm(
+                    "Clear all loops?", f"This deletes all {len(state.tasks)} loop(s)."
+                )
                 if ok:
                     n = state.clear()
                     ui.notify(f"Cleared {n} loop{'s' if n != 1 else ''}.")
@@ -199,7 +213,8 @@ def register(tau: ExtensionAPI) -> None:
 
     tau.register_command(
         "loop",
-        "Manage recurring prompts: /loop opens the loop manager, /loop <period> <task> creates one directly",
+        "Manage recurring prompts: /loop opens the loop manager, "
+        "/loop <period> <task> creates one directly",
         cmd_loop,
         argument_hint="<period> <task>",
         get_argument_completions=_get_argument_completions,

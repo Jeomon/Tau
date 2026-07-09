@@ -198,7 +198,9 @@ _GEMINI3_THINKING_LEVEL: dict[ThinkingLevel, genai_types.ThinkingLevel] = {
 class GeminiGenerateAPI(BaseAPI):
     def __init__(self, options: LLMOptions) -> None:
         super().__init__(options)
-        http_options = genai_types.HttpOptions(base_url=options.base_url) if options.base_url else None
+        http_options = (
+            genai_types.HttpOptions(base_url=options.base_url) if options.base_url else None
+        )
         self._client = genai.Client(api_key=options.api_key, http_options=http_options)
 
     def _build_config(

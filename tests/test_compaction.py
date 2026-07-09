@@ -22,6 +22,7 @@ from tau.message.types import (
     Usage,
     UserMessage,
 )
+from tau.session.compaction import _TOKEN_ESTIMATE_SAFETY_FACTOR as _SAFETY
 from tau.session.compaction import (
     ESTIMATED_IMAGE_TOKENS,
     TOOL_RESULT_MAX_CHARS,
@@ -35,7 +36,6 @@ from tau.session.compaction import (
     validated_compaction_settings,
 )
 from tau.session.compaction import _count_text_tokens as _count_tokens
-from tau.session.compaction import _TOKEN_ESTIMATE_SAFETY_FACTOR as _SAFETY
 
 
 class TestEstimateTokens:
@@ -126,9 +126,7 @@ class TestCountTextTokensFallback:
         # to the real encoding mid-test (it's a no-op once _encoding_load_started
         # is True, which conftest.py's fixture already guarantees).
         text = "x" * 400
-        assert compaction_module._count_text_tokens(text) == int(
-            len(text) * _SAFETY
-        ) // 4
+        assert compaction_module._count_text_tokens(text) == int(len(text) * _SAFETY) // 4
 
     def test_empty_text_is_zero(self):
         assert _count_tokens("") == 0

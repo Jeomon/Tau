@@ -225,7 +225,7 @@ def _detect_shell() -> str:
     if shell:
         return Path(shell).name
     if sys.platform == "win32":
-        if os.environ.get("PSModulePath"):
+        if os.environ.get("PSModulePath"):  # noqa: SIM112 — actual Windows env var casing
             return "powershell"
         comspec = os.environ.get("COMSPEC", "")
         return Path(comspec).stem if comspec else "cmd"

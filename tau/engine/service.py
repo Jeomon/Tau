@@ -353,7 +353,9 @@ class Engine:
                 raw = await self.options.after_tool_call(invocation, raw, signal) or raw
             # raw.content is typed str but not runtime-enforced (plain dataclass), so a
             # careless custom/extension tool can hand back None or a non-string value.
-            content = raw.content if isinstance(raw.content, str) or not raw.content else str(raw.content)
+            content = (
+                raw.content if isinstance(raw.content, str) or not raw.content else str(raw.content)
+            )
             tool_result = ToolResultContent(
                 id=tool_call.id,
                 is_error=raw.is_error,

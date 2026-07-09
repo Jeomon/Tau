@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from tau.engine.types import AbortSignal
-from tau.utils.format import human_size
 
 HASH_LEN = 4
 # Astronomically unlikely to matter for any real file (65536 buckets per

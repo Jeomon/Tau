@@ -71,7 +71,9 @@ def _ctx(tmp_path, editor_text: str = "") -> tuple[CommandContext, SessionManage
     runtime._emit_session_start = AsyncMock()
 
     layout = _FakeLayout(editor_text)
-    ctx = CommandContext(runtime=runtime, layout=layout, tui=SimpleNamespace(request_render=lambda: None))
+    ctx = CommandContext(
+        runtime=runtime, layout=layout, tui=SimpleNamespace(request_render=lambda: None)
+    )
     return ctx, manager, user_entry_id
 
 

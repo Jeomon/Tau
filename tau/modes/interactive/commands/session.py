@@ -486,9 +486,7 @@ def cmd_session(ctx: CommandContext) -> None:
     input_cost = input_tokens * INPUT_RATE
     output_cost = output_tokens * OUTPUT_RATE
     lines.append(f"{DIM}{'Input':<{W}}{RESET} {format_number(input_tokens)} (${input_cost:.2f})")
-    lines.append(
-        f"{DIM}{'Output':<{W}}{RESET} {format_number(output_tokens)} (${output_cost:.2f})"
-    )
+    lines.append(f"{DIM}{'Output':<{W}}{RESET} {format_number(output_tokens)} (${output_cost:.2f})")
     if cache_read_tokens:
         lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {format_number(cache_read_tokens)}")
     if cache_write_tokens:

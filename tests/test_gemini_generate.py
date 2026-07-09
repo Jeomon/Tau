@@ -170,7 +170,9 @@ def test_unsigned_tool_call_falls_back_to_text() -> None:
     # different provider, like Mistral, that never produces one) — Gemini
     # rejects an unsigned functionCall part outright.
     messages = [
-        AssistantMessage(contents=[ToolCallContent(id="call-123", name="weather", args={"city": "Pune"})])
+        AssistantMessage(
+            contents=[ToolCallContent(id="call-123", name="weather", args={"city": "Pune"})]
+        )
     ]
 
     _, contents = _messages_to_gemini(messages)

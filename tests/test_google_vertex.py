@@ -39,7 +39,10 @@ def _history() -> list:
         AssistantMessage(
             contents=[
                 ToolCallContent(
-                    id="tc1", name="read_file", args={"path": "x"}, metadata={"thought_signature": _SIG_B64}
+                    id="tc1",
+                    name="read_file",
+                    args={"path": "x"},
+                    metadata={"thought_signature": _SIG_B64},
                 )
             ]
         ),
@@ -62,7 +65,9 @@ def test_function_response_error_uses_error_key() -> None:
         AssistantMessage(contents=[ToolCallContent(id="tc1", name="read_file", args={})]),
         ToolMessage(
             contents=[
-                ToolResultContent(id="tc1", content="not found", tool_name="read_file", is_error=True)
+                ToolResultContent(
+                    id="tc1", content="not found", tool_name="read_file", is_error=True
+                )
             ]
         ),
     ]

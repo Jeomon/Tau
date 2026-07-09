@@ -20,11 +20,13 @@ from tau.tool.types import (
 
 _MAX_MATCHES = 500
 
+
 def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
     query = args.get("pattern", "")
     query = " ".join(query.split())
     path = args.get("path", "")
     return call_line("grep", query, path)
+
 
 def _render_grep_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
@@ -51,8 +53,10 @@ def _render_grep_result(content: str, opts: Any) -> list[str]:
         result.append(f"{DIM}{file_part}:{lineno.strip()}{RESET}  {text}")
     return result
 
+
 class GrepParams(BaseModel):
     """Parameters for the grep tool."""
+
     pattern: str = Field(
         default="",
         description="Regular expression to search for.",
@@ -76,6 +80,7 @@ class GrepParams(BaseModel):
         description="Whether the pattern is case-sensitive.",
         examples=[True, False],
     )
+
 
 class GrepTool(Tool):
     """Tool for searching files by regex pattern."""
@@ -119,9 +124,7 @@ class GrepTool(Tool):
         if not target.exists():
             return ToolResult.error(invocation.id, f"Path not found: {target}")
         if not params.pattern:
-            return ToolResult.error(
-                invocation.id, "Provide a 'pattern' to search for."
-            )
+            return ToolResult.error(invocation.id, "Provide a 'pattern' to search for.")
         result = await self._rg(params, target, signal)
         if result.get("error"):
             return ToolResult.error(invocation.id, result["output"])

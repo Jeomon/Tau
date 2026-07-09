@@ -19,8 +19,8 @@ from tau.tui.input import (
     get_keybindings,
     normalize_key_id,
 )
-from tau.tui.theme import LayoutTheme
 from tau.tui.service import TUI
+from tau.tui.theme import LayoutTheme
 from tau.tui.utils import project_name
 
 if TYPE_CHECKING:

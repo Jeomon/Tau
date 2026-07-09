@@ -148,7 +148,9 @@ def register(tau: ExtensionAPI) -> None:
             ("Done", "✓", state.list("done")),
             ("Failed", "✗", state.list("failed")),
         ]
-        header = " · ".join(f"{len(items)} {label.lower()}" for label, _, items in sections if items)
+        header = " · ".join(
+            f"{len(items)} {label.lower()}" for label, _, items in sections if items
+        )
         lines = [header]
         for label, glyph, items in sections:
             if not items:

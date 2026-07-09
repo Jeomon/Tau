@@ -135,7 +135,9 @@ class _AskUserComponent(Component):
         preview_box = self._build_preview_box(preview, right_width, box_height)
 
         left_rows = _write(content_lines, area.x, body_y, left_width)
-        right_rows = _write(preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width)
+        right_rows = _write(
+            preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width
+        )
         col_rows = max(left_rows, right_rows)
 
         # Footer spans the FULL width beneath both columns — it's not part of
@@ -188,8 +190,7 @@ class _AskUserComponent(Component):
         back = "Esc to cancel" if not self._options else "Esc to go back"
         footer = [
             "",
-            "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
-            f"{back}\x1b[0m",
+            f"  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  {back}\x1b[0m",
         ]
         return inner, footer
 

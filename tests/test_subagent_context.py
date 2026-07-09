@@ -1,12 +1,15 @@
 """Tests for the subagent tool's context='fresh'|'fork' plumbing.
 
-'fork' resumes the parent's current persisted session as read-only context
-via `tau --resume <id> --session-dir <dir> --ephemeral` rather than creating
-a new forked session file — see subagent_tool._parent_session /
-_build_run_args. These tests cover that logic directly, without spawning any
-real subagent process.
+'fork' resumes the parent's current persisted session as read-only context by
+reading its session file directly (tau.agent.embedded.load_fork_context) and
+seeding the embedded agent's initial_messages with it — never creating a new
+forked session file and never writing back. See subagent_tool._parent_session
+/ run_single_agent. These tests cover that logic directly, without spawning
+any real subagent process (run_embedded_agent itself is monkeypatched out).
 """
 
+# ruff: noqa: I001 — import order below is load-bearing: tau.builtins.extensions.subagent
+# must be imported (for its sys.path.insert side effect) before subagent_tool.
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,6 +36,11 @@ def _agent(**overrides) -> AgentConfig:
     )
     defaults.update(overrides)
     return AgentConfig(**defaults)
+
+
+async def _fake_run_embedded_agent(captured: dict, **kwargs):
+    captured["initial_messages"] = kwargs.get("initial_messages")
+    return True, "done", {"turns": 1, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
 
 
 class TestParentSession:
@@ -62,35 +70,72 @@ class TestParentSession:
         assert result == (sm.session_id, session_dir)
 
 
-class TestBuildRunArgs:
-    def test_fresh_context_has_no_resume(self, tmp_path: Path) -> None:
-        args = subagent_tool._build_run_args(_agent(), "do x", tmp_path, None, None)
+@pytest.mark.anyio
+class TestRunSingleAgentContext:
+    """context_mode resolution inside run_single_agent: 'fresh' passes no
+    initial_messages to run_embedded_agent; 'fork' loads them from the
+    parent's session file via load_fork_context()."""
 
-        assert "--resume" not in args
-        assert "--session-dir" not in args
-        assert "--ephemeral" in args
-
-    def test_fork_context_resumes_parent_session(self, tmp_path: Path) -> None:
-        session_dir = tmp_path / "sessions"
-
-        args = subagent_tool._build_run_args(
-            _agent(), "do x", tmp_path, None, ("abc123", session_dir)
+    async def test_fresh_context_has_no_initial_messages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict = {}
+        monkeypatch.setattr(
+            subagent_tool,
+            "run_embedded_agent",
+            lambda **kwargs: _fake_run_embedded_agent(captured, **kwargs),
         )
 
-        assert args[: args.index("--ephemeral")] == [
-            "--mode",
-            "json",
-            "--quiet",
-            "--cwd",
-            str(tmp_path),
-            "--resume",
-            "abc123",
-            "--session-dir",
-            str(session_dir),
-        ]
-        # --ephemeral still present: the child never writes back to the
-        # resumed session regardless of context mode.
-        assert "--ephemeral" in args
+        await subagent_tool.run_single_agent(
+            default_cwd=tmp_path,
+            agents=[_agent(context=None)],
+            agent_name="worker",
+            task="do x",
+            cwd=None,
+            step=None,
+            signal=None,
+            on_update=None,
+            main_model=None,
+            requested_context="fresh",
+            parent_session=None,
+        )
+
+        assert captured["initial_messages"] is None
+
+    async def test_fork_context_loads_parent_session_messages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session_dir = tmp_path / "sessions"
+        captured: dict = {}
+
+        def _fake_load_fork_context(cwd: Path, session_id: str, sdir: Path) -> list[str]:
+            captured["load_fork_context_args"] = (cwd, session_id, sdir)
+            return ["fake-message"]
+
+        monkeypatch.setattr(subagent_tool, "load_fork_context", _fake_load_fork_context)
+        monkeypatch.setattr(
+            subagent_tool,
+            "run_embedded_agent",
+            lambda **kwargs: _fake_run_embedded_agent(captured, **kwargs),
+        )
+
+        await subagent_tool.run_single_agent(
+            default_cwd=tmp_path,
+            agents=[_agent(context=None)],
+            agent_name="worker",
+            task="do x",
+            cwd=None,
+            step=None,
+            signal=None,
+            on_update=None,
+            main_model=None,
+            requested_context="fork",
+            parent_session=("abc123", session_dir),
+        )
+
+        assert captured["initial_messages"] == ["fake-message"]
+        assert captured["load_fork_context_args"][1] == "abc123"
+        assert captured["load_fork_context_args"][2] == session_dir
 
 
 @pytest.mark.anyio
@@ -98,10 +143,10 @@ class TestRunSingleAgentForkFailsFast:
     async def test_fork_without_parent_session_errors_without_spawning(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        async def _boom(*args, **kwargs):
-            raise AssertionError("must not spawn a process when fork has no parent session")
+        async def _boom(**kwargs):
+            raise AssertionError("must not run an embedded agent when fork has no parent session")
 
-        monkeypatch.setattr(subagent_tool, "_run_process", _boom)
+        monkeypatch.setattr(subagent_tool, "run_embedded_agent", _boom)
 
         result = await subagent_tool.run_single_agent(
             default_cwd=tmp_path,
@@ -124,24 +169,31 @@ class TestRunSingleAgentForkFailsFast:
 @pytest.mark.anyio
 class TestContextPrecedence:
     """requested_context (explicit task/run) beats the agent's own frontmatter
-    default, which beats "fresh". Verified by capturing the args passed to
-    _build_run_args instead of spawning a real subagent process."""
+    default, which beats "fresh". Verified by checking whether
+    initial_messages ends up populated (i.e. fork was resolved) instead of
+    spawning a real subagent process."""
 
     async def _resolved_context(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, agent, requested_context, parent_session
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        *,
+        agent,
+        requested_context,
+        parent_session,
     ) -> bool:
-        """Returns whether _build_run_args was called with fork's resume args."""
+        """Returns whether the run resolved to fork (initial_messages populated)."""
         captured: dict = {}
 
-        def _fake_build_run_args(agent, task, run_cwd, model, resolved_parent_session):
-            captured["forked"] = resolved_parent_session is not None
-            return ["--mode", "json"]
+        def _fake_load_fork_context(cwd: Path, session_id: str, sdir: Path) -> list[str]:
+            return ["fake-message"]
 
-        async def _noop_run_process(*args, **kwargs):
-            return None
-
-        monkeypatch.setattr(subagent_tool, "_build_run_args", _fake_build_run_args)
-        monkeypatch.setattr(subagent_tool, "_run_process", _noop_run_process)
+        monkeypatch.setattr(subagent_tool, "load_fork_context", _fake_load_fork_context)
+        monkeypatch.setattr(
+            subagent_tool,
+            "run_embedded_agent",
+            lambda **kwargs: _fake_run_embedded_agent(captured, **kwargs),
+        )
 
         await subagent_tool.run_single_agent(
             default_cwd=tmp_path,
@@ -156,7 +208,7 @@ class TestContextPrecedence:
             requested_context=requested_context,
             parent_session=parent_session,
         )
-        return captured["forked"]
+        return captured["initial_messages"] is not None
 
     async def test_agent_default_fork_used_when_nothing_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -205,7 +257,10 @@ class TestBuiltinAgentContextDefaults:
     tiers) so this doesn't depend on the running machine's ~/.tau/agents."""
 
     def _builtin_agents(self):
-        from agents import _BUILTIN_AGENTS_DIR, _load_agents_from_dir  # type: ignore[import-not-found]
+        from agents import (  # type: ignore[import-not-found]
+            _BUILTIN_AGENTS_DIR,
+            _load_agents_from_dir,
+        )
 
         return _load_agents_from_dir(_BUILTIN_AGENTS_DIR, "builtin")
 

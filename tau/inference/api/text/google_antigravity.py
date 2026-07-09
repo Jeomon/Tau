@@ -314,8 +314,9 @@ def _messages_to_contents(
                             # (no thoughtSignature) — sending this as a
                             # functionResponse would reference a tool_use the
                             # backend never saw, so downgrade it too.
+                            result_text = tool_result_text(content)
                             parts.append(
-                                {"text": f"[Tool Result: {content.tool_name}]\n{tool_result_text(content)}"}
+                                {"text": f"[Tool Result: {content.tool_name}]\n{result_text}"}
                             )
                             continue
                         # functionResponse correlates to its functionCall by name (the

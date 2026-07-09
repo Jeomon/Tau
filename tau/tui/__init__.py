@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from tau.tui.layout import Alignment, Constraint, Direction, Flex, Layout
     from tau.tui.markdown import render_markdown
     from tau.tui.palette import material, tailwind
+    from tau.tui.service import TUI, OverlayHandle, OverlayOptions, Renderer
     from tau.tui.style import RESET_COLOR, Color, Modifier, Style, Stylize, parse_color
     from tau.tui.terminal import (
         CellDimensions,
@@ -91,7 +92,6 @@ if TYPE_CHECKING:
         rgb_bold,
         rgb_italic,
     )
-    from tau.tui.service import TUI, OverlayHandle, OverlayOptions, Renderer
     from tau.tui.widget import StatefulWidget, Widget, render_widget
 
 __all__ = [

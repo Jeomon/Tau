@@ -50,7 +50,7 @@ class AskUserTool(Tool):
                 "assumptions that would materially change the implementation. Each "
                 "question supports single-select, multi-select, and freeform text "
                 "answers, and up to 4 options when options are given. If you recommend a "
-                "specific option, list it first and append \"(Recommended)\" to its "
+                'specific option, list it first and append "(Recommended)" to its '
                 "title. Only available in an interactive TUI session."
             ),
             schema=AskUserParams,
@@ -112,9 +112,7 @@ class AskUserTool(Tool):
             else:
                 content = ", ".join(response["selections"])
 
-            answers.append(
-                {"question": question.question, "response": content, "raw": response}
-            )
+            answers.append({"question": question.question, "response": content, "raw": response})
 
         return ToolResult.ok(
             invocation.id,

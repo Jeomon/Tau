@@ -95,7 +95,12 @@ class ListSelector:
                 is_sel = i == self._selected
                 is_current = item == self._current
                 if is_sel:
-                    spans = [Span("  "), Span(t.selector_arrow, t.accent), Span(" "), Span(item, t.emphasis)]
+                    spans = [
+                        Span("  "),
+                        Span(t.selector_arrow, t.accent),
+                        Span(" "),
+                        Span(item, t.emphasis),
+                    ]
                 else:
                     spans = [Span("    "), Span(item, t.muted)]
                 if is_current:

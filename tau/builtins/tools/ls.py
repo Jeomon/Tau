@@ -5,7 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import human_size
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -17,6 +16,7 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+from tau.utils.format import human_size
 
 
 def _render_ls_call(args: dict, _streaming: bool) -> list[str]:

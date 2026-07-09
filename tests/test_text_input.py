@@ -206,7 +206,9 @@ class TestStickyGoalColumn:
         line_idx, col = editor._cursor_line_col()  # noqa: SLF001
         assert (line_idx, col) == (1, 2)
 
-        editor.handle_input(KeyEvent(key="right"))  # end of line1 -> start of line2; resets goal_col
+        editor.handle_input(
+            KeyEvent(key="right")
+        )  # end of line1 -> start of line2; resets goal_col
         line_idx, col = editor._cursor_line_col()  # noqa: SLF001
         assert (line_idx, col) == (2, 0)
 

@@ -90,7 +90,9 @@ def test_claude_model_gets_explicit_tool_call_id() -> None:
     assert call["id"] == "tc1"
 
     response_turn = next(c for c in contents if any("functionResponse" in p for p in c["parts"]))
-    response = next(p["functionResponse"] for p in response_turn["parts"] if "functionResponse" in p)
+    response = next(
+        p["functionResponse"] for p in response_turn["parts"] if "functionResponse" in p
+    )
     assert response["id"] == "tc1"
 
 
@@ -111,7 +113,9 @@ def test_unsigned_tool_call_downgrades_matching_result_too() -> None:
     # must be downgraded to text alongside its call.
     messages = [
         UserMessage.from_text("hi"),
-        AssistantMessage(contents=[ToolCallContent(id="tc1", name="read_file", args={"path": "x"})]),
+        AssistantMessage(
+            contents=[ToolCallContent(id="tc1", name="read_file", args={"path": "x"})]
+        ),
         ToolMessage(
             contents=[ToolResultContent(id="tc1", content="file contents", tool_name="read_file")]
         ),
@@ -173,7 +177,9 @@ def test_signed_tool_call_stays_a_function_call() -> None:
     messages = [
         UserMessage.from_text("hi"),
         AssistantMessage(
-            contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)]
+            contents=[
+                ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)
+            ]
         ),
     ]
 
@@ -187,14 +193,14 @@ def test_distrust_thought_signatures_forces_text_fallback() -> None:
     messages = [
         UserMessage.from_text("hi"),
         AssistantMessage(
-            contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)]
+            contents=[
+                ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)
+            ]
         ),
     ]
 
     for model_id in ("gemini-3-pro-preview", "gemini-2.5-flash"):
-        _, contents = _messages_to_contents(
-            messages, model_id, distrust_thought_signatures=True
-        )
+        _, contents = _messages_to_contents(messages, model_id, distrust_thought_signatures=True)
         model_turn = contents[-1]
         # Distrusting the stored signature leaves the call unsigned, so it now
         # falls back to text regardless of model — same path as never having

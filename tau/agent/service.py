@@ -544,7 +544,10 @@ class Agent:
         last = self._session_manager.find_last_assistant_message()
         if last is None:
             return False
-        if last.error_kind != ErrorKind.CONTEXT_OVERFLOW and not self._estimate_indicates_overflow():
+        if (
+            last.error_kind != ErrorKind.CONTEXT_OVERFLOW
+            and not self._estimate_indicates_overflow()
+        ):
             return False
 
         # Model-switch guard: the overflow error is from a different model if it predates

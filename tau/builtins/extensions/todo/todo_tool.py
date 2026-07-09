@@ -122,7 +122,9 @@ class TodoState:
         if after_id is None:
             self.items.extend(new_items)
         else:
-            idx = next((i for i, existing in enumerate(self.items) if existing.id == after_id), None)
+            idx = next(
+                (i for i, existing in enumerate(self.items) if existing.id == after_id), None
+            )
             insert_at = (idx + 1) if idx is not None else len(self.items)
             self.items[insert_at:insert_at] = new_items
         return new_items
@@ -177,7 +179,9 @@ class TodoState:
         if after_id is None:
             self.items.append(item)
         else:
-            idx = next((i for i, existing in enumerate(self.items) if existing.id == after_id), None)
+            idx = next(
+                (i for i, existing in enumerate(self.items) if existing.id == after_id), None
+            )
             insert_at = (idx + 1) if idx is not None else len(self.items)
             self.items.insert(insert_at, item)
         return item
@@ -250,7 +254,10 @@ def _render_result(content: str, opts: Any) -> list[str]:
     if action == "list":
         count = 0 if content == "No tasks" else len(lines)
         text = "No tasks" if count == 0 else f"{count} task(s)"
-        return [_style(theme.success if theme else None, "✓ ") + _style(theme.muted if theme else None, text)]
+        return [
+            _style(theme.success if theme else None, "✓ ")
+            + _style(theme.muted if theme else None, text)
+        ]
 
     if action == "get":
         head = _style(theme.success if theme else None, "✓ ") + _style(
@@ -260,7 +267,8 @@ def _render_result(content: str, opts: Any) -> list[str]:
         return [head, *rest]
 
     return [
-        _style(theme.success if theme else None, "✓ ") + _style(theme.muted if theme else None, lines[0])
+        _style(theme.success if theme else None, "✓ ")
+        + _style(theme.muted if theme else None, lines[0])
     ]
 
 

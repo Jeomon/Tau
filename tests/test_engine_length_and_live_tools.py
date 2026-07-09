@@ -117,7 +117,9 @@ def test_extension_tool_change_applies_to_next_request_in_same_run() -> None:
 
     run(
         engine.run(
-            EngineContext(system_prompt="", messages=[UserMessage.from_text("hi")], tools=initial_tools)
+            EngineContext(
+                system_prompt="", messages=[UserMessage.from_text("hi")], tools=initial_tools
+            )
         )
     )
 

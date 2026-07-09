@@ -36,7 +36,9 @@ def _display_line(line: str) -> str:
     """
     if len(line) <= _MAX_LINE_CHARS:
         return line
-    return f"{line[:_MAX_LINE_CHARS]}…[line truncated for display at {_MAX_LINE_CHARS} chars; {len(line)} chars total]"
+    truncated = line[:_MAX_LINE_CHARS]
+    suffix = f"…[line truncated for display at {_MAX_LINE_CHARS} chars; {len(line)} chars total]"
+    return truncated + suffix
 
 
 class ReadParams(BaseModel):

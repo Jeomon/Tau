@@ -89,7 +89,9 @@ class Hooks:
                 result = handler(event)
                 if asyncio.iscoroutine(result):
                     result = (
-                        await asyncio.wait_for(result, timeout) if timeout is not None else await result
+                        await asyncio.wait_for(result, timeout)
+                        if timeout is not None
+                        else await result
                     )
                 results.append(result)
             except TimeoutError:

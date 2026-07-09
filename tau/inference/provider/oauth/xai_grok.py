@@ -10,6 +10,7 @@ models without a separate pay-per-token API key.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import secrets
@@ -131,10 +132,8 @@ def _validate_token_sync(access_token: str) -> bool:
 
 def _revoke_token_sync(token: str) -> None:
     """Revoke a token at xAI's revocation endpoint (best-effort, silently ignores errors)."""
-    try:
+    with contextlib.suppress(Exception):
         _post_form(REVOKE_URL, {"token": token, "client_id": CLIENT_ID})
-    except Exception:
-        pass
 
 
 def _parse_token_response(data: dict) -> tuple[str, str, int]:
@@ -172,7 +171,9 @@ def read_grok_file_credential() -> OAuthCredential | None:
         expires_at = entry.get("expires_at", "")
         if not refresh:
             return None
-        expires_ms = int(dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp() * 1000)
+        expires_ms = int(
+            dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp() * 1000
+        )
         return OAuthCredential(access=access, refresh=refresh, expires=expires_ms)
     except Exception:
         return None

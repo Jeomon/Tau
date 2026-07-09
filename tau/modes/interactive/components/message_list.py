@@ -810,7 +810,7 @@ class MessageList(Component):
         # Invalidate the frozen rendering buffers so that all rows are
         # regenerated with the new theme, even if the scroll offset
         # stays the same.
-        self._frozen_buf = None          # discard rendered frozen rows
+        self._frozen_buf = None  # discard rendered frozen rows
         self._frozen_block_count = 0
         self._frozen_unit_ends.clear()
         self._frozen_unit_rows.clear()
