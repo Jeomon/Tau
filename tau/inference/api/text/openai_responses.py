@@ -88,15 +88,9 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
                             else f"data:{mime or 'image/png'};base64,{b64}"
                         )
                         other_parts.append({"type": "input_image", "image_url": url})
-                case ToolCallContent():
-                    other_parts.append(
-                        {
-                            "type": "function_call",
-                            "call_id": item.id,
-                            "name": item.name,
-                            "arguments": json.dumps(item.args),
-                        }
-                    )
+                # ToolCallContent is handled by _messages_to_input, which hoists
+                # it out to a top-level function_call item — see the comment
+                # on the supports_thinking=True branch below.
         parts: list[dict[str, Any]] = []
         if thinking_parts or text_parts:
             merged = "\n".join(thinking_parts + text_parts)
@@ -104,6 +98,11 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
         parts.extend(other_parts)
         return parts
 
+    # ThinkingContent and ToolCallContent are intentionally not handled here:
+    # the Responses API has no "thinking" content-part type (reasoning is
+    # ephemeral and isn't replayed on later turns — see openai_codex_responses.py),
+    # and function_call is a top-level input item, not nested inside a
+    # message's content array. _messages_to_input hoists it out separately.
     parts = []
     for item in content_items:
         match item:
@@ -117,23 +116,6 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
                         else f"data:{mime or 'image/png'};base64,{b64}"
                     )
                     parts.append({"type": "input_image", "image_url": url})
-            case ThinkingContent():
-                parts.append(
-                    {
-                        "type": "thinking",
-                        "thinking": item.content,
-                        "signature": item.signature,
-                    }
-                )
-            case ToolCallContent():
-                parts.append(
-                    {
-                        "type": "function_call",
-                        "call_id": item.id,
-                        "name": item.name,
-                        "arguments": json.dumps(item.args),
-                    }
-                )
     return parts
 
 
@@ -167,6 +149,19 @@ def _messages_to_input(
                 parts = _content_to_openai(msg.contents, supports_thinking=supports_thinking)
                 if parts:
                     input_items.append({"role": role, "content": parts})
+                # function_call is a top-level input item in the Responses API,
+                # not nested inside a message's content array. It must precede
+                # its matching function_call_output (emitted by the ToolMessage).
+                for content in msg.contents:
+                    if isinstance(content, ToolCallContent):
+                        input_items.append(
+                            {
+                                "type": "function_call",
+                                "call_id": content.id,
+                                "name": content.name,
+                                "arguments": json.dumps(content.args),
+                            }
+                        )
 
     return instructions, input_items
 
@@ -258,7 +253,12 @@ class OpenAIResponsesAPI(BaseAPI):
             if modified is not None:
                 params = modified
 
-        tool_names: dict[str, str] = {}
+        # Keyed by the response item's own id (event.item_id in the arguments
+        # delta/done events), mapping to (call_id, name). item_id and call_id
+        # are two distinct identifiers — OpenAI's backend happens to make them
+        # equal, but other Responses-API-compatible backends (e.g. xAI's Grok
+        # CLI proxy) don't, so they must be tracked separately.
+        tool_calls: dict[str, tuple[str, str]] = {}
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
@@ -279,7 +279,7 @@ class OpenAIResponsesAPI(BaseAPI):
                     elif item.type == "reasoning":
                         yield ThinkingStartEvent(thinking=None)
                     elif item.type == "function_call":
-                        tool_names[item.call_id] = item.name  # type: ignore[union-attr,index]
+                        tool_calls[item.id] = (item.call_id, item.name)  # type: ignore[union-attr,index]
                         yield ToolCallStartEvent(
                             tool_call=ToolCallContent(id=item.call_id, name=item.name)  # type: ignore[union-attr,arg-type]
                         )
@@ -297,18 +297,16 @@ class OpenAIResponsesAPI(BaseAPI):
                     yield ThinkingEndEvent(thinking=ThinkingContent(content=event.text))  # type: ignore[union-attr]
 
                 elif etype == "response.function_call_arguments.delta":
-                    call_id = event.item_id  # type: ignore[union-attr]
+                    call_id, _ = tool_calls.get(event.item_id, (event.item_id, ""))  # type: ignore[union-attr]
                     yield ToolCallDeltaEvent(tool_call=ToolCallContent(id=call_id))
 
                 elif etype == "response.function_call_arguments.done":
-                    call_id = event.item_id  # type: ignore[union-attr]
+                    call_id, name = tool_calls.get(event.item_id, (event.item_id, ""))  # type: ignore[union-attr]
                     args_str = event.arguments.strip()  # type: ignore[union-attr]
                     args = parse_tool_args(args_str)
 
                     yield ToolCallEndEvent(
-                        tool_call=ToolCallContent(
-                            id=call_id, name=tool_names.get(call_id, ""), args=args
-                        )
+                        tool_call=ToolCallContent(id=call_id, name=name, args=args)
                     )
 
                 elif etype == "response.done":

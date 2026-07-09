@@ -4,6 +4,7 @@ from tau.inference.provider.oauth.anthropic_claude_code import AnthropicClaudeCo
 from tau.inference.provider.oauth.github_copilot import GitHubCopilotOAuthProvider
 from tau.inference.provider.oauth.google_antigravity import GoogleAntigravityOAuthProvider
 from tau.inference.provider.oauth.openai_codex import OpenAICodexOAuthProvider
+from tau.inference.provider.oauth.xai_grok import XAIGrokOAuthProvider
 from tau.inference.provider.types import APIProvider
 from tau.inference.types import AuthType, LLMOptions
 
@@ -129,6 +130,7 @@ oauth_providers = [
     AnthropicClaudeCodeOAuthProvider(),
     GitHubCopilotOAuthProvider(),
     GoogleAntigravityOAuthProvider(),
+    XAIGrokOAuthProvider(),
 ]
 
 providers = api_providers + oauth_providers

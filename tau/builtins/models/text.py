@@ -1009,6 +1009,16 @@ models = [
     ),
     # xAI
     Model(
+        id="grok-4.5",
+        name="Grok 4.5",
+        provider="xai",
+        cost=Cost(input=2.00, output=6.00),
+        thinking=True,
+        context_window=500_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
         id="grok-4.3",
         name="Grok 4.3",
         provider="xai",
@@ -1023,6 +1033,42 @@ models = [
         name="Grok Build 0.1",
         provider="xai",
         cost=Cost(input=1.00, output=2.00, cache_read=0.20),
+        thinking=True,
+        context_window=256_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    # xAI Grok CLI (OAuth — SuperGrok/X Premium+ subscription quota via
+    # cli-chat-proxy.grok.com, the same backend the official Grok CLI uses).
+    # grok-4.3 and grok-build are recognized by the proxy alongside grok-4.5
+    # (confirmed live: HTTP 402 "need subscription" rather than 404/401 when
+    # the account isn't entitled to them) — same models as the "xai" API-key
+    # provider, just billed against subscription quota instead of per-token.
+    Model(
+        id="grok-4.5",
+        name="Grok 4.5",
+        provider="xai-grok",
+        cost=Cost(),
+        thinking=True,
+        context_window=500_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
+        id="grok-4.3",
+        name="Grok 4.3",
+        provider="xai-grok",
+        cost=Cost(),
+        thinking=True,
+        context_window=1_000_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
+        id="grok-build",
+        name="Grok Build",
+        provider="xai-grok",
+        cost=Cost(),
         thinking=True,
         context_window=256_000,
         input=_TEXT_IMAGE,

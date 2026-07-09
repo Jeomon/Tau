@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     )
     from tau.inference.provider.oauth.google_antigravity import GoogleAntigravityOAuthProvider
     from tau.inference.provider.oauth.openai_codex import OpenAICodexOAuthProvider
+    from tau.inference.provider.oauth.xai_grok import XAIGrokOAuthProvider
 
 __all__ = [
     "OAuthProvider",
@@ -30,6 +31,7 @@ __all__ = [
     "GitHubCopilotOAuthProvider",
     "get_copilot_base_url",
     "GoogleAntigravityOAuthProvider",
+    "XAIGrokOAuthProvider",
 ]
 
 
@@ -57,4 +59,8 @@ def __getattr__(name: str):
         from tau.inference.provider.oauth.google_antigravity import GoogleAntigravityOAuthProvider
 
         return GoogleAntigravityOAuthProvider
+    if name == "XAIGrokOAuthProvider":
+        from tau.inference.provider.oauth.xai_grok import XAIGrokOAuthProvider
+
+        return XAIGrokOAuthProvider
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
