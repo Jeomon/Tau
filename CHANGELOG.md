@@ -2,6 +2,19 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.1 — 2026-07-10
+
+### Added
+
+-   Add a `tau update` command that upgrades Tau (and installed extension packages) using the installer that matches how this copy was installed — inferred from the venv it runs in — with an animated indeterminate progress bar on stderr while the blocking install runs, so a slow download no longer looks like a hung terminal
+-   Add Claude Fable 5 and Claude Opus 4.8 to the `anthropic` (API key), `anthropic-claude-code` (OAuth), and `anthropic-vertex` model catalogs
+-   Expose Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`) through the `anthropic-claude-code` OAuth provider, so a Pro/Max login can select it directly instead of only via `anthropic-vertex`
+-   Flesh out the `google-antigravity` provider catalog with the current model line-up — Gemini 3.1 Pro (High), Gemini 3.5 Flash (High), Claude Sonnet 4.6 / Opus 4.6 (Thinking), and GPT-OSS 120B (Medium) — including per-model `max_output_tokens` and corrected context windows
+
+### Fixed
+
+-   Fix `anthropic-claude-code` OAuth on Windows: Claude Code CLI writes its token to plaintext JSON at `~/.claude/.credentials.json` (honoring `CLAUDE_CONFIG_DIR`) and never uses Windows Credential Manager, so the old `PasswordVault` WinRT lookup always came back empty — read the file directly instead
+-   Correct stale Anthropic pricing: Opus 4.7 was still at the old $15/$75 Opus-4.1-era rate (now $5/$25), Sonnet 5 now reflects its introductory $2/$10 rate (standard $3/$15 resumes 2026-08-31), Haiku 4.5 was under-priced, several `anthropic-vertex` Fable 5 / Opus 4.5–4.8 prices were swapped or stale, and the 4.6+ generation context windows were bumped to the 1M-token (1,048,576) window Anthropic ships
 ## 0.7.0 — 2026-07-09
 
 ### Changed
