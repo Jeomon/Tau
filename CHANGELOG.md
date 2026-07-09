@@ -2,6 +2,40 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.4 — 2026-07-09
+
+### Added
+
+-   Implement workflow engine extension for managing and running declarative multi-agent task pipelines from `.tau/workflows/*.yaml` files
+-   Add schema-based structured output validation for workflow tasks
+-   Implement recurring loop task scheduling extension with disk persistence and idle-gated dispatch
+-   Add interactive TUI for loop management
+-   Implement tool invocation renderer for consistent TUI display formatting
+-   Add hackernews_filter workflow example
+-   Add create-workflows skill and documentation
+
+### Changed
+
+-   Switch workflow execution from subprocesses to isolated in-process subagents
+-   Replace subagent process spawning with in-process embedded execution
+-   Allow workflow tasks to access web_search and web_fetch tools from the active session
+-   Update message dequeue shortcut key binding from Alt+Up to Ctrl+Up
+
+### Fixed
+
+-   Ensure agent phase is set to IDLE upon loop termination
+-   Allow full subagent output rendering when expanded option is enabled
+-   Surface hallucinated tool calls
+
+### Refactored
+
+-   Remove MCP extension tests and add resolve_async stub to LLM invoke tests
+-   Improve PR-review output-format rules to prevent run-on comments
+
+## 0.6.3 — 2026-07-08
+
+All notable changes to `tau-coding-agent` are documented here.
+
 ## 0.6.3 — 2026-07-08
 
 ### Fixed
