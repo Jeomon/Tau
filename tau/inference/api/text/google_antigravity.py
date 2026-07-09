@@ -183,6 +183,47 @@ def _requires_tool_call_id(model_id: str) -> bool:
     """
     return "claude" in model_id
 
+
+def _claude_strict_schema(node: Any) -> Any:
+    """Recursively adapt a tool schema for Claude's strict JSON Schema draft
+    2020-12 validation, which Gemini tolerates violating but Claude 400s on:
+
+    - every object-shaped node needs an explicit ``type: "object"``, at any depth
+    - genuine multi-branch unions (``anyOf``/``oneOf``/``allOf`` with more than
+      one surviving branch, e.g. a Pydantic ``str | SomeModel`` field) are
+      rejected outright by Claude's tool-use engine — collapsed to an untyped
+      (permissive) schema, since Claude has no equivalent of a JSON Schema
+      union for structured tool input.
+    """
+    if isinstance(node, list):
+        return [_claude_strict_schema(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    fixed = dict(node)
+    for key in ("anyOf", "oneOf", "allOf"):
+        if key in fixed and isinstance(fixed[key], list):
+            branches = [_claude_strict_schema(item) for item in fixed[key]]
+            if len(branches) == 1:
+                fixed.pop(key)
+                fixed.update(branches[0])
+            else:
+                # Claude rejects real unions; drop the constraint, keep the
+                # description so the model still knows what shape to send.
+                fixed.pop(key)
+                fixed.pop("type", None)
+    if "properties" in fixed and isinstance(fixed["properties"], dict):
+        fixed["properties"] = {
+            key: _claude_strict_schema(value) for key, value in fixed["properties"].items()
+        }
+        fixed.setdefault("type", "object")
+    if "items" in fixed:
+        fixed["items"] = _claude_strict_schema(fixed["items"])
+    if fixed.get("type") == "object" and "properties" not in fixed:
+        fixed["properties"] = {}
+    return fixed
+
+
 def _messages_to_contents(
     messages: list[LLMMessage],
     model_id: str = "",
@@ -337,9 +378,19 @@ class GoogleAntigravityAPI(BaseAPI):
         return self._project_id
 
     @staticmethod
-    def _tools_to_declarations(tools: list[Tool]) -> list[dict[str, Any]]:
-        """Convert Tool objects to Gemini functionDeclarations format."""
+    def _tools_to_declarations(tools: list[Tool], model_id: str = "") -> list[dict[str, Any]]:
+        """Convert Tool objects to Gemini functionDeclarations format.
+
+        The wire envelope always uses ``functionDeclarations[].parameters`` —
+        cloudcode-pa rejects an ``input_schema`` key outright, even when the
+        model routes to Claude server-side. But Claude's backend validates that
+        schema strictly against JSON Schema draft 2020-12 and 400s if any node
+        with `properties` is missing `type: object` — including nested nodes
+        inside `items`/`anyOf`/`oneOf`/`allOf`, which Gemini tolerates but
+        Claude does not — so the fix has to walk the whole tree, not just the root.
+        """
         check_strict_tools_supported(tools)
+        is_claude = "claude" in model_id
         seen: set[str] = set()
         decls = []
         for t in tools:
@@ -348,6 +399,8 @@ class GoogleAntigravityAPI(BaseAPI):
             seen.add(t.name)
             raw = t.schema.model_json_schema() if t.schema else {}
             schema = gemini_tool_schema(raw)
+            if is_claude:
+                schema = _claude_strict_schema(schema)
             decls.append({"name": t.name, "description": t.description or "", "parameters": schema})
         return decls
 
@@ -388,7 +441,7 @@ class GoogleAntigravityAPI(BaseAPI):
         if generation_config:
             inner["generationConfig"] = generation_config
         if tools:
-            decls = self._tools_to_declarations(tools)
+            decls = self._tools_to_declarations(tools, model.id)
             if decls:
                 inner["tools"] = [{"functionDeclarations": decls}]
 
@@ -411,6 +464,10 @@ class GoogleAntigravityAPI(BaseAPI):
             response_format=context.response_format,
         )
         headers = _antigravity_headers(self.options.api_key or "")
+        if "claude" in model.id and model.thinking:
+            # Antigravity's Claude backend disables interleaved thinking (thinking
+            # between tool calls) unless this beta flag is explicitly present.
+            headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
 
         if self.options.on_payload:
             modified = self.options.on_payload(body)
