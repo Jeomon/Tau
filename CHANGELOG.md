@@ -4,6 +4,12 @@ All notable changes to `tau-coding-agent` are documented here.
 
 ## 0.7.1 — 2026-07-10
 
+## 0.7.2 — 2026-07-12
+
+### Added
+- Release the 0.7.2 version to PyPI.
+- Bump internal dependency versions for security fixes.
+- Minor documentation updates for new features.
 ### Added
 
 -   Add a `tau update` command that upgrades Tau (and installed extension packages) using the installer that matches how this copy was installed — inferred from the venv it runs in — with an animated indeterminate progress bar on stderr while the blocking install runs, so a slow download no longer looks like a hung terminal
