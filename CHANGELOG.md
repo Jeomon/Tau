@@ -2,6 +2,24 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.9 — 2026-07-10
+
+### Added
+
+-   Add an optional `tools` dependency group (`pip install tau-coding-agent[tools]`) that bundles a prebuilt `ripgrep` binary, since `Grep`/`Glob` silently fail with "ripgrep (rg) is required but was not found" when no system-wide `rg` is on `PATH`
+
+### Changed
+
+-   Replace `difflib.SequenceMatcher` with `rapidfuzz.distance.Indel` for word-level diff highlighting, avoiding difflib's pathological worst-case slowness on long lines
+
+### Fixed
+
+-   Fix the CLI eagerly importing the full agent/engine/pydantic graph even for trivial commands like `--version`/`--help`, adding ~250-400ms to every invocation regardless of what was actually requested
+-   Fix `_detect_shell()` falling through to up to four `shutil.which()` PATH scans on Windows (where `$SHELL` is never set), each scanning every `PATH` entry against every `PATHEXT` suffix for POSIX shells that don't exist there
+-   Fix a failed extension dependency install (e.g. a dependency with no prebuilt wheel for a free-threaded Python build) retrying the full failing subprocess build on every single startup instead of failing fast after the first attempt
+-   Fix OAuth providers (`xai-grok`, `openai-codex`, `google-antigravity`, `anthropic-claude-code`, `github-copilot`) eagerly importing their provider SDK when resolving `.api` instead of using the existing lazy registry-key mechanism, deferring the import to the first actual request
+-   Fix the background PyPI version check constructing its HTTP client (and SSL context) inline on the event loop, which could stall the just-launched TUI's render loop for several hundred ms on Windows
+
 ## 0.6.8 — 2026-07-09
 
 ### Added
