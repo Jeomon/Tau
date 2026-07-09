@@ -1085,6 +1085,28 @@ models = [
         api="anthropic_messages",
         base_url="https://bedrock-mantle.us-east-1.api.aws/anthropic",
     ),
+    Model(
+        id="openai.gpt-5.5",
+        name="GPT-5.5",
+        provider="bedrock",
+        cost=Cost(input=5.0, output=30.0, cache_read=0.50),
+        thinking=True,
+        context_window=1_050_000,
+        max_input_tokens=922_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
+        id="openai.gpt-5.4",
+        name="GPT-5.4",
+        provider="bedrock",
+        cost=Cost(input=2.5, output=15.0, cache_read=0.25),
+        thinking=True,
+        context_window=1_050_000,
+        max_input_tokens=922_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
     # Kimi / Moonshot
     Model(
         id="kimi-k2.6",
