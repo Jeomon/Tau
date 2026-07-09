@@ -477,7 +477,7 @@ def _render_result(content: str, opts: Any) -> list[str]:
         )
         header = f"{style(color, icon)} {r.get('agent', '')} ({r.get('source', '')})"
         body = _render_markdown_body(content, theme) if not opts.is_error else lines
-        out = [header, *body[:COLLAPSED_ITEM_COUNT]]
+        out = [header, *(body if opts.expanded else body[:COLLAPSED_ITEM_COUNT])]
         if r.get("usage"):
             out.append(style(theme.muted, r["usage"]) if theme else r["usage"])
         return out
