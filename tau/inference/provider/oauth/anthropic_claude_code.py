@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import subprocess
 import sys
 import time
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 from tau.inference.provider.oauth.pkce import generate_pkce
 from tau.inference.provider.oauth.types import (
@@ -175,20 +177,12 @@ def _read_cc_raw_secret() -> str | None:
             return r.stdout.strip() if r.returncode == 0 else None
 
         if sys.platform == "win32":
-            # PowerShell reads from Windows Credential Manager
-            ps = (
-                "[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime];"
-                "$v=New-Object Windows.Security.Credentials.PasswordVault;"
-                "$c=$v.FindAllByResource('Claude Code-credentials')|Select-Object -First 1;"
-                "$c.RetrievePassword(); $c.Password"
-            )
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            return r.stdout.strip() if r.returncode == 0 else None
+            # Claude Code does not use Windows Credential Manager; it writes
+            # the OAuth token straight to a JSON file in its config dir.
+            config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+            base = Path(config_dir) if config_dir else Path.home() / ".claude"
+            cred_file = base / ".credentials.json"
+            return cred_file.read_text(encoding="utf-8") if cred_file.exists() else None
     except Exception:
         pass
     return None
