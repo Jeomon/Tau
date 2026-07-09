@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 
 _TIMEOUT = 5.0
@@ -42,19 +43,31 @@ def _is_newer(latest: str, current: str) -> bool:
         return False
 
 
-async def check_for_new_version(current_version: str) -> str | None:
-    """Return the latest PyPI version string if newer than current, else None."""
-    try:
-        import httpx
+def _fetch_latest_version_sync() -> str:
+    """Blocking GET against PyPI; run off the event loop (see ``check_for_new_version``)."""
+    import httpx
 
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(_pypi_url(), headers={"Accept": "application/json"})
-            if not resp.is_success:
-                return None
-            data = resp.json()
-            latest = data.get("info", {}).get("version", "")
-            if latest and _is_newer(latest, current_version):
-                return latest
+    with httpx.Client(timeout=_TIMEOUT) as client:
+        resp = client.get(_pypi_url(), headers={"Accept": "application/json"})
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("info", {}).get("version", "")
+
+
+async def check_for_new_version(current_version: str) -> str | None:
+    """Return the latest PyPI version string if newer than current, else None.
+
+    Runs on a worker thread: building an httpx client constructs an SSL
+    context, which on Windows enumerates the system certificate store and can
+    take several hundred ms of synchronous CPU work. Doing that inline on the
+    event loop — even though this whole check is itself a backgrounded,
+    unawaited task — would still stall the just-launched TUI's render loop for
+    that duration, since both share the same thread.
+    """
+    try:
+        latest = await asyncio.to_thread(_fetch_latest_version_sync)
+        if latest and _is_newer(latest, current_version):
+            return latest
     except Exception:
         return None
     return None
