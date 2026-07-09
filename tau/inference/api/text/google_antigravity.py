@@ -422,18 +422,36 @@ class GoogleAntigravityAPI(BaseAPI):
         if schema is not None:
             generation_config["responseMimeType"] = "application/json"
             generation_config["responseSchema"] = schema
+        is_claude = "claude" in model.id
         if self.options.thinking_level is not None:
             from tau.inference.types import ThinkingBudgets
             from tau.inference.types import ThinkingLevel as _TL
 
             if self.options.thinking_level == _TL.Off:
-                generation_config["thinkingConfig"] = {"thinkingBudget": 0}
+                generation_config["thinkingConfig"] = (
+                    {"thinking_budget": 0} if is_claude else {"thinkingBudget": 0}
+                )
             else:
                 budgets = self.options.thinking_budgets or ThinkingBudgets()
-                generation_config["thinkingConfig"] = {
-                    "thinkingBudget": budgets.get(self.options.thinking_level),
-                    "includeThoughts": True,
-                }
+                budget = budgets.get(self.options.thinking_level)
+                if is_claude:
+                    # Antigravity's Claude backend only reliably returns thought
+                    # parts when thinkingConfig is snake_case, and requires
+                    # maxOutputTokens to exceed the thinking budget.
+                    generation_config["thinkingConfig"] = {
+                        "thinking_budget": budget,
+                        "include_thoughts": True,
+                    }
+                    current_max = generation_config.get("maxOutputTokens")
+                    if not current_max or current_max <= budget:
+                        generation_config["maxOutputTokens"] = max(
+                            budget + 8_192, model.max_output_tokens or 0
+                        )
+                else:
+                    generation_config["thinkingConfig"] = {
+                        "thinkingBudget": budget,
+                        "includeThoughts": True,
+                    }
 
         inner: dict[str, Any] = {"contents": contents}
         if system:
