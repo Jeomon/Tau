@@ -2,6 +2,12 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.6 — 2026-07-09
+
+### Fixed
+
+-   Show the actual error message instead of a misleading "Found 0 results" when `web_search` fails
+
 ## 0.6.5 — 2026-07-09
 
 ### Added
