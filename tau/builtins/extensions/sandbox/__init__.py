@@ -74,7 +74,14 @@ def register(tau: ExtensionAPI) -> None:
             asyncio.ensure_future(_prewarm())
 
     @tau.on("session_shutdown")
-    async def _on_shutdown(_event: Any, _ctx: ExtensionContext) -> None:
+    async def _on_session_shutdown(_event: Any, _ctx: ExtensionContext) -> None:
+        await manager.stop()
+
+    @tau.on("runtime_stop")
+    async def _on_runtime_stop(_event: Any, _ctx: ExtensionContext) -> None:
+        # session_shutdown only fires on session transitions (new/resume/clone),
+        # not on actual process exit, so the microVM would otherwise keep running
+        # until its own idle_timeout — reap it here too, same as the lsp extension.
         await manager.stop()
 
     async def cmd_sandbox(ctx: ExtensionContext, args: list[str]) -> None:

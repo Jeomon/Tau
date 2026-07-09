@@ -890,6 +890,7 @@ class LSPClient:
         self._diagnostics_events.pop(path, None)
         self._pull_result_ids.pop(path, None)
         self._pull_diag_cache.pop(path, None)
+        self._ws_diag_cache.pop(path, None)
         with contextlib.suppress(Exception):
             await self.notify(
                 "textDocument/didClose",
