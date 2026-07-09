@@ -339,6 +339,12 @@ class LSP:
         .gitignore) and picking the first matching file per server whose
         language is present — combining what used to be a detection walk plus
         a separate re-walk per matched server into a single pass.
+
+        Availability (``shutil.which``, a PATH scan) is only checked for a
+        server once its language is actually detected in the project — not
+        upfront for every registered server — so servers for languages the
+        project doesn't use (e.g. clangd/rust-analyzer/gopls in a pure-Python
+        repo) never pay that PATH×PATHEXT scan at all.
         """
         import os
 
@@ -355,8 +361,7 @@ class LSP:
         except ImportError:
             spec = None
 
-        available_servers = [s for s in self._servers.values() if s.enabled and s.is_available()]
-        remaining = {s.id: s for s in available_servers}
+        remaining = {sid: s for sid, s in self._servers.items() if s.enabled}
         found_files: dict[str, str] = {}
         found_exts: set[str] = set()
         checked_exts: set[str] = set()
@@ -387,11 +392,13 @@ class LSP:
                         continue
                 for sid, server in list(remaining.items()):
                     if not server.extensions or ext in server.extensions:
+                        del remaining[sid]
+                        if not server.is_available():
+                            continue
                         found_files[sid] = str(Path(dirpath) / fname)
                         logger.info(
                             "lsp: eager start %s (detected %s in project)", sid, server.extensions
                         )
-                        del remaining[sid]
                 if not remaining:
                     break
 
