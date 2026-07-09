@@ -291,32 +291,54 @@ class LSP:
                            auto-detect: walk project via pygments + gitignore,
                            start only servers whose languages are present
         server_ids=[...] → explicit: start exactly the listed server IDs
+
+        Detection, availability checks (``shutil.which``), and the directory
+        walk are all filesystem-heavy and synchronous; run them on a worker
+        thread so they don't stall the event loop (and the just-launched
+        TUI's render loop, which shares it) for the ~500ms this can take on a
+        large tree.
         """
+        files_to_touch = await asyncio.to_thread(self._resolve_eager_files, server_ids)
+        for file_path in files_to_touch:
+            asyncio.create_task(self.touch_file(file_path, wait_for_diagnostics=False))
+
+    def _resolve_eager_files(self, server_ids: list[str] | None) -> list[str]:
+        """Detect available servers and find one file per server to open, in a
+        single directory walk (rather than one detection walk plus a separate
+        re-walk per matched server)."""
+        if server_ids is not None:
+            targets = [
+                self._servers[sid]
+                for sid in server_ids
+                if sid in self._servers and self._servers[sid].enabled and self._servers[sid].is_available()
+            ]
+            return self._find_first_matching_files(targets)
+        return self._detect_and_resolve_servers()
+
+    def _find_first_matching_files(self, targets: list[ServerDefinition]) -> list[str]:
+        """Walk the project once, returning the first matching file per server."""
         import os
 
-        targets = server_ids if server_ids is not None else self._detect_servers()
-
-        for sid in targets:
-            server = self._servers.get(sid)
-            if server is None or not server.enabled or not server.is_available():
-                continue
-            # Find the first matching file and open it to trigger server spawn
-            for dirpath, _dirs, filenames in os.walk(self._cwd):
-                for fname in sorted(filenames):
-                    if not server.extensions or Path(fname).suffix in server.extensions:
-                        asyncio.create_task(
-                            self.touch_file(str(Path(dirpath) / fname), wait_for_diagnostics=False)
-                        )
-                        break
-                else:
-                    continue
+        remaining = {s.id: s for s in targets}
+        found: dict[str, str] = {}
+        for dirpath, _dirs, filenames in os.walk(self._cwd):
+            if not remaining:
                 break
+            for fname in sorted(filenames):
+                suffix = Path(fname).suffix
+                for sid, server in list(remaining.items()):
+                    if not server.extensions or suffix in server.extensions:
+                        found[sid] = str(Path(dirpath) / fname)
+                        del remaining[sid]
+                if not remaining:
+                    break
+        return list(found.values())
 
-    def _detect_servers(self) -> list[str]:
-        """Walk the project, detect languages via pygments, return matching server IDs.
-
-        Respects .gitignore via pathspec; falls back to skipping .git only if
-        pathspec is not available or no .gitignore exists.
+    def _detect_and_resolve_servers(self) -> list[str]:
+        """Walk the project once, detecting languages via pygments (respecting
+        .gitignore) and picking the first matching file per server whose
+        language is present — combining what used to be a detection walk plus
+        a separate re-walk per matched server into a single pass.
         """
         import os
 
@@ -333,8 +355,15 @@ class LSP:
         except ImportError:
             spec = None
 
+        available_servers = [s for s in self._servers.values() if s.enabled and s.is_available()]
+        remaining = {s.id: s for s in available_servers}
+        found_files: dict[str, str] = {}
         found_exts: set[str] = set()
+        checked_exts: set[str] = set()
+
         for dirpath, dirs, filenames in os.walk(self._cwd):
+            if not remaining:
+                break
             rel_dir = Path(dirpath).relative_to(cwd)
             if spec is not None:
                 dirs[:] = [
@@ -345,23 +374,28 @@ class LSP:
 
             for fname in filenames:
                 ext = Path(fname).suffix
-                if ext in found_exts:
-                    continue
                 if spec is not None and spec.match_file(str(rel_dir / fname)):
                     continue
-                try:
-                    get_lexer_for_filename(fname)
-                    found_exts.add(ext)
-                except ClassNotFound:
-                    pass
+                if ext not in found_exts:
+                    if ext in checked_exts:
+                        continue
+                    try:
+                        get_lexer_for_filename(fname)
+                        found_exts.add(ext)
+                    except ClassNotFound:
+                        checked_exts.add(ext)
+                        continue
+                for sid, server in list(remaining.items()):
+                    if not server.extensions or ext in server.extensions:
+                        found_files[sid] = str(Path(dirpath) / fname)
+                        logger.info(
+                            "lsp: eager start %s (detected %s in project)", sid, server.extensions
+                        )
+                        del remaining[sid]
+                if not remaining:
+                    break
 
-        matched: list[str] = []
-        for sid, server in self._servers.items():
-            if any(e in found_exts for e in server.extensions):
-                matched.append(sid)
-                logger.info("lsp: eager start %s (detected %s in project)", sid, server.extensions)
-
-        return matched
+        return list(found_files.values())
 
     # ── LSP operations ────────────────────────────────────────────────────────
 
