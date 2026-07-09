@@ -5,14 +5,17 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from tau.console.commands.auth import auth
 from tau.console.commands.packages import install, list_packages, remove
 from tau.console.commands.update import update
-from tau.runtime.service import Runtime
 from tau.settings.paths import get_app_version
+
+if TYPE_CHECKING:
+    from tau.runtime.service import Runtime
 
 _MODES = ("interactive", "print", "json", "rpc")
 _OUTPUT_FORMATS = ("text", "json")
