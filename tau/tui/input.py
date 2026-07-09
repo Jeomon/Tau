@@ -887,7 +887,7 @@ _DEFAULTS: KeyMap = {
     "tui.input.word_back": ["ctrl+w"],
     # Message queuing
     "app.message.followup": ["alt+enter"],  # queue as follow-up (waits for agent to finish)
-    "app.message.dequeue": ["alt+up"],  # restore queued messages into editor
+    "app.message.dequeue": ["ctrl+up"],  # restore queued messages into editor
     "app.details.toggle": ["ctrl+o"],
     "app.invocations.toggle": ["ctrl+e"],
     # App-level

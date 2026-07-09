@@ -66,7 +66,7 @@ def show_help(ctx: CommandContext) -> None:
     shortcuts = (
         "  Enter          Submit / steer mid-task when agent is busy\n"
         "  Alt+Enter      Queue as follow-up (waits for agent to finish)\n"
-        "  Alt+↑          Restore queued messages into editor\n"
+        "  Ctrl+↑         Restore queued messages into editor\n"
         "  Esc            Abort running agent (restores queued messages)\n"
         "  Ctrl+C         Abort running agent / quit when idle\n"
         "  Page Up        Enter scroll mode  (Esc / End to exit)\n"

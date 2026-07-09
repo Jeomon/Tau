@@ -377,7 +377,7 @@ class AutocompleteManager:
             return False, None
 
         # Pickers navigate/accept on unmodified keys only. A modified arrow or
-        # enter (e.g. alt+up for dequeue, alt+enter for follow-up, shift+enter
+        # enter (e.g. ctrl+up for dequeue, alt+enter for follow-up, shift+enter
         # for newline) must fall through to the editor instead of being consumed
         # here — otherwise those bindings silently stop working whenever a
         # completion picker happens to be open.

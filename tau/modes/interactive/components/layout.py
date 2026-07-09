@@ -956,7 +956,7 @@ class Layout(Component):
         self,
         steering: list[str],
         followup: list[str],
-        dequeue_hint: str = "Alt+↑ to edit queued",
+        dequeue_hint: str = "Ctrl+↑ to edit queued",
     ) -> None:
         """Update the steering/follow-up sources and rebuild the pending display."""
         self._pending_steering = steering
