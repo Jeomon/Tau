@@ -107,4 +107,74 @@ def test_tool_result_uses_call_id_and_tool_name() -> None:
     assert response is not None
     assert response.id == "call-123"
     assert response.name == "weather"
-    assert response.response == {"result": "sunny"}
+    assert response.response == {"output": "sunny"}
+
+
+def test_tool_error_result_uses_error_key() -> None:
+    # Gemini 3 Flash Preview strictly requires "output"/"error" (not
+    # "result"/"isError") — older Gemini models tolerated the wrong shape.
+    messages = [
+        ToolMessage(
+            contents=[
+                ToolResultContent(
+                    id="call-123",
+                    tool_name="weather",
+                    content="request failed",
+                    is_error=True,
+                )
+            ]
+        )
+    ]
+
+    _, contents = _messages_to_gemini(messages)
+
+    response = contents[0].parts[0].function_response
+    assert response is not None
+    assert response.response == {"error": "request failed"}
+
+
+def test_distrust_thought_signatures_drops_replayed_signature() -> None:
+    messages = [
+        AssistantMessage(
+            contents=[
+                ToolCallContent(
+                    id="call-123",
+                    name="weather",
+                    args={"city": "Pune"},
+                    metadata={"thought_signature": base64.b64encode(b"gemini-sig").decode()},
+                )
+            ]
+        )
+    ]
+
+    _, contents = _messages_to_gemini(messages, distrust_thought_signatures=True)
+
+    part = contents[0].parts[0]
+    assert part.thought_signature is None
+
+    # Same history, not distrusted -> signature is replayed as before.
+    _, trusted_contents = _messages_to_gemini(messages, distrust_thought_signatures=False)
+    assert trusted_contents[0].parts[0].thought_signature == b"gemini-sig"
+
+
+def test_client_forwards_custom_base_url():
+    from tau.inference.api.text.gemini_generate import GeminiGenerateAPI
+    from tau.inference.types import LLMOptions
+
+    api = GeminiGenerateAPI(LLMOptions(api_key="fake", base_url="https://custom.example.com/v1"))
+    assert api._client._api_client._http_options.base_url == "https://custom.example.com/v1"
+
+
+def test_gemini3_uses_thinking_level_not_budget():
+    from tau.inference.api.text.gemini_generate import GeminiGenerateAPI
+    from tau.inference.types import LLMOptions, ThinkingLevel
+
+    api = GeminiGenerateAPI(LLMOptions(api_key="fake", thinking_level=ThinkingLevel.High))
+
+    gemini3_config = api._build_config("gemini-3-pro-preview")
+    assert gemini3_config.thinking_config.thinking_level == genai_types.ThinkingLevel.HIGH
+    assert gemini3_config.thinking_config.thinking_budget is None
+
+    other_config = api._build_config("gemini-2.5-pro")
+    assert other_config.thinking_config.thinking_level is None
+    assert other_config.thinking_config.thinking_budget is not None

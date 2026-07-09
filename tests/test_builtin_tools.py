@@ -160,6 +160,16 @@ class TestTerminalTool:
         assert result.is_error
         assert result.metadata["cancelled"] is True
 
+    def test_defaults_to_bash_not_posix_sh(self):
+        # asyncio.create_subprocess_shell always runs /bin/sh on POSIX, which on
+        # many distros is a strict shell that rejects bash-only syntax like
+        # [[ ]]. Without an explicit shell_path setting, the tool must still
+        # resolve to bash rather than falling through to sh.
+        result = run(self.tool.execute(_inv("terminal", cmd="[[ 1 -eq 1 ]] && echo bash_works")))
+
+        assert not result.is_error
+        assert "bash_works" in result.content
+
 
 # ---------------------------------------------------------------------------
 # ReadTool

@@ -175,8 +175,24 @@ async def resolve_project_id(access_token: str, base_url: str = _DEFAULT_BASE_UR
     return _FALLBACK_PROJECT_ID
 
 
+def _requires_tool_call_id(model_id: str) -> bool:
+    """Claude models routed through Google's Cloud Code Assist (antigravity) API
+    require an explicit ``id`` on both functionCall and functionResponse parts —
+    omitting it fails multi-turn tool use with ``tool_use.id: Field required``.
+    Gemini models tolerate name-based correlation without it.
+    """
+    return model_id.startswith("claude-")
+
+
+def _is_gemini3(model_id: str) -> bool:
+    return model_id.startswith("gemini-3")
+
+
 def _messages_to_contents(
     messages: list[LLMMessage],
+    model_id: str = "",
+    *,
+    distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[dict[str, Any]]]:
     system: str | None = None
     raw: list[dict[str, Any]] = []
@@ -206,34 +222,55 @@ def _messages_to_contents(
                             parts.append({"text": item.content})
                         case ThinkingContent():
                             tp: dict[str, Any] = {"thought": True, "text": item.content}
-                            if item.signature:
+                            if item.signature and not distrust_thought_signatures:
                                 tp["thoughtSignature"] = item.signature
                             parts.append(tp)
                         case ToolCallContent():
-                            fc_entry: dict[str, Any] = {
-                                "functionCall": {
+                            sig = (
+                                item.metadata.get("thoughtSignature")
+                                if item.metadata and not distrust_thought_signatures
+                                else None
+                            )
+                            if not sig and _is_gemini3(model_id):
+                                # Gemini 3 rejects a functionCall part with no
+                                # thoughtSignature (e.g. history replayed from a Claude
+                                # turn via antigravity never had one) — fall back to a
+                                # plain text description instead of failing the request.
+                                args_str = json.dumps(item.args, indent=2)
+                                parts.append(
+                                    {"text": f"[Tool Call: {item.name}]\nArguments: {args_str}"}
+                                )
+                            else:
+                                function_call: dict[str, Any] = {
                                     "name": item.name,
                                     "args": item.args if isinstance(item.args, dict) else {},
                                 }
-                            }
-                            sig = item.metadata.get("thoughtSignature") if item.metadata else None
-                            if sig:
-                                fc_entry["thoughtSignature"] = sig
-                            parts.append(fc_entry)
+                                if _requires_tool_call_id(model_id):
+                                    function_call["id"] = item.id
+                                fc_entry: dict[str, Any] = {"functionCall": function_call}
+                                if sig:
+                                    fc_entry["thoughtSignature"] = sig
+                                parts.append(fc_entry)
                 if parts:
                     raw.append({"role": "model", "parts": parts})
             case ToolMessage():
                 parts = []
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
-                        parts.append(
-                            {
-                                "functionResponse": {
-                                    "name": content.id,
-                                    "response": {"result": tool_result_text(content)},
-                                }
-                            }
-                        )
+                        # functionResponse correlates to its functionCall by name (the
+                        # tool name, matching the functionCall.name above) — not by the
+                        # per-call id, which lives in its own "id" field.
+                        # Gemini's response uses "output" for success and "error" for
+                        # failure — Gemini 3 Flash Preview strictly rejects the older
+                        # lenient {"result", "isError"} shape.
+                        response_key = "error" if content.is_error else "output"
+                        function_response: dict[str, Any] = {
+                            "name": content.tool_name,
+                            "response": {response_key: tool_result_text(content)},
+                        }
+                        if _requires_tool_call_id(model_id):
+                            function_response["id"] = content.id
+                        parts.append({"functionResponse": function_response})
                 if parts:
                     raw.append({"role": "user", "parts": parts})
 
@@ -361,7 +398,10 @@ class GoogleAntigravityAPI(BaseAPI):
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         project = await self._ensure_project_id()
-        system, contents = _messages_to_contents(context.messages)
+        distrust_sigs = bool((self.options.extra_params or {}).get("distrust_thought_signatures"))
+        system, contents = _messages_to_contents(
+            context.messages, model.id, distrust_thought_signatures=distrust_sigs
+        )
         if context.system_prompt:
             system = context.system_prompt
         body = self._build_request_body(

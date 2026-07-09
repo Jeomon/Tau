@@ -74,6 +74,8 @@ def _decode_signature(signature: object) -> bytes | None:
 
 def _messages_to_gemini(
     messages: list[LLMMessage],
+    *,
+    distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[genai_types.Content]]:
     system: str | None = None
     contents: list[genai_types.Content] = []
@@ -111,7 +113,11 @@ def _messages_to_gemini(
                                 genai_types.Part(
                                     text=item.content,
                                     thought=True,
-                                    thought_signature=_decode_signature(item.signature),
+                                    thought_signature=(
+                                        None
+                                        if distrust_thought_signatures
+                                        else _decode_signature(item.signature)
+                                    ),
                                 )
                             )
                         case ToolCallContent():
@@ -122,8 +128,10 @@ def _messages_to_gemini(
                                         name=item.name,
                                         args=item.args,
                                     ),
-                                    thought_signature=_decode_signature(
-                                        item.metadata.get("thought_signature")
+                                    thought_signature=(
+                                        None
+                                        if distrust_thought_signatures
+                                        else _decode_signature(item.metadata.get("thought_signature"))
                                     ),
                                 )
                             )
@@ -133,12 +141,17 @@ def _messages_to_gemini(
                 parts = []
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
+                        # Gemini's FunctionResponse.response uses "output" for success
+                        # and "error" for failure — Gemini 3 Flash Preview strictly
+                        # rejects the older lenient providers' {"result", "isError"}
+                        # shape (older Gemini models tolerated it).
+                        key = "error" if content.is_error else "output"
                         parts.append(
                             genai_types.Part(
                                 function_response=genai_types.FunctionResponse(
                                     id=content.id,
                                     name=content.tool_name or content.id,
-                                    response={"result": tool_result_text(content)},
+                                    response={key: tool_result_text(content)},
                                 ),
                             )
                         )
@@ -153,13 +166,29 @@ def _response_schema(response_format: Any | None) -> dict[str, Any] | None:
     return structured.schema if structured is not None else None
 
 
+def _is_gemini3(model_id: str) -> bool:
+    return model_id.startswith("gemini-3")
+
+
+_GEMINI3_THINKING_LEVEL: dict[ThinkingLevel, genai_types.ThinkingLevel] = {
+    ThinkingLevel.Minimal: genai_types.ThinkingLevel.MINIMAL,
+    ThinkingLevel.Low: genai_types.ThinkingLevel.LOW,
+    ThinkingLevel.Medium: genai_types.ThinkingLevel.MEDIUM,
+    ThinkingLevel.High: genai_types.ThinkingLevel.HIGH,
+    ThinkingLevel.XHigh: genai_types.ThinkingLevel.HIGH,
+    ThinkingLevel.Max: genai_types.ThinkingLevel.HIGH,
+}
+
+
 class GeminiGenerateAPI(BaseAPI):
     def __init__(self, options: LLMOptions) -> None:
         super().__init__(options)
-        self._client = genai.Client(api_key=options.api_key)
+        http_options = genai_types.HttpOptions(base_url=options.base_url) if options.base_url else None
+        self._client = genai.Client(api_key=options.api_key, http_options=http_options)
 
     def _build_config(
         self,
+        model_id: str = "",
         tools: list[Tool] | None = None,
         response_format: Any | None = None,
     ) -> genai_types.GenerateContentConfig:
@@ -173,18 +202,29 @@ class GeminiGenerateAPI(BaseAPI):
             params["response_mime_type"] = "application/json"
             params["response_schema"] = schema
 
-        budget = None
         if (
             self.options.thinking_level is not None
             and self.options.thinking_level != ThinkingLevel.Off
         ):
-            budgets = self.options.thinking_budgets or ThinkingBudgets()
-            budget = budgets.get(self.options.thinking_level)
-        if budget is not None:
-            params["thinking_config"] = genai_types.ThinkingConfig(
-                thinking_budget=budget,
-                include_thoughts=True,
-            )
+            if _is_gemini3(model_id):
+                # Gemini 3 models are designed around a coarse thinking_level
+                # (MINIMAL/LOW/MEDIUM/HIGH), not an explicit token budget — sending
+                # thinking_budget instead produces much shorter test-time
+                # computation than the requested level actually calls for.
+                params["thinking_config"] = genai_types.ThinkingConfig(
+                    thinking_level=_GEMINI3_THINKING_LEVEL.get(
+                        self.options.thinking_level, genai_types.ThinkingLevel.HIGH
+                    ),
+                    include_thoughts=True,
+                )
+            else:
+                budgets = self.options.thinking_budgets or ThinkingBudgets()
+                budget = budgets.get(self.options.thinking_level)
+                if budget is not None:
+                    params["thinking_config"] = genai_types.ThinkingConfig(
+                        thinking_budget=budget,
+                        include_thoughts=True,
+                    )
 
         check_strict_tools_supported(tools)
         if tools:
@@ -206,8 +246,12 @@ class GeminiGenerateAPI(BaseAPI):
         return genai_types.GenerateContentConfig(**params)
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
-        system, contents = _messages_to_gemini(context.messages)
+        distrust_sigs = bool((self.options.extra_params or {}).get("distrust_thought_signatures"))
+        system, contents = _messages_to_gemini(
+            context.messages, distrust_thought_signatures=distrust_sigs
+        )
         config = self._build_config(
+            model.id,
             tools=context.tools or None,
             response_format=context.response_format,
         )
