@@ -269,11 +269,9 @@ class XAIGrokOAuthProvider(OAuthProvider):
         await asyncio.to_thread(_revoke_token_sync, credential.refresh)
 
     @property
-    def api(self):
-        """Return the API class that handles requests with this provider's tokens."""
-        from tau.inference.api.text.xai_responses import XAIAPIResponses
-
-        return XAIAPIResponses
+    def api(self) -> str:
+        """Registry key for the API class; resolved (and the SDK imported) lazily."""
+        return "xai"
 
     async def validate(
         self, credential: OAuthCredential, signal: AbortSignal | None = None

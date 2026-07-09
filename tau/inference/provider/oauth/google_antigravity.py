@@ -277,11 +277,9 @@ class GoogleAntigravityOAuthProvider(OAuthProvider):
             pass
 
     @property
-    def api(self):
-        """Return the API class that handles requests with this provider's tokens."""
-        from tau.inference.api.text.google_antigravity import GoogleAntigravityAPI
-
-        return GoogleAntigravityAPI
+    def api(self) -> str:
+        """Registry key for the API class; resolved (and the SDK imported) lazily."""
+        return "google_antigravity"
 
     async def validate(
         self, credential: OAuthCredential, signal: AbortSignal | None = None

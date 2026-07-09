@@ -326,11 +326,9 @@ class OpenAICodexOAuthProvider(OAuthProvider):
         await asyncio.to_thread(_revoke_token_sync, credential.refresh)
 
     @property
-    def api(self):
-        """Return the API class that handles requests with this provider's tokens."""
-        from tau.inference.api.text.openai_codex_responses import OpenAICodexResponsesAPI
-
-        return OpenAICodexResponsesAPI
+    def api(self) -> str:
+        """Registry key for the API class; resolved (and the SDK imported) lazily."""
+        return "openai_codex_responses"
 
     async def validate(
         self, credential: OAuthCredential, signal: AbortSignal | None = None

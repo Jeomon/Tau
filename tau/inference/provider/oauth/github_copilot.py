@@ -353,8 +353,6 @@ class GitHubCopilotOAuthProvider(OAuthProvider):
         return not (signal and signal.is_set())
 
     @property
-    def api(self):
-        """Return the API class that handles requests with this provider's tokens."""
-        from tau.inference.api.text.github_copilot_chat import GitHubCopilotChatAPI
-
-        return GitHubCopilotChatAPI
+    def api(self) -> str:
+        """Registry key for the API class; resolved (and the SDK imported) lazily."""
+        return "github_copilot_chat"

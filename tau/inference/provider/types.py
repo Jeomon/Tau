@@ -32,8 +32,10 @@ class OAuthProvider(ABC):
 
     @property
     @abstractmethod
-    def api(self) -> type[BaseLLMAPI]:
-        """Return the LLM API class for this provider."""
+    def api(self) -> str | type[BaseLLMAPI]:
+        """Return the LLM API class for this provider, or a lazy 'registry-key' /
+        'module:ClassName' reference so the provider SDK isn't imported until
+        the API is actually resolved (first request)."""
         ...
 
     @abstractmethod

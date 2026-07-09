@@ -308,11 +308,9 @@ class AnthropicClaudeCodeOAuthProvider(OAuthProvider):
         pass
 
     @property
-    def api(self):
-        """Return the API class that handles requests with this provider's tokens."""
-        from tau.inference.api.text.anthropic_claude_code import AnthropicClaudeCodeAPI
-
-        return AnthropicClaudeCodeAPI
+    def api(self) -> str:
+        """Registry key for the API class; resolved (and the SDK imported) lazily."""
+        return "anthropic_claude_code"
 
     async def validate(
         self, credential: OAuthCredential, signal: AbortSignal | None = None
