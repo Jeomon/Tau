@@ -2,6 +2,34 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.5 — 2026-07-09
+
+### Added
+
+-   Add GPT-5.4 and GPT-5.5 models
+-   Implement strict tool argument schema enforcement and update engine state management for live tool changes
+-   Add CSI-u decoding to bracketed paste to handle re-encoded control characters
+-   Implement fallback model resolution for custom IDs on pinned providers, with optional thinking-level suffix support
+-   Add sticky cursor column for vertical navigation in UI text entries
+-   Update `google_antigravity` and Gemini APIs to support the Gemini 3 tool protocol, with comprehensive tool usage tests
+-   Add thought signature persistence for the Gemini API provider
+
+### Changed
+
+-   Sanitize tool result content to ensure string type
+-   Sanitize control characters and tabs in UI text entries
+-   Terminal now defaults to bash
+-   Remove deprecated and inactive models from OpenRouter provider configuration
+-   Promote `distrust_thought_signatures` from `extra_params` to a dedicated `LLMOptions` field to prevent provider-side API errors
+-   Extend tool call text fallback to all Gemini models lacking a thought signature
+
+### Fixed
+
+-   Handle tool-call IDs for Claude models in the Google API
+-   Prevent session branch restore from clobbering user input
+-   Address multi-turn compatibility and schema validation issues for Anthropic tool history, and thought signature state handling
+-   Fix function response structure for the Gemini API provider
+
 ## 0.6.4 — 2026-07-09
 
 ### Added
