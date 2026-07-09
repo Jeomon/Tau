@@ -383,6 +383,23 @@ class TestInputParser:
         assert isinstance(events[0], PasteEvent)
         assert events[0].text == "hello world"
 
+    def test_bracketed_paste_decodes_csi_u_ctrl(self):
+        # Some terminals (e.g. tmux with extended-keys-format=csi-u) re-encode
+        # control bytes inside a bracketed paste as CSI-u sequences instead of
+        # emitting the literal control byte, e.g. Ctrl+J (\n) as ESC[106;5u.
+        from tau.tui.input import PasteEvent
+
+        events = self._parser().feed("\x1b[200~line1\x1b[106;5uline2\x1b[201~")
+        assert isinstance(events[0], PasteEvent)
+        assert events[0].text == "line1\nline2"
+
+    def test_bracketed_paste_leaves_non_ctrl_csi_u_untouched(self):
+        from tau.tui.input import PasteEvent
+
+        events = self._parser().feed("\x1b[200~a\x1b[104;1ub\x1b[201~")
+        assert isinstance(events[0], PasteEvent)
+        assert events[0].text == "a\x1b[104;1ub"
+
     def test_alt_char(self):
         e = self._key("\x1ba")
         assert e.alt is True

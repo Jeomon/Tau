@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from dataclasses import dataclass
 
 # ── Key event ─────────────────────────────────────────────────────────────────
@@ -336,6 +337,41 @@ def _decode_modifier(mod: int) -> tuple[bool, bool, bool, bool]:
     return bool(m & 1), bool(m & 2), bool(m & 4), bool(m & 8)
 
 
+_CSI_U_RE = re.compile(r"\x1b\[(\d+)(?:;(\d+))?u")
+
+
+def _decode_csi_u_paste(text: str) -> str:
+    """Decode CSI-u Ctrl+<letter> sequences embedded in pasted text.
+
+    Some terminals re-encode control bytes inside bracketed paste as CSI-u
+    sequences (e.g. tmux popups with ``extended-keys-format=csi-u`` turn every
+    ``\\n`` in a paste into ``ESC [ 106 ; 5 u`` — Ctrl+J). Left undecoded, the
+    literal ESC byte and its printable tail get spliced straight into the
+    editable text buffer, corrupting both the pasted content and the terminal
+    display (an embedded raw ESC can be read as the start of a new escape
+    sequence when that buffer is next rendered). Anything that isn't a plain
+    Ctrl+<letter> CSI-u sequence (e.g. shift/alt/meta combos, release events,
+    non-letter codepoints) is left untouched.
+    """
+
+    def _replace(m: re.Match[str]) -> str:
+        codepoint = int(m.group(1))
+        mod_field = m.group(2)
+        if mod_field is None:
+            return m.group(0)
+        try:
+            shift, alt, ctrl, meta, released, repeat = _decode_mod_field(mod_field)
+        except ValueError:
+            return m.group(0)
+        if not ctrl or alt or meta or released:
+            return m.group(0)
+        if 0x40 <= codepoint <= 0x5F or 0x61 <= codepoint <= 0x7A:
+            return chr(codepoint & 0x1F)
+        return m.group(0)
+
+    return _CSI_U_RE.sub(_replace, text)
+
+
 def _decode_mod_field(field: str) -> tuple[bool, bool, bool, bool, bool, bool]:
     """Decode a CSI modifier field, which may carry a Kitty ``:event_type``.
 
@@ -552,7 +588,7 @@ class InputParser:
             text = raw[6:]
             if text.endswith("\x1b[201~"):
                 text = text[:-6]
-            return PasteEvent(text=text, raw=raw)
+            return PasteEvent(text=_decode_csi_u_paste(text), raw=raw)
 
         # ── Control characters ────────────────────────────────────────────────
         if len(raw) == 1 and raw in _CTRL_CHARS:
