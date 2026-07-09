@@ -21,6 +21,7 @@ __all__ = [
     "anthropic_apply_message_cache",
     "check_strict_tools_supported",
     "strict_json_schema",
+    "has_tool_history",
 ]
 
 
@@ -135,6 +136,23 @@ def tool_result_text(content: Any) -> str:
     silent success) still needs non-empty text on the wire.
     """
     return content.content or _NO_TOOL_OUTPUT
+
+
+def has_tool_history(messages: list[dict[str, Any]]) -> bool:
+    """True if any wire-format message contains a tool_use/tool_result block.
+
+    Anthropic rejects a request outright if such blocks exist anywhere in
+    history but the top-level `tools` param is absent — an empty list must be
+    sent explicitly in that case rather than omitting the key.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") in ("tool_use", "tool_result"):
+                return True
+    return False
 
 
 def anthropic_apply_message_cache(

@@ -11,6 +11,7 @@ from tau.inference.api.text.utils import (
     anthropic_messages_to_list,
     anthropic_output_config,
     check_strict_tools_supported,
+    has_tool_history,
     parse_tool_args,
 )
 from tau.inference.model.types import Model
@@ -111,6 +112,12 @@ class AnthropicMessagesAPI(BaseAPI):
             # Cache the last tool definition to reduce repeated prompt-token charges.
             tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
             params["tools"] = tool_defs
+        elif has_tool_history(params["messages"]):
+            # Anthropic rejects the request outright if tool_use/tool_result blocks
+            # exist anywhere in history but `tools` is absent — even an empty list
+            # must be sent explicitly (e.g. after an extension calls
+            # set_active_tools([]) mid-conversation).
+            params["tools"] = []
 
         return params
 

@@ -284,6 +284,21 @@ class RuntimeContext:
                 session_file=config.session_file,
                 persist=_persist,
             )
+        # Record the starting model/thinking level for a genuinely new session
+        # (leaf_id is only None before any entry has ever been appended — a
+        # resumed session already has its own history to reconstruct from).
+        # Without this, build_session_context() finds no ModelChangeEntry/
+        # ThinkingLevelChangeEntry to scan when the user never explicitly
+        # switched either mid-session, and reconstructs model_id=None /
+        # thinking_level=Off on resume — silently losing whatever was
+        # actually used throughout the session.
+        if session_manager.leaf_id is None:
+            model_id_attr = getattr(llm.model, "id", None)
+            provider_id_attr = getattr(llm, "provider_id", None)
+            if model_id_attr is not None and provider_id_attr is not None:
+                session_manager.append_model_change(model_id_attr, provider_id_attr)
+            if llm.model.thinking and llm.api.options.thinking_level is not None:
+                session_manager.append_thinking_level_change(llm.api.options.thinking_level)
         _seed_initial_messages(session_manager, config)
 
         # ── Shared hook bus ───────────────────────────────────────────────────

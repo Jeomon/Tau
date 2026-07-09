@@ -20,8 +20,13 @@ def cmd_copy(ctx: CommandContext) -> None:
         if isinstance(entry, SessionMessageEntry):
             msg = entry.message
             if isinstance(msg, AssistantMessage):
-                text = msg.text_content()
-                break
+                # An aborted turn is saved with empty content — skip it and
+                # keep looking for the last assistant message that actually
+                # has text, instead of reporting "nothing to copy".
+                candidate = msg.text_content()
+                if candidate:
+                    text = candidate
+                    break
 
     if not text:
         ctx.notify("No assistant messages to copy.")
