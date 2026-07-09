@@ -121,20 +121,35 @@ def _messages_to_gemini(
                                 )
                             )
                         case ToolCallContent():
-                            parts.append(
-                                genai_types.Part(
-                                    function_call=genai_types.FunctionCall(
-                                        id=item.id,
-                                        name=item.name,
-                                        args=item.args,
-                                    ),
-                                    thought_signature=(
-                                        None
-                                        if distrust_thought_signatures
-                                        else _decode_signature(item.metadata.get("thought_signature"))
-                                    ),
-                                )
+                            sig = (
+                                None
+                                if distrust_thought_signatures
+                                else _decode_signature(item.metadata.get("thought_signature"))
                             )
+                            if sig is None:
+                                # A functionCall part with no thoughtSignature is
+                                # rejected (or silently degraded) by Gemini — not just
+                                # gemini-3 — whenever history was replayed from a turn
+                                # that never had one (a different provider, or a model
+                                # switch). Fall back to a plain text description
+                                # instead of sending an unsigned functionCall.
+                                args_str = json.dumps(item.args, indent=2)
+                                parts.append(
+                                    genai_types.Part(
+                                        text=f"[Tool Call: {item.name}]\nArguments: {args_str}"
+                                    )
+                                )
+                            else:
+                                parts.append(
+                                    genai_types.Part(
+                                        function_call=genai_types.FunctionCall(
+                                            id=item.id,
+                                            name=item.name,
+                                            args=item.args,
+                                        ),
+                                        thought_signature=sig,
+                                    )
+                                )
                 if parts:
                     contents.append(genai_types.Content(role="model", parts=parts))  # type: ignore[arg-type]
             case ToolMessage():

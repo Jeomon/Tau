@@ -133,7 +133,10 @@ def test_tool_error_result_uses_error_key() -> None:
     assert response.response == {"error": "request failed"}
 
 
-def test_distrust_thought_signatures_drops_replayed_signature() -> None:
+def test_distrust_thought_signatures_forces_text_fallback() -> None:
+    # Dropping the stored signature leaves the call unsigned, and an unsigned
+    # functionCall part is rejected — so distrust forces the same text
+    # fallback as never having had a signature at all.
     messages = [
         AssistantMessage(
             contents=[
@@ -150,11 +153,31 @@ def test_distrust_thought_signatures_drops_replayed_signature() -> None:
     _, contents = _messages_to_gemini(messages, distrust_thought_signatures=True)
 
     part = contents[0].parts[0]
+    assert part.function_call is None
+    assert part.text is not None and "weather" in part.text
     assert part.thought_signature is None
 
-    # Same history, not distrusted -> signature is replayed as before.
+    # Same history, not distrusted -> signature is replayed and it stays a
+    # real functionCall as before.
     _, trusted_contents = _messages_to_gemini(messages, distrust_thought_signatures=False)
-    assert trusted_contents[0].parts[0].thought_signature == b"gemini-sig"
+    trusted_part = trusted_contents[0].parts[0]
+    assert trusted_part.function_call is not None
+    assert trusted_part.thought_signature == b"gemini-sig"
+
+
+def test_unsigned_tool_call_falls_back_to_text() -> None:
+    # No thought_signature at all in metadata (e.g. history replayed from a
+    # different provider, like Mistral, that never produces one) — Gemini
+    # rejects an unsigned functionCall part outright.
+    messages = [
+        AssistantMessage(contents=[ToolCallContent(id="call-123", name="weather", args={"city": "Pune"})])
+    ]
+
+    _, contents = _messages_to_gemini(messages)
+
+    part = contents[0].parts[0]
+    assert part.function_call is None
+    assert part.text is not None and "weather" in part.text
 
 
 def test_client_forwards_custom_base_url():

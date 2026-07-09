@@ -1,6 +1,6 @@
 """Tests for the Google Cloud Code Assist (antigravity) message conversion.
 
-Covers three related fixes to _messages_to_contents:
+Covers four related fixes to _messages_to_contents:
 
 1. functionResponse must correlate to its functionCall by tool *name* (matching
    pi's convention), not by the per-call id — using the id there breaks
@@ -8,8 +8,10 @@ Covers three related fixes to _messages_to_contents:
 2. Claude models routed through this API require an explicit "id" on both
    functionCall and functionResponse parts, or multi-turn tool use fails with
    "tool_use.id: Field required".
-3. Gemini 3 rejects a functionCall part with no thoughtSignature (e.g. history
-   replayed from a Claude turn never had one) — falls back to a text part.
+3. A functionCall part with no thoughtSignature is rejected — not just by
+   Gemini 3, gemini-2.5-flash enforces it too — so history replayed from a
+   turn with no signature (a different provider, or a model switch) falls
+   back to a text part instead, for every model behind this API.
 4. thoughtSignature must not be replayed across a model switch mid-session,
    since it may not be valid bytes for whichever backend is now active.
 """
@@ -19,11 +21,17 @@ from __future__ import annotations
 from tau.inference.api.text.google_antigravity import _messages_to_contents
 from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage, ToolResultContent, UserMessage
 
+_SIGNATURE = {"thoughtSignature": "sig"}
+
 
 def _history() -> list:
     return [
         UserMessage.from_text("hi"),
-        AssistantMessage(contents=[ToolCallContent(id="tc1", name="read_file", args={"path": "x"})]),
+        AssistantMessage(
+            contents=[
+                ToolCallContent(id="tc1", name="read_file", args={"path": "x"}, metadata=_SIGNATURE)
+            ]
+        ),
         ToolMessage(
             contents=[ToolResultContent(id="tc1", content="file contents", tool_name="read_file")]
         ),
@@ -81,7 +89,7 @@ def test_gemini_model_omits_tool_call_id() -> None:
     assert "id" not in call
 
 
-def test_gemini3_unsigned_tool_call_falls_back_to_text() -> None:
+def test_unsigned_tool_call_falls_back_to_text_on_gemini3() -> None:
     messages = [
         UserMessage.from_text("hi"),
         AssistantMessage(contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"})]),
@@ -94,46 +102,50 @@ def test_gemini3_unsigned_tool_call_falls_back_to_text() -> None:
     assert any("bash" in p.get("text", "") for p in model_turn["parts"])
 
 
-def test_gemini3_signed_tool_call_stays_a_function_call() -> None:
+def test_unsigned_tool_call_falls_back_to_text_on_gemini_2_5_too() -> None:
+    # gemini-2.5-flash enforces the same requirement as Gemini 3 — confirmed by
+    # a real 400 ("Function call is missing a thought_signature") after
+    # switching from a provider (e.g. Mistral) that never produces one.
+    messages = [
+        UserMessage.from_text("hi"),
+        AssistantMessage(contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"})]),
+    ]
+
+    _, contents = _messages_to_contents(messages, "gemini-2.5-flash")
+
+    model_turn = contents[-1]
+    assert not any("functionCall" in p for p in model_turn["parts"])
+    assert any("bash" in p.get("text", "") for p in model_turn["parts"])
+
+
+def test_signed_tool_call_stays_a_function_call() -> None:
     messages = [
         UserMessage.from_text("hi"),
         AssistantMessage(
-            contents=[
-                ToolCallContent(
-                    id="tc1", name="bash", args={"command": "ls"}, metadata={"thoughtSignature": "sig"}
-                )
-            ]
+            contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)]
         ),
     ]
 
-    _, contents = _messages_to_contents(messages, "gemini-3-pro-preview")
+    for model_id in ("gemini-3-pro-preview", "gemini-2.5-flash"):
+        _, contents = _messages_to_contents(messages, model_id)
+        model_turn = contents[-1]
+        assert any("functionCall" in p for p in model_turn["parts"])
 
-    model_turn = contents[-1]
-    assert any("functionCall" in p for p in model_turn["parts"])
 
-
-def test_distrust_thought_signatures_drops_stored_signature() -> None:
+def test_distrust_thought_signatures_forces_text_fallback() -> None:
     messages = [
         UserMessage.from_text("hi"),
         AssistantMessage(
-            contents=[
-                ToolCallContent(
-                    id="tc1", name="bash", args={"command": "ls"}, metadata={"thoughtSignature": "sig"}
-                )
-            ]
+            contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"}, metadata=_SIGNATURE)]
         ),
     ]
 
-    _, contents = _messages_to_contents(
-        messages, "gemini-2.5-pro", distrust_thought_signatures=True
-    )
-
-    model_turn = contents[-1]
-    fc_part = next(p for p in model_turn["parts"] if "functionCall" in p)
-    assert "thoughtSignature" not in fc_part
-
-    # Same history on a gemini-3 model: distrust + no signature -> falls back to text.
-    _, gemini3_contents = _messages_to_contents(
-        messages, "gemini-3-pro-preview", distrust_thought_signatures=True
-    )
-    assert not any("functionCall" in p for p in gemini3_contents[-1]["parts"])
+    for model_id in ("gemini-3-pro-preview", "gemini-2.5-flash"):
+        _, contents = _messages_to_contents(
+            messages, model_id, distrust_thought_signatures=True
+        )
+        model_turn = contents[-1]
+        # Distrusting the stored signature leaves the call unsigned, so it now
+        # falls back to text regardless of model — same path as never having
+        # had a signature at all.
+        assert not any("functionCall" in p for p in model_turn["parts"])

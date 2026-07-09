@@ -183,11 +183,6 @@ def _requires_tool_call_id(model_id: str) -> bool:
     """
     return model_id.startswith("claude-")
 
-
-def _is_gemini3(model_id: str) -> bool:
-    return model_id.startswith("gemini-3")
-
-
 def _messages_to_contents(
     messages: list[LLMMessage],
     model_id: str = "",
@@ -231,11 +226,14 @@ def _messages_to_contents(
                                 if item.metadata and not distrust_thought_signatures
                                 else None
                             )
-                            if not sig and _is_gemini3(model_id):
-                                # Gemini 3 rejects a functionCall part with no
-                                # thoughtSignature (e.g. history replayed from a Claude
-                                # turn via antigravity never had one) — fall back to a
-                                # plain text description instead of failing the request.
+                            if not sig:
+                                # Every model behind this API rejects (or degrades on)
+                                # a functionCall part with no thoughtSignature — e.g.
+                                # history replayed from a non-Gemini turn (Mistral,
+                                # Claude via antigravity) never had one. This isn't
+                                # gemini-3-specific: 2.5-flash enforces it too. Fall
+                                # back to a plain text description instead of sending
+                                # an unsigned functionCall and failing the request.
                                 args_str = json.dumps(item.args, indent=2)
                                 parts.append(
                                     {"text": f"[Tool Call: {item.name}]\nArguments: {args_str}"}
