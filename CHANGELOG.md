@@ -2,6 +2,12 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.7 — 2026-07-09
+
+### Fixed
+
+-   Fix `ddgs` engine dependency name in the web extension manifest (`AsyncDDGS` → `asyncddgs`), which caused `web_search` to fail with `No module named 'asyncddgs'` after a fresh install
+
 ## 0.6.6 — 2026-07-09
 
 ### Fixed
