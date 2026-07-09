@@ -384,7 +384,11 @@ async def _apply_tree_branch(ctx: CommandContext, entry_id: str) -> None:
             pass
 
         if restore_text is not None:
-            ctx.layout.input.set_text(restore_text)
+            # Branch summarization runs as an LLM call, so the await above can take a
+            # while; don't clobber whatever the user typed into the editor in the
+            # meantime — only restore into an empty editor.
+            if not ctx.layout.get_editor_text().strip():
+                ctx.layout.input.set_text(restore_text)
             ctx.notify("Restored message to input.")
         else:
             ctx.notify(f"Switched to branch at {entry_id[:8]}")
