@@ -362,10 +362,7 @@ class Runtime:
         # Assist API rejects malformed thoughtSignature outright). Coarse but
         # safe: once any switch happens, distrust all prior signatures for the
         # rest of the session, rather than trying to prove which turns are safe.
-        new_llm.api.options.extra_params = {
-            **(new_llm.api.options.extra_params or {}),
-            "distrust_thought_signatures": True,
-        }
+        new_llm.api.options.distrust_thought_signatures = True
         agent._engine.set_llm(new_llm)
         agent._context_window = new_llm.model.input_limit or 128_000
         await self._context.hooks.emit(

@@ -261,7 +261,7 @@ class GeminiGenerateAPI(BaseAPI):
         return genai_types.GenerateContentConfig(**params)
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
-        distrust_sigs = bool((self.options.extra_params or {}).get("distrust_thought_signatures"))
+        distrust_sigs = self.options.distrust_thought_signatures
         system, contents = _messages_to_gemini(
             context.messages, distrust_thought_signatures=distrust_sigs
         )

@@ -141,6 +141,12 @@ class LLMOptions:
     extra_params: dict[str, Any] | None = None
     on_payload: PayloadCallback | None = None
     on_response: ResponseCallback | None = None
+    # Internal-only flag consulted by the Gemini-family providers (never a wire
+    # param, unlike extra_params — which several providers spread directly into
+    # the outgoing request body, so it can't hold anything provider-internal).
+    # Set after an explicit model switch so a thoughtSignature minted by a
+    # different backend never gets replayed to whichever provider is now active.
+    distrust_thought_signatures: bool = False
 
 
 @dataclass

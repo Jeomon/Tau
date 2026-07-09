@@ -201,3 +201,17 @@ def test_gemini3_uses_thinking_level_not_budget():
     other_config = api._build_config("gemini-2.5-pro")
     assert other_config.thinking_config.thinking_level is None
     assert other_config.thinking_config.thinking_budget is not None
+
+
+def test_distrust_thought_signatures_never_leaks_into_extra_params():
+    # distrust_thought_signatures is a dedicated LLMOptions field, not part of
+    # extra_params — several providers (e.g. openai_completions.py) spread
+    # extra_params directly into the outgoing wire request, so anything put
+    # there is sent to the actual API. A real 400 ("Unsupported parameter(s):
+    # distrust_thought_signatures") happened when this was set via
+    # extra_params and a later /model switch landed on an OpenAI-compatible
+    # provider (NVIDIA) that rejects unknown params.
+    from tau.inference.types import LLMOptions
+
+    options = LLMOptions(distrust_thought_signatures=True)
+    assert options.extra_params is None
