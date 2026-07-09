@@ -970,7 +970,7 @@ class Layout(Component):
 
     def _rebuild_pending(self, dequeue_hint: str = "Alt+↑ to edit queued") -> None:
         """Rebuild the pending-messages display between spinner and input."""
-        from tau.tui.utils import DIM, RESET
+        from tau.tui.utils import DIM, RESET, strip_control_chars
 
         lines: list[str] = []
         for label, msgs in (
@@ -979,7 +979,7 @@ class Layout(Component):
             ("Deferred", self._pending_deferred),
         ):
             for msg in msgs:
-                preview = msg.replace("\n", " ")[:80]
+                preview = strip_control_chars(msg)[:80]
                 lines.append(f"  {DIM}{label}:{RESET} {DIM}{preview}{RESET}")
         if lines:
             lines.append(f"  {DIM}↳ {dequeue_hint}{RESET}")

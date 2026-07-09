@@ -107,6 +107,12 @@ class TextInput(Component):
         self._cursor = 0
         self._line_scrolls: dict[int, int] = {}
         self._arg_hint: str = ""
+        # Sticky goal column for consecutive Up/Down moves: without this, moving
+        # through a shorter line (or an atomic paste marker) clamps the cursor's
+        # column, and the *next* vertical move then treats that clamped column as
+        # the target — silently drifting the column left. Persisted only across a
+        # run of vertical moves; any other cursor action resets it (handle_input).
+        self._goal_col: int | None = None
         # Wrap width from the most recent render(), used so Up/Down can move
         # between soft-wrapped visual rows the same way they appear on screen.
         # Large sentinel means "no wrap known yet" (behaves as unwrapped).
@@ -245,18 +251,22 @@ class TextInput(Component):
         self._cursor = 0
         self._line_scrolls = {}
         self._arg_hint = ""
+        self._goal_col = None
         self._reset_undo()
 
     def set_text(self, text: str) -> None:
+        # See the paste handler above for why raw tabs must be expanded here too.
+        text = text.replace("\t", "    ")
         self._text = text
         self._cursor = len(text)
         self._line_scrolls = {}
+        self._goal_col = None
         # Wholesale buffer replacement (history recall, external set) is a fresh
         # editing context — scope undo to the new content.
         self._reset_undo()
 
     def insert_at_cursor(self, text: str) -> None:
-        self._insert(text)
+        self._insert(text.replace("\t", "    "))
 
     def move_cursor_to_visual(self, row: int, column: int) -> bool:
         """Move the caret to a zero-based row and column from the latest render.
@@ -291,6 +301,7 @@ class TextInput(Component):
         self._cursor = min(len(self._text), display_offset + self._visual_strip)
         self._last_edit = None
         self._history_idx = -1
+        self._goal_col = None
         self._mark_activity()
         return True
 
@@ -406,7 +417,12 @@ class TextInput(Component):
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, PasteEvent):
             self._mark_activity()
-            text = event.text.replace("\r", "")
+            self._goal_col = None
+            # A raw tab renders as a terminal tab-stop jump (commonly 8 columns)
+            # but _char_width counts it as 1 column, desyncing cursor/wrap math
+            # from what's actually on screen — expand to spaces at the boundary
+            # instead of trying to model variable tab stops throughout.
+            text = event.text.replace("\r", "").replace("\t", "    ")
             if self.on_paste_text:
                 self.on_paste_text(text)
             else:
@@ -417,6 +433,9 @@ class TextInput(Component):
             return False
 
         self._mark_activity()
+
+        if not event.matches(Key.UP, Key.DOWN):
+            self._goal_col = None
 
         keybindings = get_keybindings()
 
@@ -763,9 +782,14 @@ class TextInput(Component):
         )
 
         self._last_edit = None
-        rel = col - row_start
-        new_col = target_start + min(rel, target_end - target_start)
+        # Use the sticky goal column (set by an earlier move in this same
+        # Up/Down run) instead of the current, possibly-already-clamped column —
+        # otherwise moving through a short row permanently narrows the column on
+        # every subsequent move instead of only clamping for that one row.
+        goal_rel = self._goal_col if self._goal_col is not None else col - row_start
+        new_col = target_start + min(goal_rel, target_end - target_start)
         self._cursor = self._line_offset(target_li, lines) + new_col
+        self._goal_col = goal_rel
         return True
 
     def _delete_word_back(self) -> None:

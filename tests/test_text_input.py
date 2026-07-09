@@ -6,7 +6,7 @@ import pytest
 
 import tau.tui.input as input_module
 from tau.tui.components.text_input import TextInput
-from tau.tui.input import KeyEvent, configure_keybindings
+from tau.tui.input import KeyEvent, PasteEvent, configure_keybindings
 from tau.tui.utils import is_window_focused, set_window_focused
 from tests.render_helpers import render_cells_to_lines
 
@@ -133,6 +133,86 @@ class TestUpDownSoftWrap:
 
         assert editor.handle_input(KeyEvent(key="up")) is True
         assert editor.text == "prior"
+
+
+class TestTabNormalization:
+    """A raw tab renders as a terminal tab-stop jump but is counted as 1 column
+    internally, desyncing cursor/wrap math from the screen — so tabs are
+    expanded to spaces at every text-entry boundary instead."""
+
+    def test_set_text_expands_tabs(self) -> None:
+        editor = TextInput()
+        editor.set_text("a\tb")
+        assert editor.text == "a    b"
+
+    def test_paste_expands_tabs(self) -> None:
+        editor = TextInput()
+        editor.handle_input(PasteEvent(text="x\ty"))
+        assert editor.text == "x    y"
+
+    def test_insert_at_cursor_expands_tabs(self) -> None:
+        editor = TextInput()
+        editor.insert_at_cursor("p\tq")
+        assert editor.text == "p    q"
+
+
+class TestStickyGoalColumn:
+    """Consecutive Up/Down moves preserve the original column through short rows.
+
+    Without a sticky goal column, moving through a row shorter than the
+    starting column clamps the cursor there, and the *next* vertical move then
+    treats that clamped column as its target — silently narrowing the column
+    on every subsequent move instead of only clamping for that one row.
+    """
+
+    def _multiline_editor(self) -> TextInput:
+        editor = TextInput()
+        # line0: 20 chars, line1/3: empty, line2: 2 chars (short row, like a
+        # collapsed paste marker), line4: 10 chars.
+        editor.set_text("12345678901234567890\n\nXX\n\n1234567890")
+        _render(editor, 80)
+        return editor
+
+    def test_down_through_short_rows_restores_original_column(self) -> None:
+        editor = self._multiline_editor()
+        editor._cursor = 5  # noqa: SLF001 — line0, col5
+
+        for _ in range(4):
+            assert editor.handle_input(KeyEvent(key="down")) is True
+
+        line_idx, col = editor._cursor_line_col()  # noqa: SLF001
+        assert line_idx == 4
+        assert col == 5
+
+    def test_up_through_short_rows_restores_original_column(self) -> None:
+        editor = self._multiline_editor()
+        editor._cursor = len("12345678901234567890\n\nXX\n\n") + 5  # noqa: SLF001 — line4, col5
+
+        for _ in range(4):
+            assert editor.handle_input(KeyEvent(key="up")) is True
+
+        line_idx, col = editor._cursor_line_col()  # noqa: SLF001
+        assert line_idx == 0
+        assert col == 5
+
+    def test_horizontal_move_resets_goal_column(self) -> None:
+        editor = TextInput()
+        # line0: 10 chars, line1: 2 chars (short — forces a clamp), line2/3: 10 chars.
+        editor.set_text("AAAAAAAAAA\nBB\nCCCCCCCCCC\nDDDDDDDDDD")
+        _render(editor, 80)
+        editor._cursor = 7  # noqa: SLF001 — line0, col7
+
+        editor.handle_input(KeyEvent(key="down"))  # goal_col=7, clamps to line1 col2 (len 2)
+        line_idx, col = editor._cursor_line_col()  # noqa: SLF001
+        assert (line_idx, col) == (1, 2)
+
+        editor.handle_input(KeyEvent(key="right"))  # end of line1 -> start of line2; resets goal_col
+        line_idx, col = editor._cursor_line_col()  # noqa: SLF001
+        assert (line_idx, col) == (2, 0)
+
+        editor.handle_input(KeyEvent(key="down"))  # goal_col re-captured as 0, not the stale 7
+        line_idx, col = editor._cursor_line_col()  # noqa: SLF001
+        assert (line_idx, col) == (3, 0)
 
 
 class TestMouseCursorMovement:

@@ -185,6 +185,21 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def strip_control_chars(text: str, replacement: str = " ") -> str:
+    """Replace every C0/C1 control character (newlines, tabs, ESC, etc.) with replacement.
+
+    For single-line UI previews (session pickers, queue summaries) — message
+    text can legitimately contain any byte a user typed or pasted, and a raw
+    control character (especially a lone ESC not part of a well-formed
+    sequence, so strip_ansi wouldn't catch it) can corrupt the picker's
+    rendering rather than just showing as visible garbage.
+    """
+    return _CONTROL_CHARS_RE.sub(replacement, text)
+
+
 # ── Truncation ────────────────────────────────────────────────────────────────
 
 

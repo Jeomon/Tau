@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from tau.modes.interactive.commands.context import CommandContext
+from tau.tui.utils import strip_control_chars
 from tau.utils.format import format_number
 
 
@@ -240,7 +241,7 @@ def open_tree_selector(ctx: CommandContext) -> None:
                     TreeRow(
                         prefix=prefix,
                         role=role,
-                        text=text[:80].replace("\n", " ").replace("\t", " "),
+                        text=strip_control_chars(text[:80]),
                         on_active_path=entry.id in active_ids,
                         is_current=entry.id == current_leaf,
                         selectable=selectable,
