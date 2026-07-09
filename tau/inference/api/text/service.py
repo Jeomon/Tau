@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from dataclasses import fields
-from typing import TYPE_CHECKING
+from dataclasses import fields, replace
 
 from tau.auth.manager import AuthManager
 from tau.auth.types import OAuthCredential
@@ -13,11 +12,8 @@ from tau.inference.api.text.registry import LLMAPIRegistry
 from tau.inference.model.registry import ModelRegistry
 from tau.inference.provider.registry import ProviderRegistry, TextProviderRegistry
 from tau.inference.provider.types import OAuthProvider
-from tau.inference.types import LLMContext, LLMEvent, LLMOptions
+from tau.inference.types import LLMContext, LLMEvent, LLMOptions, ThinkingLevel
 from tau.message.types import LLMMessage, SystemMessage
-
-if TYPE_CHECKING:
-    from tau.inference.types import ThinkingLevel
 
 _log = logging.getLogger(__name__)
 
@@ -106,6 +102,37 @@ class TextLLM:
             if provider is not None
             else _models._models.get(model_id, [])
         )
+
+        # A pinned provider that has no variant of this exact model id is not
+        # necessarily an error: the provider may serve models we haven't
+        # registered (e.g. a custom OpenAI-compatible deployment, or a new
+        # model the provider added). If that provider already has at least one
+        # other registered model, synthesize a fallback by copying that
+        # model's defaults (api, base_url, cost, capabilities) under the
+        # requested id/name rather than refusing to run at all.
+        used_custom_model_id = False
+        if (not candidates or candidates[0] is None) and provider is not None:
+            provider_models = [m for m in _models.list() if m.provider == provider]
+            if provider_models:
+                # A trailing ":<level>" on a custom id (e.g. "my-model:high") sets
+                # that model's default thinking level, mirroring the shorthand
+                # some providers use in their own model ids (OpenRouter's ":exacto"
+                # etc.). Only strip it when the caller hasn't already pinned a
+                # level explicitly — an explicit --thinking wins, and the suffix
+                # is then just part of the (unregistered) model id as-is.
+                fallback_id = model_id
+                thinking_level = None
+                if options is None or options.thinking_level is None:
+                    prefix, _, suffix = model_id.rpartition(":")
+                    if prefix and suffix in set(ThinkingLevel):
+                        fallback_id = prefix
+                        thinking_level = ThinkingLevel(suffix)
+                base = replace(provider_models[0], id=fallback_id, name=fallback_id)
+                if thinking_level is not None:
+                    base = replace(base, thinking=True, thinking_level=thinking_level)
+                candidates = [base]
+                used_custom_model_id = True
+
         if not candidates or candidates[0] is None:
             raise ValueError(f"Model '{model_id}' not found.")
 
@@ -136,7 +163,12 @@ class TextLLM:
             )
 
         self.model = model
-        if skipped_providers:
+        if used_custom_model_id:
+            self.fallback_reason = (
+                f"Model '{model_id}' not found for provider '{resolved_provider.id}'. "
+                "Using custom model id."
+            )
+        elif skipped_providers:
             self.fallback_reason = (
                 "; ".join(skipped_providers)
                 + f"; selected provider '{resolved_provider.id}' for the same model"
