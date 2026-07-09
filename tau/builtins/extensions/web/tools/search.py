@@ -88,6 +88,9 @@ def _result_lines(r: dict, mode: _SearchMode) -> tuple[str, str]:
 
 
 def _render_web_search(content: str, opts: Any) -> list[str]:
+    if opts.is_error:
+        return str(content).split("\n")
+
     # Style via the theme on the render options (stable extension surface)
     # instead of importing ANSI codes from Tau internals.
     from tau.tui.style import Style, apply_style
@@ -100,7 +103,6 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
     metadata = opts.metadata or {}
     mode = metadata.get("mode", "text")
     result_count = metadata.get("result_count", 0)
-    results = metadata.get("results", [])
     results = metadata.get("results", [])
 
     mode_tag = f"  {muted(mode)}" if mode != "text" else ""
