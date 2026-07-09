@@ -35,6 +35,7 @@ dependencies = [
     "arrow==1.4.0",
     "kiwisolver==1.5.0",
     "tiktoken==0.13.0",
+    "rapidfuzz==3.14.3",
 ]
 
 [project.scripts]
@@ -74,7 +75,7 @@ tau = [
 testpaths = ["tests"]
 
 [project.optional-dependencies]
-tools = ["ripgrep>=14.0.0", "ast-grep-cli>=0.44.0"]
+tools = ["ripgrep>=14.0.0"]
 
 [dependency-groups]
 dev = [

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import difflib
 import re
 import subprocess
 import unicodedata
@@ -633,24 +632,34 @@ def _is_diff(text: str) -> bool:
 
 
 def _word_diff(old: str, new: str, inverse: Callable[[str], str]) -> tuple[str, str]:
-    """Highlight changed words with inverse video."""
+    """Highlight changed words with inverse video.
+
+    Uses rapidfuzz's C++ Indel opcodes instead of difflib.SequenceMatcher —
+    difflib has pathological worst-case slowness on some inputs, and
+    rapidfuzz is meaningfully faster on long lines with the same
+    equal/insert/delete opcode semantics (Indel never emits "replace"; a
+    substitution surfaces as an adjacent delete+insert pair instead, which
+    renders identically here since each tag only ever touches one side).
+    """
+    from rapidfuzz.distance import Indel
+
     old_words = re.split(r"(\s+)", old)
     new_words = re.split(r"(\s+)", new)
-    sm = difflib.SequenceMatcher(None, old_words, new_words, autojunk=False)
+    opcodes = Indel.opcodes(old_words, new_words)
 
     old_out, new_out = [], []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        old_chunk = "".join(old_words[i1:i2])
-        new_chunk = "".join(new_words[j1:j2])
-        if tag == "equal":
+    for op in opcodes:
+        old_chunk = "".join(old_words[op.src_start : op.src_end])
+        new_chunk = "".join(new_words[op.dest_start : op.dest_end])
+        if op.tag == "equal":
             old_out.append(old_chunk)
             new_out.append(new_chunk)
-        elif tag == "replace":
+        elif op.tag == "replace":
             old_out.append(inverse(old_chunk) if old_chunk.strip() else old_chunk)
             new_out.append(inverse(new_chunk) if new_chunk.strip() else new_chunk)
-        elif tag == "delete":
+        elif op.tag == "delete":
             old_out.append(inverse(old_chunk) if old_chunk.strip() else old_chunk)
-        elif tag == "insert":
+        elif op.tag == "insert":
             new_out.append(inverse(new_chunk) if new_chunk.strip() else new_chunk)
 
     return "".join(old_out), "".join(new_out)
