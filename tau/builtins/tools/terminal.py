@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shutil
 import signal as signal_module
 import subprocess
 import time
@@ -23,6 +24,12 @@ from tau.tool.types import (
 )
 
 _DEFAULT_TIMEOUT = 30
+
+# asyncio.create_subprocess_shell always runs /bin/sh on POSIX, which on many
+# distros (Ubuntu, Debian, Alpine) is a strict POSIX shell (often dash) that
+# rejects bash syntax — [[ ]], arrays, here-strings, pipefail. Models write
+# bash by default, so prefer it when available; sh remains the fallback.
+_DEFAULT_SHELL = shutil.which("bash") if os.name != "nt" else None
 
 
 def _render_terminal_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -114,7 +121,7 @@ class TerminalTool(Tool):
         cwd = invocation.cwd or None
 
         sm = context.settings if context is not None else None
-        shell_path = sm.get_shell_path() if sm is not None else None
+        shell_path = (sm.get_shell_path() if sm is not None else None) or _DEFAULT_SHELL
         shell_prefix = sm.get_shell_command_prefix() if sm is not None else None
 
         command = params.cmd
