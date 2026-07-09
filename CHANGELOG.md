@@ -2,6 +2,19 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.6.8 — 2026-07-09
+
+### Added
+
+-   Add `xai-grok` OAuth provider giving SuperGrok/X Premium+ subscribers quota-based access to Grok models (`grok-4.5`, `grok-4.3`, `grok-build`) via the Grok CLI's `cli-chat-proxy.grok.com` backend, reusing `~/.grok/auth.json` when the official Grok CLI is already logged in
+-   Refresh the Mistral model catalog: reprice and widen the context window for Mistral Medium 3.5 and Small 4, split Devstral into `devstral-medium-latest`/`devstral-small-latest`, add the Ministral 3 (14B/8B/3B) and Leanstral 1.5 models, and drop the now-deprecated Magistral line
+-   Add the Grok 4.5 model to the xAI catalog
+
+### Fixed
+
+-   Fix `openai_responses` sending `function_call` and thinking content nested inside a message's `content` array instead of as top-level input items, which the OpenAI Responses API schema requires — worked against OpenAI's and xAI's lenient API-key backends but caused `422 Failed to deserialize... untagged enum ModelInput` against the stricter Grok CLI proxy
+-   Fix `openai_responses` looking up a streamed tool call's name by the wrong id (`item_id` instead of `call_id`), which silently resolved to an empty name and caused `Tool '' not found` errors on any Responses-API backend where the two ids differ (e.g. the Grok CLI proxy)
+
 ## 0.6.7 — 2026-07-09
 
 ### Fixed
