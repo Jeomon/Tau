@@ -705,6 +705,7 @@ class Agent:
                     if not self._engine.has_pending_messages():
                         break
 
+                self._phase = AgentPhase.IDLE
                 await self.hooks.emit(SettledEvent())
             finally:
                 self._phase = AgentPhase.IDLE
