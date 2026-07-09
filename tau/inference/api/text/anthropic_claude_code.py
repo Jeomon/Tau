@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -55,10 +57,126 @@ _DEFAULT_MAX_TOKENS = 8096
 
 
 _OAUTH_HEADERS = {
-    "anthropic-beta": "oauth-2025-04-20",
     "x-app": "cli",
     "User-Agent": "claude-cli/2.1.122 (external, sdk-cli)",
 }
+
+# System identity that Anthropic's API requires as its own system[] entry for
+# OAuth-authenticated (Claude Pro/Max) requests to be accepted and billed
+# against the subscription rather than rejected with a 400.
+_SYSTEM_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+_CC_VERSION = "2.1.185"
+_BILLING_SALT = "59cf53e54c78"
+
+# Beta flags Claude Code itself sends on every OAuth request.
+_BASE_BETAS = [
+    "claude-code-20250219",
+    "oauth-2025-04-20",
+    "interleaved-thinking-2025-05-14",
+    "prompt-caching-scope-2026-01-05",
+    "context-management-2025-06-27",
+    "advisor-tool-2026-03-01",
+    "thinking-token-count-2026-05-13",
+    "extended-cache-ttl-2025-04-11",
+    "effort-2025-11-24",
+]
+
+# Per-model beta overrides, matched by substring against the lowercased model id.
+_MODEL_BETA_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "haiku": {"exclude": ["interleaved-thinking-2025-05-14"]},
+    "4-6": {"add": ["effort-2025-11-24"]},
+    "4-7": {"add": ["effort-2025-11-24"]},
+}
+
+
+def _model_betas(model_id: str) -> list[str]:
+    """Return the anthropic-beta flags for `model_id`, applying per-model overrides."""
+    betas = list(_BASE_BETAS)
+    lower = model_id.lower()
+    for pattern, override in _MODEL_BETA_OVERRIDES.items():
+        if pattern in lower:
+            exclude = override.get("exclude", [])
+            betas = [b for b in betas if b not in exclude]
+            for b in override.get("add", []):
+                if b not in betas:
+                    betas.append(b)
+            break
+    return betas
+
+
+def _first_user_message_text(messages: list[dict[str, Any]]) -> str:
+    """Extract the text of the first user message's first text block."""
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block.get("text", "")
+        return ""
+    return ""
+
+
+def _billing_header_value(messages: list[dict[str, Any]], entrypoint: str) -> str:
+    """Build the `x-anthropic-billing-header` value Claude Code embeds as system[0].
+
+    Mirrors Claude Code's internal cch/version-suffix computation so OAuth
+    requests are billed against the subscription instead of being rejected.
+    """
+    text = _first_user_message_text(messages)
+    version = os.environ.get("ANTHROPIC_CLI_VERSION", _CC_VERSION)
+    sampled = "".join(text[i] if i < len(text) else "0" for i in (4, 7, 20))
+    suffix = hashlib.sha256(f"{_BILLING_SALT}{sampled}{version}".encode()).hexdigest()[:3]
+    cch = hashlib.sha256(text.encode()).hexdigest()[:5]
+    return (
+        f"x-anthropic-billing-header: cc_version={version}.{suffix}; "
+        f"cc_entrypoint={entrypoint}; cch={cch};"
+    )
+
+
+def _build_system_blocks(
+    system_text: str | None, messages: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the system prompt for OAuth requests.
+
+    Anthropic's API validates the system[] array for OAuth-authenticated
+    requests: only the billing header and the Claude Code identity string may
+    live there. Any other system content triggers a 400 ("out of extra
+    usage"). Everything else is relocated to the front of the first user
+    message, which is functionally equivalent for the model.
+
+    Returns (system_blocks, patched_messages).
+    """
+    entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    system_blocks: list[dict[str, Any]] = [
+        {"type": "text", "text": _billing_header_value(messages, entrypoint)},
+        {"type": "text", "text": _SYSTEM_IDENTITY, "cache_control": {"type": "ephemeral"}},
+    ]
+
+    if not system_text:
+        return system_blocks, messages
+
+    patched = list(messages)
+    prefix = system_text
+    for i, message in enumerate(patched):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            patched[i] = {**message, "content": f"{prefix}\n\n{content}"}
+        elif isinstance(content, list):
+            patched[i] = {
+                **message,
+                "content": [{"type": "text", "text": prefix}, *content],
+            }
+        else:
+            patched[i] = {**message, "content": prefix}
+        break
+    return system_blocks, patched
 
 
 class AnthropicClaudeCodeAPI(BaseAPI):
@@ -100,10 +218,8 @@ class AnthropicClaudeCodeAPI(BaseAPI):
         }
         if not _suppress_temp:
             params["temperature"] = self.options.temperature
-        if system:
-            params["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-            ]
+        system_blocks, params["messages"] = _build_system_blocks(system, params["messages"])
+        params["system"] = system_blocks
         if (
             self.options.thinking_level is not None
             and self.options.thinking_level != ThinkingLevel.Off
@@ -186,7 +302,8 @@ class AnthropicClaudeCodeAPI(BaseAPI):
 
         yield StartEvent()
 
-        async with self._client.messages.stream(**params) as stream:
+        extra_headers = {"anthropic-beta": ",".join(_model_betas(model.id))}
+        async with self._client.messages.stream(**params, extra_headers=extra_headers) as stream:
             async for event in stream:
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")

@@ -181,7 +181,7 @@ def _requires_tool_call_id(model_id: str) -> bool:
     omitting it fails multi-turn tool use with ``tool_use.id: Field required``.
     Gemini models tolerate name-based correlation without it.
     """
-    return model_id.startswith("claude-")
+    return "claude" in model_id
 
 def _messages_to_contents(
     messages: list[LLMMessage],
