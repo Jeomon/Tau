@@ -312,6 +312,7 @@ class EditTool(Tool):
                 " Re-read before editing again if the file may have changed since your"
                 " last read — a formatter, hook, or another edit can shift anchors."
             ),
+            strict="prefer",
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

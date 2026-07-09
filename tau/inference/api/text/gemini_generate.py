@@ -9,7 +9,11 @@ from google import genai
 from google.genai import types as genai_types
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import gemini_tool_schema, tool_result_text
+from tau.inference.api.text.utils import (
+    check_strict_tools_supported,
+    gemini_tool_schema,
+    tool_result_text,
+)
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -182,6 +186,7 @@ class GeminiGenerateAPI(BaseAPI):
                 include_thoughts=True,
             )
 
+        check_strict_tools_supported(tools)
         if tools:
             params["tools"] = [
                 genai_types.Tool(

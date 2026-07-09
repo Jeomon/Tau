@@ -10,6 +10,7 @@ from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
     anthropic_messages_to_list,
     anthropic_output_config,
+    check_strict_tools_supported,
     parse_tool_args,
 )
 from tau.inference.model.types import Model
@@ -89,6 +90,7 @@ class AnthropicClaudeCodeAPI(BaseAPI):
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
         """Assemble the Anthropic API request payload, including thinking and tool configs."""
+        check_strict_tools_supported(tools)
         _suppress_temp = any(s in model.id for s in ("opus-4-7", "opus-4-8"))
         params: dict[str, Any] = {
             "model": model.id,

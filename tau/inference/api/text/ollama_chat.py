@@ -7,7 +7,11 @@ from uuid import uuid4
 from ollama import AsyncClient
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import parse_tool_args, tool_result_text
+from tau.inference.api.text.utils import (
+    check_strict_tools_supported,
+    parse_tool_args,
+    tool_result_text,
+)
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -178,6 +182,7 @@ class OllamaChatAPI(BaseAPI):
                 payload["format"] = response_format
 
             tools = context.tools or None
+            check_strict_tools_supported(tools)
             if tools:
                 payload["tools"] = [
                     {

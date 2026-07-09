@@ -10,6 +10,7 @@ from mistralai.client.types import UNSET
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
+    check_strict_tools_supported,
     openai_response_format,
     openai_user_content,
     parse_tool_args,
@@ -211,6 +212,7 @@ class MistralChatAPI(BaseAPI):
                 kwargs["response_format"] = response_format
 
             tools = context.tools or None
+            check_strict_tools_supported(tools)
             if tools:
                 kwargs["tools"] = [
                     {

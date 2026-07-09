@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tau.tool.types import Tool
 
 __all__ = [
     "gemini_tool_schema",
@@ -16,7 +19,52 @@ __all__ = [
     "anthropic_messages_to_list",
     "anthropic_output_config",
     "anthropic_apply_message_cache",
+    "check_strict_tools_supported",
+    "strict_json_schema",
 ]
+
+
+def check_strict_tools_supported(tools: list[Tool] | None) -> None:
+    """Raise if a tool demands strict constrained sampling from a provider that can't do it.
+
+    Only the OpenAI Responses/Completions APIs implement wire-level strict
+    function calling today, so every other provider calls this instead of
+    honoring ``Tool.strict``. ``strict="require"`` must fail loudly rather than
+    silently run unconstrained; ``strict="prefer"`` is a best-effort opt-in, so
+    it degrades quietly on providers that can't honor it.
+    """
+    for tool in tools or []:
+        if tool.strict == "require":
+            raise ValueError(
+                f"Tool '{tool.name}' requires strict constrained sampling, "
+                "which this provider does not support."
+            )
+
+
+def strict_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Recursively rewrite a JSON schema to satisfy OpenAI's strict tool-calling contract.
+
+    Strict mode requires every object node to set ``additionalProperties: false``
+    and list every one of its properties as required (OpenAI has no notion of an
+    optional property under strict decoding).
+    """
+    schema = dict(schema)
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        schema["properties"] = {k: strict_json_schema(v) for k, v in properties.items()}
+        schema["required"] = list(properties.keys())
+        schema["additionalProperties"] = False
+    items = schema.get("items")
+    if isinstance(items, dict):
+        schema["items"] = strict_json_schema(items)
+    for key in ("anyOf", "oneOf", "allOf"):
+        variants = schema.get(key)
+        if isinstance(variants, list):
+            schema[key] = [strict_json_schema(v) if isinstance(v, dict) else v for v in variants]
+    defs = schema.get("$defs")
+    if isinstance(defs, dict):
+        schema["$defs"] = {k: strict_json_schema(v) for k, v in defs.items()}
+    return schema
 
 
 _CACHE_MARKER = {"type": "ephemeral"}

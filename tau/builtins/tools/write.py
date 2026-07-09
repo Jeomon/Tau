@@ -77,6 +77,7 @@ class WriteTool(Tool):
             prompt_guidelines=(
                 "Only use for new files or complete rewrites. Use edit to modify existing files."
             ),
+            strict="prefer",
         )
 
     def get_display_name(self, args: dict[str, Any]) -> str:

@@ -632,6 +632,13 @@ class Engine:
                         stop = True
                         break
 
+                    # Refresh from live engine state (not just the snapshot taken at
+                    # run() start) so a mid-run extension change — e.g. an extension tool
+                    # calling set_active_tools() during execution — takes effect on the
+                    # very next provider request in this same run, not the next run().
+                    self.state.tools = self.tools
+                    self.state.system_prompt = self.system_prompt
+
                     ctx = LLMContext(
                         messages=ctx_messages,
                         tools=self.state.tools,
@@ -749,9 +756,29 @@ class Engine:
                     has_more_tool_calls = False
 
                     if tool_calls:
-                        tool_results = await self._execute_tool_calls(
-                            tool_calls=tool_calls, emit=emit, signal=signal
-                        )
+                        if message.stop_reason == StopReason.Length:
+                            # The message was cut off mid-generation, so tool-call args
+                            # parsed off it can look valid but be silently truncated (e.g.
+                            # a JSON string chopped mid-value). Don't execute them — fail
+                            # each with an error result asking the model to reissue the
+                            # call, and let the loop retry instead of ending the run.
+                            tool_results = [
+                                ToolResultContent(
+                                    id=tc.id,
+                                    is_error=True,
+                                    content=(
+                                        f"Tool call '{tc.name}' was cut off because the "
+                                        "response hit the length limit before the call "
+                                        "finished generating. Reissue this tool call."
+                                    ),
+                                    tool_name=tc.name,
+                                )
+                                for tc in tool_calls
+                            ]
+                        else:
+                            tool_results = await self._execute_tool_calls(
+                                tool_calls=tool_calls, emit=emit, signal=signal
+                            )
                         tool_message = ToolMessage.from_results(tool_results)
                         await emit(MessageStartEvent(message=tool_message))
                         await emit(MessageEndEvent(message=tool_message))

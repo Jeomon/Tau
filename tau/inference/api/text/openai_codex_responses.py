@@ -14,7 +14,11 @@ import websockets.asyncio.client
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
-from tau.inference.api.text.utils import parse_tool_args, tool_result_text
+from tau.inference.api.text.utils import (
+    check_strict_tools_supported,
+    parse_tool_args,
+    tool_result_text,
+)
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -223,6 +227,7 @@ def _build_body(
     # ("Unsupported parameter") — unlike the standard OpenAI Responses API.
     # Output length is governed by the subscription, so we never send it.
 
+    check_strict_tools_supported(tools)
     if tools:
         body["tools"] = [
             {

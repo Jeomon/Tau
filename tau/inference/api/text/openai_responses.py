@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncOpenAI
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
-from tau.inference.api.text.utils import parse_tool_args, tool_result_text
+from tau.inference.api.text.utils import parse_tool_args, strict_json_schema, tool_result_text
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -224,15 +224,20 @@ class OpenAIResponsesAPI(BaseAPI):
             params["reasoning"] = {"effort": _THINKING_EFFORT[self.options.thinking_level]}
 
         if tools:
-            params["tools"] = [
-                {
+            tool_defs = []
+            for tool in tools:
+                schema = tool.schema.model_json_schema()
+                tool_def: dict[str, Any] = {
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": tool.schema.model_json_schema(),
+                    "parameters": schema,
                 }
-                for tool in tools
-            ]
+                if tool.strict:
+                    tool_def["parameters"] = strict_json_schema(schema)
+                    tool_def["strict"] = True
+                tool_defs.append(tool_def)
+            params["tools"] = tool_defs
 
         return params
 

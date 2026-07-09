@@ -17,7 +17,12 @@ import httpx
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
-from tau.inference.api.text.utils import gemini_tool_schema, parse_tool_args, tool_result_text
+from tau.inference.api.text.utils import (
+    check_strict_tools_supported,
+    gemini_tool_schema,
+    parse_tool_args,
+    tool_result_text,
+)
 from tau.inference.model.types import Model
 from tau.inference.types import (
     EndEvent,
@@ -299,6 +304,7 @@ class GoogleAntigravityAPI(BaseAPI):
     @staticmethod
     def _tools_to_declarations(tools: list[Tool]) -> list[dict[str, Any]]:
         """Convert Tool objects to Gemini functionDeclarations format."""
+        check_strict_tools_supported(tools)
         seen: set[str] = set()
         decls = []
         for t in tools:

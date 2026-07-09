@@ -11,6 +11,7 @@ from tau.inference.api.text.utils import (
     openai_messages_to_chat,
     openai_response_format,
     parse_tool_args,
+    strict_json_schema,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -98,17 +99,19 @@ class OpenAICompletionsAPI(BaseAPI):
             params["max_completion_tokens"] = self.options.max_tokens
 
         if tools:
-            params["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": _clean_schema(tool.schema.model_json_schema()),
-                    },
+            tool_defs = []
+            for tool in tools:
+                schema = _clean_schema(tool.schema.model_json_schema())
+                function: dict[str, Any] = {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": schema,
                 }
-                for tool in tools
-            ]
+                if tool.strict:
+                    function["parameters"] = strict_json_schema(schema)
+                    function["strict"] = True
+                tool_defs.append({"type": "function", "function": function})
+            params["tools"] = tool_defs
             params["tool_choice"] = "auto"
 
         return params

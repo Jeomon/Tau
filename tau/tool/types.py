@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
@@ -176,6 +176,7 @@ class Tool(ABC):
         prompt_snippet: str | None = None,
         prompt_guidelines: str | None = None,
         prepare_arguments: Callable[[dict], dict] | None = None,
+        strict: Literal["prefer", "require"] | None = None,
     ) -> None:
         """Initialize tool with name, description, schema, kind, and execution concurrency policy.
 
@@ -186,6 +187,13 @@ class Tool(ABC):
 
         result_expandable disables central collapsing when False.
         result_preview_lines overrides the global default-shell preview threshold.
+
+        strict opts into provider-side constrained sampling of tool arguments
+        (only the OpenAI Responses/Completions APIs support it today):
+          "prefer"  — use strict decoding where the provider supports it, silently
+                      fall back to normal tool calling elsewhere.
+          "require" — same, but the provider adapter raises instead of silently
+                      running the tool unconstrained.
         """
         self.name = name
         self.description = description
@@ -200,6 +208,7 @@ class Tool(ABC):
         self.prompt_snippet = prompt_snippet
         self.prompt_guidelines = prompt_guidelines
         self.prepare_arguments = prepare_arguments
+        self.strict = strict
 
     def validate(self, params: dict[str, Any]) -> tuple[bool, list[str]]:
         """Validate params against schema; return (success, error_list).
