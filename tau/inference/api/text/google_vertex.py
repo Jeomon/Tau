@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -106,8 +107,22 @@ def _is_placeholder(value: str) -> bool:
     return value.startswith("<") and value.endswith(">")
 
 
+def _encode_signature(signature: bytes | None) -> str:
+    """Encode an SDK thought signature for JSON-safe message persistence."""
+    return base64.b64encode(signature).decode("ascii") if signature else ""
+
+
+def _decode_signature(signature: object) -> bytes | None:
+    """Decode a persisted thought signature for the Google Gen AI SDK."""
+    if not isinstance(signature, str) or not signature:
+        return None
+    return base64.b64decode(signature)
+
+
 def _messages_to_gemini(
     messages: list[LLMMessage],
+    *,
+    distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[genai_types.Content]]:
     system: str | None = None
     contents: list[genai_types.Content] = []
@@ -140,26 +155,63 @@ def _messages_to_gemini(
                     match item:
                         case TextContent():
                             parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
-                        case ToolCallContent():
+                        case ThinkingContent():
                             parts.append(
                                 genai_types.Part(
-                                    function_call=genai_types.FunctionCall(
-                                        name=item.name,
-                                        args=item.args,
+                                    text=item.content,
+                                    thought=True,
+                                    thought_signature=(
+                                        None
+                                        if distrust_thought_signatures
+                                        else _decode_signature(item.signature)
                                     ),
                                 )
                             )
+                        case ToolCallContent():
+                            sig = (
+                                None
+                                if distrust_thought_signatures
+                                else _decode_signature(item.metadata.get("thought_signature"))
+                            )
+                            if sig is None:
+                                # A functionCall part with no thoughtSignature is
+                                # rejected outright — e.g. history replayed from a
+                                # turn that never had one (a different provider, or
+                                # a model switch). Fall back to a plain text
+                                # description instead of sending an unsigned call.
+                                args_str = json.dumps(item.args, indent=2)
+                                parts.append(
+                                    genai_types.Part(
+                                        text=f"[Tool Call: {item.name}]\nArguments: {args_str}"
+                                    )
+                                )
+                            else:
+                                parts.append(
+                                    genai_types.Part(
+                                        function_call=genai_types.FunctionCall(
+                                            name=item.name,
+                                            args=item.args,
+                                        ),
+                                        thought_signature=sig,
+                                    )
+                                )
                 if parts:
                     contents.append(genai_types.Content(role="model", parts=parts))  # type: ignore[arg-type]
             case ToolMessage():
                 parts = []
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
+                        # Gemini's response uses "output" for success and "error"
+                        # for failure — the "result"/absent-error shape is
+                        # rejected by newer models (e.g. Gemini 3 Flash Preview).
+                        # functionResponse also correlates to its functionCall by
+                        # tool *name*, not the per-call id.
+                        response_key = "error" if content.is_error else "output"
                         parts.append(
                             genai_types.Part(
                                 function_response=genai_types.FunctionResponse(
-                                    name=content.id,
-                                    response={"result": tool_result_text(content)},
+                                    name=content.tool_name or content.id,
+                                    response={response_key: tool_result_text(content)},
                                 ),
                             )
                         )
@@ -225,7 +277,10 @@ class GoogleVertexAPI(BaseAPI):
         return genai_types.GenerateContentConfig(**params)
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
-        system, contents = _messages_to_gemini(context.messages)
+        distrust_sigs = self.options.distrust_thought_signatures
+        system, contents = _messages_to_gemini(
+            context.messages, distrust_thought_signatures=distrust_sigs
+        )
         config = self._build_config(
             tools=context.tools or None,
             response_format=context.response_format,
@@ -247,6 +302,7 @@ class GoogleVertexAPI(BaseAPI):
         thinking_started = False
         text_buf = ""
         thinking_buf = ""
+        thinking_signature = ""
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
@@ -281,17 +337,23 @@ class GoogleVertexAPI(BaseAPI):
                                 yield ThinkingStartEvent(thinking=None)
                                 thinking_started = True
                             thinking_buf += part.text
+                            if part.thought_signature:
+                                thinking_signature = _encode_signature(part.thought_signature)
                             yield ThinkingDeltaEvent(
                                 thinking=ThinkingContent(content=part.text)  # type: ignore[arg-type]
                             )
                         elif part.text:
                             if thinking_started:
                                 yield ThinkingEndEvent(
-                                    thinking=ThinkingContent(content=thinking_buf)  # type: ignore[arg-type]
+                                    thinking=ThinkingContent(  # type: ignore[arg-type]
+                                        content=thinking_buf,
+                                        signature=thinking_signature,
+                                    )
                                 )
                                 thinking_started = False
                                 thinking_index += 1
                                 thinking_buf = ""
+                                thinking_signature = ""
                             if not text_started:
                                 yield TextStartEvent(text=TextContent(content=""))  # type: ignore[arg-type]
                                 text_started = True
@@ -311,8 +373,15 @@ class GoogleVertexAPI(BaseAPI):
                                 )
                             seen_tool_ids.add(tool_id)
                             args_str = json.dumps(dict(fc.args)) if fc.args else ""
+                            call_metadata = (
+                                {"thought_signature": _encode_signature(part.thought_signature)}
+                                if getattr(part, "thought_signature", None)
+                                else {}
+                            )
                             yield ToolCallStartEvent(
-                                tool_call=ToolCallContent(id=tool_id, name=tool_name)  # type: ignore[arg-type]
+                                tool_call=ToolCallContent(  # type: ignore[arg-type]
+                                    id=tool_id, name=tool_name, metadata=call_metadata
+                                )
                             )
                             yield ToolCallDeltaEvent(tool_call=ToolCallContent(id=tool_id))  # type: ignore[arg-type]
                             yield ToolCallEndEvent(
@@ -320,6 +389,7 @@ class GoogleVertexAPI(BaseAPI):
                                     id=tool_id,
                                     name=tool_name,
                                     args=json.loads(args_str) if args_str else {},
+                                    metadata=call_metadata,
                                 )
                             )
                             tool_index += 1
@@ -328,7 +398,10 @@ class GoogleVertexAPI(BaseAPI):
                 if finish_reason and str(finish_reason) not in ("", "FINISH_REASON_UNSPECIFIED"):
                     if thinking_started:
                         yield ThinkingEndEvent(
-                            thinking=ThinkingContent(content=thinking_buf)  # type: ignore[arg-type]
+                            thinking=ThinkingContent(  # type: ignore[arg-type]
+                                content=thinking_buf,
+                                signature=thinking_signature,
+                            )
                         )
                     if text_started:
                         yield TextEndEvent(text=TextContent(content=text_buf))  # type: ignore[arg-type]
@@ -358,7 +431,10 @@ class GoogleVertexAPI(BaseAPI):
 
         if thinking_started:
             yield ThinkingEndEvent(
-                thinking=ThinkingContent(content=thinking_buf)  # type: ignore[arg-type]
+                thinking=ThinkingContent(  # type: ignore[arg-type]
+                    content=thinking_buf,
+                    signature=thinking_signature,
+                )
             )
         if text_started:
             yield TextEndEvent(text=TextContent(content=text_buf))  # type: ignore[arg-type]
