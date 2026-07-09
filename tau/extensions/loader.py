@@ -409,7 +409,11 @@ class ExtensionLoader:
         """Install an extension's declared dependencies, once per dependency set.
 
         Runs synchronously (called via ``asyncio.to_thread``) so the blocking
-        subprocess install doesn't stall the event loop.
+        subprocess install doesn't stall the event loop. A failed install is
+        cached too, not just successes — otherwise a dependency that can never
+        build on this interpreter (e.g. no wheel for a free-threaded Python
+        build, missing compiler) retries the full failing subprocess on every
+        single startup instead of failing fast after the first attempt.
         """
         from tau.packages.manager import PackageManager
 
@@ -424,7 +428,7 @@ class ExtensionLoader:
 
         digest = hashlib.sha256("\n".join(sorted(deps)).encode("utf-8")).hexdigest()
         cache_file = venv_dir / ".tau_ext_deps.json"
-        cache: dict[str, str] = {}
+        cache: dict[str, Any] = {}
         if cache_file.is_file():
             try:
                 cache = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -433,12 +437,29 @@ class ExtensionLoader:
                 cache = {}
 
         key = str(subdir.resolve())
-        if cache.get(key) != digest:
-            _log.info("Installing dependencies for extension %r: %s", subdir.name, ", ".join(deps))
+        entry = cache.get(key)
+        # Older cache files stored the digest directly as a bare string (success-only).
+        cached_digest = entry.get("digest") if isinstance(entry, dict) else entry
+        if cached_digest == digest:
+            if isinstance(entry, dict) and not entry.get("ok", True):
+                raise RuntimeError(
+                    f"Dependencies for extension {subdir.name!r} previously failed to "
+                    f"install: {entry.get('error', 'unknown error')}"
+                )
+            add_site_packages_path(pkg_mgr.site_packages())
+            return
+
+        _log.info("Installing dependencies for extension %r: %s", subdir.name, ", ".join(deps))
+        try:
             pkg_mgr.install_requirements(deps)
-            cache[key] = digest
+        except Exception as exc:
+            cache[key] = {"digest": digest, "ok": False, "error": str(exc)}
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            raise
+        cache[key] = {"digest": digest, "ok": True}
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
         add_site_packages_path(pkg_mgr.site_packages())
 
