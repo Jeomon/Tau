@@ -232,6 +232,10 @@ def _messages_to_contents(
 ) -> tuple[str | None, list[dict[str, Any]]]:
     system: str | None = None
     raw: list[dict[str, Any]] = []
+    # Tool call ids whose functionCall was downgraded to plain text below (no
+    # thoughtSignature) — their matching ToolResultContent must be downgraded
+    # too, or the backend sees a tool_result with no corresponding tool_use.
+    downgraded_call_ids: set[str] = set()
 
     for msg in messages:
         match msg:
@@ -257,6 +261,13 @@ def _messages_to_contents(
                         case TextContent():
                             parts.append({"text": item.content})
                         case ThinkingContent():
+                            if not item.content:
+                                # Claude's backend behind this API rejects a
+                                # thought part with no text ("thinking.thinking:
+                                # Field required") — drop no-op blocks left
+                                # over from a provider/model switch instead of
+                                # replaying them verbatim.
+                                continue
                             tp: dict[str, Any] = {"thought": True, "text": item.content}
                             if item.signature and not distrust_thought_signatures:
                                 tp["thoughtSignature"] = item.signature
@@ -279,6 +290,8 @@ def _messages_to_contents(
                                 parts.append(
                                     {"text": f"[Tool Call: {item.name}]\nArguments: {args_str}"}
                                 )
+                                if item.id:
+                                    downgraded_call_ids.add(item.id)
                             else:
                                 function_call: dict[str, Any] = {
                                     "name": item.name,
@@ -296,6 +309,15 @@ def _messages_to_contents(
                 parts = []
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
+                        if content.id and content.id in downgraded_call_ids:
+                            # Matching functionCall was downgraded to text above
+                            # (no thoughtSignature) — sending this as a
+                            # functionResponse would reference a tool_use the
+                            # backend never saw, so downgrade it too.
+                            parts.append(
+                                {"text": f"[Tool Result: {content.tool_name}]\n{tool_result_text(content)}"}
+                            )
+                            continue
                         # functionResponse correlates to its functionCall by name (the
                         # tool name, matching the functionCall.name above) — not by the
                         # per-call id, which lives in its own "id" field.

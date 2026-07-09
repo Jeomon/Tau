@@ -14,12 +14,23 @@ Covers four related fixes to _messages_to_contents:
    back to a text part instead, for every model behind this API.
 4. thoughtSignature must not be replayed across a model switch mid-session,
    since it may not be valid bytes for whichever backend is now active.
+5. An empty ThinkingContent block (no text) must be dropped, not replayed as
+   a thought part with empty text — Claude's backend behind this API rejects
+   that with "thinking.thinking: Field required".
 """
 
 from __future__ import annotations
 
 from tau.inference.api.text.google_antigravity import _messages_to_contents
-from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage, ToolResultContent, UserMessage
+from tau.message.types import (
+    AssistantMessage,
+    TextContent,
+    ThinkingContent,
+    ToolCallContent,
+    ToolMessage,
+    ToolResultContent,
+    UserMessage,
+)
 
 _SIGNATURE = {"thoughtSignature": "sig"}
 
@@ -52,7 +63,9 @@ def test_function_response_error_uses_error_key() -> None:
     # "result"/"isError") — older Gemini models tolerated the wrong shape.
     messages = [
         UserMessage.from_text("hi"),
-        AssistantMessage(contents=[ToolCallContent(id="tc1", name="read_file", args={})]),
+        AssistantMessage(
+            contents=[ToolCallContent(id="tc1", name="read_file", args={}, metadata=_SIGNATURE)]
+        ),
         ToolMessage(
             contents=[
                 ToolResultContent(
@@ -87,6 +100,44 @@ def test_gemini_model_omits_tool_call_id() -> None:
     call_turn = next(c for c in contents if any("functionCall" in p for p in c["parts"]))
     call = next(p["functionCall"] for p in call_turn["parts"] if "functionCall" in p)
     assert "id" not in call
+
+
+def test_unsigned_tool_call_downgrades_matching_result_too() -> None:
+    # If the functionCall has no thoughtSignature it's downgraded to plain
+    # text (see module docstring, point 3). Sending the paired
+    # ToolResultContent as a functionResponse in that case leaves a
+    # tool_result with no matching tool_use, which Claude rejects with
+    # "unexpected `tool_use_id` found in `tool_result` blocks". The result
+    # must be downgraded to text alongside its call.
+    messages = [
+        UserMessage.from_text("hi"),
+        AssistantMessage(contents=[ToolCallContent(id="tc1", name="read_file", args={"path": "x"})]),
+        ToolMessage(
+            contents=[ToolResultContent(id="tc1", content="file contents", tool_name="read_file")]
+        ),
+    ]
+
+    _, contents = _messages_to_contents(messages, "claude-sonnet-4-6")
+
+    for content in contents:
+        for part in content["parts"]:
+            assert "functionCall" not in part
+            assert "functionResponse" not in part
+
+
+def test_empty_thinking_content_is_dropped() -> None:
+    messages = [
+        UserMessage.from_text("hi"),
+        AssistantMessage(
+            contents=[ThinkingContent(content=""), TextContent(content="hello there")]
+        ),
+    ]
+
+    _, contents = _messages_to_contents(messages, "claude-sonnet-4-6")
+
+    model_turn = next(c for c in contents if c["role"] == "model")
+    assert not any(p.get("thought") for p in model_turn["parts"])
+    assert {"text": "hello there"} in model_turn["parts"]
 
 
 def test_unsigned_tool_call_falls_back_to_text_on_gemini3() -> None:

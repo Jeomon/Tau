@@ -400,13 +400,19 @@ def anthropic_messages_to_list(
                                 text_parts_asst.append(item.content)
                         case ThinkingContent():
                             if supports_thinking:
-                                parts.append(
-                                    {
-                                        "type": "thinking",
-                                        "thinking": item.content,
-                                        "signature": item.signature,
-                                    }
-                                )
+                                # Anthropic rejects a "thinking" block with an
+                                # empty thinking field ("each thinking block
+                                # must contain thinking") — drop no-op blocks
+                                # (e.g. left over from a provider/model switch)
+                                # instead of replaying them verbatim.
+                                if item.content:
+                                    parts.append(
+                                        {
+                                            "type": "thinking",
+                                            "thinking": item.content,
+                                            "signature": item.signature,
+                                        }
+                                    )
                             else:
                                 thinking_parts.append(item.content)
                         case ToolCallContent():
