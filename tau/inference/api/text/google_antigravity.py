@@ -523,6 +523,9 @@ class GoogleAntigravityAPI(BaseAPI):
         text_buf = ""
         thinking_buf = ""
         thinking_sig = ""
+        input_tokens = 0
+        output_tokens = 0
+        cache_read_tokens = 0
 
         yield StartEvent()
 
@@ -593,6 +596,14 @@ class GoogleAntigravityAPI(BaseAPI):
                             # API wraps the response in a "response" key
                             if "response" in chunk_data:
                                 chunk_data = chunk_data["response"]
+
+                            usage_meta = chunk_data.get("usageMetadata")
+                            if usage_meta:
+                                input_tokens = usage_meta.get("promptTokenCount", 0) or 0
+                                output_tokens = usage_meta.get("candidatesTokenCount", 0) or 0
+                                cache_read_tokens = (
+                                    usage_meta.get("cachedContentTokenCount", 0) or 0
+                                )
 
                             candidates = chunk_data.get("candidates", [])
                             if not candidates:
@@ -677,7 +688,13 @@ class GoogleAntigravityAPI(BaseAPI):
                                     if tool_index > 0
                                     else _STOP_REASON.get(finish_reason, StopReason.Stop)
                                 )
-                                yield EndEvent(reason=stop)
+                                yield EndEvent(
+                                    reason=stop,
+                                    input_tokens=input_tokens,
+                                    output_tokens=output_tokens,
+                                    cache_read_tokens=cache_read_tokens,
+                                    input_tokens_include_cache_read=True,
+                                )
                                 done = True
                                 break
                         if done:
@@ -699,4 +716,10 @@ class GoogleAntigravityAPI(BaseAPI):
                 )
             if text_started:
                 yield TextEndEvent(text=TextContent(content=text_buf))
-            yield EndEvent(reason=StopReason.Stop)
+            yield EndEvent(
+                reason=StopReason.Stop,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                input_tokens_include_cache_read=True,
+            )

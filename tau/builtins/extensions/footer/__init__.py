@@ -65,6 +65,22 @@ def register(tau: ExtensionAPI) -> None:
             model_badge.update_context_from_ctx(ctx)
             _request_render(ctx)
 
+    @tau.on("message_update")
+    def on_message_update(event: Any, ctx: Any) -> None:
+        if not ctx.has_ui:
+            return
+        from tau.message.types import TextContent, ThinkingContent
+
+        msg = getattr(event, "message", None)
+        if msg is None:
+            return
+        contents = getattr(msg, "contents", [])
+        char_count = sum(
+            len(item.content) for item in contents if isinstance(item, (TextContent, ThinkingContent))
+        )
+        model_badge.set_live_estimate(char_count // 4)
+        _request_render(ctx)
+
     @tau.on("thinking_level_select")
     def on_thinking_level_select(event: Any, ctx: Any) -> None:
         if not ctx.has_ui:

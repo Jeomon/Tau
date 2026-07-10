@@ -176,7 +176,8 @@ class AgentHookHandler:
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
     async def _on_agent_start(self, _event: object) -> None:
-        self._spinner(self._layout.spinner.theme.label_thinking, running=True)
+        self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
+        self._layout.spinner.start_turn()
 
     async def _on_agent_end(self, _event: object) -> None:
         self._spinner(running=False)
@@ -236,6 +237,12 @@ class AgentHookHandler:
                 self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
             elif isinstance(last, TextContent) and last.content:
                 self._layout.spinner.set_label(self._layout.spinner.theme.label_streaming)
+            char_count = sum(
+                len(item.content)
+                for item in contents
+                if isinstance(item, (TextContent, ThinkingContent))
+            )
+            self._layout.spinner.set_streaming_chars(char_count)
 
         # Buffer the latest message; schedule a flush if none pending.
         self._pending_msg = msg
@@ -273,6 +280,12 @@ class AgentHookHandler:
             return
         if isinstance(msg, (AssistantMessage, ToolMessage)):
             self._mark_turn_content()
+            if isinstance(msg, AssistantMessage):
+                usage = msg.usage
+                self._layout.spinner.add_tokens(
+                    up=usage.output_tokens,
+                    down=usage.input_tokens,
+                )
             if self._current_block is not None:
                 self._update_block(msg, streaming=False, clear=True)
             else:

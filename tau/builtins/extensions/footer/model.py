@@ -27,6 +27,10 @@ class ModelBadge(Component):
         self._context_window = 0
         self._thinking = False
         self._thinking_level = ""
+        # Char-based estimate of the still-streaming message's token count,
+        # added on top of _tokens so the percentage climbs live; cleared
+        # whenever a new authoritative count lands via set_context.
+        self._live_estimate = 0
 
     def set_model(self, model_id: str, provider: str, thinking: bool = False) -> None:
         self._model = model_id
@@ -39,6 +43,15 @@ class ModelBadge(Component):
     def set_context(self, tokens: int, context_window: int) -> None:
         self._tokens = tokens
         self._context_window = context_window
+        self._live_estimate = 0
+
+    def set_live_estimate(self, extra_tokens: int) -> None:
+        """Add an in-flight token estimate on top of the last known count.
+
+        Call this on each streamed delta of the current turn's response;
+        superseded by :meth:`set_context` once the real usage arrives.
+        """
+        self._live_estimate = extra_tokens
 
     def update_from_ctx(self, ctx: object) -> None:
         self.set_model(
@@ -89,8 +102,9 @@ class ModelBadge(Component):
         left = f"({self._provider}) {self._model}" if self._provider else self._model
         if self._thinking and self._thinking_level and self._thinking_level != "off":
             left += f" ∙ {self._thinking_level.title()}"
-        if self._context_window > 0 and self._tokens > 0:
-            pct = self._tokens / self._context_window * 100
+        tokens = self._tokens + self._live_estimate
+        if self._context_window > 0 and tokens > 0:
+            pct = tokens / self._context_window * 100
             label = f"{pct:.1f}%" if pct < 1 else f"{int(round(pct))}%"
             return f"{left}|{label}"
         return left

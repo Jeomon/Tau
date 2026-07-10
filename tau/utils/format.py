@@ -21,9 +21,15 @@ def format_number(num: int | float) -> str:
     while value >= 1_000 and i < len(_SUFFIXES) - 1:
         value /= 1_000
         i += 1
+    # Rounding to one decimal can push the display value up to the next
+    # tier's boundary (e.g. 999_999 -> 999.999K, which rounds to "1000.0K"
+    # instead of "1M") — bump the tier once more in that case.
+    if round(value, 1) >= 1_000 and i < len(_SUFFIXES) - 1:
+        value /= 1_000
+        i += 1
 
-    if value.is_integer():
-        return f"{int(value)}{_SUFFIXES[i]}"
+    if round(value, 1).is_integer():
+        return f"{int(round(value))}{_SUFFIXES[i]}"
     return f"{value:.1f}{_SUFFIXES[i]}"
 
 

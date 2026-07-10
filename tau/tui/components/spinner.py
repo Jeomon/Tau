@@ -1,15 +1,47 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.theme import SpinnerTheme
+from tau.utils.format import format_number
 
 if TYPE_CHECKING:
     from tau.tui.service import TUI
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Compact elapsed-time string, e.g. "12s", "1m 3s", "1h 0m 12s".
+
+    Leading zero units (y/d/h/m) are omitted; once the largest nonzero unit
+    is reached, every unit below it is shown (including zeros).
+    """
+    total = max(0, int(seconds))
+    years, rem = divmod(total, 365 * 86400)
+    days, rem = divmod(rem, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if years:
+        parts.append(f"{years}y")
+    if days or parts:
+        parts.append(f"{days}d")
+    if hours or parts:
+        parts.append(f"{hours}h")
+    if minutes or parts:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+# Rough chars-per-token used to estimate the in-flight message's token count
+# before the provider's real usage arrives, so the counter can climb live as
+# text streams in rather than jumping once at message end.
+_ESTIMATE_CHARS_PER_TOKEN = 4
 
 
 class Spinner(Component):
@@ -50,6 +82,14 @@ class Spinner(Component):
         self._force_hidden: bool = False
         self._custom_frames: list[str] | None = None
         self._custom_interval_ms: int | None = None
+
+        # Per-turn elapsed-time and token stats, shown alongside the label.
+        self._turn_started_at: float | None = None
+        self._tokens_up = 0
+        self._tokens_down = 0
+        # Char-based estimate of the still-streaming message's token count,
+        # shown live and folded into _tokens_up once real usage lands.
+        self._streaming_estimate = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -108,6 +148,41 @@ class Spinner(Component):
         self._active = True
         self._sync_task()
 
+    def start_turn(self) -> None:
+        """Start the base active state and reset elapsed time / token stats.
+
+        Call this at the start of a fresh agent turn (instead of ``start()``)
+        so the elapsed-time and token counters shown next to the spinner
+        reflect this turn rather than accumulating across turns.
+        """
+        self._turn_started_at = time.monotonic()
+        self._tokens_up = 0
+        self._tokens_down = 0
+        self._streaming_estimate = 0
+        self.start()
+
+    def add_tokens(self, *, up: int = 0, down: int = 0) -> None:
+        """Accumulate real token counts for the current turn.
+
+        Clears any live estimate for the message these counts finalize, so
+        the displayed total doesn't briefly double-count.
+        """
+        self._tokens_up += up
+        self._tokens_down += down
+        self._streaming_estimate = 0
+        self._tui.request_render()
+
+    def set_streaming_chars(self, char_count: int) -> None:
+        """Update the live token estimate for the message still streaming in.
+
+        Called on each text/thinking delta so the up-count climbs in real
+        time; superseded by :meth:`add_tokens` once real usage arrives.
+        """
+        estimate = char_count // _ESTIMATE_CHARS_PER_TOKEN
+        if estimate != self._streaming_estimate:
+            self._streaming_estimate = estimate
+            self._tui.request_render()
+
     def stop(self) -> None:
         """Clear the base active state. Layered reasons (push_reason) are unaffected."""
         self._active = False
@@ -149,7 +224,14 @@ class Spinner(Component):
         text = self._reasons[-1][1] if self._reasons else self._label
         if text:
             remaining = area.x + area.width - col
-            buf.set_string(col, area.y, f" {text}", t.label_color, max_width=remaining)
+            col = buf.set_string(col, area.y, f" {text}", t.label_color, max_width=remaining)
+        if self._turn_started_at is not None:
+            elapsed = _format_elapsed(time.monotonic() - self._turn_started_at)
+            up = format_number(self._tokens_up + self._streaming_estimate)
+            down = format_number(self._tokens_down)
+            stats = f" ({elapsed} · ↑{up} ↓{down})"
+            remaining = area.x + area.width - col
+            buf.set_string(col, area.y, stats, t.stat_color, max_width=remaining)
         return 1
 
     # -------------------------------------------------------------------------
