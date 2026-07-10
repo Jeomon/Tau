@@ -1,6 +1,7 @@
 """Discovery of models installed in locally-running inference backends.
 
-Each backend gets its own module here (`ollama.py`, `lmstudio.py`, `vllm.py`)
+Each backend gets its own module here (`ollama.py`, `lmstudio.py`, `vllm.py`,
+`llamacpp.py`)
 exposing a `discover_local_*_models()` / `register_local_*_models()` pair —
 both best-effort, so a missing/unreachable local daemon yields zero models
 rather than an exception. `register_all()` runs every backend's discovery
@@ -30,11 +31,17 @@ def _backends() -> tuple[Callable[[], Awaitable[int]], ...]:
     # Imported lazily so importing this package doesn't eagerly pull in every
     # backend module (mirrors the lazy-adapter-loading convention elsewhere
     # in tau.inference).
+    from tau.inference.model.local.llamacpp import register_local_llamacpp_models
     from tau.inference.model.local.lmstudio import register_local_lmstudio_models
     from tau.inference.model.local.ollama import register_local_ollama_models
     from tau.inference.model.local.vllm import register_local_vllm_models
 
-    return (register_local_ollama_models, register_local_lmstudio_models, register_local_vllm_models)
+    return (
+        register_local_ollama_models,
+        register_local_lmstudio_models,
+        register_local_vllm_models,
+        register_local_llamacpp_models,
+    )
 
 
 async def register_all() -> int:

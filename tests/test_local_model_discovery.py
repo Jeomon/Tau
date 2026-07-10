@@ -1,8 +1,8 @@
 """Tests for local inference-backend model discovery (tau/inference/model/local/).
 
 Covers Ollama tag filtering/context extraction, LM Studio model-type
-filtering, vLLM's single-endpoint discovery, registry population, and the
-unified parallel `register_all()` entry point used by
+filtering, vLLM's and llama.cpp's single-endpoint discovery, registry
+population, and the unified parallel `register_all()` entry point used by
 `Runtime._start_local_model_discovery`.
 """
 
@@ -30,6 +30,13 @@ from tau.inference.model.local.ollama import (
     _context_length,
     discover_local_ollama_models,
 )
+from tau.inference.model.local.llamacpp import (
+    _build_model as _llamacpp_build_model,
+)
+from tau.inference.model.local.llamacpp import (
+    discover_local_llamacpp_models,
+    register_local_llamacpp_models,
+)
 from tau.inference.model.local.vllm import (
     _build_model as _vllm_build_model,
 )
@@ -43,6 +50,7 @@ from tau.inference.model.types import Modality
 _OLLAMA_URL = "http://localhost:11434"
 _LMSTUDIO_URL = "http://localhost:1234"
 _VLLM_URL = "http://localhost:8000"
+_LLAMACPP_URL = "http://localhost:8080"
 
 _OLLAMA_TAGS = {
     "models": [
@@ -82,6 +90,18 @@ _VLLM_MODELS = {
     ],
 }
 
+_LLAMACPP_MODELS = {
+    "object": "list",
+    "data": [
+        {
+            "id": "nvidia/nemotron-3-nano-4b",
+            "object": "model",
+            "owned_by": "llamacpp",
+            "meta": {"n_ctx_train": 1048576, "n_params": 4000000000},
+        }
+    ],
+}
+
 
 def _ollama_transport(
     tags: dict[str, Any] | None = _OLLAMA_TAGS,
@@ -112,6 +132,15 @@ def _lmstudio_transport(models: dict[str, Any] | None = _LMSTUDIO_MODELS) -> htt
 
 
 def _vllm_transport(models: dict[str, Any] | None = _VLLM_MODELS) -> httpx.MockTransport:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json=models)
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def _llamacpp_transport(models: dict[str, Any] | None = _LLAMACPP_MODELS) -> httpx.MockTransport:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(200, json=models)
@@ -271,6 +300,64 @@ def test_register_local_vllm_models_strips_v1_suffix_from_provider_base_url(
     assert all(url.startswith("http://localhost:8000/v1/models") for url in seen_paths)
 
 
+# ── llama.cpp ─────────────────────────────────────────────────────────────
+
+
+def test_llamacpp_build_model_uses_meta_n_ctx_train_for_context_window() -> None:
+    model = _llamacpp_build_model(
+        {"id": "nvidia/nemotron-3-nano-4b", "meta": {"n_ctx_train": 1048576}}
+    )
+    assert model.provider == "llamacpp"
+    assert model.context_window == 1048576
+    assert model.input == [Modality.Text]
+
+
+def test_llamacpp_build_model_defaults_when_meta_missing() -> None:
+    model = _llamacpp_build_model({"id": "some-model"})
+    assert model.context_window == 0
+    assert model.max_output_tokens == 4096
+
+
+def test_llamacpp_discover_returns_served_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_httpx(monkeypatch, _llamacpp_transport())
+
+    models = asyncio.run(discover_local_llamacpp_models(_LLAMACPP_URL))
+
+    assert [m.id for m in models] == ["nvidia/nemotron-3-nano-4b"]
+    assert models[0].context_window == 1048576
+
+
+def test_llamacpp_discover_is_silent_when_server_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    _patch_httpx(monkeypatch, httpx.MockTransport(handler))
+
+    assert asyncio.run(discover_local_llamacpp_models(_LLAMACPP_URL)) == []
+
+
+def test_register_local_llamacpp_models_strips_v1_suffix_from_provider_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TextLLM, "_models", ModelRegistry())
+    seen_paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(str(request.url))
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json=_LLAMACPP_MODELS)
+        return httpx.Response(404)
+
+    _patch_httpx(monkeypatch, httpx.MockTransport(handler))
+
+    count = asyncio.run(register_local_llamacpp_models())
+
+    assert count == 1
+    assert all(url.startswith("http://localhost:8080/v1/models") for url in seen_paths)
+
+
 # ── Unified parallel entry point ─────────────────────────────────────────
 
 
@@ -299,6 +386,11 @@ def test_register_all_runs_backends_in_parallel_and_populates_registry(
             return httpx.Response(200, json=_VLLM_MODELS)
         return httpx.Response(404)
 
+    async def llamacpp_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json=_LLAMACPP_MODELS)
+        return httpx.Response(404)
+
     real_async_client = httpx.AsyncClient
 
     async def router(request: httpx.Request) -> httpx.Response:
@@ -308,6 +400,8 @@ def test_register_all_runs_backends_in_parallel_and_populates_registry(
             return await lmstudio_handler(request)
         if request.url.host == "localhost" and request.url.port == 8000:
             return await vllm_handler(request)
+        if request.url.host == "localhost" and request.url.port == 8080:
+            return await llamacpp_handler(request)
         return httpx.Response(404)
 
     def fake_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
@@ -320,14 +414,15 @@ def test_register_all_runs_backends_in_parallel_and_populates_registry(
 
     total = asyncio.run(register_all())
 
-    # 1 local ollama model + 2 chat-capable lmstudio models + 1 vllm model
-    assert total == 4
+    # 1 ollama + 2 lmstudio (chat-capable) + 1 vllm + 1 llamacpp
+    assert total == 5
     registry = TextLLM._builtin_models()
     assert registry.get("qwen3-vl:4b", provider="ollama") is not None
     assert registry.get("qwen2.5-7b-instruct", provider="lmstudio") is not None
     assert registry.get("some-vlm", provider="lmstudio") is not None
     assert registry.get("text-embedding-nomic", provider="lmstudio") is None
     assert registry.get("meta-llama/Llama-3.1-8B-Instruct", provider="vllm") is not None
+    assert registry.get("nvidia/nemotron-3-nano-4b", provider="llamacpp") is not None
 
 
 def test_register_all_tolerates_one_backend_failing(monkeypatch: pytest.MonkeyPatch) -> None:

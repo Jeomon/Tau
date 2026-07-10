@@ -143,6 +143,13 @@ api_providers = [
         options=LLMOptions(base_url="http://localhost:8000/v1"),
         auth_type=AuthType.None_,
     ),
+    APIProvider(
+        id="llamacpp",
+        name="llama.cpp",
+        api="openai_completions",
+        options=LLMOptions(base_url="http://localhost:8080/v1"),
+        auth_type=AuthType.None_,
+    ),
 ]
 
 oauth_providers = [
