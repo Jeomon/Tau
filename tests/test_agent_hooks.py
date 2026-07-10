@@ -38,9 +38,6 @@ class _Spinner:
     def update_tokens(self, *, up: int | None = None, down: int = 0) -> None:
         pass
 
-    def bump_input_estimate(self, extra: int) -> None:
-        pass
-
     def set_streaming_estimate(self, tokens: int) -> None:
         pass
 

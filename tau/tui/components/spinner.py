@@ -174,14 +174,6 @@ class Spinner(Component):
         self._streaming_estimate = 0
         self._tui.request_render()
 
-    def bump_input_estimate(self, extra: int) -> None:
-        """Add a rough pre-usage estimate (e.g. a newly appended tool result)
-        to the input count; superseded by the next :meth:`update_tokens`
-        call once the real usage for that call is known.
-        """
-        self._tokens_up += extra
-        self._tui.request_render()
-
     def set_streaming_estimate(self, tokens: int) -> None:
         """Update the live token estimate for the message still streaming in.
 

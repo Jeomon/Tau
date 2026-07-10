@@ -221,11 +221,10 @@ class AgentHookHandler:
             self._partial_tool_results.clear()
             self._tool_names.clear()
             # Tool results are real prompt content the next LLM call will
-            # send — bump the up-count now rather than waiting for that
-            # call's usage report to land.
-            from tau.session.compaction import estimate_tokens
-
-            self._layout.spinner.bump_input_estimate(estimate_tokens(msg))
+            # send — refresh the up-count now (full-context estimate, so it
+            # includes this tool result) rather than waiting for that call's
+            # usage report to land.
+            self._layout.spinner.update_tokens(up=self._estimate_pending_input_tokens())
         else:
             block = self._layout.add_message(msg, streaming=False)
         self._current_block = block
@@ -440,54 +439,23 @@ class AgentHookHandler:
         if self._on_turn_content is not None:
             self._on_turn_content()
 
-    def _estimate_last_message_tokens(self) -> int:
-        """Tokenizer estimate of the most recently appended session message.
-
-        Used whenever a ToolMessage is appended mid-turn: by that point the
-        turn's up-count already holds a real usage.input_tokens baseline
-        (which includes system prompt/tools/history overhead) from the
-        first assistant response, so only the new tool result needs adding.
-        """
-        from tau.session.compaction import estimate_tokens
-        from tau.session.types import MessageEntry
-
-        sm = self._runtime.session_manager
-        if sm is None:
-            return 0
-        for entry in reversed(sm.get_branch()):
-            if isinstance(entry, MessageEntry):
-                return estimate_tokens(entry.message)
-        return 0
-
     def _estimate_pending_input_tokens(self) -> int:
         """Tokenizer estimate of the input tokens the next LLM call will send.
 
-        Unlike :meth:`_estimate_last_message_tokens`, this seeds the very
-        first estimate of a turn — before any real usage has landed — so it
-        needs to approximate the *full* prompt, not just the new message.
-        Re-tokenizing the system prompt, tool schemas, and entire history
-        from scratch every turn would be wasteful and barely changes call to
-        call, so instead this takes the last completed call's real
-        input+output token count as a baseline (it already reflects that
-        overhead) and adds just the newly appended message on top.
+        Reuses Agent.get_context_usage() — the same mechanism the footer's
+        context badge relies on — which tokenizes build_session_context()'s
+        current effective message list (system prompt, tools, full history).
+        That's automatically compaction-aware: right after a compaction
+        runs, the effective message list already reflects the summarized,
+        shrunken history, so this can't show a stale pre-compaction number
+        the way baselining off the last real usage.input_tokens would (that
+        value describes the prompt *before* compaction ran).
         """
-        from tau.session.compaction import estimate_tokens
-        from tau.session.types import MessageEntry
-
-        sm = self._runtime.session_manager
-        if sm is None:
+        agent = getattr(self._runtime, "agent", None)
+        if agent is None:
             return 0
-        new_content_tokens = 0
-        for entry in reversed(sm.get_branch()):
-            if isinstance(entry, MessageEntry):
-                new_content_tokens = estimate_tokens(entry.message)
-                break
-        last_assistant = sm.find_last_assistant_message()
-        if last_assistant is not None:
-            usage = last_assistant.usage
-            baseline = (usage.input_tokens or 0) + (usage.output_tokens or 0)
-            return baseline + new_content_tokens
-        return new_content_tokens
+        usage = agent.get_context_usage()
+        return (usage.tokens or 0) if usage is not None else 0
 
     def _spinner(self, label: str | None = None, *, running: bool | None = None) -> None:
         if label is not None:
