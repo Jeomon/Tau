@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import re
+import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,36 @@ _RETRYABLE_RE = re.compile(
     r"rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused", re.I
 )
 _COMPLETION_TYPES = {"response.done", "response.completed", "response.incomplete"}
+
+# Codex 0.144 marks these as "Responses Lite" models: the backend rejects the
+# legacy Responses envelope for them (HTTP 404 "Model not found") and expects
+# tools/instructions folded into `input`, forced tool_choice/parallel_tool_calls,
+# a prompt_cache_key tied to a UUIDv7 session id, and reasoning.context set.
+# See https://github.com/anomalyco/opencode/pull/36143.
+_RESPONSES_LITE_MODELS = {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+_CODEX_COMPATIBILITY_VERSION = "0.144.0"
+_RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"
+_RESPONSES_LITE_CLIENT_METADATA = "ws_request_header_x_openai_internal_codex_responses_lite"
+
+
+def _uuid7() -> str:
+    """Generate a UUIDv7 (RFC 9562): 48-bit ms timestamp + random tail.
+
+    The Codex Responses Lite backend keys session affinity off this id, so it
+    must look like a real UUIDv7 (version/variant nibbles set correctly).
+    """
+    import os
+    import time
+
+    unix_ts_ms = int(time.time() * 1000)
+    rand = os.urandom(10)
+    b = bytearray(16)
+    b[0:6] = unix_ts_ms.to_bytes(6, "big")
+    b[6] = 0x70 | (rand[0] & 0x0F)
+    b[7] = rand[1]
+    b[8] = 0x80 | (rand[2] & 0x3F)
+    b[9:16] = rand[3:10]
+    return str(uuid.UUID(bytes=bytes(b)))
 
 _THINKING_EFFORT: dict[ThinkingLevel, str] = {
     ThinkingLevel.Low: "low",
@@ -241,14 +272,49 @@ def _build_body(
     return body
 
 
-def _build_headers(token: str, account_id: str, *, websocket: bool = False) -> dict[str, str]:
+def _apply_responses_lite(body: dict[str, Any], session_id: str) -> dict[str, Any]:
+    tools = body.pop("tools", None)
+    instructions = body.pop("instructions", None)
+
+    prefix: list[dict[str, Any]] = [
+        {"type": "additional_tools", "role": "developer", "tools": tools or []}
+    ]
+    if instructions:
+        prefix.append(
+            {
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": instructions}],
+            }
+        )
+    body["input"] = [*prefix, *body.get("input", [])]
+    body["tool_choice"] = "auto"
+    body["parallel_tool_calls"] = False
+    body["prompt_cache_key"] = session_id
+    body["reasoning"] = {**(body.get("reasoning") or {}), "context": "all_turns"}
+    return body
+
+
+def _build_headers(
+    token: str, account_id: str, session_id: str, *, websocket: bool = False, lite: bool = False
+) -> dict[str, str]:
     headers: dict[str, str] = {
         "Authorization": f"Bearer {token}",
         "chatgpt-account-id": account_id,
         "originator": "codex_cli_rs",
+        # Without a session identity the backend routes the request through an
+        # internal A/B experiment slug (e.g. "<model>-free-1p-codexswic-ev3")
+        # that doesn't resolve, and reports the base model as "not found".
+        "session-id": session_id,
+        "x-client-request-id": session_id,
     }
+    if lite:
+        headers["version"] = _CODEX_COMPATIBILITY_VERSION
+        headers["x-session-affinity"] = session_id
     if websocket:
         headers["OpenAI-Beta"] = "responses_websockets=2026-02-06"
+        if lite:
+            headers[_RESPONSES_LITE_HEADER] = "true"
     else:
         headers["OpenAI-Beta"] = "responses=experimental"
         headers["accept"] = "text/event-stream"
@@ -445,6 +511,10 @@ class OpenAICodexResponsesAPI(BaseAPI):
         super().__init__(options)
         self._http_url = _resolve_http_url(options.base_url)
         self._ws_url = _resolve_ws_url(options.base_url)
+        self._session_id = str(uuid.uuid4())
+        # Responses Lite ties session affinity to a UUIDv7; generated lazily
+        # (only Lite models need it) and reused for the life of this adapter.
+        self._lite_session_id: str | None = None
 
     async def _stream_sse(
         self,
@@ -501,10 +571,20 @@ class OpenAICodexResponsesAPI(BaseAPI):
         self,
         body: dict[str, Any],
         headers: dict[str, str],
+        *,
+        lite: bool = False,
     ) -> AsyncGenerator[LLMEvent, None]:
         ws_headers = {
             k: v for k, v in headers.items() if k.lower() not in ("accept", "content-type")
         }
+        if lite:
+            body = {
+                **body,
+                "client_metadata": {
+                    **(body.get("client_metadata") or {}),
+                    _RESPONSES_LITE_CLIENT_METADATA: "true",
+                },
+            }
         async with websockets.asyncio.client.connect(
             self._ws_url,
             additional_headers=ws_headers,
@@ -524,6 +604,14 @@ class OpenAICodexResponsesAPI(BaseAPI):
         if text_format is not None:
             body["text"] = {**body.get("text", {}), **text_format}
 
+        lite = model.id in _RESPONSES_LITE_MODELS
+        session_id = self._session_id
+        if lite:
+            if self._lite_session_id is None:
+                self._lite_session_id = _uuid7()
+            session_id = self._lite_session_id
+            body = _apply_responses_lite(body, session_id)
+
         if self.options.on_payload:
             modified = self.options.on_payload(body)
             if modified is not None:
@@ -532,10 +620,10 @@ class OpenAICodexResponsesAPI(BaseAPI):
         yield StartEvent()
 
         if self.options.transport == Transport.WEBSOCKET:
-            headers = _build_headers(token, account_id, websocket=True)
-            stream_iter = self._stream_ws(body, headers)
+            headers = _build_headers(token, account_id, session_id, websocket=True, lite=lite)
+            stream_iter = self._stream_ws(body, headers, lite=lite)
         else:
-            headers = _build_headers(token, account_id, websocket=False)
+            headers = _build_headers(token, account_id, session_id, websocket=False, lite=lite)
             stream_iter = self._stream_sse(body, headers)
 
         cancelled = False
