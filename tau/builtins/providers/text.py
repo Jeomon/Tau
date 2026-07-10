@@ -115,6 +115,12 @@ api_providers = [
             headers={"x-session-affinity": lambda: str(uuid4())},  # type: ignore[dict-item]
         ),
     ),
+    APIProvider(
+        id="huggingface",
+        name="Hugging Face",
+        api="openai_completions",
+        options=LLMOptions(base_url="https://router.huggingface.co/v1"),
+    ),
     APIProvider(id="mistral", name="Mistral", api="mistral_chat", options=LLMOptions()),
     APIProvider(
         id="ollama",

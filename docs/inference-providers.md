@@ -8,7 +8,8 @@ Tau supports the following inference providers:
 
 Built-in API-key providers are `openai`, `anthropic`, `google`, `nvidia`,
 `groq`, `openrouter`, `perplexity`, `xai`, `bedrock`, `kimi`, `minimax`,
-`cerebras`, `deepseek`, `zai`, `kilocode`, `fireworks`, and `mistral`.
+`cerebras`, `deepseek`, `zai`, `kilocode`, `fireworks`, `huggingface`, and
+`mistral`.
 
 Tau also includes local `ollama`, Google/Anthropic/OpenAI-compatible Vertex AI
 providers, and OAuth providers for OpenAI Codex, Claude Code, GitHub Copilot,
@@ -131,6 +132,33 @@ tau --model fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct -p "Say 
 
 - Uses the OpenAI-compatible completions API under the hood
 - Session affinity is maintained automatically via a per-request `x-session-affinity` header
+
+## Hugging Face
+
+Hugging Face's Inference Providers router gives OpenAI-compatible access to
+open-source models (DeepSeek, Llama, Qwen, Mixtral, and more) hosted across
+its partner inference providers.
+
+### Setup
+
+1. Create an account at [Hugging Face](https://huggingface.co)
+2. Generate an access token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (a `read` token is sufficient)
+3. Set the environment variable:
+
+```bash
+export HUGGINGFACE_API_KEY=hf_...
+```
+
+### Verify
+
+```bash
+tau --model huggingface/deepseek-ai/DeepSeek-V3-0324 -p "Say hello"
+```
+
+### Notes
+
+- Uses the OpenAI-compatible completions API under the hood, routed through `https://router.huggingface.co/v1`
+- Model IDs are Hugging Face Hub repo IDs (e.g. `meta-llama/Llama-3.3-70B-Instruct`); the router picks an underlying inference provider automatically
 
 ## Ollama (Local)
 
