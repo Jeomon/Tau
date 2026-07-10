@@ -176,7 +176,9 @@ class AgentHookHandler:
     # ── Agent lifecycle ───────────────────────────────────────────────────────
 
     async def _on_agent_start(self, _event: object) -> None:
-        self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
+        # "Working…" until real content (thinking or text) starts arriving —
+        # _on_message_update switches to the accurate label once it does.
+        self._layout.spinner.set_label(self._layout.spinner.theme.label_working)
         self._layout.spinner.start_turn()
 
     async def _on_agent_end(self, _event: object) -> None:
@@ -206,7 +208,7 @@ class AgentHookHandler:
         msg = getattr(event, "message", None)
         if msg is None:
             return
-        self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
+        self._layout.spinner.set_label(self._layout.spinner.theme.label_working)
         if isinstance(msg, ToolMessage) and self._partial_tool_block is not None:
             block = self._partial_tool_block
             block._message = msg
@@ -352,7 +354,9 @@ class AgentHookHandler:
         self._tui.request_render()
 
     async def _on_tool_end(self, _event: object) -> None:
-        self._spinner(self._layout.spinner.theme.label_thinking)
+        # "Working…" until the next model response actually produces content —
+        # _on_message_update corrects this once real thinking/text arrives.
+        self._spinner(self._layout.spinner.theme.label_working)
 
     # ── Terminal ──────────────────────────────────────────────────────────
 

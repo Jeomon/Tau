@@ -54,6 +54,7 @@ class SpinnerTheme:
     frame_color: Style = field(default_factory=lambda: Style().with_fg("bright_cyan"))
     label_color: Style = field(default_factory=Style)
     stat_color: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    label_working: str = "Working…"
     label_thinking: str = "Thinking…"
     label_streaming: str = "Streaming…"
     label_tool_calling: str = "Tool Calling…"
