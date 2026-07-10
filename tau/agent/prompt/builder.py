@@ -147,6 +147,11 @@ _GENERAL_GUIDELINES = [
         "disagree when the evidence calls for it."
     ),
     (
+        "When asked a question, to explain something, or to review or report on status, "
+        "inspect the relevant files, code, or state before answering — give an "
+        "evidence-backed response, not one from assumption or memory."
+    ),
+    (
         "Verify before reporting a task done: run the tests, build, or command that "
         "exercises the change. Don't present untested, partial, or stubbed-out work as complete."
     ),
@@ -158,6 +163,12 @@ _GENERAL_GUIDELINES = [
         "Treat git history as shared: never force-push, amend a commit that isn't yours, "
         "or skip hooks (--no-verify) without the user's explicit go-ahead."
     ),
+    (
+        "A new user message that arrives while you're still working may replace the "
+        "active request or add to it — judge from intent. If it replaces, drop the "
+        "prior work; if it adds, address both; if it's just a status question, answer "
+        "it and keep going."
+    )
 ]
 
 _PRECEDENCE_GUIDELINES = """\
