@@ -2,6 +2,31 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.3 — 2026-07-10
+
+### Added
+
+-   Add live per-turn elapsed time and streaming token counts (`↑` input / `↓` output) to the spinner and the footer's context-usage badge, updating in real time as the response streams in rather than only at turn end — token counts render compactly with K/M/B/T suffixes
+-   Add a `Working…` spinner state shown while an API call is in flight but no content has arrived yet, so `Thinking…`/`Streaming…` only appear once the model actually starts producing thinking or text content
+-   Add the Hugging Face `openai`-compatible inference provider (`huggingface`), routed through `https://router.huggingface.co/v1`, with built-in model entries pinned to a specific backend (`<repo>:<provider>`) rather than the router's `:fastest` default, since unpinned routing can silently switch to a backend with different tool-calling behavior
+-   Add GPT-5.6 Sol/Terra/Luna to the `openai` and `openai-codex` model catalogs with corrected context windows (1.05M / 500K) and real per-model pricing
+-   Add 65 additional built-in Hugging Face-routed models (DeepSeek, GLM, Qwen, MiniMax, Kimi, Nemotron, and more) across several backends
+
+### Changed
+
+-   Refactor the subagent `context="fork"` mode to read the parent session's messages directly and seed the embedded (in-process) agent's `initial_messages` with them, instead of spawning a `tau --resume ... --ephemeral` subprocess — avoids the subprocess/CLI-argument round trip entirely
+-   Replace hardcoded ANSI escape codes in the `ask_user` TUI component with theme-driven colors (`LayoutTheme`), so its header, hints, and scroll indicator now follow the active theme like the rest of the TUI
+-   Update TUI selection and list styles to use accent/emphasis colors instead of reversed backgrounds
+-   Simplify the todo board to a header-less, shell-framed list, matching tool-result framing elsewhere; completed items now render with strikethrough
+
+### Fixed
+
+-   Fix the `google-antigravity` provider never reading Gemini's `usageMetadata` field from its raw SSE stream, so token usage was always reported as zero for any model routed through it (Gemini or Claude)
+-   Fix `thoughts_token_count` (thinking-model output) and `tool_use_prompt_token_count` (tool-result tokens fed back as input) not being read by any of the three Gemini-family providers (`gemini_generate`, `google_vertex`, `google_antigravity`), undercounting usage on any thinking-enabled turn
+-   Fix `openai_vertex` never extracting `cache_read_tokens` at all, unlike its sibling `openai_completions`
+-   Fix `mistral_chat`'s cache-read-token extraction being dead code — the Mistral SDK doesn't type `prompt_tokens_details` as a sub-model, so it arrived as a raw dict and attribute access on it silently always returned 0
+-   Fix `anthropic-claude-code` OAuth token refresh failing with `invalid_grant` when Claude Code (the CLI/app) had rotated the refresh token more recently than Tau — now falls back to the OS Keychain's latest credential instead of forcing a manual re-login
+
 ## 0.7.1 — 2026-07-10
 
 ## 0.7.2 — 2026-07-12
