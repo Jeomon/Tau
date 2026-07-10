@@ -242,8 +242,15 @@ class MistralChatAPI(BaseAPI):
                     if usage_data and usage_data != UNSET:
                         _input_tokens = getattr(usage_data, "prompt_tokens", 0) or 0
                         _output_tokens = getattr(usage_data, "completion_tokens", 0) or 0
+                        # UsageInfo doesn't declare prompt_tokens_details as a typed
+                        # field, so pydantic's extra="allow" leaves it as a raw dict
+                        # rather than a parsed sub-model — attribute access on it
+                        # would always silently return 0.
                         _details = getattr(usage_data, "prompt_tokens_details", None)
-                        _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
+                        if isinstance(_details, dict):
+                            _cache_read_tokens = _details.get("cached_tokens", 0) or 0
+                        else:
+                            _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
                     if not chunk.choices:
                         continue
                     choice = chunk.choices[0]

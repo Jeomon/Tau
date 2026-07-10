@@ -599,8 +599,16 @@ class GoogleAntigravityAPI(BaseAPI):
 
                             usage_meta = chunk_data.get("usageMetadata")
                             if usage_meta:
-                                input_tokens = usage_meta.get("promptTokenCount", 0) or 0
-                                output_tokens = usage_meta.get("candidatesTokenCount", 0) or 0
+                                # toolUsePromptTokenCount covers tool-result tokens fed
+                                # back as input; thoughtsTokenCount is reported separately
+                                # from candidatesTokenCount for thinking models, so both
+                                # must be added in or a thinking turn's usage undercounts.
+                                input_tokens = (usage_meta.get("promptTokenCount", 0) or 0) + (
+                                    usage_meta.get("toolUsePromptTokenCount", 0) or 0
+                                )
+                                output_tokens = (
+                                    usage_meta.get("candidatesTokenCount", 0) or 0
+                                ) + (usage_meta.get("thoughtsTokenCount", 0) or 0)
                                 cache_read_tokens = (
                                     usage_meta.get("cachedContentTokenCount", 0) or 0
                                 )

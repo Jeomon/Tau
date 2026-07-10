@@ -283,8 +283,8 @@ class AgentHookHandler:
             if isinstance(msg, AssistantMessage):
                 usage = msg.usage
                 self._layout.spinner.add_tokens(
-                    up=usage.output_tokens,
-                    down=usage.input_tokens,
+                    up=usage.input_tokens,
+                    down=usage.output_tokens,
                 )
             if self._current_block is not None:
                 self._update_block(msg, streaming=False, clear=True)

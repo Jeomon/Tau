@@ -227,8 +227,11 @@ class Spinner(Component):
             col = buf.set_string(col, area.y, f" {text}", t.label_color, max_width=remaining)
         if self._turn_started_at is not None:
             elapsed = _format_elapsed(time.monotonic() - self._turn_started_at)
-            up = format_number(self._tokens_up + self._streaming_estimate)
-            down = format_number(self._tokens_down)
+            # ↑ = outgoing (prompt/input tokens sent), ↓ = incoming (output
+            # tokens received back) — the live estimate tracks the response
+            # actually streaming in, so it belongs on the down side.
+            up = format_number(self._tokens_up)
+            down = format_number(self._tokens_down + self._streaming_estimate)
             stats = f" ({elapsed} · ↑{up} ↓{down})"
             remaining = area.x + area.width - col
             buf.set_string(col, area.y, stats, t.stat_color, max_width=remaining)

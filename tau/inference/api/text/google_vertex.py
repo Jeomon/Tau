@@ -322,8 +322,16 @@ class GoogleVertexAPI(BaseAPI):
 
                 um = getattr(chunk, "usage_metadata", None)
                 if um:
-                    _input_tokens = getattr(um, "prompt_token_count", 0) or 0
-                    _output_tokens = getattr(um, "candidates_token_count", 0) or 0
+                    # tool_use_prompt_token_count covers tool-result tokens fed back
+                    # as input; thoughts_token_count is reported separately from
+                    # candidates_token_count for thinking models, so both must be
+                    # added in or a thinking turn's usage is undercounted.
+                    _input_tokens = (getattr(um, "prompt_token_count", 0) or 0) + (
+                        getattr(um, "tool_use_prompt_token_count", 0) or 0
+                    )
+                    _output_tokens = (getattr(um, "candidates_token_count", 0) or 0) + (
+                        getattr(um, "thoughts_token_count", 0) or 0
+                    )
                     _cache_read_tokens = getattr(um, "cached_content_token_count", 0) or 0
 
                 if not chunk.candidates:

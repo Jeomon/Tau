@@ -204,6 +204,7 @@ class OpenAIVertexAPI(BaseAPI):
         tool_meta: dict[int, dict[str, str]] = {}
         _input_tokens = 0
         _output_tokens = 0
+        _cache_read_tokens = 0
         has_finish_reason = False
 
         yield StartEvent()
@@ -222,6 +223,8 @@ class OpenAIVertexAPI(BaseAPI):
                 if usage_data:
                     _input_tokens = getattr(usage_data, "prompt_tokens", 0) or 0
                     _output_tokens = getattr(usage_data, "completion_tokens", 0) or 0
+                    _details = getattr(usage_data, "prompt_tokens_details", None)
+                    _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
 
                 choice = chunk.choices[0] if chunk.choices else None
                 if choice is None:
@@ -303,6 +306,8 @@ class OpenAIVertexAPI(BaseAPI):
                         reason=stop_reason,
                         input_tokens=_input_tokens,
                         output_tokens=_output_tokens,
+                        cache_read_tokens=_cache_read_tokens,
+                        input_tokens_include_cache_read=True,
                     )
 
         if not has_finish_reason:
