@@ -129,6 +129,13 @@ api_providers = [
         options=LLMOptions(base_url="http://localhost:11434"),
         auth_type=AuthType.None_,
     ),
+    APIProvider(
+        id="lmstudio",
+        name="LM Studio",
+        api="openai_completions",
+        options=LLMOptions(base_url="http://localhost:1234/v1"),
+        auth_type=AuthType.None_,
+    ),
 ]
 
 oauth_providers = [
