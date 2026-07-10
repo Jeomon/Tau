@@ -158,7 +158,8 @@ tau --model huggingface/deepseek-ai/DeepSeek-V3-0324 -p "Say hello"
 ### Notes
 
 - Uses the OpenAI-compatible completions API under the hood, routed through `https://router.huggingface.co/v1`
-- Model IDs are Hugging Face Hub repo IDs (e.g. `meta-llama/Llama-3.3-70B-Instruct`); the router picks an underlying inference provider automatically
+- Model IDs are Hugging Face Hub repo IDs (e.g. `meta-llama/Llama-3.3-70B-Instruct`)
+- Built-in model entries are pinned to a specific backend with `<repo>:<provider>` (e.g. `openai/gpt-oss-120b:groq`) rather than the router's default `:fastest` routing, since unpinned routing can silently switch to a backend with different tool-calling behavior. You can still use any model/backend combination the router supports via `tau --model huggingface/<repo>[:<provider>]` even if it isn't in the built-in list.
 
 ## Ollama (Local)
 
