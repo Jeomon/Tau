@@ -147,7 +147,7 @@ While the agent is working you can queue new messages:
 |--------|-----|
 | Queue a steering message | Press **Enter** (delivered after the current tool round-trip) |
 | Queue a follow-up message | Press **Alt+Enter** (delivered when the agent goes fully idle) |
-| Restore queued messages to editor | Press **Alt+Up** |
+| Restore queued messages to editor | Press **Ctrl+Up** |
 | Abort the current turn | Press **Escape** or **Ctrl+C** |
 
 ## Sessions
@@ -197,7 +197,7 @@ Type `@` in the editor to fuzzy-search for a file and insert a reference. The fi
 | Enter | Submit message |
 | Shift+Enter | Insert newline |
 | Alt+Enter | Queue follow-up message |
-| Alt+Up | Restore queued messages |
+| Ctrl+Up | Restore queued messages |
 | Ctrl+V | Paste |
 | Ctrl+U | Clear input |
 | Ctrl+W | Delete previous word |

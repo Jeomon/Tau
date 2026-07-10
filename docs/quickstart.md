@@ -94,10 +94,10 @@ tau
 # Then in the editor, type @ to open file picker
 ```
 
-In non-interactive mode, attach files with `--file PATH`:
+In non-interactive mode, attach files with `@path`:
 
 ```bash
-tau --print --prompt "Explain this file" --file src/main.py
+tau --print --prompt "Explain this file" @src/main.py
 ```
 
 ### Continue a Past Session
@@ -133,7 +133,7 @@ tau --print "Summarize this repository"
 With a file reference:
 
 ```bash
-tau --print --prompt "Explain this file" --file README.md
+tau --print --prompt "Explain this file" @README.md
 ```
 
 ## Next Steps

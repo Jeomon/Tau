@@ -5,7 +5,7 @@ Tau supports HTTP proxy configuration for all HTTP/HTTPS traffic via **settings.
 ## Use Cases
 
 ### Corporate and Enterprise Environments
-Many organizations require all HTTP/HTTPS traffic to route through corporate proxies for security monitoring, compliance, and access control. The `httpProxy` setting allows tau to work in these restricted environments without manual environment variable configuration.
+Many organizations require all HTTP/HTTPS traffic to route through corporate proxies for security monitoring, compliance, and access control. The `http_proxy` setting allows tau to work in these restricted environments without manual environment variable configuration.
 
 ### Network Restrictions
 Some networks block direct access to external LLM provider APIs (Anthropic, OpenAI, Google, Bedrock, etc.). Proxy support enables routing through approved servers that have whitelist access.
@@ -25,9 +25,9 @@ Configure HTTP proxy in `~/.tau/settings.json` or `.tau/settings.json`. **Note:*
 
 ```json
 {
-  "httpProxy": {
+  "http_proxy": {
     "url": "http://proxy.example.com:8080",
-    "noProxy": "localhost,127.0.0.1,*.internal.example.com",
+    "no_proxy": "localhost,127.0.0.1,*.internal.example.com",
     "headers": {
       "Proxy-Authorization": "Bearer token123",
       "X-Custom-Header": "value"
@@ -38,7 +38,7 @@ Configure HTTP proxy in `~/.tau/settings.json` or `.tau/settings.json`. **Note:*
 
 **Fields:**
 - `url` (required) — Proxy URL for both HTTP and HTTPS requests
-- `noProxy` (optional) — Comma-separated hosts to bypass the proxy
+- `no_proxy` (optional) — Comma-separated hosts to bypass the proxy
 - `headers` (optional) — Custom headers for proxy authentication
 
 Settings here override corresponding environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
@@ -49,7 +49,7 @@ Some corporate proxies require custom authentication headers:
 
 ```json
 {
-  "httpProxy": {
+  "http_proxy": {
     "url": "http://proxy.example.com:8080",
     "headers": {
       "Proxy-Authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=",
@@ -63,7 +63,7 @@ Alternatively, embed credentials directly in the proxy URL:
 
 ```json
 {
-  "httpProxy": {
+  "http_proxy": {
     "url": "http://username:password@proxy.example.com:8080"
   }
 }
@@ -370,7 +370,7 @@ OAuth login/refresh operations (e.g., GitHub Copilot, OpenAI, Anthropic) also re
 
 ### Notes
 
-- The `httpProxy` setting is **global-only** and cannot be overridden at the project level
+- The `http_proxy` setting can be set globally (`~/.tau/settings.json`) or per-project (`.tau/settings.json`); project settings are merged over global settings
 - Different providers may have additional proxy-related configuration options (e.g., Amazon Bedrock VPC endpoints)
 - Proxy validation occurs at startup — invalid proxy URLs will raise an error before any requests are made
 - SOCKS and PAC proxies are not supported; only HTTP/HTTPS proxies are allowed

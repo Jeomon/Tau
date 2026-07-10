@@ -145,7 +145,7 @@ The provider ID used as the key in `auth.json` and the `{PROVIDER}_API_KEY` env 
 | Mistral | `mistral` | `MISTRAL_API_KEY` |
 | Fireworks AI | `fireworks` | `FIREWORKS_API_KEY` |
 | Hugging Face | `huggingface` | `HUGGINGFACE_API_KEY` |
-| Ollama | `ollama` | `OLLAMA_API_KEY` |
+| Ollama | `ollama` | None required (local server, default `http://localhost:11434`) |
 
 ## Next Steps
 

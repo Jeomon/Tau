@@ -24,7 +24,14 @@
 
 <br>
 
-Tau is a Python agent framework and coding agent, inspired by [Pi](https://github.com/earendil-works/pi). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
+Tau is a Python-based coding agent harness, heavily inspired by [Pi](https://github.com/earendil-works/pi) created by [Mario Zechner](https://github.com/badlogic). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
+
+> **Note:** There are several coding-agent projects also named
+> "Tau," including at least one that is itself a Python port of Pi. This
+> project (`tau`, [Jeomon/Tau](https://github.com/Jeomon/Tau)) was built
+> independently, taking inspiration only from the original
+> [Pi](https://github.com/earendil-works/pi) project. No other "Tau" project,
+> or any other Pi port, was referenced or used in its development.
 
 <p align="center">
   <img src="assets/tui.jpeg" alt="Tau interactive terminal interface" width="700">
@@ -32,27 +39,13 @@ Tau is a Python agent framework and coding agent, inspired by [Pi](https://githu
 
 ## Quick start
 
-Tau requires Python 3.12 or later.
+Requires Python 3.12+.
 
 ```bash
 pip install tau-coding-agent
+export NVIDIA_API_KEY=nvapi-...
+tau --provider nvidia
 ```
-
-Set a provider API key and start Tau:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-tau
-```
-
-Google AI Studio works through the `google` provider:
-
-```bash
-export GOOGLE_API_KEY=...
-tau --model google/gemini-2.5-flash
-```
-
-You can also run `/login` inside Tau to save provider credentials.
 
 Then ask Tau to work in the current directory:
 
@@ -60,50 +53,104 @@ Then ask Tau to work in the current directory:
 Explain this repository, run its tests, and fix any failures.
 ```
 
-## Common workflows
+**Other providers:** pass `--model <provider>/<model>` with the matching API
+key set, e.g. `GOOGLE_API_KEY=... tau --model google/gemini-2.5-flash`.
+
+## Commands
+
+### CLI usage
+
+```bash
+tau [OPTIONS] [MESSAGE]
+```
 
 ```bash
 tau                                      # Start an interactive session
 tau --resume                             # Resume the latest session
+tau --resume abc123                      # Resume a specific session by ID
 tau --model claude-sonnet-4-6            # Start with a specific model
+tau --model groq/llama-3.3-70b-versatile # provider/model shorthand
 tau --print "Summarize this repository"  # Run once and print the result
-tau --mode json "Summarize this repo"    # Emit structured JSON events
+tau --mode json --prompt "Summarize this repo"  # Emit structured JSON events
 tau --mode rpc                           # Start JSON-RPC mode for IDE clients
+tau --ephemeral                          # Temporary session, nothing saved
 ```
 
-Inside an interactive session:
+Common flags:
 
-```text
-/model       Choose a model
-/resume      Resume another session
-/tree        Navigate session branches
-/compact     Compact a long conversation
-/theme       Change the terminal theme
-/login       Save provider credentials
-/help        Show commands and shortcuts
+| Flag | Short | Description |
+|---|---|---|
+| `--prompt TEXT` | `-p` | Run a non-interactive prompt |
+| `--print` | | Print mode — run `MESSAGE` and exit (shorthand for `--mode print`) |
+| `--mode` | | `interactive` (default), `print`, `json`, `rpc` |
+| `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
+| `--model` | | Model ID, or `provider/model` shorthand |
+| `--resume [ID]` | `-r` | Resume the most recent or a specified session |
+| `--fork ID` | | Fork a specified session at startup |
+| `--ephemeral` | `-e` | Don't save this session to disk |
+| `--theme` | `-t` | UI theme: `dark`, `light`, or a custom theme |
+| `--cwd PATH` | `-c` | Set the working directory |
+| `--output-format` | `-f` | Non-interactive output: `text` or `json` |
+| `--quiet` | `-q` | Hide the non-interactive spinner |
+| `--version` | `-v` | Print the installed version |
+| `--help` | `-h` | Show help message |
+
+Full flag list, environment variables, and exit codes: [CLI reference](docs/cli-reference.md).
+
+### Subcommands
+
+```bash
+tau auth        # Manage provider credentials (login/logout, list)
+tau install      # Install a package (extension/skill/theme)
+tau remove        # Remove an installed package
+tau list           # List installed packages
+tau update          # Update installed packages
 ```
 
-See the [CLI reference](docs/cli-reference.md) for every option and command.
+### Interactive slash commands
 
-## What Tau provides
+Type these inside an interactive session (`tau`):
 
-- **Interactive terminal UI** with multiline editing, searchable pickers,
-  syntax highlighting, Markdown, and terminal-readable LaTeX math.
-- **Multiple model providers**, including Anthropic, OpenAI, Google Gemini,
-  Mistral, Ollama, Groq, xAI, Bedrock, OpenRouter, and others.
-- **Persistent session trees** with resume, fork, clone, branch navigation,
-  summarization, and automatic context compaction.
-- **Built-in tools** for terminal commands, file operations, globbing, and
-  search. Long-running terminal commands stream into one persistent output
-  block.
-- **Media support** for images, audio, video, and text files through file
-  references, clipboard input, and the Python API.
-- **Speech APIs** for text-to-speech and speech-to-text, including word or
-  segment timestamps when supported by the selected provider.
-- **Extensibility** through custom tools, slash commands, hooks, themes,
-  skills, prompts, and in-memory Python extensions.
-- **Embedding and integration** through the Python API, JSON event mode, and
-  bidirectional JSON-RPC.
+| Command | What it does |
+|---|---|
+| `/new` | Start a fresh session |
+| `/resume` | Browse and resume a past session |
+| `/fork [entry-id]` | Branch the session tree at a specific entry |
+| `/tree` | Navigate the session tree, switch branches |
+| `/clone` | Duplicate the current session at the current position |
+| `/compact` | Summarize and compact the current context |
+| `/session` | Show session info, message counts, and stats |
+| `/model` | Pick a model by modality |
+| `/theme` | Open the theme picker |
+| `/effort` | Set the thinking effort level |
+| `/login` | Save credentials for a provider (API key or OAuth) |
+| `/logout` | Remove stored credentials for a provider |
+| `/clear` | Clear all messages from the current session |
+| `/copy` | Copy the last assistant message to the clipboard |
+| `/reload` | Reload extensions, skills, prompts, and settings |
+| `/settings` | Show current settings |
+| `/extensions` | Enable or disable extensions by scope |
+| `/watch <url> [question]` | Load public video metadata/captions via `yt-dlp` |
+| `/help` or `/?` | List all commands and keyboard shortcuts |
+| `/quit`, `/q`, or `/exit` | Exit Tau |
+
+Full interactive workflow guide: [Usage](docs/usage.md).
+
+## Compared to Pi
+
+| Area | Pi | Tau |
+|---|---|---|
+| Language | TypeScript | Python |
+| TUI rendering | Line-level diffing — rewrites a full line if any part of it changed | Cell-level diffing (`Buffer`/`Cell`, modeled after [ratatui](https://github.com/ratatui/ratatui)'s `Buffer::diff`) — only the changed cells within a row are redrawn |
+| LLM providers | ~40, including many CN/regional and gateway vendors | 14 major providers |
+| Audio (TTS/STT) | Not supported | ElevenLabs, Sarvam, Gemini, OpenAI |
+| Image/video generation | Not supported | OpenAI, Gemini, OpenRouter, Fal, Zai |
+| Sandboxing | microVM sandbox (Gondolin) is an example extension, excluded from the main build — the user wires it in themselves | `microsandbox` microVM ships as a builtin extension, enabled by default |
+| Packaging | 5 separately published npm packages | Single PyPI package |
+
+Core mechanics — built-in tools, session branching/compaction, extension and
+hook API, and the interactive/print/RPC execution modes — are functionally
+equivalent between the two.
 
 ## Referencing files
 
@@ -116,7 +163,7 @@ Review @src/service.py and add tests for its error handling.
 For one-shot execution, attach a file explicitly:
 
 ```bash
-tau --print --prompt "Explain this file" --file src/service.py
+tau -p "Explain this file" @src/service.py
 ```
 
 Tau also discovers project instructions from `AGENTS.md` and `CLAUDE.md`.
@@ -171,9 +218,12 @@ tau
 ## Security
 
 Tau executes enabled tools with the operating-system permissions of the process
-that launched it. Review project instructions and commands before approving
-work in untrusted repositories. Use a container or external sandbox when
-stronger isolation is required.
+that launched it. The built-in `sandbox` extension routes terminal execution
+through a `microsandbox` microVM by default, but requires the `microsandbox`
+package and a supported platform — otherwise it falls back to unsandboxed host
+execution. Review project instructions and commands before approving work in
+untrusted repositories, and verify the sandbox is actually active (`/sandbox`)
+when stronger isolation matters.
 
 Dependency versions are pinned and recorded in `uv.lock`. See
 [SECURITY.md](SECURITY.md) for vulnerability reporting and supply-chain

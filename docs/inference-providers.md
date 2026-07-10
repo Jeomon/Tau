@@ -13,7 +13,7 @@ Built-in API-key providers are `openai`, `anthropic`, `google`, `nvidia`,
 
 Tau also includes local `ollama`, Google/Anthropic/OpenAI-compatible Vertex AI
 providers, and OAuth providers for OpenAI Codex, Claude Code, GitHub Copilot,
-and Google Antigravity. Extensions can register additional providers.
+Google Antigravity, and xAI Grok. Extensions can register additional providers.
 
 The model picker is the authoritative model catalogue. Built-in model metadata
 changes more frequently than this guide, so model IDs and pricing are not

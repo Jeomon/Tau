@@ -285,9 +285,13 @@ Interactive runtime orchestration and Tau-specific UI composition.
 `agent/service.py` - Main agent that processes messages.
 
 ```python
-class AgentService:
-    async def process_turn(ctx: AgentContext) -> None
-    # Executes inference and collects tool results
+class Agent:
+    @property
+    def phase(self) -> AgentPhase
+    @property
+    def is_idle(self) -> bool
+    def abort(self) -> None
+    # Tracks turn state; inference and tool execution are driven by Runtime
 ```
 
 ### Tool
@@ -308,10 +312,11 @@ class Tool(ABC):
 `runtime/service.py` - Orchestrates agent, session, engine, extensions.
 
 ```python
-class RuntimeService:
-    async def start_agent() -> None
-    async def execute_tool(...) -> ToolResult
-    async def compact_context() -> None
+class Runtime:
+    async def user_input(text: str, options: PromptOptions | None = None) -> None
+    async def steer(message: str) -> None
+    async def follow_up(message: str) -> None
+    async def execute_terminal(cmd: str, exclude: bool = False) -> None
 ```
 
 ### Extension API
@@ -387,7 +392,7 @@ Settings are merged in priority order:
 1. Built-in defaults (code)
 2. ~/.tau/settings.json (global user settings)
 3. .tau/settings.json (project settings)
-4. Environment variables (ANTHROPIC_API_KEY, TAU_PROVIDER, etc.)
+4. Environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
 5. Command-line flags (--model, --provider, --theme)
 ```
 
@@ -401,7 +406,7 @@ Key locations to extend Tau:
 |----------------|--------|-----------|
 | **Custom Tools** | `extensions/api.py` | `tau.register_tool(MyTool())` |
 | **Slash Commands** | `extensions/api.py` | `tau.register_command("cmd", ...)` |
-| **Hooks/Events** | `hooks/service.py` | `tau.on_hook("event_name", callback)` |
+| **Hooks/Events** | `hooks/service.py` | `tau.on("event_name", callback)` |
 | **Themes** | `themes/loader.py` | YAML files in `~/.tau/themes/` |
 | **Skills** | `skills/loader.py` | Markdown files in `~/.tau/skills/` |
 | **Prompts** | `prompts/loader.py` | Template files in `~/.tau/prompts/` |

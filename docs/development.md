@@ -240,7 +240,7 @@ Create `.vscode/settings.json`:
 Recommended: Use a virtual environment:
 
 ```bash
-python3.13 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 pip install -e .
@@ -272,7 +272,7 @@ Check your Python version:
 python --version
 ```
 
-Ensure it's 3.13 or higher.
+Ensure it's 3.12 or higher.
 
 ### Missing Dependencies
 

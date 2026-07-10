@@ -21,7 +21,7 @@
 | Shortcut | Action |
 |----------|--------|
 | Alt+Enter | Queue as follow-up message (delivered when agent is fully idle) |
-| Alt+Up | Restore queued messages into editor |
+| Ctrl+Up | Restore queued messages into editor |
 
 ### App
 
@@ -76,7 +76,7 @@ A `KeyMap` is `dict[str, list[str]]` — action name → list of key combos that
 | `tui.input.clear` | `ctrl+u` | Kill from cursor to start |
 | `tui.input.word_back` | `ctrl+w` | Delete previous word |
 | `app.message.followup` | `alt+enter` | Queue as follow-up message |
-| `app.message.dequeue` | `alt+up` | Restore queued messages into editor |
+| `app.message.dequeue` | `ctrl+up` | Restore queued messages into editor |
 | `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result previews |
 | `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
 | `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit tau |

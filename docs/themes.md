@@ -8,6 +8,21 @@ This page explains how to customise tau's terminal appearance.
 |-------|-------------|
 | `dark` | Default terminal-adaptive dark theme |
 | `light` | Light theme using explicit RGB colours |
+| `ayu-dark` | Ayu Dark |
+| `catppuccin` | Catppuccin |
+| `dracula` | Dracula |
+| `everforest` | Everforest |
+| `gruvbox` | Gruvbox |
+| `horizon` | Horizon |
+| `kanagawa` | Kanagawa |
+| `material-ocean` | Material Ocean |
+| `monokai` | Monokai |
+| `night-owl` | Night Owl |
+| `nord` | Nord |
+| `one-dark` | One Dark |
+| `rose-pine` | Rosé Pine |
+| `solarized-dark` | Solarized Dark |
+| `tokyo-night` | Tokyo Night |
 
 ## Base Themes
 

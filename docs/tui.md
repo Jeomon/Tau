@@ -86,7 +86,7 @@ automatically during shutdown.
 Subclass `Component` to create a reusable view:
 
 ```python
-from tau.tui import Buffer, Component, KeyEvent, Line, Rect, Span
+from tau.tui import Buffer, Component, KeyEvent, Rect, Span, TextLine
 
 
 class Counter(Component):
@@ -95,7 +95,7 @@ class Counter(Component):
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         buf.grow_to(area.y + 1)
-        buf.set_line(area.x, area.y, Line([Span(f"Count: {self.value}")]), area.width)
+        buf.set_line(area.x, area.y, TextLine([Span(f"Count: {self.value}")]), area.width)
         return 1
 
     def handle_input(self, event: object) -> bool:
