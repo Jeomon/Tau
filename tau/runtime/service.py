@@ -87,6 +87,7 @@ class Runtime:
         self._reload_task: asyncio.Task[None] | None = None
         self.version_check_task: asyncio.Task[str | None] | None = None
         self.telemetry_task: asyncio.Task[None] | None = None
+        self.local_model_discovery_task: asyncio.Task[int] | None = None
         if context.agent is not None:
             context.agent._runtime = self
         # Bind runtime ref so (event, ctx) handlers resolve live state
@@ -117,6 +118,7 @@ class Runtime:
         runtime = cls(context=context, config=runtime_config)
         runtime._start_version_check()
         runtime._start_telemetry()
+        runtime._start_local_model_discovery()
         await runtime._emit_session_start(SessionStartReason.Startup)
         # Runtime is now fully wired (engine, agent, tools, extensions) and the
         # session has started, but no mode-specific loop (TUI/print/rpc) has begun.
@@ -178,6 +180,24 @@ class Runtime:
 
         enable_exception_autocapture()
         self.telemetry_task = asyncio.ensure_future(report_install(get_app_version()))
+
+    def _start_local_model_discovery(self) -> None:
+        """Scan locally-running inference backends (Ollama, LM Studio, ...) for
+        installed models, once, in the background, running every backend's scan
+        in parallel.
+
+        Local installs aren't in the static builtin catalog, so the model
+        picker won't show them unless discovered at runtime. Best-effort:
+        registers zero models for any backend that isn't installed/running,
+        without blocking or failing the others. Results land in the shared
+        model registry, which the `/model` picker reads fresh on every open —
+        no further wiring needed to surface them in the TUI. Runs once per
+        process — `Runtime.create` only fires at process startup, not on
+        session reload/switch.
+        """
+        from tau.inference.model.local import register_all
+
+        self.local_model_discovery_task = asyncio.ensure_future(register_all())
 
     # -------------------------------------------------------------------------
     # Public properties

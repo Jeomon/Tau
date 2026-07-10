@@ -136,6 +136,13 @@ api_providers = [
         options=LLMOptions(base_url="http://localhost:1234/v1"),
         auth_type=AuthType.None_,
     ),
+    APIProvider(
+        id="vllm",
+        name="vLLM",
+        api="openai_completions",
+        options=LLMOptions(base_url="http://localhost:8000/v1"),
+        auth_type=AuthType.None_,
+    ),
 ]
 
 oauth_providers = [
