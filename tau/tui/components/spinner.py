@@ -8,7 +8,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.theme import SpinnerTheme
-from tau.utils.format import format_number
+from tau.tui.utils import format_number
 
 if TYPE_CHECKING:
     from tau.tui.service import TUI
@@ -36,12 +36,6 @@ def _format_elapsed(seconds: float) -> str:
         parts.append(f"{minutes}m")
     parts.append(f"{secs}s")
     return " ".join(parts)
-
-
-# Rough chars-per-token used to estimate the in-flight message's token count
-# before the provider's real usage arrives, so the counter can climb live as
-# text streams in rather than jumping once at message end.
-_ESTIMATE_CHARS_PER_TOKEN = 4
 
 
 class Spinner(Component):
@@ -148,39 +142,56 @@ class Spinner(Component):
         self._active = True
         self._sync_task()
 
-    def start_turn(self) -> None:
+    def start_turn(self, input_estimate: int = 0) -> None:
         """Start the base active state and reset elapsed time / token stats.
 
         Call this at the start of a fresh agent turn (instead of ``start()``)
         so the elapsed-time and token counters shown next to the spinner
-        reflect this turn rather than accumulating across turns.
+        reflect this turn rather than accumulating across turns. ``up``
+        starts at ``input_estimate`` (a rough tokenizer estimate of the
+        user's new message) rather than 0, so it isn't blank until the
+        first real usage report lands.
         """
         self._turn_started_at = time.monotonic()
-        self._tokens_up = 0
+        self._tokens_up = input_estimate
         self._tokens_down = 0
         self._streaming_estimate = 0
         self.start()
 
-    def add_tokens(self, *, up: int = 0, down: int = 0) -> None:
-        """Accumulate real token counts for the current turn.
+    def update_tokens(self, *, up: int | None = None, down: int = 0) -> None:
+        """Apply real usage reported by a completed message.
 
-        Clears any live estimate for the message these counts finalize, so
-        the displayed total doesn't briefly double-count.
+        ``up`` (input tokens) REPLACES the current count rather than adding
+        to it: each provider response reports the full prompt size for that
+        specific call, so within a turn with several tool-call round trips,
+        summing each call's input_tokens would double-count the shared
+        prefix every time. ``down`` (output tokens) is genuinely new content
+        per call, so it accumulates.
         """
-        self._tokens_up += up
+        if up is not None:
+            self._tokens_up = up
         self._tokens_down += down
         self._streaming_estimate = 0
         self._tui.request_render()
 
-    def set_streaming_chars(self, char_count: int) -> None:
+    def bump_input_estimate(self, extra: int) -> None:
+        """Add a rough pre-usage estimate (e.g. a newly appended tool result)
+        to the input count; superseded by the next :meth:`update_tokens`
+        call once the real usage for that call is known.
+        """
+        self._tokens_up += extra
+        self._tui.request_render()
+
+    def set_streaming_estimate(self, tokens: int) -> None:
         """Update the live token estimate for the message still streaming in.
 
-        Called on each text/thinking delta so the up-count climbs in real
-        time; superseded by :meth:`add_tokens` once real usage arrives.
+        ``tokens`` should cover the in-flight message's full content —
+        thinking, text, and any tool-call arguments — so the down-count
+        climbs during tool-calling too, not just plain text streaming.
+        Superseded by :meth:`update_tokens` once real usage arrives.
         """
-        estimate = char_count // _ESTIMATE_CHARS_PER_TOKEN
-        if estimate != self._streaming_estimate:
-            self._streaming_estimate = estimate
+        if tokens != self._streaming_estimate:
+            self._streaming_estimate = tokens
             self._tui.request_render()
 
     def stop(self) -> None:

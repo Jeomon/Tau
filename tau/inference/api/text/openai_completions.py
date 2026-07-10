@@ -154,6 +154,7 @@ class OpenAICompletionsAPI(BaseAPI):
         _output_tokens = 0
         _cache_read_tokens = 0
         has_finish_reason = False
+        stop_reason = StopReason.Stop
 
         yield StartEvent()
 
@@ -259,13 +260,20 @@ class OpenAICompletionsAPI(BaseAPI):
                     tool_meta.clear()
 
                     stop_reason = _STOP_REASON.get(choice.finish_reason, StopReason.Stop)
-                    yield EndEvent(
-                        reason=stop_reason,
-                        input_tokens=_input_tokens,
-                        output_tokens=_output_tokens,
-                        cache_read_tokens=_cache_read_tokens,
-                        input_tokens_include_cache_read=True,
-                    )
 
         if not has_finish_reason:
             raise RuntimeError("Stream ended without finish_reason")
+
+        # The usage-bearing chunk (stream_options.include_usage) arrives as a
+        # separate final chunk with empty choices, *after* the finish_reason
+        # chunk — yielding EndEvent inside the finish_reason branch above would
+        # capture 0 tokens whenever that chunk hadn't landed yet (routinely the
+        # case for tool-calling turns). Yield only once the stream is fully
+        # drained so _input_tokens/_output_tokens reflect whatever arrived.
+        yield EndEvent(
+            reason=stop_reason,
+            input_tokens=_input_tokens,
+            output_tokens=_output_tokens,
+            cache_read_tokens=_cache_read_tokens,
+            input_tokens_include_cache_read=True,
+        )

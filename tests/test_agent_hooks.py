@@ -14,7 +14,13 @@ from tau.tool.types import ToolResult
 
 class _Spinner:
     def __init__(self) -> None:
-        self.theme = SimpleNamespace(label_thinking="Thinking", label_tool_calling="Running")
+        self.theme = SimpleNamespace(
+            label_working="Working",
+            label_thinking="Thinking",
+            label_streaming="Streaming",
+            label_tool_calling="Running",
+            label_compacting="Compacting",
+        )
         self.label = ""
 
     def set_label(self, label: str) -> None:
@@ -24,6 +30,24 @@ class _Spinner:
         pass
 
     def stop(self) -> None:
+        pass
+
+    def start_turn(self, input_estimate: int = 0) -> None:
+        pass
+
+    def update_tokens(self, *, up: int | None = None, down: int = 0) -> None:
+        pass
+
+    def bump_input_estimate(self, extra: int) -> None:
+        pass
+
+    def set_streaming_estimate(self, tokens: int) -> None:
+        pass
+
+    def push_reason(self, key: str, label: str) -> None:
+        pass
+
+    def pop_reason(self, key: str) -> None:
         pass
 
 

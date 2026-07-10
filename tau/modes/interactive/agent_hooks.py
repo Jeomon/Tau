@@ -179,7 +179,10 @@ class AgentHookHandler:
         # "Working…" until real content (thinking or text) starts arriving —
         # _on_message_update switches to the accurate label once it does.
         self._layout.spinner.set_label(self._layout.spinner.theme.label_working)
-        self._layout.spinner.start_turn()
+        # Rough tokenizer estimate of the user's just-appended message, so the
+        # up-count isn't stuck at 0 for the whole "Working…" wait before the
+        # first real usage report lands.
+        self._layout.spinner.start_turn(input_estimate=self._estimate_last_message_tokens())
 
     async def _on_agent_end(self, _event: object) -> None:
         self._spinner(running=False)
@@ -217,6 +220,12 @@ class AgentHookHandler:
             self._partial_tool_block = None
             self._partial_tool_results.clear()
             self._tool_names.clear()
+            # Tool results are real prompt content the next LLM call will
+            # send — bump the up-count now rather than waiting for that
+            # call's usage report to land.
+            from tau.session.compaction import estimate_tokens
+
+            self._layout.spinner.bump_input_estimate(estimate_tokens(msg))
         else:
             block = self._layout.add_message(msg, streaming=False)
         self._current_block = block
@@ -239,12 +248,6 @@ class AgentHookHandler:
                 self._layout.spinner.set_label(self._layout.spinner.theme.label_thinking)
             elif isinstance(last, TextContent) and last.content:
                 self._layout.spinner.set_label(self._layout.spinner.theme.label_streaming)
-            char_count = sum(
-                len(item.content)
-                for item in contents
-                if isinstance(item, (TextContent, ThinkingContent))
-            )
-            self._layout.spinner.set_streaming_chars(char_count)
 
         # Buffer the latest message; schedule a flush if none pending.
         self._pending_msg = msg
@@ -256,6 +259,8 @@ class AgentHookHandler:
 
     def _flush_pending(self) -> None:
         """Flush the buffered token batch: re-parse markdown once, then render."""
+        from tau.session.compaction import estimate_tokens
+
         self._pending_flush_handle = None
         msg = self._pending_msg
         self._pending_msg = None
@@ -265,6 +270,11 @@ class AgentHookHandler:
         self._update_block(msg, streaming=tl > self._current_text_length)
         self._current_text_length = tl
         self._last_flush_at = time.monotonic()
+        # estimate_tokens covers thinking + text + any tool-call args in msg,
+        # so the down-count climbs during tool-calling too, not just plain
+        # text — real tokenizer counts, throttled to this ~60fps flush rather
+        # than every delta so re-encoding the growing message stays cheap.
+        self._layout.spinner.set_streaming_estimate(estimate_tokens(msg))
         self._tui.request_render()
 
     async def _on_message_end(self, event: object) -> None:
@@ -284,7 +294,7 @@ class AgentHookHandler:
             self._mark_turn_content()
             if isinstance(msg, AssistantMessage):
                 usage = msg.usage
-                self._layout.spinner.add_tokens(
+                self._layout.spinner.update_tokens(
                     up=usage.input_tokens,
                     down=usage.output_tokens,
                 )
@@ -429,6 +439,25 @@ class AgentHookHandler:
         """Tell the input handler the assistant has produced output this turn."""
         if self._on_turn_content is not None:
             self._on_turn_content()
+
+    def _estimate_last_message_tokens(self) -> int:
+        """Tokenizer estimate of the most recently appended session message.
+
+        Used to seed the spinner's up-count at turn start (the just-appended
+        UserMessage) and again whenever a ToolMessage is appended mid-turn —
+        both are real prompt content the next LLM call will send, just not
+        yet reflected in a provider's reported usage.
+        """
+        from tau.session.compaction import estimate_tokens
+        from tau.session.types import MessageEntry
+
+        sm = self._runtime.session_manager
+        if sm is None:
+            return 0
+        for entry in reversed(sm.get_branch()):
+            if isinstance(entry, MessageEntry):
+                return estimate_tokens(entry.message)
+        return 0
 
     def _spinner(self, label: str | None = None, *, running: bool | None = None) -> None:
         if label is not None:
