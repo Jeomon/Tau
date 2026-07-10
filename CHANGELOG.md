@@ -2,6 +2,13 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.4 — 2026-07-10
+
+### Changed
+
+-   Replace estimated spinner token counts with provider-reported usage across `github_copilot_chat`, `openai_completions`, and `openai_vertex`, and update the spinner to use the last assistant turn's real usage as the baseline for pending input tokens instead of incremental estimation
+-   Correct several inaccuracies found in `docs/` and `README.md` during a documentation audit (wrong flag names, stale keybindings, incorrect settings keys, outdated theme/provider lists, and a broken code example in the TUI public API guide)
+
 ## 0.7.3 — 2026-07-10
 
 ### Added
