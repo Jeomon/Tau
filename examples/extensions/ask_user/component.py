@@ -7,7 +7,7 @@ from schema import FREEFORM_LABEL, AskUserOption  # type: ignore[import-not-foun
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import RESET, Style
+from tau.tui.style import RESET
 from tau.tui.theme import LayoutTheme
 
 if TYPE_CHECKING:
@@ -214,9 +214,8 @@ class _AskUserComponent(Component):
         t = self._theme
         muted = t.muted.sgr()
         success = t.success.sgr()
-        selected_style = t.select_list.selected_bg or Style().reversed()
-        selected_sgr = selected_style.sgr()
-        normal_sgr = t.select_list.normal_label.sgr()
+        accent = t.accent.sgr()
+        emphasis = t.emphasis.sgr()
         arrow = t.selector_arrow
 
         inner: list[str] = []
@@ -227,32 +226,34 @@ class _AskUserComponent(Component):
             title = FREEFORM_LABEL if is_freeform_row else self._options[i].title
             desc = "" if is_freeform_row else (self._options[i].description or "")
             is_cursor = i == self._cursor
-            cursor_mark = arrow if is_cursor else " "
 
-            # The whole row gets wrapped in one outer style below (reversed for
-            # the cursor row, normal_label otherwise). Any inline color used
-            # inside the row — e.g. the checkbox glyph — must resume that
-            # outer style right after its own RESET, or the embedded reset
-            # would cut the outer highlight/dim short partway through the row.
-            outer_sgr = selected_sgr if is_cursor else normal_sgr
+            # Settings-selector style: per-span colors, no reversed background.
+            # The moving cursor arrow is always accent-colored; the row label
+            # is emphasis (selected) or muted (normal). Any inline color used
+            # inside the row — e.g. the checkbox glyph — must resume title_sgr
+            # right after its own RESET, since ANSI styles don't nest.
+            title_sgr = emphasis if is_cursor else muted
+            cursor_mark = f"{accent}{arrow}{RESET}{title_sgr}" if is_cursor else " "
 
             if is_freeform_row:
                 # Synthetic action row, not a countable option — keeps its own
-                # arrow marker instead of a number.
-                marker = f" {arrow} "
+                # arrow marker instead of a number. Suppressed when this row
+                # is also the cursor row, since cursor_mark already shows an
+                # arrow there — otherwise it doubles up as "❯ ❯ Type…".
+                marker = f" {arrow} " if not is_cursor else "   "
             elif self._allow_multiple:
                 # Same tick glyphs as the /extensions config panel, paired with
                 # the option's ordinal number.
                 if i in self._checked:
-                    box = "✔" if is_cursor else f"{success}✔{RESET}{outer_sgr}"
+                    box = f"{success}✔{RESET}{title_sgr}"
                 else:
-                    box = "✖" if is_cursor else f"{muted}✖{RESET}{outer_sgr}"
+                    box = f"{muted}✖{RESET}{title_sgr}"
                 marker = f"{i + 1}. {box}"
             else:
                 marker = f"{i + 1}."
 
             row = f"  {cursor_mark} {marker} {title}"
-            row = f"{outer_sgr}{row}{RESET}"
+            row = f"{title_sgr}{row}{RESET}"
             inner.append(row)
 
             # Description on its own hanging-indented line(s) below the title,

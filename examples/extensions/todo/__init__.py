@@ -69,7 +69,7 @@ class TodoBoard:
         }
         remaining = self._state.remaining()
         header = (
-            f"{apply_style(theme.warning, '☐')} "
+            f"{apply_style(theme.muted, '☐')} "
             f"{apply_style(theme.emphasis, f'Todos ({len(remaining)} pending)')}"
         )
         lines = [header]
