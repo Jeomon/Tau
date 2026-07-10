@@ -144,6 +144,7 @@ class AskUserTool(Tool):
                 allow_freeform=question.allow_freeform,
                 multiline=question.multiline,
                 on_done=lambda v: (_on_done(v), done(v)),
+                theme=_theme,
             )
             if timeout:
                 timeout_ms = timeout

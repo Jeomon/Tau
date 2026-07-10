@@ -7,6 +7,8 @@ from schema import FREEFORM_LABEL, AskUserOption  # type: ignore[import-not-foun
 
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import RESET, Style
+from tau.tui.theme import LayoutTheme
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
@@ -48,6 +50,7 @@ class _AskUserComponent(Component):
         allow_freeform: bool,
         multiline: bool,
         on_done: Any,
+        theme: LayoutTheme | None = None,
     ) -> None:
         self._question = question
         self._context = context
@@ -56,6 +59,7 @@ class _AskUserComponent(Component):
         self._allow_freeform = allow_freeform
         self._multiline = multiline
         self._on_done = on_done
+        self._theme = theme or LayoutTheme()
 
         self._cursor = 0
         self._checked: set[int] = set()
@@ -102,12 +106,13 @@ class _AskUserComponent(Component):
                 row += parse_ansi_wrapped_into(buf, x, y + row, line, width)
             return row
 
+        t = self._theme
         header: list[str] = []
         if self._context:
             for line in self._context.splitlines():
-                header.append(f"  \x1b[2m{line}\x1b[0m")
+                header.append(f"  {t.muted.sgr()}{line}{RESET}")
             header.append("")
-        header.append(f"  \x1b[1m{self._question}\x1b[0m")
+        header.append(f"  {t.accent.sgr()}{self._question}{RESET}")
         header.append("")
 
         header_rows = _write(header, area.x, area.y, area.width)
@@ -180,23 +185,24 @@ class _AskUserComponent(Component):
         for _ in range(self.ML_MIN_VISIBLE_ROWS - len(visible)):
             inner.append("")
         total = len(self._ml_lines)
+        muted = self._theme.muted.sgr()
         if total > self.ML_VISIBLE_ROWS:
             pct = int(self._ml_scroll_top / max(1, total - self.ML_VISIBLE_ROWS) * 100)
-            inner.append(f"  \x1b[2m↕ {pct}%\x1b[0m")
+            inner.append(f"  {muted}↕ {pct}%{RESET}")
         else:
             inner.append("")
         back = "Esc to cancel" if not self._options else "Esc to go back"
         footer = [
             "",
-            "  \x1b[2mEnter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
-            f"{back}\x1b[0m",
+            f"  {muted}Enter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
+            f"{back}{RESET}",
         ]
         return inner, footer
 
     def _build_singleline_body(self) -> tuple[list[str], list[str]]:
         back = "Esc to cancel" if not self._options else "Esc to go back"
         content = [f"  {self._freeform_value}█"]
-        footer = ["", f"  \x1b[2mEnter to submit  ·  {back}\x1b[0m"]
+        footer = ["", f"  {self._theme.muted.sgr()}Enter to submit  ·  {back}{RESET}"]
         return content, footer
 
     # Left margin + hanging indent for wrapped description lines beneath a
@@ -205,6 +211,14 @@ class _AskUserComponent(Component):
     DESC_INDENT = "      "
 
     def _build_list_body(self, width: int) -> tuple[list[str], list[str]]:
+        t = self._theme
+        muted = t.muted.sgr()
+        success = t.success.sgr()
+        selected_style = t.select_list.selected_bg or Style().reversed()
+        selected_sgr = selected_style.sgr()
+        normal_sgr = t.select_list.normal_label.sgr()
+        arrow = t.selector_arrow
+
         inner: list[str] = []
         desc_width = max(width - len(self.DESC_INDENT), 10)
 
@@ -213,51 +227,54 @@ class _AskUserComponent(Component):
             title = FREEFORM_LABEL if is_freeform_row else self._options[i].title
             desc = "" if is_freeform_row else (self._options[i].description or "")
             is_cursor = i == self._cursor
-            cursor_mark = "❯" if is_cursor else " "
+            cursor_mark = arrow if is_cursor else " "
+
+            # The whole row gets wrapped in one outer style below (reversed for
+            # the cursor row, normal_label otherwise). Any inline color used
+            # inside the row — e.g. the checkbox glyph — must resume that
+            # outer style right after its own RESET, or the embedded reset
+            # would cut the outer highlight/dim short partway through the row.
+            outer_sgr = selected_sgr if is_cursor else normal_sgr
 
             if is_freeform_row:
                 # Synthetic action row, not a countable option — keeps its own
-                # "❯" marker instead of a number.
-                marker = " ❯ "
+                # arrow marker instead of a number.
+                marker = f" {arrow} "
             elif self._allow_multiple:
                 # Same tick glyphs as the /extensions config panel, paired with
-                # the option's ordinal number. Cursor rows get wrapped in
-                # reverse-video below, so leave them uncolored here — an
-                # embedded reset would cut the highlight short.
+                # the option's ordinal number.
                 if i in self._checked:
-                    box = "✔" if is_cursor else "\x1b[32m✔\x1b[0m"
+                    box = "✔" if is_cursor else f"{success}✔{RESET}{outer_sgr}"
                 else:
-                    box = "✖" if is_cursor else "\x1b[2m✖\x1b[0m"
+                    box = "✖" if is_cursor else f"{muted}✖{RESET}{outer_sgr}"
                 marker = f"{i + 1}. {box}"
             else:
                 marker = f"{i + 1}."
 
             row = f"  {cursor_mark} {marker} {title}"
-            if is_cursor:
-                row = f"\x1b[7m{row}\x1b[0m"
+            row = f"{outer_sgr}{row}{RESET}"
             inner.append(row)
 
             # Description on its own hanging-indented line(s) below the title,
             # not packed onto the title row — at left-column widths that
             # would run straight into the next option's row.
             for line in textwrap.wrap(desc, desc_width) if desc else []:
-                inner.append(f"{self.DESC_INDENT}\x1b[2m{line}\x1b[0m")
+                inner.append(f"{self.DESC_INDENT}{muted}{line}{RESET}")
 
         hints = ["↑/↓ move", "Enter confirm", "Esc cancel"]
         if self._allow_multiple:
             hints.insert(1, "Space toggle")
-        footer = ["", "  \x1b[2m" + "  ·  ".join(hints) + "\x1b[0m"]
+        footer = ["", f"  {muted}" + "  ·  ".join(hints) + RESET]
         return inner, footer
 
-    @staticmethod
-    def _build_preview_box(preview: str | None, width: int, height: int) -> list[str]:
+    def _build_preview_box(self, preview: str | None, width: int, height: int) -> list[str]:
         """A bordered box of exactly ``height`` lines, sized to ``width``.
 
         Content beyond the available rows is truncated with a "N lines hidden"
         footer rather than growing the box — the box height is pinned to the
         paired option list so the two columns stay aligned row-for-row.
         """
-        dim, reset = "\x1b[2m", "\x1b[0m"
+        dim, reset = self._theme.border.sgr(), RESET
         inner_width = max(width - 4, 4)
         top = f"{dim}┌{'─' * (width - 2)}┐{reset}"
         bottom = f"{dim}└{'─' * (width - 2)}┘{reset}"
@@ -467,5 +484,5 @@ class _AskUserComponent(Component):
     def invalidate(self) -> None:
         pass
 
-    def set_theme(self, theme: Any) -> None:
-        pass
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
