@@ -132,6 +132,30 @@ def register(tau: ExtensionAPI) -> None:
 
     tau.on("session_shutdown", _on_shutdown)
 
+    def _inject_todo_state(_event: Any, _ctx: ExtensionContext) -> Any:
+        """Re-assert the live todo list into context on every turn.
+
+        Old `todo` tool calls/results fall out of view once compaction (or
+        just enough turns) pushes them out of the kept window, and the
+        board is TUI-only — the LLM otherwise has no way to recover the
+        list. Injecting it fresh, ephemerally, each turn means it never
+        depends on surviving compaction or being noticed by the
+        summarizer: it's simply re-told every time, so it's never stale.
+        """
+        from tau.hooks.engine import ContextEventResult
+        from tau.message.types import UserMessage
+
+        remaining = state.remaining()
+        if not remaining:
+            return None
+        lines = "\n".join(f"- #{i.id} [{i.status}] {i.subject}" for i in remaining)
+        reminder = UserMessage.from_text(
+            f"[Todo list reminder — not from the user, injected each turn]\n{lines}"
+        )
+        return ContextEventResult(ephemeral_messages=[reminder])
+
+    tau.on("context", _inject_todo_state)
+
     tau.register_tool(TodoTool(state, tau._runtime_ref, on_mutate=board.sync))
 
     async def cmd_todos(ctx: ExtensionContext, _args: list[str]) -> None:

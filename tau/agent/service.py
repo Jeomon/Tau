@@ -75,6 +75,7 @@ class Agent:
         self._engine.options.before_tool_call = self._before_tool_call
         self._engine.options.after_tool_call = self._after_tool_call
         self._engine.options.transform_context = self._transform_context
+        self._engine.options.ephemeral_injection = self._ephemeral_injection
 
     # -------------------------------------------------------------------------
     # Public interface
@@ -269,6 +270,24 @@ class Agent:
         session_ctx = self._session_manager.build_session_context()
         llm_messages = _to_llm_messages(session_ctx.messages)
         return strip_unusable_trailing_assistant(llm_messages, self._session_manager)
+
+    async def _ephemeral_injection(self) -> list[UserMessage]:
+        """Collect per-turn ephemeral messages from extensions via the "context" hook.
+
+        Called before every LLM inference (see Engine._run). Results are appended
+        to that single request's context only — never persisted to the session —
+        so extensions can keep the model up to date on live state (e.g. a todo
+        list) without that state needing to survive compaction.
+        """
+        from tau.hooks.engine import ContextEvent, ContextEventResult
+
+        session_ctx = self._session_manager.build_session_context()
+        results = await self.hooks.emit(ContextEvent(messages=list(session_ctx.messages)))
+        ephemeral: list[UserMessage] = []
+        for result in results:
+            if isinstance(result, ContextEventResult):
+                ephemeral.extend(result.ephemeral_messages)
+        return ephemeral
 
     # -------------------------------------------------------------------------
     # Internal helpers
