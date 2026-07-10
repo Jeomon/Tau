@@ -182,7 +182,7 @@ class AgentHookHandler:
         # Rough tokenizer estimate of the user's just-appended message, so the
         # up-count isn't stuck at 0 for the whole "Working…" wait before the
         # first real usage report lands.
-        self._layout.spinner.start_turn(input_estimate=self._estimate_last_message_tokens())
+        self._layout.spinner.start_turn(input_estimate=self._estimate_pending_input_tokens())
 
     async def _on_agent_end(self, _event: object) -> None:
         self._spinner(running=False)
@@ -443,10 +443,10 @@ class AgentHookHandler:
     def _estimate_last_message_tokens(self) -> int:
         """Tokenizer estimate of the most recently appended session message.
 
-        Used to seed the spinner's up-count at turn start (the just-appended
-        UserMessage) and again whenever a ToolMessage is appended mid-turn —
-        both are real prompt content the next LLM call will send, just not
-        yet reflected in a provider's reported usage.
+        Used whenever a ToolMessage is appended mid-turn: by that point the
+        turn's up-count already holds a real usage.input_tokens baseline
+        (which includes system prompt/tools/history overhead) from the
+        first assistant response, so only the new tool result needs adding.
         """
         from tau.session.compaction import estimate_tokens
         from tau.session.types import MessageEntry
@@ -458,6 +458,36 @@ class AgentHookHandler:
             if isinstance(entry, MessageEntry):
                 return estimate_tokens(entry.message)
         return 0
+
+    def _estimate_pending_input_tokens(self) -> int:
+        """Tokenizer estimate of the input tokens the next LLM call will send.
+
+        Unlike :meth:`_estimate_last_message_tokens`, this seeds the very
+        first estimate of a turn — before any real usage has landed — so it
+        needs to approximate the *full* prompt, not just the new message.
+        Re-tokenizing the system prompt, tool schemas, and entire history
+        from scratch every turn would be wasteful and barely changes call to
+        call, so instead this takes the last completed call's real
+        input+output token count as a baseline (it already reflects that
+        overhead) and adds just the newly appended message on top.
+        """
+        from tau.session.compaction import estimate_tokens
+        from tau.session.types import MessageEntry
+
+        sm = self._runtime.session_manager
+        if sm is None:
+            return 0
+        new_content_tokens = 0
+        for entry in reversed(sm.get_branch()):
+            if isinstance(entry, MessageEntry):
+                new_content_tokens = estimate_tokens(entry.message)
+                break
+        last_assistant = sm.find_last_assistant_message()
+        if last_assistant is not None:
+            usage = last_assistant.usage
+            baseline = (usage.input_tokens or 0) + (usage.output_tokens or 0)
+            return baseline + new_content_tokens
+        return new_content_tokens
 
     def _spinner(self, label: str | None = None, *, running: bool | None = None) -> None:
         if label is not None:
