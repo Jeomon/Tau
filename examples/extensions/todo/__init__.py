@@ -59,6 +59,7 @@ class TodoBoard:
         self._shown = False
 
     def _lines(self, theme: Any) -> list[str]:
+        from tau.modes.interactive.components.message_list import apply_render_shell
         from tau.tui.style import apply_style
 
         glyphs = {
@@ -67,16 +68,14 @@ class TodoBoard:
             "done": ("✓", theme.success),
             "failed": ("✗", theme.error),
         }
-        remaining = self._state.remaining()
-        header = (
-            f"{apply_style(theme.muted, '☐')} "
-            f"{apply_style(theme.emphasis, f'Todos ({len(remaining)} pending)')}"
-        )
-        lines = [header]
+        items = []
         for item in self._state.items:
             glyph, style = glyphs[item.status]
-            lines.append(f"  {apply_style(style, glyph)} {item.id}. {item.subject}")
-        return lines
+            subject = item.subject
+            if item.status == "done":
+                subject = apply_style(style.patch(theme.strikethrough), subject)
+            items.append(f"{apply_style(style, glyph)} {item.id}. {subject}")
+        return apply_render_shell(items, theme)
 
     def sync(self, ctx: ExtensionContext) -> None:
         ui = ctx.ui
