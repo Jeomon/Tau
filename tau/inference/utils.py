@@ -80,6 +80,7 @@ _RATE_LIMIT_PATTERNS = (
     "try again in",
     "please retry after",
     "resource_exhausted",
+    "resourceexhausted",  # gRPC-based providers (e.g. NVIDIA NIM) omit the underscore
     "throttlingexception",
     "too many concurrent requests",
 )

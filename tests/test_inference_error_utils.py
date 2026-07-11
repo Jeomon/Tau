@@ -157,6 +157,12 @@ class TestClassifyError:
         r = classify_error(e)
         assert r.kind == ErrorKind.RATE_LIMIT
 
+    def test_resource_exhausted_camel_case_no_status(self):
+        e = _err("ResourceExhausted: Worker local total request limit reached (288/48)")
+        r = classify_error(e)
+        assert r.kind == ErrorKind.RATE_LIMIT
+        assert r.retryable is True
+
     def test_context_overflow_pattern_no_status(self):
         e = _err("prompt is too long for context window")
         r = classify_error(e)
