@@ -173,12 +173,11 @@ def file_to_base64(item: bytes | str) -> tuple[str, str]:
         data = Path(item[5:]).read_bytes()
         mime = detect_file_mime(data)
         return base64.b64encode(data).decode(), mime
-    # Assume base64 string; only the leading magic bytes are checked here (the
-    # OOXML sub-type sniff above needs the full archive, so a base64-string
-    # input — already truncated to a prefix — only gets the PDF/ZIP-vs-not check).
+    # Assume a complete base64-encoded file (this is what FileContent.__post_init__
+    # normalizes raw bytes into) — decode it fully so the OOXML sub-type sniff
+    # above still works; a truncated prefix would only support the PDF check.
     try:
-        prefix = base64.b64decode(item[:8] + "==")
-        mime = "application/pdf" if prefix[:4] == b"%PDF" else "application/zip"
+        mime = detect_file_mime(base64.b64decode(item))
     except Exception:
         mime = "application/pdf"
     return item, mime

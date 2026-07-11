@@ -182,7 +182,7 @@ class MessageBlock:
         if not show_images:
             from tau.tui.components.image import Image
 
-            lines = [Image(b64, mime)._fallback_text()]
+            lines = [self._shell_line(Image(b64, mime)._fallback_text())]
             self._image_lines_cache[key] = (width, show_images, lines)
             return lines
 
@@ -200,6 +200,14 @@ class MessageBlock:
         self._image_lines_cache[key] = (width, show_images, lines)
         return lines
 
+    def _shell_line(self, text: str) -> str:
+        """Frame a single dim line with the same '└' connector as tool
+        results/notify (apply_render_shell), for a consistent look wherever a
+        message shows a one-line placeholder instead of rendered content.
+        """
+        styled = apply_style(self._theme.dim, text)
+        return f"{_RESULT_INDENT}{apply_style(self._theme.dim, '└')} {styled}"
+
     def _render_media_placeholder(self, label: str, b64: str, mime: str) -> str:
         """One-line marker for a non-visual media block (audio, video, file).
 
@@ -207,7 +215,7 @@ class MessageBlock:
         is the only indication such a block exists in the message.
         """
         size_kb = max(1, len(b64) * 3 // 4 // 1024)
-        return apply_style(self._theme.dim, f"[{label}: {mime}, ~{size_kb}KB]")
+        return self._shell_line(f"[{label}: {mime}, ~{size_kb}KB]")
 
     @property
     def message(self) -> object:
@@ -333,13 +341,13 @@ class MessageBlock:
                     lines.extend(self._render_image((c_idx, i_idx), b64, mime, inner_width))
             elif isinstance(item, AudioContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("Audio", b64, mime))
+                    lines.append(self._render_media_placeholder("Audio", b64, mime))
             elif isinstance(item, VideoContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("Video", b64, mime))
+                    lines.append(self._render_media_placeholder("Video", b64, mime))
             elif isinstance(item, FileContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("File", b64, mime))
+                    lines.append(self._render_media_placeholder("File", b64, mime))
         return lines
 
     def _render_assistant(
@@ -438,15 +446,15 @@ class MessageBlock:
 
             elif isinstance(item, _AudioContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("Audio", b64, mime))
+                    lines.append(self._render_media_placeholder("Audio", b64, mime))
 
             elif isinstance(item, _VideoContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("Video", b64, mime))
+                    lines.append(self._render_media_placeholder("Video", b64, mime))
 
             elif isinstance(item, _FileContent):
                 for b64, mime in item.to_base64():
-                    lines.append("  " + self._render_media_placeholder("File", b64, mime))
+                    lines.append(self._render_media_placeholder("File", b64, mime))
 
             elif isinstance(item, ToolCallContent) and t.show_tool_calls:
                 # Separate a tool call from preceding assistant text/media with a

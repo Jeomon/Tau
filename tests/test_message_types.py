@@ -6,6 +6,7 @@ from tau.inference.types import StopReason
 from tau.message.types import (
     AssistantMessage,
     AudioContent,
+    FileContent,
     ImageContent,
     Role,
     SystemMessage,
@@ -260,6 +261,23 @@ class TestAudioContentMethods:
 
         assert base64.b64decode(b64)[:3] == b"ID3"
 
+    def test_post_init_normalizes_raw_bytes_to_base64_str(self):
+        # Constructing with raw bytes must eagerly become a base64 str, not
+        # stay as bytes — pydantic can't JSON-serialize raw bytes for session
+        # persistence (mirrors ImageContent.__post_init__).
+        from tau.message.types import AudioContent
+
+        raw = b"ID3" + b"\x00" * 10
+        ac = AudioContent(audios=[raw])
+        assert isinstance(ac.audios[0], str)
+
+    def test_post_init_leaves_existing_base64_str_untouched(self):
+        from tau.message.types import AudioContent
+
+        b64 = "SUQz"
+        ac = AudioContent(audios=[b64])
+        assert ac.audios == [b64]
+
 
 class TestVideoContentMethods:
     def test_from_file(self, tmp_path):
@@ -280,6 +298,58 @@ class TestVideoContentMethods:
         import base64
 
         assert base64.b64decode(b64) == raw
+
+    def test_post_init_normalizes_raw_bytes_to_base64_str(self):
+        from tau.message.types import VideoContent
+
+        vc = VideoContent(videos=[b"\x00\x01\x02\x03"])
+        assert isinstance(vc.videos[0], str)
+
+
+class TestFileContentMethods:
+    def test_from_file(self, tmp_path):
+        from tau.message.types import FileContent
+
+        f = tmp_path / "report.pdf"
+        f.write_bytes(b"%PDF-1.4 fake")
+        fc = FileContent.from_file(f)
+        assert len(fc.files) == 1
+
+    def test_to_base64_with_bytes(self):
+        import base64
+
+        from tau.message.types import FileContent
+
+        raw = b"%PDF-1.4 fake"
+        fc = FileContent(files=[raw])
+        b64, mime = fc.to_base64()[0]
+        assert mime == "application/pdf"
+        assert base64.b64decode(b64) == raw
+
+    def test_post_init_normalizes_raw_bytes_to_base64_str(self):
+        from tau.message.types import FileContent
+
+        fc = FileContent(files=[b"%PDF-1.4 fake"])
+        assert isinstance(fc.files[0], str)
+
+    def test_docx_mime_detected_from_base64_string_after_post_init(self):
+        # Regression guard: __post_init__ eagerly base64-encodes on
+        # construction, so to_base64() must decode the *full* stored string
+        # (not a truncated prefix) to still tell docx/xlsx/pptx apart — a
+        # truncated-prefix check can only ever see "some zip", never which one.
+        import io
+        import zipfile
+
+        from tau.message.types import FileContent
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("word/document.xml", "<fake/>")
+        docx_bytes = buf.getvalue()
+
+        fc = FileContent(files=[docx_bytes])
+        _, mime = fc.to_base64()[0]
+        assert mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 class TestBranchSummaryMessage:
@@ -315,3 +385,76 @@ class TestCompactionSummaryMessageDirect:
         msg = CompactionSummaryMessage()
         assert msg.summary == ""
         assert msg.tokens_before == 0
+
+
+class TestMediaContentSessionPersistenceRoundTrip:
+    """Regression coverage for a real bug: AudioContent/VideoContent/FileContent
+    used to crash (or silently corrupt) on session save/reload.
+
+    Two distinct causes, both now fixed:
+    1. No __post_init__ normalization meant raw (non-UTF-8) bytes reached
+       pydantic's JSON encoder directly, which cannot serialize them at all —
+       PydanticSerializationError on the very first save.
+    2. Even after adding normalization, the field was typed `list[bytes | str]`
+       (bytes listed first) — pydantic's union validator coerced a reloaded
+       JSON string back into bytes, re-triggering the bytes branch and
+       double-base64-encoding the content on every reload. Fixed by reordering
+       to `list[str | bytes]`, matching ImageContent's existing field order.
+    """
+
+    # Genuinely non-UTF-8 bytes — the exact shape that used to crash serialization.
+    _BINARY = bytes([0x25, 0x50, 0x44, 0x46, 0xFF, 0xFE, 0x00, 0x80, 0x81, 0x82])
+
+    def _round_trip(self, content):
+        import base64
+
+        from tau.session.types import MessageEntry
+
+        msg = UserMessage(contents=[content])
+        entry = MessageEntry(message=msg, parent_id=None)
+        json_str = entry.model_dump_json(exclude_none=True)  # must not raise
+        reloaded = MessageEntry.model_validate_json(json_str)
+        b64, _ = reloaded.message.contents[0].to_base64()[0]
+        return base64.b64decode(b64), reloaded
+
+    def test_audio_content_survives_persistence_with_binary_data(self):
+        recovered, _ = self._round_trip(AudioContent(audios=[self._BINARY]))
+        assert recovered == self._BINARY
+
+    def test_video_content_survives_persistence_with_binary_data(self):
+        recovered, _ = self._round_trip(VideoContent(videos=[self._BINARY]))
+        assert recovered == self._BINARY
+
+    def test_file_content_survives_persistence_with_binary_data(self):
+        recovered, _ = self._round_trip(FileContent(files=[self._BINARY]))
+        assert recovered == self._BINARY
+
+    def test_image_content_still_survives_persistence(self):
+        # Baseline: this one already worked before the fix — guards against
+        # a future edit breaking the field that was always correct.
+        recovered, _ = self._round_trip(ImageContent(images=[self._BINARY]))
+        assert recovered == self._BINARY
+
+    def test_survives_a_second_persistence_cycle(self):
+        # The double-encoding bug only manifested on a *second* round trip
+        # (reload -> re-save -> reload), since the first reload was where the
+        # type flipped from str to bytes.
+        import base64
+
+        from tau.session.types import MessageEntry
+
+        _, reloaded = self._round_trip(FileContent(files=[self._BINARY]))
+        json_str_2 = reloaded.model_dump_json(exclude_none=True)
+        reloaded_2 = MessageEntry.model_validate_json(json_str_2)
+        b64, _ = reloaded_2.message.contents[0].to_base64()[0]
+        assert base64.b64decode(b64) == self._BINARY
+
+    def test_reloaded_field_stays_str_not_bytes(self):
+        # Direct assertion on the union-order fix: after one reload, the
+        # stored item must still be `str`, never coerced back to `bytes`.
+        from tau.session.types import MessageEntry
+
+        msg = UserMessage(contents=[FileContent(files=[self._BINARY])])
+        entry = MessageEntry(message=msg, parent_id=None)
+        reloaded = MessageEntry.model_validate_json(entry.model_dump_json(exclude_none=True))
+        assert isinstance(reloaded.message.contents[0].files[0], str)

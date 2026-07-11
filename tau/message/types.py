@@ -89,7 +89,24 @@ class AudioContent:
 
     type: Literal["audio"] = "audio"
     # Each item is raw bytes, a base64 string, or a file path string prefixed with "file:"
-    audios: list[bytes | str] = field(default_factory=list)
+    # str listed before bytes: pydantic's union validation tries members in
+    # order, so a reloaded JSON string must match str first — bytes-first
+    # would coerce it back to bytes on every reload and re-trigger
+    # __post_init__'s bytes branch, double-base64-encoding the content.
+    audios: list[str | bytes] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Normalize raw bytes to base64 strings so the content is always
+        # JSON-serializable for session persistence (pydantic can't encode
+        # non-UTF-8 bytes) — mirrors ImageContent.__post_init__.
+        normalized: list[str | bytes] = []
+        for item in self.audios:
+            if isinstance(item, str):
+                normalized.append(item)
+            else:
+                b64, _ = audio_to_base64(item)
+                normalized.append(b64)
+        self.audios = normalized
 
     def to_base64(self) -> list[tuple[str, str]]:
         """Convert all audio to (base64_data, mime_type) pairs.
@@ -130,7 +147,18 @@ class VideoContent:
     """Video content (bytes, base64 strings, or 'file:' paths)."""
 
     type: Literal["video"] = "video"
-    videos: list[bytes | str] = field(default_factory=list)
+    videos: list[str | bytes] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # See AudioContent.__post_init__ — same JSON-serialization/union-order concern.
+        normalized: list[str | bytes] = []
+        for item in self.videos:
+            if isinstance(item, str):
+                normalized.append(item)
+            else:
+                b64, _ = video_to_base64(item)
+                normalized.append(b64)
+        self.videos = normalized
 
     def to_base64(self) -> list[tuple[str, str]]:
         return [video_to_base64(item) for item in self.videos]
@@ -145,7 +173,18 @@ class FileContent:
     """Document/file content (bytes, base64 strings, or 'file:' paths) — e.g. PDF, DOCX, XLSX."""
 
     type: Literal["file"] = "file"
-    files: list[bytes | str] = field(default_factory=list)
+    files: list[str | bytes] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # See AudioContent.__post_init__ — same JSON-serialization/union-order concern.
+        normalized: list[str | bytes] = []
+        for item in self.files:
+            if isinstance(item, str):
+                normalized.append(item)
+            else:
+                b64, _ = file_to_base64(item)
+                normalized.append(b64)
+        self.files = normalized
 
     def to_base64(self) -> list[tuple[str, str]]:
         return [file_to_base64(item) for item in self.files]
