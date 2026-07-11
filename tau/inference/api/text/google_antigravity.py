@@ -19,6 +19,7 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     check_strict_tools_supported,
+    gemini_function_response_parts_raw,
     gemini_tool_schema,
     parse_tool_args,
     tool_result_text,
@@ -332,6 +333,9 @@ def _messages_to_contents(
                         }
                         if _requires_tool_call_id(model_id):
                             function_response["id"] = content.id
+                        response_parts = gemini_function_response_parts_raw(content)
+                        if response_parts is not None:
+                            function_response["parts"] = response_parts
                         parts.append({"functionResponse": function_response})
                 if parts:
                     raw.append({"role": "user", "parts": parts})

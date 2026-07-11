@@ -11,6 +11,7 @@ from google.genai import types as genai_types
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
     check_strict_tools_supported,
+    gemini_function_response_parts,
     gemini_tool_schema,
     tool_result_text,
 )
@@ -167,6 +168,7 @@ def _messages_to_gemini(
                                     id=content.id,
                                     name=content.tool_name or content.id,
                                     response={key: tool_result_text(content)},
+                                    parts=gemini_function_response_parts(content),
                                 ),
                             )
                         )

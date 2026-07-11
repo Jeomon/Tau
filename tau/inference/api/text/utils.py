@@ -12,6 +12,10 @@ __all__ = [
     "gemini_tool_schema",
     "parse_tool_args",
     "tool_result_text",
+    "anthropic_tool_result_content",
+    "gemini_function_response_parts",
+    "gemini_function_response_parts_raw",
+    "openai_responses_function_call_output",
     "openai_user_content",
     "openai_assistant_content",
     "openai_messages_to_chat",
@@ -136,6 +140,75 @@ def tool_result_text(content: Any) -> str:
     silent success) still needs non-empty text on the wire.
     """
     return content.content or _NO_TOOL_OUTPUT
+
+
+def anthropic_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
+    """Anthropic tool_result 'content': plain text, or a [text, image] block list.
+
+    Anthropic's tool_result natively accepts a content array mixing text and
+    image blocks (unlike most other providers' tool/function-result shapes,
+    which are text-only) — see Handle tool calls in the Anthropic docs.
+    """
+    if content.image is None:
+        return tool_result_text(content)
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": tool_result_text(content)}]
+    for b64, mime in content.image.to_base64():
+        blocks.append(
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": mime or "image/png", "data": b64},
+            }
+        )
+    return blocks
+
+
+def gemini_function_response_parts(content: Any) -> list[Any] | None:
+    """FunctionResponse.parts for a tool result's attached image, or None.
+
+    Gemini's FunctionResponse has a dedicated ``parts`` field (separate from
+    the JSON-only ``response`` dict) specifically for multimodal function
+    results — for the google-genai SDK classes, shared by gemini_generate.py
+    and google_vertex.py (both build genai_types.Content directly, unlike
+    google_antigravity.py's raw REST dicts).
+    """
+    if content.image is None:
+        return None
+    from google.genai import types as genai_types
+
+    return [
+        genai_types.FunctionResponsePart(
+            inline_data=genai_types.FunctionResponseBlob(mime_type=mime or "image/png", data=b64)
+        )
+        for b64, mime in content.image.to_base64()
+    ]
+
+
+def openai_responses_function_call_output(content: Any) -> str | list[dict[str, Any]]:
+    """function_call_output 'output' for the Responses/Codex-Responses APIs.
+
+    ``output`` accepts a plain string or a list of input_text/input_image/
+    input_file items — the OpenAI SDK's ResponseFunctionCallOutputItemParam
+    union (same input_image shape used for regular input content).
+    """
+    if content.image is None:
+        return tool_result_text(content)
+    blocks: list[dict[str, Any]] = [{"type": "input_text", "text": tool_result_text(content)}]
+    for b64, mime in content.image.to_base64():
+        url = b64 if b64.startswith("http") else f"data:{mime or 'image/png'};base64,{b64}"
+        blocks.append({"type": "input_image", "image_url": url})
+    return blocks
+
+
+def gemini_function_response_parts_raw(content: Any) -> list[dict[str, Any]] | None:
+    """Like gemini_function_response_parts, but REST-JSON-shaped for google_antigravity.py,
+    which builds raw dicts instead of google-genai SDK objects.
+    """
+    if content.image is None:
+        return None
+    return [
+        {"inlineData": {"mimeType": mime or "image/png", "data": b64}}
+        for b64, mime in content.image.to_base64()
+    ]
 
 
 def has_tool_history(messages: list[dict[str, Any]]) -> bool:
@@ -436,7 +509,7 @@ def anthropic_messages_to_list(
                             {
                                 "type": "tool_result",
                                 "tool_use_id": content.id,
-                                "content": tool_result_text(content),
+                                "content": anthropic_tool_result_content(content),
                                 "is_error": content.is_error,
                             }
                         )

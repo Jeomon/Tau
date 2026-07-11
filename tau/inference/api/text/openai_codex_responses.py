@@ -17,8 +17,8 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     check_strict_tools_supported,
+    openai_responses_function_call_output,
     parse_tool_args,
-    tool_result_text,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -190,7 +190,7 @@ def _messages_to_input(messages: list[LLMMessage]) -> tuple[str, list[dict[str, 
                             {
                                 "type": "function_call_output",
                                 "call_id": content.id,
-                                "output": tool_result_text(content),
+                                "output": openai_responses_function_call_output(content),
                             }
                         )
             case UserMessage() | AssistantMessage():
