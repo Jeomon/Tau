@@ -91,6 +91,18 @@ class InputHandler:
 
     # ── Submit / followup / dequeue ───────────────────────────────────────────
 
+    @staticmethod
+    def _strip_media_markers(text: str) -> str:
+        """Strip resolved [image #N]/[audio:uuid]/[video #N] markers from text bound for the model.
+
+        The LLM already receives the actual media bytes as separate content
+        blocks, so it shouldn't also see the raw bracket placeholder that
+        stood in for them in the input box. Falls back to the original text
+        if stripping would leave nothing (a message that's only a marker).
+        """
+        stripped = re.sub(r"\[(?:image|audio|video)(?::[^\]]+| #\d+)\]", "", text).strip()
+        return stripped if stripped else text
+
     def _notify(self, message: str, type: str = "info") -> None:  # noqa: A002
         import time
         from typing import cast
@@ -162,10 +174,7 @@ class InputHandler:
             self._track_task(asyncio.ensure_future(self._steer(expanded, images, audio, video)))
             return
 
-        # Strip resolved image markers from the text sent to the model so the
-        # LLM doesn't see raw [image:uuid] placeholders alongside actual image bytes.
-        stripped = re.sub(r"\[image(?::[^\]]+| #\d+)\]", "", expanded).strip()
-        model_text = stripped if stripped else expanded
+        model_text = self._strip_media_markers(expanded)
 
         user_msg = UserMessage.with_media(text, images, audio, video)
         self._layout.add_message(user_msg)
@@ -421,7 +430,7 @@ class InputHandler:
         if agent is None:
             return
         try:
-            expanded = self._expand_at_mentions(text)
+            expanded = self._strip_media_markers(self._expand_at_mentions(text))
             msg = self._build_user_message(expanded, images, audio, video)
             await agent._engine.steer(msg)
         except Exception as exc:
@@ -444,10 +453,12 @@ class InputHandler:
             user_msg = self._build_user_message(shown, images, audio, video)
             self._layout.add_message(user_msg)
             self._tui.request_render()
-            await self._invoke(self._expand_at_mentions(text), images, audio, video)
+            model_text = self._strip_media_markers(self._expand_at_mentions(text))
+            await self._invoke(model_text, images, audio, video)
         else:
             try:
-                msg = self._build_user_message(self._expand_at_mentions(text), images, audio, video)
+                expanded = self._strip_media_markers(self._expand_at_mentions(text))
+                msg = self._build_user_message(expanded, images, audio, video)
                 await agent._engine.follow_up(msg)
             except Exception as exc:
                 _log.exception("Error during follow-up")

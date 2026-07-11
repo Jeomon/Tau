@@ -200,6 +200,15 @@ class MessageBlock:
         self._image_lines_cache[key] = (width, show_images, lines)
         return lines
 
+    def _render_media_placeholder(self, label: str, b64: str, mime: str) -> str:
+        """One-line marker for a non-visual media block (audio, video, file).
+
+        There's no terminal-renderable form for these (unlike images), so this
+        is the only indication such a block exists in the message.
+        """
+        size_kb = max(1, len(b64) * 3 // 4 // 1024)
+        return apply_style(self._theme.dim, f"[{label}: {mime}, ~{size_kb}KB]")
+
     @property
     def message(self) -> object:
         return self._message
@@ -299,7 +308,13 @@ class MessageBlock:
     # -------------------------------------------------------------------------
 
     def _render_user(self, msg: Any, width: int) -> list[str]:
-        from tau.message.types import ImageContent, TextContent, UserMessage
+        from tau.message.types import (
+            AudioContent,
+            ImageContent,
+            TextContent,
+            UserMessage,
+            VideoContent,
+        )
 
         if not isinstance(msg, UserMessage):
             return []
@@ -315,6 +330,12 @@ class MessageBlock:
             elif isinstance(item, ImageContent):
                 for i_idx, (b64, mime) in enumerate(item.to_base64()):
                     lines.extend(self._render_image((c_idx, i_idx), b64, mime, inner_width))
+            elif isinstance(item, AudioContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("Audio", b64, mime))
+            elif isinstance(item, VideoContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("Video", b64, mime))
         return lines
 
     def _render_assistant(
@@ -351,7 +372,9 @@ class MessageBlock:
             return lines
 
         # No "assistant" label — the content speaks for itself.
+        from tau.message.types import AudioContent as _AudioContent
         from tau.message.types import ImageContent as _ImageContent
+        from tau.message.types import VideoContent as _VideoContent
 
         for idx, item in enumerate(msg.contents):
             if isinstance(item, ThinkingContent):
@@ -408,16 +431,24 @@ class MessageBlock:
                 for i_idx, (b64, mime) in enumerate(item.to_base64()):
                     lines.extend(self._render_image((idx, i_idx), b64, mime, inner_width))
 
+            elif isinstance(item, _AudioContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("Audio", b64, mime))
+
+            elif isinstance(item, _VideoContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("Video", b64, mime))
+
             elif isinstance(item, ToolCallContent) and t.show_tool_calls:
-                # Separate a tool call from preceding assistant text/image with a
+                # Separate a tool call from preceding assistant text/media with a
                 # blank line so the call block doesn't render flush against the
                 # prose. Thinking blocks already append their own trailing blank,
-                # and consecutive tool calls are spaced below, so only text/image
+                # and consecutive tool calls are spaced below, so only text/media
                 # predecessors need a gap here.
                 prev_item = msg.contents[idx - 1] if idx > 0 else None
                 needs_gap = (
                     isinstance(prev_item, TextContent) and bool(prev_item.content)
-                ) or isinstance(prev_item, _ImageContent)
+                ) or isinstance(prev_item, (_ImageContent, _AudioContent, _VideoContent))
                 if needs_gap and lines:
                     lines.append("")
                 tool = self._tool_lookup(item.name) if self._tool_lookup else None
