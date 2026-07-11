@@ -285,8 +285,17 @@ def parse_tool_args(value: Any) -> dict:
 
 
 def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
-    """Convert user message contents to OpenAI chat format (completions/copilot/mistral)."""
-    from tau.message.types import ImageContent, TextContent
+    """Convert user message contents to OpenAI chat format (completions/copilot/mistral).
+
+    Shared by every "openai_completions"-family provider (OpenAI Completions,
+    GitHub Copilot, OpenAI Vertex, OpenRouter) plus Mistral. AudioContent is
+    only reachable here for models a curator explicitly flagged with
+    Modality.Audio — as of this writing that's a subset of OpenRouter's
+    proxied models (real audio-capable backends like Gemini-via-OpenRouter),
+    not the OpenAI/Copilot/Vertex/Mistral models themselves, none of which
+    currently claim Modality.Audio.
+    """
+    from tau.message.types import AudioContent, ImageContent, TextContent
 
     parts: list[dict[str, Any]] = []
     for item in content_items:
@@ -303,6 +312,15 @@ def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
                     parts.append({"type": "image_url", "image_url": {"url": url}})
                 if item.dimension_note:
                     parts.append({"type": "text", "text": item.dimension_note})
+            case AudioContent():
+                for b64, mime in item.to_base64():
+                    # OpenAI's input_audio only accepts "wav" or "mp3" — map what
+                    # we can detect to those two; anything else defaults to mp3
+                    # (the more common wire format) rather than dropping it.
+                    fmt = "wav" if mime == "audio/wav" else "mp3"
+                    parts.append(
+                        {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
+                    )
     if len(parts) == 1 and parts[0]["type"] == "text":
         return parts[0]["text"]
     return parts

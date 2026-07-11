@@ -1,17 +1,22 @@
-"""Tests for AudioContent wire-format conversion — Gemini only (generate/Vertex/
-Antigravity). Anthropic's API has no audio input support at all, and the
+"""Tests for AudioContent wire-format conversion.
+
+Gemini (generate/Vertex/Antigravity) and openai_user_content (shared by the
+"openai_completions" provider family — reachable in practice only via
+OpenRouter's audio-capable proxied models, see test_model_audio_modality.py)
+both support it. Anthropic's API has no audio input support at all, and the
 OpenAI Codex/Responses models Tau uses explicitly list audio as unsupported
-(gpt-audio/gpt-audio-mini are a separate product line) — so neither gets an
-AudioContent conversion branch, and neither is tested here.
+(gpt-audio/gpt-audio-mini are a separate product line) — neither gets an
+AudioContent conversion branch.
 """
 
 from __future__ import annotations
 
 import base64
 
-from tau.message.types import UserMessage
+from tau.message.types import AudioContent, TextContent, UserMessage
 
 _AUDIO_BYTES = b"ID3" + b"\x00" * 20  # MP3 magic bytes
+_AUDIO_BYTES_WAV = b"RIFF" + b"\x00" * 4 + b"WAVE" + b"\x00" * 20
 
 
 class TestGeminiGenerateAudioContent:
@@ -83,6 +88,44 @@ class TestGoogleAntigravityAudioContent:
         msg = UserMessage.from_text("hello")
         contents = self._convert(msg)
         assert contents == [{"role": "user", "parts": [{"text": "hello"}]}]
+
+
+class TestOpenAIUserContentAudioContent:
+    """openai_user_content is shared by every "openai_completions"-family
+    provider (OpenAI Completions, GitHub Copilot, OpenAI Vertex, OpenRouter)
+    plus Mistral. AudioContent is only reachable here for models explicitly
+    flagged with Modality.Audio — currently a subset of OpenRouter's proxied
+    models, none of Mistral's or the others'.
+    """
+
+    def test_mp3_produces_input_audio_part_with_mp3_format(self):
+        from tau.inference.api.text.utils import openai_user_content
+
+        parts = openai_user_content(
+            [TextContent(content="here is a clip"), AudioContent(audios=[_AUDIO_BYTES])]
+        )
+        assert parts == [
+            {"type": "text", "text": "here is a clip"},
+            {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": base64.b64encode(_AUDIO_BYTES).decode(),
+                    "format": "mp3",
+                },
+            },
+        ]
+
+    def test_wav_produces_input_audio_part_with_wav_format(self):
+        from tau.inference.api.text.utils import openai_user_content
+
+        parts = openai_user_content([AudioContent(audios=[_AUDIO_BYTES_WAV])])
+        assert parts[0]["input_audio"]["format"] == "wav"
+
+    def test_text_only_message_is_unaffected(self):
+        from tau.inference.api.text.utils import openai_user_content
+
+        result = openai_user_content([TextContent(content="hello")])
+        assert result == "hello"
 
 
 class TestAudioContentNotWiredElsewhere:

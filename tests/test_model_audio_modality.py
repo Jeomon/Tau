@@ -1,11 +1,14 @@
 """Tests for Audio-modality curation in tau/builtins/models/text.py.
 
 Modality.Audio is only meaningful where the provider layer actually has an
-AudioContent conversion branch (see test_provider_audio_content.py) —
-exclusively Gemini (generate, Vertex, Antigravity). Anthropic has no audio
-input support in its API at all, and the OpenAI Codex/Responses models Tau
-uses explicitly list audio as unsupported (gpt-audio/gpt-audio-mini are a
-separate product line) — so neither should ever claim Modality.Audio.
+AudioContent conversion branch (see test_provider_audio_content.py): Gemini
+(generate, Vertex, Antigravity) via inline_data, and openai_user_content
+(shared by the "openai_completions" family) via input_audio — reachable in
+practice only through OpenRouter's proxied audio-capable models, since none
+of the OpenAI/Copilot/Vertex/Mistral models themselves are flagged. Anthropic
+has no audio input support in its API at all, and the OpenAI Codex/Responses
+models Tau uses explicitly list audio as unsupported (gpt-audio/gpt-audio-mini
+are a separate product line) — so neither should ever claim Modality.Audio.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 from tau.builtins.models.text import models
 from tau.inference.model.types import Modality
 
-_AUDIO_CAPABLE_PROVIDERS = {"google", "google-vertex", "google-antigravity"}
+_AUDIO_CAPABLE_PROVIDERS = {"google", "google-vertex", "google-antigravity", "openrouter"}
 
 # Providers that must NOT have audio, including the two other File-capable
 # families (Anthropic, OpenAI Codex) to make the distinction explicit — File
@@ -53,6 +56,15 @@ class TestAudioCapableProviders:
             if m.id.startswith("gemini"):
                 assert Modality.Audio in m.input, f"{m.id} (google-antigravity) is missing Audio"
 
+    def test_openrouter_has_some_but_not_all_audio_capable_models(self):
+        # openrouter proxies hundreds of unrelated models — only a subset are
+        # genuinely audio-capable backends (already curated before this
+        # session). Confirms that subset exists and isn't the whole list.
+        openrouter_models = _models_by_provider("openrouter")
+        with_audio = [m for m in openrouter_models if Modality.Audio in m.input]
+        assert with_audio, "expected at least one audio-capable openrouter model"
+        assert len(with_audio) < len(openrouter_models)
+
 
 class TestNonAudioCapableProvidersUnaffected:
     def test_present_non_audio_providers_have_no_audio_modality(self):
@@ -68,20 +80,9 @@ class TestNonAudioCapableProvidersUnaffected:
     def test_no_untracked_provider_declares_audio(self):
         """Catch a new model accidentally getting Audio support without a
         matching provider-layer AudioContent branch (see test_provider_audio_content.py).
-
-        "openrouter" is a known, pre-existing exception (predates this
-        session's changes): dozens of its models — including proxied Gemini
-        models — already claim Modality.Audio, but openrouter shares
-        openai_messages_to_chat with the rest of the Chat-Completions family,
-        which has zero AudioContent handling. That's a real, separate gap
-        (audio silently dropped for those models today), out of scope here —
-        this test only guards the providers this session actually touched.
         """
-        known_pre_existing_gap = {"openrouter"}
         unexpected = sorted(
-            {m.provider for m in models if Modality.Audio in m.input}
-            - _AUDIO_CAPABLE_PROVIDERS
-            - known_pre_existing_gap
+            {m.provider for m in models if Modality.Audio in m.input} - _AUDIO_CAPABLE_PROVIDERS
         )
         assert unexpected == []
 
