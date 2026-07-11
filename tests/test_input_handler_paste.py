@@ -1,6 +1,6 @@
 """Tests for tau/modes/interactive/input_handler.py — paste marker round-trips.
 
-Covers the [paste #N], [image/audio/video #N], and persistent [type:uuid]
+Covers the [paste #N], [image/audio/video/file #N], and persistent [type:uuid]
 marker contracts: insertion, expansion/extraction on submit, and rewriting
 into history. Constructs a bare InputHandler (bypassing __init__, which needs
 a live Runtime/Layout/TUI) and only sets the attributes each method touches.
@@ -26,10 +26,16 @@ def make_handler() -> InputHandler:
     h._clipboard_audio_counter = 0
     h._clipboard_video = {}
     h._clipboard_video_counter = 0
+    h._clipboard_files = {}
+    h._clipboard_file_counter = 0
     h._layout = MagicMock()
     h._layout.input.text = ""
     h._layout.input._cursor = 0
     h._tui = MagicMock()
+    # Only touched by _paste_file/_store_clipboard_*, which route media dir
+    # writes through fully-mocked attributes — no real disk I/O occurs unless
+    # a test explicitly points session_dir at a real tmp_path.
+    h._runtime = MagicMock()
     return h
 
 
@@ -176,6 +182,47 @@ class TestAudioVideoPasteMarker:
         assert audio == [b"OLDAUDIO"]
 
 
+class TestFilePasteMarker:
+    def test_extract_clipboard_file_reads_bytes(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "report.pdf"
+        p.write_bytes(b"%PDF-DATA")
+        h._clipboard_files[1] = ("uuid-f", str(p))
+
+        file = h._extract_clipboard_file("[file #1]")
+        assert file == [b"%PDF-DATA"]
+        assert h._clipboard_files == {}
+        assert h._clipboard_file_counter == 0
+
+    def test_extract_deduplicates_repeated_marker(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "report.pdf"
+        p.write_bytes(b"%PDF-DATA")
+        h._clipboard_files[1] = ("uuid-f", str(p))
+
+        file = h._extract_clipboard_file("[file #1] and again [file #1]")
+        assert file == [b"%PDF-DATA"]
+
+    def test_extract_skips_unknown_index(self):
+        h = make_handler()
+        assert h._extract_clipboard_file("[file #99]") == []
+
+    def test_extract_file_persistent_uuid_marker(self, tmp_path, monkeypatch):
+        h = make_handler()
+        p = tmp_path / "old.pdf"
+        p.write_bytes(b"OLDPDF")
+        monkeypatch.setattr(h, "_find_media_by_uuid", lambda uid: p if uid == "abc" else None)
+
+        file = h._extract_clipboard_file("[file:abc]")
+        assert file == [b"OLDPDF"]
+
+    def test_extract_persistent_uuid_marker_missing_is_skipped(self, monkeypatch):
+        h = make_handler()
+        monkeypatch.setattr(h, "_find_media_by_uuid", lambda _uid: None)
+
+        assert h._extract_clipboard_file("[file:gone]") == []
+
+
 class TestTransformForHistory:
     def test_rewrites_image_marker_to_persistent_uuid(self):
         h = make_handler()
@@ -192,6 +239,13 @@ class TestTransformForHistory:
         result = h._transform_for_history("[audio #1] then [video #2]")
         assert result == "[audio:uuid-a] then [video:uuid-v]"
 
+    def test_rewrites_file_marker_to_persistent_uuid(self):
+        h = make_handler()
+        h._clipboard_files[1] = ("uuid-f", "/media/uuid-f.pdf")
+
+        result = h._transform_for_history("report: [file #1]")
+        assert result == "report: [file:uuid-f]"
+
     def test_drops_marker_for_unknown_index(self):
         h = make_handler()
         result = h._transform_for_history("orphan [image #5] marker")
@@ -206,6 +260,128 @@ class TestTransformForHistory:
         h = make_handler()
         result = h._transform_for_history("  [paste #1 +10 lines]  ")
         assert result == ""
+
+
+class TestStripMediaMarkers:
+    def test_strips_all_four_marker_kinds(self):
+        h = make_handler()
+        text = "see [image #1] and [audio:uuid1] and [video #2] and [file:uuid2]"
+        stripped = h._strip_media_markers(text)
+        assert "[image" not in stripped
+        assert "[audio" not in stripped
+        assert "[video" not in stripped
+        assert "[file" not in stripped
+
+    def test_leaves_plain_text_untouched(self):
+        h = make_handler()
+        assert h._strip_media_markers("just plain text") == "just plain text"
+
+    def test_falls_back_to_original_when_stripping_leaves_nothing(self):
+        h = make_handler()
+        assert h._strip_media_markers("[file #1]") == "[file #1]"
+
+    def test_preserves_surrounding_words(self):
+        h = make_handler()
+        assert h._strip_media_markers("before [file #1] after") == "before  after"
+
+
+class TestPasteFileRouting:
+    """Covers the _paste_file bug fix: a non-audio/video/image file (PDF,
+    DOCX, ...) used to fall through to the image store and fail with a
+    misleading "could not store image" error. It must now route to the
+    dedicated file store, while real images/audio/video keep working.
+    """
+
+    def test_pdf_routes_to_file_store_not_image(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "report.pdf"
+        p.write_bytes(b"%PDF-1.4 fake pdf")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_files, "PDF should be stored as a file"
+        assert not h._clipboard_images, "PDF must not be stored as an image"
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        assert marker.startswith("[file #")
+
+    def test_docx_routes_to_file_store(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "notes.docx"
+        p.write_bytes(b"PK\x03\x04fakedocx")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_files
+        assert not h._clipboard_images
+
+    def test_unknown_extension_routes_to_file_store(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "data.xyz123"
+        p.write_bytes(b"whatever")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_files
+        assert not h._clipboard_images
+
+    def test_known_image_suffix_routes_to_image_store(self, tmp_path, monkeypatch):
+        h = make_handler()
+        # Bypass real PIL decoding — only the routing decision is under test.
+        monkeypatch.setattr(
+            "tau.utils.image_processing.process_image",
+            lambda raw, auto_resize=True: type(
+                "R",
+                (),
+                {"data": raw, "mime_type": "image/png", "dimension_note": lambda self: None},
+            )(),
+        )
+        p = tmp_path / "photo.png"
+        p.write_bytes(b"fakepngbytes")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_images, "known image suffix should route to the image store"
+        assert not h._clipboard_files
+
+    def test_audio_suffix_still_routes_to_audio_store(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fakeaudio")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_audio
+        assert not h._clipboard_files
+
+    def test_video_suffix_still_routes_to_video_store(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "clip.mp4"
+        p.write_bytes(b"fakevideobytes")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_video
+        assert not h._clipboard_files
+
+    def test_extensionless_path_routes_to_image_store(self, tmp_path, monkeypatch):
+        # Preserves the pre-fix fallback for extensionless clipboard grabs
+        # (e.g. a screenshot saved without a suffix).
+        monkeypatch.setattr(
+            "tau.utils.image_processing.process_image",
+            lambda raw, auto_resize=True: type(
+                "R",
+                (),
+                {"data": raw, "mime_type": "image/png", "dimension_note": lambda self: None},
+            )(),
+        )
+        h = make_handler()
+        p = tmp_path / "noext"
+        p.write_bytes(b"fakepngbytes")
+
+        h._paste_file(str(p))
+
+        assert h._clipboard_images
+        assert not h._clipboard_files
 
 
 class TestSanitizePaste:

@@ -46,6 +46,7 @@ from tau.inference.types import (
 )
 from tau.message.types import (
     AssistantMessage,
+    FileContent,
     ImageContent,
     LLMMessage,
     SystemMessage,
@@ -253,6 +254,9 @@ def _messages_to_contents(
                                 parts.append(
                                     {"inlineData": {"mimeType": mime or "image/png", "data": b64}}
                                 )
+                        case FileContent():
+                            for b64, mime in item.to_base64():
+                                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
                 if parts:
                     raw.append({"role": "user", "parts": parts})
             case AssistantMessage():

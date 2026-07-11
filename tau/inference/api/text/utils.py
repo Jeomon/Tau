@@ -415,6 +415,7 @@ def anthropic_messages_to_list(
     """
     from tau.message.types import (
         AssistantMessage,
+        FileContent,
         ImageContent,
         SystemMessage,
         TextContent,
@@ -437,6 +438,7 @@ def anthropic_messages_to_list(
                 parts: list[dict[str, Any]] = []
                 has_text = False
                 has_image = False
+                has_file = False
                 for item in msg.contents:
                     match item:
                         case TextContent():
@@ -457,8 +459,22 @@ def anthropic_messages_to_list(
                                 )
                             if item.dimension_note:
                                 parts.append({"type": "text", "text": item.dimension_note})
-                if has_image and not has_text:
-                    parts.append({"type": "text", "text": "(see attached image)"})
+                        case FileContent():
+                            has_file = True
+                            for b64, mime in item.to_base64():
+                                parts.append(
+                                    {
+                                        "type": "document",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": mime,
+                                            "data": b64,
+                                        },
+                                    }
+                                )
+                if (has_image or has_file) and not has_text:
+                    label = "image" if has_image and not has_file else "file"
+                    parts.append({"type": "text", "text": f"(see attached {label})"})
                 result.append({"role": "user", "content": parts})
             case AssistantMessage():
                 parts = []

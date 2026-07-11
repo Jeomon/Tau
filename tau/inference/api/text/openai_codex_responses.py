@@ -44,6 +44,7 @@ from tau.inference.types import (
 )
 from tau.message.types import (
     AssistantMessage,
+    FileContent,
     ImageContent,
     LLMMessage,
     SystemMessage,
@@ -170,6 +171,9 @@ def _content_to_input(content_items: list, role: str) -> list[dict[str, Any]]:
                         else f"data:{mime or 'image/png'};base64,{b64}"
                     )
                     parts.append({"type": "input_image", "image_url": url})
+            case FileContent():
+                for b64, mime in item.to_base64():
+                    parts.append({"type": "input_file", "file_data": f"data:{mime};base64,{b64}"})
     return parts
 
 

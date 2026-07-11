@@ -3,6 +3,13 @@ from tau.inference.model.types import Cost, Modality, Model
 _TEXT = [Modality.Text]
 _TEXT_IMAGE = [Modality.Text, Modality.Image]
 _TEXT_IMAGE_VIDEO = [Modality.Text, Modality.Image, Modality.Video]
+# File (PDF/DOCX/XLSX/...) support is only wired at the provider layer for
+# Anthropic, Gemini, and OpenAI Codex Responses — see anthropic_messages_to_list,
+# the gemini_generate/google_vertex/google_antigravity FileContent branches, and
+# openai_codex_responses._content_to_input. Other providers' tool/user content
+# shapes don't have a document block, so File isn't added to their model lists.
+_TEXT_IMAGE_FILE = [Modality.Text, Modality.Image, Modality.File]
+_TEXT_IMAGE_VIDEO_FILE = [Modality.Text, Modality.Image, Modality.Video, Modality.File]
 
 models = [
     # OpenAI Codex (OAuth). context_window = total window; max_input_tokens = prompt
@@ -18,7 +25,7 @@ models = [
         thinking=True,
         context_window=500_000,
         max_input_tokens=372_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -29,7 +36,7 @@ models = [
         thinking=True,
         context_window=500_000,
         max_input_tokens=372_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -40,7 +47,7 @@ models = [
         thinking=True,
         context_window=500_000,
         max_input_tokens=372_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -51,7 +58,7 @@ models = [
         thinking=True,
         context_window=400_000,
         max_input_tokens=272_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -62,7 +69,7 @@ models = [
         thinking=True,
         context_window=400_000,
         max_input_tokens=272_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -73,7 +80,7 @@ models = [
         thinking=True,
         context_window=400_000,
         max_input_tokens=272_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -84,7 +91,7 @@ models = [
         thinking=True,
         context_window=400_000,
         max_input_tokens=272_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -95,7 +102,7 @@ models = [
         thinking=True,
         context_window=128_000,
         max_input_tokens=100_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -106,7 +113,7 @@ models = [
         thinking=True,
         context_window=400_000,
         max_input_tokens=272_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     # Anthropic Claude Code (OAuth)
@@ -117,7 +124,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -127,7 +134,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -137,7 +144,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -147,7 +154,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -157,7 +164,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -167,7 +174,7 @@ models = [
         cost=Cost(),
         thinking=True,
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -176,7 +183,7 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     # Google Antigravity (OAuth — free IDE quota)
@@ -188,7 +195,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -199,7 +206,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -210,7 +217,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -220,7 +227,7 @@ models = [
         cost=Cost(),
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -231,7 +238,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -242,7 +249,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -252,7 +259,7 @@ models = [
         cost=Cost(),
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -263,7 +270,7 @@ models = [
         thinking=True,
         context_window=250_000,
         max_output_tokens=64_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -274,18 +281,7 @@ models = [
         thinking=True,
         context_window=250_000,
         max_output_tokens=64_000,
-        input=_TEXT_IMAGE,
-        output=_TEXT,
-    ),
-    Model(
-        id="gpt-oss-120b-medium",
-        name="GPT-OSS 120B (Medium)",
-        provider="google-antigravity",
-        cost=Cost(),
-        thinking=True,
-        context_window=131_072,
-        max_output_tokens=32_768,
-        input=_TEXT,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     # Google AI Studio (Gemini Developer API — API key)
@@ -297,7 +293,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -308,7 +304,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -319,7 +315,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -330,7 +326,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -341,7 +337,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -351,7 +347,7 @@ models = [
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     # Google Vertex AI (GCP — API key or ADC)
@@ -362,7 +358,7 @@ models = [
         cost=Cost(input=2.0, output=12.0, cache_read=0.2),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -372,7 +368,7 @@ models = [
         cost=Cost(input=1.5, output=9.0, cache_read=0.15),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -382,7 +378,7 @@ models = [
         cost=Cost(input=0.5, output=3.0, cache_read=0.05),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -391,7 +387,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.25, output=1.5, cache_read=0.025),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -401,7 +397,7 @@ models = [
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -411,7 +407,7 @@ models = [
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -420,7 +416,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -429,7 +425,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.15, output=0.60),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -438,7 +434,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.075, output=0.30),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO,
+        input=_TEXT_IMAGE_VIDEO_FILE,
         output=_TEXT,
     ),
     # Anthropic on Vertex AI (GCP ADC auth)
@@ -449,7 +445,7 @@ models = [
         cost=Cost(input=10.0, output=50.0, cache_read=1.0),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -459,7 +455,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -469,7 +465,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -479,7 +475,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -489,7 +485,7 @@ models = [
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -499,7 +495,7 @@ models = [
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -509,7 +505,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -518,7 +514,7 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -527,7 +523,7 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10),
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     # OpenAI-compatible models on Vertex AI (Meta, Mistral — GCP ADC auth)
@@ -737,7 +733,7 @@ models = [
         cost=Cost(input=10.0, output=50.0, cache_read=1.0, cache_write=12.5),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -747,7 +743,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -757,7 +753,7 @@ models = [
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -768,7 +764,7 @@ models = [
         cost=Cost(input=2.0, output=10.0, cache_read=0.20, cache_write=2.5),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -778,7 +774,7 @@ models = [
         cost=Cost(input=3.0, output=15.0, cache_read=0.30, cache_write=3.75),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     Model(
@@ -787,7 +783,7 @@ models = [
         provider="anthropic",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10, cache_write=1.25),
         context_window=200_000,
-        input=_TEXT_IMAGE,
+        input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
     # NVIDIA NIM
