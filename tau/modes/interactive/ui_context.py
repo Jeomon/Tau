@@ -524,13 +524,11 @@ class UIContext:
     def notify(self, message: str | list[str], type: str = "info") -> None:  # noqa: A002
         """Show an inline system notification in the message list.
 
-        Pass a str for plain text or a list[str] of pre-rendered lines to get
-        the same └ framing used by tool results (apply_render_shell).
-
-        Usage::
-
-            ctx.ui.notify("Done!")
-            ctx.ui.notify(["connected", "  pyright  (./)"])
+        Pass a str for plain text or a list[str] of pre-rendered lines; either
+        way this renders with the same └ framing used by tool results
+        (apply_render_shell), followed by a blank line — matching
+        CommandContext.notify() and Runtime.notify(), the other two
+        "post a system note" implementations in the app.
         """
         layout = self._layout()
         if layout is None:
@@ -541,15 +539,14 @@ class UIContext:
         from tau.message.types import CustomMessage, ImageContent, LinesContent, TextContent
 
         custom_type = "tool" if type == "tool" else "system"
-        _contents: list[TextContent | ImageContent | LinesContent] = (
-            [LinesContent(lines=message, notify_type=type)]
-            if isinstance(message, list)
-            else [TextContent(content=message)]
-        )
+        lines = message if isinstance(message, list) else message.splitlines()
         msg = CustomMessage(
             custom_type=custom_type,
             timestamp=time.time(),
-            contents=cast(list[TextContent | ImageContent | LinesContent], _contents),
+            contents=cast(
+                list[TextContent | ImageContent | LinesContent],
+                [LinesContent(lines=[*lines, ""], notify_type=type)],
+            ),
         )
         layout.add_message(msg)
         layout._tui.request_render()

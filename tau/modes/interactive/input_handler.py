@@ -105,19 +105,28 @@ class InputHandler:
         stripped = re.sub(r"\[(?:image|audio|video|file)(?::[^\]]+| #\d+)\]", "", text).strip()
         return stripped if stripped else text
 
-    def _notify(self, message: str, type: str = "info") -> None:  # noqa: A002
+    def _notify(self, message: str | list[str], type: str = "info") -> None:  # noqa: A002
+        """Show an inline system notification in the message list.
+
+        Pass a str for plain text, or a list[str] of pre-rendered lines to get
+        the same └ framing used by tool results (apply_render_shell) — a
+        trailing "" entry renders as a blank line after the notification.
+        """
         import time
         from typing import cast
 
         from tau.message.types import CustomMessage, ImageContent, LinesContent, TextContent
 
         custom_type = "tool" if type == "tool" else "system"
+        contents: list[TextContent | ImageContent | LinesContent] = (
+            [LinesContent(lines=message, notify_type=type)]
+            if isinstance(message, list)
+            else [TextContent(content=message)]
+        )
         msg = CustomMessage(
             custom_type=custom_type,
             timestamp=time.time(),
-            contents=cast(
-                list[TextContent | ImageContent | LinesContent], [TextContent(content=message)]
-            ),
+            contents=cast(list[TextContent | ImageContent | LinesContent], contents),
         )
         self._layout.add_message(msg)
         self._tui.request_render()
@@ -142,8 +151,7 @@ class InputHandler:
 
         user_msg = UserMessage.with_media(text, images, audio, video, file)
         self._layout.add_message(user_msg)
-        self._notify(reason, type="error")
-        self._tui.request_render()
+        self._notify([reason, ""], type="error")
 
     def _on_submit(self, text: str) -> None:
         from tau.message.types import UserMessage
