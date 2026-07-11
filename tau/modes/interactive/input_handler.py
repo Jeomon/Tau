@@ -524,23 +524,42 @@ class InputHandler:
             _log.debug("Failed to paste file %r", src_path, exc_info=True)
 
     def _on_paste(self) -> None:
-        import io
+        """Handle Ctrl+V: read the OS clipboard directly (image or file paths).
 
+        Uses pyxclip — unlike PIL's ImageGrab.grabclipboard(), which can only
+        ever return an image or None on macOS (no file-list support there,
+        unlike Windows), pyxclip reads file references natively on Windows,
+        macOS, and Linux through a single cross-platform API.
+        """
         try:
-            from PIL import ImageGrab
+            import pyxclip
 
-            item = ImageGrab.grabclipboard()
-            if item is None:
-                return
-            if isinstance(item, list):
-                for p in item:
-                    self._paste_file(str(p))
-                return
+            item = pyxclip.paste()
+        except Exception:
+            _log.debug("Clipboard read failed", exc_info=True)
+            return
+
+        if isinstance(item, list):
+            for p in item:
+                self._paste_file(str(p))
+        elif isinstance(item, dict):
+            self._store_pyxclip_image(item)
+        # A plain str (text) result isn't this handler's concern — Ctrl+V of
+        # text doesn't reach here in practice, but there's nothing to do if it does.
+
+    def _store_pyxclip_image(self, item: dict) -> None:
+        """Convert pyxclip's raw RGBA clipboard image into a stored PNG."""
+        try:
+            import io
+
+            from PIL import Image
+
+            img = Image.frombytes("RGBA", (item["width"], item["height"]), item["bytes"])
             buf = io.BytesIO()
-            item.save(buf, format="PNG")
+            img.save(buf, format="PNG")
             self._store_clipboard_image(buf.getvalue(), ".png")
         except Exception:
-            _log.debug("Clipboard image grab failed", exc_info=True)
+            _log.debug("Failed to convert pyxclip image data to PNG", exc_info=True)
 
     def _get_media_dir(self) -> Path:
         sm = self._runtime.session_manager
@@ -786,10 +805,38 @@ class InputHandler:
                 text = " " + text
         return text
 
+    def _detect_pasted_file_path(self, text: str) -> str | None:
+        """If the pasted text is exactly one existing file's path, return it.
+
+        macOS has no clipboard signal Tau can read to distinguish "paste a
+        file" from "paste text": Finder's Cmd+C + Cmd+V and drag-and-drop
+        onto the terminal both surface as a plain-text bracketed paste of the
+        file's path (Ctrl+V's ImageGrab.grabclipboard() route only ever
+        returns real image data or None on macOS — Pillow has no file-list
+        support there, unlike Windows). So a bare, whole-paste path that
+        resolves to a real file is treated as a file paste instead of literal
+        text — matching what the user actually did.
+        """
+        if "\n" in text:
+            return None
+        candidate = text.strip()
+        if not candidate or candidate[0] not in ("/", "~"):
+            return None
+        path = Path(candidate).expanduser()
+        if not path.is_file():
+            return None
+        return str(path)
+
     def _on_paste_text(self, text: str) -> None:
         text = self._sanitize_paste(text)
         if not text:
             return
+
+        file_path = self._detect_pasted_file_path(text)
+        if file_path is not None:
+            self._paste_file(file_path)
+            return
+
         lines = text.split("\n")
         if len(lines) > self._LARGE_PASTE_LINES or len(text) > self._LARGE_PASTE_CHARS:
             self._paste_counter += 1

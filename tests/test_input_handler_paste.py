@@ -285,6 +285,74 @@ class TestStripMediaMarkers:
         assert h._strip_media_markers("before [file #1] after") == "before  after"
 
 
+class TestDetectPastedFilePath:
+    """Covers the macOS clipboard-file gap: Pillow's ImageGrab.grabclipboard()
+    can only ever return an Image or None on macOS (no file-list support,
+    unlike Windows), so Ctrl+V of a Finder-copied file always returns None.
+    The *only* signal Tau actually receives for a copied/dragged file on
+    macOS is a plain-text bracketed paste of its path — so _on_paste_text
+    must detect that shape and route it through _paste_file instead of
+    inserting it as literal text.
+    """
+
+    def test_bare_existing_path_is_detected(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fake")
+        assert h._detect_pasted_file_path(str(p)) == str(p)
+
+    def test_tilde_path_is_expanded_and_detected(self, tmp_path, monkeypatch):
+        h = make_handler()
+        monkeypatch.setenv("HOME", str(tmp_path))
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fake")
+        assert h._detect_pasted_file_path("~/clip.mp3") == str(p)
+
+    def test_nonexistent_path_returns_none(self):
+        h = make_handler()
+        assert h._detect_pasted_file_path("/definitely/not/a/real/path.mp3") is None
+
+    def test_relative_looking_text_returns_none(self):
+        h = make_handler()
+        assert h._detect_pasted_file_path("some/relative/thing") is None
+
+    def test_plain_prose_returns_none(self):
+        h = make_handler()
+        assert h._detect_pasted_file_path("just some pasted text") is None
+
+    def test_sentence_containing_a_path_returns_none(self):
+        # Only a *bare* whole-paste path counts — a path mentioned inside
+        # ordinary text must still be treated as literal text.
+        h = make_handler()
+        assert h._detect_pasted_file_path("check /etc/hosts please") is None
+
+    def test_multiline_text_returns_none(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fake")
+        assert h._detect_pasted_file_path(f"{p}\nsecond line") is None
+
+    def test_directory_path_returns_none(self, tmp_path):
+        h = make_handler()
+        assert h._detect_pasted_file_path(str(tmp_path)) is None
+
+    def test_on_paste_text_routes_bare_file_path_through_paste_file(self, tmp_path):
+        h = make_handler()
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fake")
+
+        h._on_paste_text(str(p))
+
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        assert marker == "[audio #1]"
+        assert h._clipboard_audio
+
+    def test_on_paste_text_still_inserts_plain_text_normally(self):
+        h = make_handler()
+        h._on_paste_text("just some pasted text")
+        h._layout.input.insert_at_cursor.assert_called_once_with("just some pasted text")
+
+
 class TestPasteFileRouting:
     """Covers the _paste_file bug fix: a non-audio/video/image file (PDF,
     DOCX, ...) used to fall through to the image store and fail with a

@@ -1112,6 +1112,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pyxclip"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/73/37811428a0762c97c688864f1115fb83c4428a725308c83b0f48f3912570/pyxclip-0.2.3.tar.gz", hash = "sha256:3fbb12b9e33c46c143d5a19312599f635b1db97e828ea3174934ebbfb3acb557", size = 17926, upload-time = "2026-03-22T10:12:29.722Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/9c/652271f602703c810870ccf9d643a3d8879761291a84d2ec9ed3d76684c6/pyxclip-0.2.3-cp313-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c859fa34d05ab463a9e5a872a8b3308a8f352824c1ff9815eb41f244e460d57e", size = 401987, upload-time = "2026-03-22T10:12:21.46Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/a6/27dfd81625606a5e3f5003b8b4ef22122358cd6a4111172a1df1da0d2224/pyxclip-0.2.3-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:5532effc21de6999e543eae825398be9c99f8443d396dee58c1a7784e23e1b43", size = 382842, upload-time = "2026-03-22T10:12:23.357Z" },
+    { url = "https://files.pythonhosted.org/packages/68/c9/f55c237935a418dab196394a807ffe3a5dd849949c8aa269fdb94f0f83b2/pyxclip-0.2.3-cp313-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a3b38b03a41145d532d28f34ef8959abaddf06edbc2ca1913824e9b2f171cc75", size = 705815, upload-time = "2026-03-22T10:12:25.198Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/4a/2f1ba1573cda6d47197658b917c043aad576f60a0af45ab3979ca7595ff9/pyxclip-0.2.3-cp313-abi3-win_amd64.whl", hash = "sha256:7fe21acafdb3425feaf9f4d55ea54a464ebad67ae9eee4311ea5604641ba2c09", size = 292200, upload-time = "2026-03-22T10:12:26.562Z" },
+    { url = "https://files.pythonhosted.org/packages/51/45/8fafd22234c3087151461c8cfd889a30c775fb6c266d01f17024ecc25c4b/pyxclip-0.2.3-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:892d99a582496bd3bcf4fe1ccba8f8b4bfff86c4c642a9a220cb0b5e4c0ab862", size = 715798, upload-time = "2026-03-22T10:12:28.284Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1392,6 +1405,7 @@ dependencies = [
     { name = "pygments" },
     { name = "pylatexenc" },
     { name = "python-dotenv" },
+    { name = "pyxclip" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
     { name = "tiktoken" },
@@ -1436,6 +1450,7 @@ requires-dist = [
     { name = "pygments", specifier = "==2.20.0" },
     { name = "pylatexenc", specifier = "==2.10" },
     { name = "python-dotenv", specifier = "==1.2.2" },
+    { name = "pyxclip", specifier = "==0.2.3" },
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "rapidfuzz", specifier = "==3.14.3" },
     { name = "ripgrep", marker = "extra == 'tools'", specifier = ">=14.0.0" },
