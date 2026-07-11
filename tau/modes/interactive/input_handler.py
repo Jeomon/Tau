@@ -122,6 +122,29 @@ class InputHandler:
         self._layout.add_message(msg)
         self._tui.request_render()
 
+    def _show_blocked_message(
+        self,
+        text: str,
+        images: list[bytes],
+        audio: list[bytes],
+        video: list[bytes],
+        file: list[bytes],
+        reason: str,
+    ) -> None:
+        """Display a message blocked by a modality gate, then the error.
+
+        ``add_message`` is a pure UI operation with no session-persistence
+        side effect, so showing the attempted message (with its media
+        placeholder) here is safe: it never reaches ``_invoke``/``_steer``,
+        so nothing is sent to the model or written to the session file.
+        """
+        from tau.message.types import UserMessage
+
+        user_msg = UserMessage.with_media(text, images, audio, video, file)
+        self._layout.add_message(user_msg)
+        self._notify(reason, type="error")
+        self._tui.request_render()
+
     def _on_submit(self, text: str) -> None:
         from tau.message.types import UserMessage
 
@@ -164,17 +187,28 @@ class InputHandler:
 
             model = getattr(getattr(agent._engine, "llm", None), "model", None)
             if model is not None:
-                if images and Modality.Image not in model.input:
-                    self._notify(f"Image modality is not supported by {model.name}.", type="error")
-                    return
-                if audio and Modality.Audio not in model.input:
-                    self._notify(f"Audio modality is not supported by {model.name}.", type="error")
-                    return
-                if video and Modality.Video not in model.input:
-                    self._notify(f"Video modality is not supported by {model.name}.", type="error")
-                    return
-                if file and Modality.File not in model.input:
-                    self._notify(f"File modality is not supported by {model.name}.", type="error")
+                attempted = [
+                    (Modality.Image, "Image", bool(images)),
+                    (Modality.Audio, "Audio", bool(audio)),
+                    (Modality.Video, "Video", bool(video)),
+                    (Modality.File, "File", bool(file)),
+                ]
+                unsupported = [
+                    label for modality, label, present in attempted
+                    if present and modality not in model.input
+                ]
+                if unsupported:
+                    supported = [
+                        label for modality, label, _ in attempted if modality in model.input
+                    ]
+                    verb = "is" if len(unsupported) == 1 else "are"
+                    reason = (
+                        f"{model.name} supports only {', '.join(supported)}. "
+                        f"{', '.join(unsupported)} {verb} not supported."
+                        if supported
+                        else f"{model.name} does not support any media modalities."
+                    )
+                    self._show_blocked_message(text, images, audio, video, file, reason)
                     return
 
         if agent is not None and not agent.is_idle():
