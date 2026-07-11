@@ -2,6 +2,30 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.5 — 2026-07-11
+
+### Added
+
+-   Add multimodal support for images, audio, video, and file attachments in both user messages and tool results, wired through Anthropic, Gemini (`gemini_generate`, `google_vertex`, `google_antigravity`), and OpenAI Codex Responses with per-provider wire-format conversion, and `Modality.File`/`Modality.Audio` curated per model against real per-provider capability research
+-   Add cross-platform clipboard paste for images, audio, video, and file attachments via the `pyxclip` library (Ctrl+V) — replacing the prior Pillow-only, image-only clipboard path, which could never read file references on macOS — plus bare-file-path detection for the Cmd+V-via-terminal-paste case
+-   Add audio input support for OpenRouter's proxied audio-capable models via `openai_user_content`
+-   Show the user's attempted message in the transcript (with its media placeholder) when attached media isn't supported by the active model, naming exactly which modalities the model does and doesn't support, instead of silently discarding the message with only an error notification
+-   Add a `--base-url` non-persistent CLI flag to override provider endpoints for a single run
+-   Add a `todo` extension with an ephemeral status board and agent state injection
+-   Add auto-discovery of local Ollama, LM Studio, vLLM, and llama.cpp models at startup
+-   Add support for OpenAI Codex Responses Lite models with UUIDv7 session affinity and request reformatting
+
+### Changed
+
+-   Refactor tool-result formatting across providers to support multimodal (image/audio/video) tool results generically instead of provider-specific one-offs
+-   Standardize system notifications — `/reload`, `/compact`, extension notifications, and TUI input-handler errors — to always include consistent trailing blank-line spacing, matching the behavior slash commands like `/model` already had
+-   Update system prompts to enforce evidence-based responses and clarify multi-message handling logic
+
+### Fixed
+
+-   Fix `AudioContent`/`VideoContent`/`FileContent` crashing session persistence on real binary data, and a follow-up double-base64-encoding bug on session reload caused by union-type member ordering
+-   Fix PDF/DOCX/XLSX/PPTX attachments being mis-routed to the image store and crashing on paste
+
 ## 0.7.4 — 2026-07-10
 
 ### Changed
