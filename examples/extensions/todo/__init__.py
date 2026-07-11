@@ -6,9 +6,9 @@ rebuilt by replaying the session's custom entries (so it naturally follows
 branch/fork navigation), plus a `/todos` command for a quick look.
 
 The task list itself is surfaced through a board widget above the input box
-rather than the tool call/result in the transcript — the board only appears
-while there is at least one pending task, and disappears once the list is
-empty or fully done.
+rather than the tool call/result in the transcript — the board appears as
+soon as a task exists and stays up (showing done/failed tasks too) until the
+list is explicitly cleared or every task is deleted.
 """
 
 from __future__ import annotations
@@ -81,8 +81,7 @@ class TodoBoard:
         ui = ctx.ui
         if ui is None:
             return
-        pending = self._state.remaining()
-        if not pending:
+        if not self._state.items:
             if self._shown:
                 ui.remove_widget(WIDGET_KEY)
                 self._shown = False
