@@ -10,7 +10,6 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
     openai_responses_function_call_output,
     parse_tool_args,
-    strict_json_schema,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -232,9 +231,6 @@ class OpenAIResponsesAPI(BaseAPI):
                     "description": tool.description,
                     "parameters": schema,
                 }
-                if tool.strict:
-                    tool_def["parameters"] = strict_json_schema(schema)
-                    tool_def["strict"] = True
                 tool_defs.append(tool_def)
             params["tools"] = tool_defs
 

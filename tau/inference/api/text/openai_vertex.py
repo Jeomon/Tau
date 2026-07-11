@@ -9,7 +9,6 @@ from openai import AsyncOpenAI
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
-    check_strict_tools_supported,
     openai_messages_to_chat,
     openai_response_format,
     parse_tool_args,
@@ -163,7 +162,6 @@ class OpenAIVertexAPI(BaseAPI):
         if self.options.max_tokens is not None:
             params["max_completion_tokens"] = self.options.max_tokens
 
-        check_strict_tools_supported(tools)
         if tools:
             params["tools"] = [
                 {

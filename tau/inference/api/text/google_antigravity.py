@@ -18,7 +18,6 @@ import httpx
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
-    check_strict_tools_supported,
     gemini_function_response_parts_raw,
     gemini_tool_schema,
     parse_tool_args,
@@ -424,7 +423,6 @@ class GoogleAntigravityAPI(BaseAPI):
         inside `items`/`anyOf`/`oneOf`/`allOf`, which Gemini tolerates but
         Claude does not — so the fix has to walk the whole tree, not just the root.
         """
-        check_strict_tools_supported(tools)
         is_claude = "claude" in model_id
         seen: set[str] = set()
         decls = []

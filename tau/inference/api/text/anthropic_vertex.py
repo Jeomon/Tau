@@ -11,7 +11,6 @@ from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
     anthropic_messages_to_list,
     anthropic_output_config,
-    check_strict_tools_supported,
     has_tool_history,
     parse_tool_args,
 )
@@ -96,7 +95,6 @@ class AnthropicVertexAPI(BaseAPI):
         tools: list[Tool] | None = None,
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
-        check_strict_tools_supported(tools)
         _suppress_temp = any(s in model.id for s in ("opus-4-7", "opus-4-8"))
         params: dict[str, Any] = {
             "model": model.id,
