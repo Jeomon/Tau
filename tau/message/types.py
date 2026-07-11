@@ -89,7 +89,7 @@ class AudioContent:
 
     type: Literal["audio"] = "audio"
     # Each item is raw bytes, a base64 string, or a file path string prefixed with "file:"
-    audio: list[bytes | str] = field(default_factory=list)
+    audios: list[bytes | str] = field(default_factory=list)
 
     def to_base64(self) -> list[tuple[str, str]]:
         """Convert all audio to (base64_data, mime_type) pairs.
@@ -97,7 +97,7 @@ class AudioContent:
         Returns:
             List of (base64_string, mime_type) tuples.
         """
-        return [audio_to_base64(item) for item in self.audio]
+        return [audio_to_base64(item) for item in self.audios]
 
     @classmethod
     def from_file(cls, path: str | Path) -> AudioContent:
@@ -109,7 +109,7 @@ class AudioContent:
         Returns:
             An AudioContent instance with the loaded audio bytes.
         """
-        return cls(audio=[Path(path).read_bytes()])
+        return cls(audios=[Path(path).read_bytes()])
 
     @classmethod
     def from_base64(cls, data: str, mime_type: str | None = None) -> AudioContent:
@@ -122,7 +122,7 @@ class AudioContent:
         Returns:
             An AudioContent instance with the base64 data.
         """
-        return cls(audio=[data])
+        return cls(audios=[data])
 
 
 @dataclass
@@ -130,14 +130,14 @@ class VideoContent:
     """Video content (bytes, base64 strings, or 'file:' paths)."""
 
     type: Literal["video"] = "video"
-    video: list[bytes | str] = field(default_factory=list)
+    videos: list[bytes | str] = field(default_factory=list)
 
     def to_base64(self) -> list[tuple[str, str]]:
-        return [video_to_base64(item) for item in self.video]
+        return [video_to_base64(item) for item in self.videos]
 
     @classmethod
     def from_file(cls, path: str | Path) -> VideoContent:
-        return cls(video=[Path(path).read_bytes()])
+        return cls(videos=[Path(path).read_bytes()])
 
 
 @dataclass
@@ -173,6 +173,12 @@ class ToolResultContent:
     terminate: bool = False
     terminate_message: str | None = None
     tool_name: str = ""
+    # Media the tool attached to this result (e.g. an image read from disk).
+    # Providers that support embedding media directly in a tool result do so;
+    # others fall back to a placeholder and replay it as a separate turn.
+    image: ImageContent | None = None
+    audio: AudioContent | None = None
+    video: VideoContent | None = None
 
 
 @dataclass
@@ -354,9 +360,9 @@ class UserMessage(BaseMessage):
         if images:
             contents.append(ImageContent(images=list(images)))
         if audio:
-            contents.append(AudioContent(audio=list(audio)))
+            contents.append(AudioContent(audios=list(audio)))
         if video:
-            contents.append(VideoContent(video=list(video)))
+            contents.append(VideoContent(videos=list(video)))
         return cls(contents=contents)
 
 

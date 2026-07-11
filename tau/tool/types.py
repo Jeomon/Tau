@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM as LLM
+    from tau.message.types import AudioContent, ImageContent, VideoContent
     from tau.settings.manager import SettingsManager
 
 
@@ -70,6 +71,13 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     terminate: bool = False
     terminate_message: str | None = None
+    # Media a tool wants to hand back to the model alongside its text content
+    # (e.g. Read returning an image). Providers that can't embed media in a
+    # tool result natively fall back to a placeholder and replay it as a
+    # separate turn — see ToolResultContent.image/audio/video.
+    image: ImageContent | None = None
+    audio: AudioContent | None = None
+    video: VideoContent | None = None
 
     @classmethod
     def ok(
@@ -77,6 +85,9 @@ class ToolResult:
         id: str,
         content: str,
         metadata: dict[str, Any] | None = None,
+        image: ImageContent | None = None,
+        audio: AudioContent | None = None,
+        video: VideoContent | None = None,
     ) -> ToolResult:
         """Construct a successful outcome.
 
@@ -84,11 +95,123 @@ class ToolResult:
             id: The tool call ID this result corresponds to.
             content: The result content (output of the tool).
             metadata: Optional metadata dict (default empty).
+            image: Optional image block to attach to the result.
+            audio: Optional audio block to attach to the result.
+            video: Optional video block to attach to the result.
 
         Returns:
             A ToolResult with is_error=False.
         """
-        return cls(id=id, content=content, is_error=False, metadata=metadata or {})
+        return cls(
+            id=id,
+            content=content,
+            is_error=False,
+            metadata=metadata or {},
+            image=image,
+            audio=audio,
+            video=video,
+        )
+
+    @classmethod
+    def with_images(
+        cls,
+        id: str,
+        content: str,
+        images: Sequence[str | Any | bytes],  # str | PIL Image | bytes
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Construct a successful outcome carrying one or more images.
+
+        Args:
+            id: The tool call ID this result corresponds to.
+            content: The result's text content.
+            images: PIL Images, image bytes, or image URLs.
+            metadata: Optional metadata dict (default empty).
+
+        Returns:
+            A ToolResult with is_error=False and the images attached.
+        """
+        return cls.with_media(id, content, images=images, metadata=metadata)
+
+    @classmethod
+    def with_audio(
+        cls,
+        id: str,
+        content: str,
+        audio: Sequence[bytes | str],
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Construct a successful outcome carrying an audio clip.
+
+        Args:
+            id: The tool call ID this result corresponds to.
+            content: The result's text content.
+            audio: Audio bytes, base64 strings, or 'file:' paths.
+            metadata: Optional metadata dict (default empty).
+
+        Returns:
+            A ToolResult with is_error=False and the audio attached.
+        """
+        return cls.with_media(id, content, audio=audio, metadata=metadata)
+
+    @classmethod
+    def with_video(
+        cls,
+        id: str,
+        content: str,
+        video: Sequence[bytes | str],
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Construct a successful outcome carrying a video clip.
+
+        Args:
+            id: The tool call ID this result corresponds to.
+            content: The result's text content.
+            video: Video bytes, base64 strings, or 'file:' paths.
+            metadata: Optional metadata dict (default empty).
+
+        Returns:
+            A ToolResult with is_error=False and the video attached.
+        """
+        return cls.with_media(id, content, video=video, metadata=metadata)
+
+    @classmethod
+    def with_media(
+        cls,
+        id: str,
+        content: str,
+        images: Sequence[str | Any | bytes] | None = None,  # str | PIL Image | bytes
+        audio: Sequence[bytes | str] | None = None,
+        video: Sequence[bytes | str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Construct a successful outcome carrying any combination of media.
+
+        Each present modality is wrapped into its own content block, mirroring
+        ``UserMessage.with_media`` — providers that can't embed a given
+        modality in a tool result fall back to a placeholder and replay it.
+
+        Args:
+            id: The tool call ID this result corresponds to.
+            content: The result's text content.
+            images: Optional images (PIL Images, bytes, or URLs).
+            audio: Optional audio (bytes, base64 strings, or 'file:' paths).
+            video: Optional video (bytes, base64 strings, or 'file:' paths).
+            metadata: Optional metadata dict (default empty).
+
+        Returns:
+            A ToolResult with is_error=False and every supplied media block attached.
+        """
+        from tau.message.types import AudioContent, ImageContent, VideoContent
+
+        return cls.ok(
+            id,
+            content,
+            metadata=metadata,
+            image=ImageContent(images=list(images)) if images else None,
+            audio=AudioContent(audios=list(audio)) if audio else None,
+            video=VideoContent(videos=list(video)) if video else None,
+        )
 
     @classmethod
     def error(

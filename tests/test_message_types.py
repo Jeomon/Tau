@@ -227,7 +227,7 @@ class TestAudioContentMethods:
 
         b64 = "SUQz"  # ID3 magic in base64 prefix
         ac = AudioContent.from_base64(b64)
-        assert ac.audio == [b64]
+        assert ac.audios == [b64]
 
     def test_from_base64_roundtrip(self):
         import base64
@@ -247,13 +247,13 @@ class TestAudioContentMethods:
         f = tmp_path / "sound.mp3"
         f.write_bytes(b"ID3" + b"\x00" * 10)
         ac = AudioContent.from_file(f)
-        assert len(ac.audio) == 1
+        assert len(ac.audios) == 1
 
     def test_to_base64_with_bytes(self):
         from tau.message.types import AudioContent
 
         raw = b"ID3" + b"\x00" * 10
-        ac = AudioContent(audio=[raw])
+        ac = AudioContent(audios=[raw])
         b64, mime = ac.to_base64()[0]
         assert mime == "audio/mpeg"
         import base64
@@ -268,13 +268,13 @@ class TestVideoContentMethods:
         f = tmp_path / "clip.mp4"
         f.write_bytes(b"\x00\x00\x00\x18ftyp")
         vc = VideoContent.from_file(f)
-        assert len(vc.video) == 1
+        assert len(vc.videos) == 1
 
     def test_to_base64_with_bytes(self):
         from tau.message.types import VideoContent
 
         raw = b"\x00\x01\x02\x03"
-        vc = VideoContent(video=[raw])
+        vc = VideoContent(videos=[raw])
         b64, mime = vc.to_base64()[0]
         assert mime == "video/mp4"
         import base64

@@ -364,6 +364,9 @@ class Engine:
                 terminate=raw.terminate,
                 terminate_message=raw.terminate_message,
                 tool_name=tool_call.name,
+                image=raw.image,
+                audio=raw.audio,
+                video=raw.video,
             )
         except Exception as e:
             _log.error("tool %s raised: %s", tool_call.name, e, exc_info=True)
