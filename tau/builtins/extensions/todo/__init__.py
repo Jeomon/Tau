@@ -73,7 +73,7 @@ class TodoBoard:
             glyph, style = glyphs[item.status]
             subject = item.subject
             if item.status == "done":
-                subject = apply_style(style.patch(Style().strikethrough()), subject)
+                subject = apply_style(theme.muted.patch(Style().dim().strikethrough()), subject)
             items.append(f"{apply_style(style, glyph)} {item.id}. {subject}")
         return apply_render_shell(items, theme.message)
 
