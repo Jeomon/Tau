@@ -463,8 +463,13 @@ def anthropic_messages_to_list(
                                 # empty thinking field ("each thinking block
                                 # must contain thinking") — drop no-op blocks
                                 # (e.g. left over from a provider/model switch)
-                                # instead of replaying them verbatim.
-                                if item.content:
+                                # instead of replaying them verbatim. But a
+                                # signed block must survive even with empty
+                                # text (some models redact the visible
+                                # reasoning while still returning a valid
+                                # signature) — dropping it discards the
+                                # signature Anthropic needs to replay the turn.
+                                if item.content or item.signature:
                                     parts.append(
                                         {
                                             "type": "thinking",

@@ -130,6 +130,28 @@ class TestAnthropicMessagesToList:
         assert entry["thinking"] == "my thought"
         assert entry["signature"] == "sig123"
 
+    def test_empty_thinking_dropped_without_signature(self):
+        msg = AssistantMessage(
+            contents=[
+                ThinkingContent(content="", signature=""),
+                TextContent(content="reply"),
+            ]
+        )
+        _, result = anthropic_messages_to_list([msg], supports_thinking=True)
+        content = result[0]["content"]
+        assert [c["type"] for c in content] == ["text"]
+
+    def test_empty_thinking_preserved_with_signature(self):
+        msg = AssistantMessage(
+            contents=[
+                ThinkingContent(content="", signature="sig123"),
+                TextContent(content="reply"),
+            ]
+        )
+        _, result = anthropic_messages_to_list([msg], supports_thinking=True)
+        content = result[0]["content"]
+        assert content[0] == {"type": "thinking", "thinking": "", "signature": "sig123"}
+
     def test_thinking_content_merged_when_not_supported(self):
         msg = AssistantMessage(
             contents=[
