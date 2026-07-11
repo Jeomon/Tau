@@ -9,9 +9,24 @@ from tau.inference.provider.types import APIProvider
 from tau.inference.types import AuthType, LLMOptions
 
 api_providers = [
-    APIProvider(id="openai", name="OpenAI", api="openai_responses", options=LLMOptions()),
-    APIProvider(id="anthropic", name="Anthropic", api="anthropic_messages", options=LLMOptions()),
-    APIProvider(id="google", name="Google", api="gemini_generate", options=LLMOptions()),
+    APIProvider(
+        id="openai",
+        name="OpenAI",
+        api="openai_responses",
+        options=LLMOptions()
+    ),
+    APIProvider(
+        id="anthropic",
+        name="Anthropic",
+        api="anthropic_messages",
+        options=LLMOptions()
+    ),
+    APIProvider(
+        id="google",
+        name="Google",
+        api="gemini_generate",
+        options=LLMOptions()
+    ),
     APIProvider(
         id="google-vertex",
         name="Google Vertex AI",
