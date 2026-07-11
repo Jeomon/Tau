@@ -46,6 +46,7 @@ from tau.inference.types import (
 )
 from tau.message.types import (
     AssistantMessage,
+    AudioContent,
     FileContent,
     ImageContent,
     LLMMessage,
@@ -255,6 +256,9 @@ def _messages_to_contents(
                                     {"inlineData": {"mimeType": mime or "image/png", "data": b64}}
                                 )
                         case FileContent():
+                            for b64, mime in item.to_base64():
+                                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                        case AudioContent():
                             for b64, mime in item.to_base64():
                                 parts.append({"inlineData": {"mimeType": mime, "data": b64}})
                 if parts:

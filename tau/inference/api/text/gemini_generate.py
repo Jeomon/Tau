@@ -39,6 +39,7 @@ from tau.inference.types import (
 )
 from tau.message.types import (
     AssistantMessage,
+    AudioContent,
     FileContent,
     ImageContent,
     LLMMessage,
@@ -103,6 +104,16 @@ def _messages_to_gemini(
                                     )
                                 )
                         case FileContent():
+                            for b64, mime in item.to_base64():
+                                parts.append(
+                                    genai_types.Part(
+                                        inline_data=genai_types.Blob(
+                                            mime_type=mime,
+                                            data=b64,  # type: ignore[arg-type]
+                                        ),
+                                    )
+                                )
+                        case AudioContent():
                             for b64, mime in item.to_base64():
                                 parts.append(
                                     genai_types.Part(

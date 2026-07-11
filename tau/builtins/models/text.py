@@ -9,7 +9,18 @@ _TEXT_IMAGE_VIDEO = [Modality.Text, Modality.Image, Modality.Video]
 # openai_codex_responses._content_to_input. Other providers' tool/user content
 # shapes don't have a document block, so File isn't added to their model lists.
 _TEXT_IMAGE_FILE = [Modality.Text, Modality.Image, Modality.File]
-_TEXT_IMAGE_VIDEO_FILE = [Modality.Text, Modality.Image, Modality.Video, Modality.File]
+# Audio input is only wired at the provider layer for Gemini (AudioContent
+# branches in gemini_generate/google_vertex/google_antigravity) — Anthropic's
+# API has no audio input support at all, and the OpenAI Codex/Responses models
+# Tau uses explicitly list audio as unsupported (that's a separate gpt-audio
+# product line). So this constant is exclusively for genuine Gemini models.
+_TEXT_IMAGE_VIDEO_AUDIO_FILE = [
+    Modality.Text,
+    Modality.Image,
+    Modality.Video,
+    Modality.Audio,
+    Modality.File,
+]
 
 models = [
     # OpenAI Codex (OAuth). context_window = total window; max_input_tokens = prompt
@@ -195,7 +206,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -206,7 +217,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -217,7 +228,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -227,7 +238,7 @@ models = [
         cost=Cost(),
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -238,7 +249,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -249,7 +260,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -259,7 +270,7 @@ models = [
         cost=Cost(),
         context_window=1_048_576,
         max_output_tokens=65_535,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -293,7 +304,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -304,7 +315,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -315,7 +326,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -326,7 +337,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -337,7 +348,7 @@ models = [
         thinking=True,
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -347,7 +358,7 @@ models = [
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
         context_window=1_048_576,
         max_output_tokens=65_536,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     # Google Vertex AI (GCP — API key or ADC)
@@ -358,7 +369,7 @@ models = [
         cost=Cost(input=2.0, output=12.0, cache_read=0.2),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -368,7 +379,7 @@ models = [
         cost=Cost(input=1.5, output=9.0, cache_read=0.15),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -378,7 +389,7 @@ models = [
         cost=Cost(input=0.5, output=3.0, cache_read=0.05),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -387,7 +398,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.25, output=1.5, cache_read=0.025),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -397,7 +408,7 @@ models = [
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -407,7 +418,7 @@ models = [
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -416,7 +427,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -425,7 +436,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.15, output=0.60),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     Model(
@@ -434,7 +445,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.075, output=0.30),
         context_window=1_048_576,
-        input=_TEXT_IMAGE_VIDEO_FILE,
+        input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
     ),
     # Anthropic on Vertex AI (GCP ADC auth)
