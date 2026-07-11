@@ -70,6 +70,7 @@ tau --resume                             # Resume the latest session
 tau --resume abc123                      # Resume a specific session by ID
 tau --model claude-sonnet-4-6            # Start with a specific model
 tau --model groq/llama-3.3-70b-versatile # provider/model shorthand
+tau --base-url http://localhost:8000/v1 --provider vllm  # point at a local/proxy endpoint
 tau --print "Summarize this repository"  # Run once and print the result
 tau --mode json --prompt "Summarize this repo"  # Emit structured JSON events
 tau --mode rpc                           # Start JSON-RPC mode for IDE clients
@@ -85,6 +86,7 @@ Common flags:
 | `--mode` | | `interactive` (default), `print`, `json`, `rpc` |
 | `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model` | | Model ID, or `provider/model` shorthand |
+| `--base-url URL` | | Temporarily override the provider's base URL for this run (not persisted) |
 | `--resume [ID]` | `-r` | Resume the most recent or a specified session |
 | `--fork ID` | | Fork a specified session at startup |
 | `--ephemeral` | `-e` | Don't save this session to disk |

@@ -267,6 +267,29 @@ def test_runtime_config_seeds_initial_messages_and_media(tmp_path: Path) -> None
     ]
 
 
+def test_runtime_config_base_url_overrides_llm_options(tmp_path: Path) -> None:
+    """RuntimeConfig.base_url must apply as a temporary override (not persisted)."""
+    config = RuntimeConfig(
+        cwd=tmp_path,
+        config_dir=tmp_path / "config",
+        provider="groq",
+        model_id="llama-3.3-70b-versatile",
+        base_url="http://custom-gateway.example/v1",
+        project_trusted=True,
+        persist_session=False,
+    )
+
+    context = asyncio.run(RuntimeContext.create(config))
+    assert context.settings_manager is not None
+    asyncio.run(context.settings_manager.flush())
+
+    assert context.llm.api.options.base_url == "http://custom-gateway.example/v1"
+    # Nothing persisted: settings.json (if written at all) must not mention the override.
+    settings_file = tmp_path / "config" / "settings.json"
+    if settings_file.exists():
+        assert "custom-gateway.example" not in settings_file.read_text()
+
+
 def test_runtime_config_allows_media_without_text(tmp_path: Path) -> None:
     manager = SessionManager(cwd=tmp_path, persist=False)
     config = RuntimeConfig(cwd=tmp_path, initial_images=[b"\x89PNG\r\n\x1a\n"])

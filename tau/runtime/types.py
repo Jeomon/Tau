@@ -70,6 +70,7 @@ class RuntimeConfig(BaseModel):
     # LLM
     model_id: str | None = None
     provider: str | None = None
+    base_url: str | None = None  # temporary override for the resolved provider's base URL
 
     # Session
     session_file: Path | None = None
@@ -245,6 +246,8 @@ class RuntimeContext:
             if config.dependencies.llm is not None
             else LLM(model_id=model_id, provider=provider)
         )
+        if config.base_url:
+            llm.api.options.base_url = config.base_url
         from datetime import timedelta
 
         llm.api.options.timeout = timedelta(

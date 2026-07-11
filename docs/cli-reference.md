@@ -21,6 +21,7 @@ augment it.
 | `--quiet` | `-q` | Hide the non-interactive spinner |
 | `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model` | | Model ID, or `provider/model` shorthand (e.g. `groq/llama-3.3-70b-versatile`) |
+| `--base-url URL` | | Temporarily override the resolved provider's base URL for this run only (not persisted) |
 | `--theme` | `-t` | UI theme: `dark`, `light`, or an installed custom theme |
 | `--resume [ID]` | `-r` | Resume the most recent or a specified session |
 | `--fork ID` | | Fork a specified session at startup |
@@ -346,6 +347,24 @@ tau --model anthropic/claude-sonnet-4-6
 ```
 
 An explicit `--provider` always overrides the inferred provider.
+
+## Base URL Override
+
+`--base-url` temporarily points the resolved provider at a different endpoint
+for the current run — a proxy, gateway, or self-hosted deployment. It applies
+to whichever provider ends up in use, whether set via `--provider`, inferred
+from `provider/model` shorthand, or picked up from the saved/default model —
+`--provider` is not required alongside it.
+
+```bash
+tau --base-url http://localhost:8000/v1 --provider vllm
+tau --model groq/llama-3.3-70b-versatile --base-url https://gateway.internal/v1
+tau --base-url https://proxy.example.com/v1   # applies to the saved/default model
+```
+
+The override is in-memory only for that run — it is never written to
+`settings.json` or `auth.json`, and there is no persistent equivalent; pass
+`--base-url` again on the next run.
 
 ## Session Options
 

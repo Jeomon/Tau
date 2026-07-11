@@ -69,6 +69,12 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     help="Model ID, or provider/model shorthand (e.g. groq/llama-3.3-70b-versatile).",
 )
 @click.option(
+    "--base-url",
+    default=None,
+    metavar="URL",
+    help="Temporarily override the base URL for this run's provider (not persisted).",
+)
+@click.option(
     "--theme",
     "-t",
     default=None,
@@ -153,6 +159,7 @@ def cli(
     quiet: bool,
     provider: str | None,
     model: str | None,
+    base_url: str | None,
     theme: str | None,
     resume: str | None,
     fork_session: str | None,
@@ -183,6 +190,7 @@ def cli(
     ctx.obj["prompt"] = prompt
     ctx.obj["provider"] = provider
     ctx.obj["model"] = model
+    ctx.obj["base_url"] = base_url
     ctx.obj["theme"] = theme
     ctx.obj["resume"] = resume
     ctx.obj["fork_session"] = fork_session
@@ -258,6 +266,7 @@ async def _start(opts: dict) -> None:
         cwd=Path.cwd(),
         model_id=resolved_model,
         provider=resolved_provider,
+        base_url=opts.get("base_url"),
         resume=resume_latest,
         session_file=session_file,
         session_dir=custom_session_dir,
