@@ -1106,6 +1106,17 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
+    Model(
+        id="gemma-4-31b",
+        name="Gemma 4 31B",
+        provider="cerebras",
+        cost=Cost(input=0.99, output=1.49),
+        thinking=True,
+        context_window=131_072,
+        max_output_tokens=40_960,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
     # Perplexity
     Model(
         id="perplexity/sonar",
