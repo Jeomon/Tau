@@ -46,6 +46,7 @@ class PromptOptions(BaseModel):
     images: list[bytes] = []
     audio: list[bytes] = []
     video: list[bytes] = []
+    file: list[bytes] = []
 
 
 @dataclass

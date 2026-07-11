@@ -693,6 +693,7 @@ class Agent:
             list(opts.images) if opts.images else None,
             list(opts.audio) if opts.audio else None,
             list(opts.video) if opts.video else None,
+            list(opts.file) if opts.file else None,
         )
         self._session_manager.append_message(user_message, meta=opts.meta)
 

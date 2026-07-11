@@ -310,6 +310,7 @@ class MessageBlock:
     def _render_user(self, msg: Any, width: int) -> list[str]:
         from tau.message.types import (
             AudioContent,
+            FileContent,
             ImageContent,
             TextContent,
             UserMessage,
@@ -336,6 +337,9 @@ class MessageBlock:
             elif isinstance(item, VideoContent):
                 for b64, mime in item.to_base64():
                     lines.append("  " + self._render_media_placeholder("Video", b64, mime))
+            elif isinstance(item, FileContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("File", b64, mime))
         return lines
 
     def _render_assistant(
@@ -373,6 +377,7 @@ class MessageBlock:
 
         # No "assistant" label — the content speaks for itself.
         from tau.message.types import AudioContent as _AudioContent
+        from tau.message.types import FileContent as _FileContent
         from tau.message.types import ImageContent as _ImageContent
         from tau.message.types import VideoContent as _VideoContent
 
@@ -439,6 +444,10 @@ class MessageBlock:
                 for b64, mime in item.to_base64():
                     lines.append("  " + self._render_media_placeholder("Video", b64, mime))
 
+            elif isinstance(item, _FileContent):
+                for b64, mime in item.to_base64():
+                    lines.append("  " + self._render_media_placeholder("File", b64, mime))
+
             elif isinstance(item, ToolCallContent) and t.show_tool_calls:
                 # Separate a tool call from preceding assistant text/media with a
                 # blank line so the call block doesn't render flush against the
@@ -448,7 +457,9 @@ class MessageBlock:
                 prev_item = msg.contents[idx - 1] if idx > 0 else None
                 needs_gap = (
                     isinstance(prev_item, TextContent) and bool(prev_item.content)
-                ) or isinstance(prev_item, (_ImageContent, _AudioContent, _VideoContent))
+                ) or isinstance(
+                    prev_item, (_ImageContent, _AudioContent, _VideoContent, _FileContent)
+                )
                 if needs_gap and lines:
                     lines.append("")
                 tool = self._tool_lookup(item.name) if self._tool_lookup else None

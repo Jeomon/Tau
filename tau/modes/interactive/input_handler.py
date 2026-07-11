@@ -54,6 +54,8 @@ class InputHandler:
         self._clipboard_audio_counter: int = 0
         self._clipboard_video: dict[int, tuple[str, str]] = {}
         self._clipboard_video_counter: int = 0
+        self._clipboard_files: dict[int, tuple[str, str]] = {}
+        self._clipboard_file_counter: int = 0
         self._pasted_texts: dict[int, str] = {}
         self._paste_counter: int = 0
 
@@ -93,14 +95,14 @@ class InputHandler:
 
     @staticmethod
     def _strip_media_markers(text: str) -> str:
-        """Strip resolved [image #N]/[audio:uuid]/[video #N] markers from text bound for the model.
+        """Strip resolved media markers ([image #N], [audio:uuid], [video #N], [file #N]) from text.
 
         The LLM already receives the actual media bytes as separate content
         blocks, so it shouldn't also see the raw bracket placeholder that
         stood in for them in the input box. Falls back to the original text
         if stripping would leave nothing (a message that's only a marker).
         """
-        stripped = re.sub(r"\[(?:image|audio|video)(?::[^\]]+| #\d+)\]", "", text).strip()
+        stripped = re.sub(r"\[(?:image|audio|video|file)(?::[^\]]+| #\d+)\]", "", text).strip()
         return stripped if stripped else text
 
     def _notify(self, message: str, type: str = "info") -> None:  # noqa: A002
@@ -130,6 +132,7 @@ class InputHandler:
             self._extract_clipboard_images(text)
             self._extract_clipboard_audio(text)
             self._extract_clipboard_video(text)
+            self._extract_clipboard_file(text)
             self._pasted_texts.clear()
             self._paste_counter = 0
             if agent is not None and not agent.is_idle() and self._input_requires_idle(text):
@@ -153,9 +156,10 @@ class InputHandler:
 
         audio = self._extract_clipboard_audio(text)
         video = self._extract_clipboard_video(text)
+        file = self._extract_clipboard_file(text)
         expanded = self._expand_pasted_texts(text)
 
-        if agent is not None and (images or audio or video):
+        if agent is not None and (images or audio or video or file):
             from tau.inference.model.types import Modality
 
             model = getattr(getattr(agent._engine, "llm", None), "model", None)
@@ -169,21 +173,26 @@ class InputHandler:
                 if video and Modality.Video not in model.input:
                     self._notify(f"Video modality is not supported by {model.name}.", type="error")
                     return
+                if file and Modality.File not in model.input:
+                    self._notify(f"File modality is not supported by {model.name}.", type="error")
+                    return
 
         if agent is not None and not agent.is_idle():
-            self._track_task(asyncio.ensure_future(self._steer(expanded, images, audio, video)))
+            self._track_task(
+                asyncio.ensure_future(self._steer(expanded, images, audio, video, file))
+            )
             return
 
         model_text = self._strip_media_markers(expanded)
 
-        user_msg = UserMessage.with_media(text, images, audio, video)
+        user_msg = UserMessage.with_media(text, images, audio, video, file)
         self._layout.add_message(user_msg)
         self._last_user_text = text
         self._turn_has_content = False
         self._tui.request_render()
         self._track_task(
             asyncio.ensure_future(
-                self._invoke(self._expand_at_mentions(model_text), images, audio, video)
+                self._invoke(self._expand_at_mentions(model_text), images, audio, video, file)
             )
         )
 
@@ -191,10 +200,11 @@ class InputHandler:
         images, _ = self._extract_clipboard_images(text)
         audio = self._extract_clipboard_audio(text)
         video = self._extract_clipboard_video(text)
+        file = self._extract_clipboard_file(text)
         expanded = self._expand_pasted_texts(text)
         self._track_task(
             asyncio.ensure_future(
-                self._queue_followup(expanded, images, audio, video, display_text=text)
+                self._queue_followup(expanded, images, audio, video, file, display_text=text)
             )
         )
 
@@ -353,6 +363,8 @@ class InputHandler:
         self._clipboard_audio_counter = 0
         self._clipboard_video.clear()
         self._clipboard_video_counter = 0
+        self._clipboard_files.clear()
+        self._clipboard_file_counter = 0
         self._pasted_texts.clear()
         self._paste_counter = 0
 
@@ -379,16 +391,18 @@ class InputHandler:
         images: list[bytes] | None = None,
         audio: list[bytes] | None = None,
         video: list[bytes] | None = None,
+        file: list[bytes] | None = None,
     ) -> None:
         self._invoke_task = asyncio.current_task()
         try:
             from tau.agent.types import PromptOptions
 
-            if images or audio or video:
+            if images or audio or video or file:
                 options = PromptOptions(
                     images=images or [],
                     audio=audio or [],
                     video=video or [],
+                    file=file or [],
                 )
             else:
                 options = None
@@ -409,6 +423,7 @@ class InputHandler:
         images: list[bytes] | None = None,
         audio: list[bytes] | None = None,
         video: list[bytes] | None = None,
+        file: list[bytes] | None = None,
     ) -> UserMessage:
         """Build a UserMessage from text plus any combination of media.
 
@@ -417,7 +432,7 @@ class InputHandler:
         """
         from tau.message.types import UserMessage
 
-        return UserMessage.with_media(text, images, audio, video)
+        return UserMessage.with_media(text, images, audio, video, file)
 
     async def _steer(
         self,
@@ -425,13 +440,14 @@ class InputHandler:
         images: list[bytes] | None = None,
         audio: list[bytes] | None = None,
         video: list[bytes] | None = None,
+        file: list[bytes] | None = None,
     ) -> None:
         agent = self._runtime.agent
         if agent is None:
             return
         try:
             expanded = self._strip_media_markers(self._expand_at_mentions(text))
-            msg = self._build_user_message(expanded, images, audio, video)
+            msg = self._build_user_message(expanded, images, audio, video, file)
             await agent._engine.steer(msg)
         except Exception as exc:
             _log.exception("Error during steer")
@@ -444,21 +460,22 @@ class InputHandler:
         images: list[bytes] | None = None,
         audio: list[bytes] | None = None,
         video: list[bytes] | None = None,
+        file: list[bytes] | None = None,
         display_text: str | None = None,
     ) -> None:
         shown = display_text if display_text is not None else text
 
         agent = self._runtime.agent
         if agent is None or agent.is_idle():
-            user_msg = self._build_user_message(shown, images, audio, video)
+            user_msg = self._build_user_message(shown, images, audio, video, file)
             self._layout.add_message(user_msg)
             self._tui.request_render()
             model_text = self._strip_media_markers(self._expand_at_mentions(text))
-            await self._invoke(model_text, images, audio, video)
+            await self._invoke(model_text, images, audio, video, file)
         else:
             try:
                 expanded = self._strip_media_markers(self._expand_at_mentions(text))
-                msg = self._build_user_message(expanded, images, audio, video)
+                msg = self._build_user_message(expanded, images, audio, video, file)
                 await agent._engine.follow_up(msg)
             except Exception as exc:
                 _log.exception("Error during follow-up")
@@ -469,19 +486,40 @@ class InputHandler:
 
     _AUDIO_SUFFIXES = {".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".opus", ".weba"}
     _VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".flv"}
+    _IMAGE_SUFFIXES = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tiff",
+        ".tif",
+        ".heic",
+        ".heif",
+    }
 
     def _paste_file(self, src_path: str) -> None:
-        """Detect file type by extension and route to the appropriate store method."""
+        """Detect file type by extension and route to the appropriate store method.
+
+        A known image suffix (or no suffix at all — e.g. an extensionless
+        clipboard grab) goes to the image path; audio/video suffixes go to
+        their own paths; everything else (PDF, DOCX, XLSX, ...) goes to the
+        generic file path rather than being force-fed to the image decoder,
+        which would just fail with a confusing "could not store image" error.
+        """
         try:
-            suffix = "." + src_path.rsplit(".", 1)[-1].lower() if "." in src_path else ".png"
+            suffix = "." + src_path.rsplit(".", 1)[-1].lower() if "." in src_path else ""
             with open(src_path, "rb") as f:
                 data = f.read()
             if suffix in self._AUDIO_SUFFIXES:
                 self._store_clipboard_audio(data, suffix)
             elif suffix in self._VIDEO_SUFFIXES:
                 self._store_clipboard_video(data, suffix)
+            elif suffix in self._IMAGE_SUFFIXES or not suffix:
+                self._store_clipboard_image(data, suffix or ".png")
             else:
-                self._store_clipboard_image(data, suffix)
+                self._store_clipboard_file(data, suffix)
         except Exception:
             _log.debug("Failed to paste file %r", src_path, exc_info=True)
 
@@ -597,6 +635,24 @@ class InputHandler:
             _log.exception("Failed to store clipboard video")
             self._notify(f"Could not store video: {exc}", type="error")
 
+    def _store_clipboard_file(self, raw: bytes, suffix: str) -> None:
+        import uuid as _uuid
+
+        try:
+            media_dir = self._get_media_dir()
+            media_dir.mkdir(parents=True, exist_ok=True)
+            file_uuid = str(_uuid.uuid4())
+            media_path = media_dir / f"{file_uuid}{suffix}"
+            media_path.write_bytes(raw)
+            self._clipboard_file_counter += 1
+            idx = self._clipboard_file_counter
+            self._clipboard_files[idx] = (file_uuid, str(media_path))
+            self._layout.input.insert_at_cursor(f"[file #{idx}]")
+            self._tui.request_render()
+        except Exception as exc:
+            _log.exception("Failed to store clipboard file")
+            self._notify(f"Could not store file: {exc}", type="error")
+
     def _extract_clipboard_audio(self, text: str) -> list[bytes]:
         audio: list[bytes] = []
         seen: set[int] = set()
@@ -660,6 +716,38 @@ class InputHandler:
         self._clipboard_video.clear()
         self._clipboard_video_counter = 0
         return video
+
+    def _extract_clipboard_file(self, text: str) -> list[bytes]:
+        file: list[bytes] = []
+        seen: set[int] = set()
+        for m in re.finditer(r"\[file #(\d+)\]", text):
+            idx = int(m.group(1))
+            if idx in seen:
+                continue
+            seen.add(idx)
+            entry = self._clipboard_files.get(idx)
+            if entry is None:
+                continue
+            _, path = entry
+            try:
+                with open(path, "rb") as f:
+                    file.append(f.read())
+            except OSError:
+                _log.warning("failed to read clipboard file %s", path, exc_info=True)
+        # Also resolve persistent [file:{uuid}] markers from history
+        seen_uuids: set[str] = set()
+        for m in re.finditer(r"\[file:([^\]]+)\]", text):
+            uid = m.group(1)
+            if uid in seen_uuids:
+                continue
+            seen_uuids.add(uid)
+            p = self._find_media_by_uuid(uid)
+            if p is not None:
+                with contextlib.suppress(OSError):
+                    file.append(p.read_bytes())
+        self._clipboard_files.clear()
+        self._clipboard_file_counter = 0
+        return file
 
     # ESC[<code>;5u — control bytes some terminals (tmux popups with
     # extended-keys-format=csi-u) re-encode inside a bracketed paste.
@@ -732,7 +820,9 @@ class InputHandler:
         return expanded
 
     def _transform_for_history(self, text: str) -> str:
-        """Replace session-scoped [image/audio/video #N] markers with persistent [type:{uuid}] ones.
+        """Replace session-scoped media markers with persistent [type:uuid] ones.
+
+        Covers [image/audio/video/file #N].
 
         Paste markers are stripped entirely since their content is already expanded into the text
         before this is called (or they reference temp data that won't survive the session).
@@ -753,9 +843,15 @@ class InputHandler:
             entry = self._clipboard_video.get(idx)
             return f"[video:{entry[0]}]" if entry else ""
 
+        def _replace_file(m: re.Match) -> str:
+            idx = int(m.group(1))
+            entry = self._clipboard_files.get(idx)
+            return f"[file:{entry[0]}]" if entry else ""
+
         result = re.sub(r"\[image #(\d+)\]", _replace_image, text)
         result = re.sub(r"\[audio #(\d+)\]", _replace_audio, result)
         result = re.sub(r"\[video #(\d+)\]", _replace_video, result)
+        result = re.sub(r"\[file #(\d+)\]", _replace_file, result)
         result = re.sub(r"\[paste #\d+(?: \+\d+ lines| \d+ chars)\]", "", result)
         return result.strip()
 

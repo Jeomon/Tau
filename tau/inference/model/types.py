@@ -12,6 +12,7 @@ class Modality(StrEnum):
     Image = "image"
     Audio = "audio"
     Video = "video"
+    File = "file"
 
 
 @dataclass
