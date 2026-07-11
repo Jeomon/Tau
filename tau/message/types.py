@@ -12,7 +12,7 @@ from pydantic import Field as PydanticField
 
 from tau.inference.types import StopReason
 from tau.inference.utils import ErrorKind
-from tau.message.utils import audio_to_base64, image_to_base64, video_to_base64
+from tau.message.utils import audio_to_base64, file_to_base64, image_to_base64, video_to_base64
 from tau.tool.types import ToolKind
 
 if TYPE_CHECKING:
@@ -141,6 +141,21 @@ class VideoContent:
 
 
 @dataclass
+class FileContent:
+    """Document/file content (bytes, base64 strings, or 'file:' paths) — e.g. PDF, DOCX, XLSX."""
+
+    type: Literal["file"] = "file"
+    files: list[bytes | str] = field(default_factory=list)
+
+    def to_base64(self) -> list[tuple[str, str]]:
+        return [file_to_base64(item) for item in self.files]
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> FileContent:
+        return cls(files=[Path(path).read_bytes()])
+
+
+@dataclass
 class ThinkingContent:
     """Extended thinking content from Claude models with thinking enabled."""
 
@@ -197,6 +212,7 @@ Content = (
     | ImageContent
     | AudioContent
     | VideoContent
+    | FileContent
     | ThinkingContent
     | ToolCallContent
     | ToolResultContent
@@ -204,7 +220,9 @@ Content = (
 
 # Per-role content constraints (for type hints and documentation).
 SystemContent = TextContent
-UserContent = TextContent | ImageContent | AudioContent | VideoContent | ToolResultContent
+UserContent = (
+    TextContent | ImageContent | AudioContent | VideoContent | FileContent | ToolResultContent
+)
 AssistantContent = TextContent | ThinkingContent | ToolCallContent
 ToolContent = ToolResultContent
 
@@ -336,24 +354,39 @@ class UserMessage(BaseMessage):
         return cls.with_media(content, video=video)
 
     @classmethod
+    def with_file(cls, content: str, file: list[bytes | str]) -> UserMessage:
+        """Construct UserMessage with text and a document/file (PDF, DOCX, XLSX, ...).
+
+        Args:
+            content: The user message text.
+            file: List of file bytes, base64 strings, or 'file:' paths.
+
+        Returns:
+            A UserMessage with text and file content.
+        """
+        return cls.with_media(content, file=file)
+
+    @classmethod
     def with_media(
         cls,
         content: str,
         images: Sequence[str | Any | bytes] | None = None,  # str | PIL Image | bytes
         audio: Sequence[bytes | str] | None = None,
         video: Sequence[bytes | str] | None = None,
+        file: Sequence[bytes | str] | None = None,
     ) -> UserMessage:
         """Construct UserMessage with text plus any combination of media.
 
         Each present modality is appended as its own content block, so a single
-        message can carry images, audio, and video together. Providers that don't
-        support a given modality simply skip that block.
+        message can carry images, audio, video, and files together. Providers
+        that don't support a given modality simply skip that block.
 
         Args:
             content: The user message text.
             images: Optional images (PIL Images, bytes, or URLs).
             audio: Optional audio (bytes, base64 strings, or 'file:' paths).
             video: Optional video (bytes, base64 strings, or 'file:' paths).
+            file: Optional documents/files (bytes, base64 strings, or 'file:' paths).
 
         Returns:
             A UserMessage with text and every supplied media block.
@@ -365,6 +398,8 @@ class UserMessage(BaseMessage):
             contents.append(AudioContent(audios=list(audio)))
         if video:
             contents.append(VideoContent(videos=list(video)))
+        if file:
+            contents.append(FileContent(files=list(file)))
         return cls(contents=contents)
 
 

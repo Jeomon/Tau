@@ -123,6 +123,67 @@ def audio_to_base64(item: bytes | str) -> tuple[str, str]:
     return item, mime
 
 
+_OOXML_MIME: dict[str, str] = {
+    "word/": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xl/": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "ppt/": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+
+def detect_file_mime(data: bytes) -> str:
+    """Detect a document's MIME type from magic bytes; defaults to PDF if unknown.
+
+    PDF is detected directly. Office Open XML formats (docx/xlsx/pptx) share
+    the same ZIP magic bytes, so disambiguating them means peeking at the
+    archive's top-level entry names (word/, xl/, ppt/) instead of a fixed
+    byte offset — this only works with the complete file, not a truncated
+    prefix, since ZIP's central directory lives at the end of the archive.
+    """
+    if data[:4] == b"%PDF":
+        return "application/pdf"
+    if data[:4] == b"PK\x03\x04":
+        try:
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                names = zf.namelist()
+            for prefix, mime in _OOXML_MIME.items():
+                if any(n.startswith(prefix) for n in names):
+                    return mime
+        except Exception:
+            pass
+        return "application/zip"
+    return "application/pdf"
+
+
+def file_to_base64(item: bytes | str) -> tuple[str, str]:
+    """Convert a file to (base64_data, mime_type); accepts bytes, base64, or 'file:' paths.
+
+    Args:
+        item: Raw file bytes, base64-encoded string, or 'file:/path/to/file'.
+
+    Returns:
+        A tuple of (base64_string, mime_type_string).
+    """
+    if isinstance(item, bytes):
+        mime = detect_file_mime(item)
+        return base64.b64encode(item).decode(), mime
+    if item.startswith("file:"):
+        data = Path(item[5:]).read_bytes()
+        mime = detect_file_mime(data)
+        return base64.b64encode(data).decode(), mime
+    # Assume base64 string; only the leading magic bytes are checked here (the
+    # OOXML sub-type sniff above needs the full archive, so a base64-string
+    # input — already truncated to a prefix — only gets the PDF/ZIP-vs-not check).
+    try:
+        prefix = base64.b64decode(item[:8] + "==")
+        mime = "application/pdf" if prefix[:4] == b"%PDF" else "application/zip"
+    except Exception:
+        mime = "application/pdf"
+    return item, mime
+
+
 def video_to_base64(item: bytes | str) -> tuple[str, str]:
     """Convert video to (base64_data, mime_type); accepts bytes, base64, or 'file:' paths."""
     if isinstance(item, bytes):
