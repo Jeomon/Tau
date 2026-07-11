@@ -619,8 +619,13 @@ class MessageBlock:
             return []
 
         display_content = item.metadata.get("_display_content", item.content)
+        # An unhandled exception's traceback needs the standard collapse/expand
+        # treatment no matter which tool raised it — bypass this tool's own
+        # render_result rather than trusting every custom renderer to handle
+        # multi-line error content correctly (see engine/service.py's _execute).
+        is_unhandled_exception = item.metadata.get("_unhandled_exception", False)
         tool = self._tool_lookup(tool_name) if (self._tool_lookup and tool_name) else None
-        if tool is not None and tool.render_result is not None:
+        if tool is not None and tool.render_result is not None and not is_unhandled_exception:
             from tau.tool.types import ToolRenderOptions
 
             opts = ToolRenderOptions(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from pathlib import Path
@@ -370,12 +371,24 @@ class Engine:
             )
         except Exception as e:
             _log.error("tool %s raised: %s", tool_call.name, e, exc_info=True)
-            error = f"Tool '{tool_call.name}' execution failed:\n{e}"
+            # First line is a concise summary (what a collapsed render shows); the
+            # full traceback follows so both the model and an expanded TUI view
+            # get the real root cause instead of just str(e) — see whichever
+            # tool.render_result is in play (or the generic fallback) for how
+            # this gets collapsed/expanded in the transcript.
+            error = (
+                f"Tool '{tool_call.name}' execution failed: {e}\n\n{traceback.format_exc()}"
+            )
             tool_result = ToolResultContent(
                 id=tool_call.id,
                 is_error=True,
                 content=error,
-                metadata={},
+                # Tells the renderer to skip this tool's own render_result and use
+                # the generic error display instead — an unhandled exception's
+                # traceback needs the standard collapse/expand treatment
+                # regardless of whether this particular tool's custom renderer
+                # was written to handle multi-line error content correctly.
+                metadata={"_unhandled_exception": True},
                 tool_name=tool_call.name,
             )
             await emit(
