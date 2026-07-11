@@ -174,8 +174,10 @@ class ToolResultContent:
     terminate_message: str | None = None
     tool_name: str = ""
     # Media the tool attached to this result (e.g. an image read from disk).
-    # Providers that support embedding media directly in a tool result do so;
-    # others fall back to a placeholder and replay it as a separate turn.
+    # Providers with native tool-result media support (Anthropic, Gemini,
+    # OpenAI Responses) embed it; providers without (Chat Completions family,
+    # Mistral, Ollama) silently ignore this — no text placeholder/replay-turn
+    # fallback is implemented for those.
     image: ImageContent | None = None
     audio: AudioContent | None = None
     video: VideoContent | None = None

@@ -109,6 +109,7 @@ class TestImagePasteMarker:
 
         images, missing = h._extract_clipboard_images("[image #1] and again [image #1]")
         assert images == [b"PNGDATA"]
+        assert missing == 0
 
     def test_extract_skips_unknown_index(self):
         h = make_handler()
@@ -137,7 +138,7 @@ class TestImagePasteMarker:
 
     def test_extract_persistent_uuid_marker_missing_file_counts_as_missing(self, monkeypatch):
         h = make_handler()
-        monkeypatch.setattr(h, "_find_media_by_uuid", lambda uid: None)
+        monkeypatch.setattr(h, "_find_media_by_uuid", lambda _uid: None)
 
         images, missing = h._extract_clipboard_images("[image:gone]")
         assert images == []

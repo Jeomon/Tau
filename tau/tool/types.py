@@ -72,9 +72,8 @@ class ToolResult:
     terminate: bool = False
     terminate_message: str | None = None
     # Media a tool wants to hand back to the model alongside its text content
-    # (e.g. Read returning an image). Providers that can't embed media in a
-    # tool result natively fall back to a placeholder and replay it as a
-    # separate turn — see ToolResultContent.image/audio/video.
+    # (e.g. Read returning an image) — see ToolResultContent.image/audio/video
+    # for which providers can actually deliver it to the model.
     image: ImageContent | None = None
     audio: AudioContent | None = None
     video: VideoContent | None = None
@@ -188,8 +187,9 @@ class ToolResult:
         """Construct a successful outcome carrying any combination of media.
 
         Each present modality is wrapped into its own content block, mirroring
-        ``UserMessage.with_media`` — providers that can't embed a given
-        modality in a tool result fall back to a placeholder and replay it.
+        ``UserMessage.with_media`` — only providers with native tool-result
+        media support (Anthropic, Gemini, OpenAI Responses) can deliver it to
+        the model; others silently ignore it.
 
         Args:
             id: The tool call ID this result corresponds to.
