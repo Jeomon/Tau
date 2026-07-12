@@ -47,7 +47,7 @@ def _render_terminal_result(content: str, opts: Any) -> list[str]:
     metadata = opts.metadata or {}
     exit_code = metadata.get("exit_code", 0)
     timed_out = metadata.get("timed_out", False)
-    failed = timed_out or exit_code != 0
+    failed = opts.is_error or timed_out or exit_code != 0
 
     if timed_out:
         return [f"{RED}Timed out{RESET}"]

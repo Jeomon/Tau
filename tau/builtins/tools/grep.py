@@ -31,6 +31,9 @@ def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
 def _render_grep_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     match_count = metadata.get("match_count", 0)
     files_searched = metadata.get("files_searched", 0)

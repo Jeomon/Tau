@@ -39,6 +39,9 @@ class LsParams(BaseModel):
 def _render_ls_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     path = metadata.get("path", "")
     file_count = metadata.get("file_count", 0)

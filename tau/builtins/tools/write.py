@@ -41,6 +41,9 @@ class WriteParams(BaseModel):
 def _render_write_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, GREEN, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     total_lines = metadata.get("total_lines", 0)
     created = metadata.get("created", False)

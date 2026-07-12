@@ -68,6 +68,9 @@ class ReadParams(BaseModel):
 def _render_read_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     lines_returned = metadata.get("lines_returned", 0)
 

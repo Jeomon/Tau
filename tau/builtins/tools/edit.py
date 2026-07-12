@@ -231,6 +231,9 @@ def _collapse_hunk_context(
 def _render_edit_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import GREEN, RED, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     added = metadata.get("lines_added", 0)
     removed = metadata.get("lines_removed", 0)

@@ -29,6 +29,9 @@ _MAX_RESULTS = 1000
 def _render_glob_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
+    if opts.is_error:
+        return content.splitlines() or [content]
+
     metadata = opts.metadata or {}
     match_count = metadata.get("match_count", 0)
     truncated = metadata.get("truncated", False)
