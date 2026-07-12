@@ -2,6 +2,18 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.7 — 2026-07-12
+
+### Added
+
+-   Add a session log file for every run, not just interactive mode — non-interactive modes (`print`, `json`, `rpc`) now attach a `FileHandler` at startup, so unhandled errors are captured instead of only reaching stderr
+-   Add cross-platform accessibility tree traversal and window-wise element extraction for the `computer_use` extension, including initial Windows UIA and macOS AX control modules
+-   Add `aclose()` to the web engine base class and wire extension unload cleanup, so the DDG engine can reuse a persistent client (fixing DuckDuckGo's 202 challenge page being silently parsed as zero results when a fresh client was opened per search) and the Tavily engine releases its client on unload
+
+### Changed
+
+-   Log unhandled exceptions in the CLI entrypoint and the agent loop via `logging.exception` before re-raising, so crashes are still fatal but the traceback survives in the session log file instead of only reaching stderr
+
 ## 0.7.6 — 2026-07-12
 
 ### Added
