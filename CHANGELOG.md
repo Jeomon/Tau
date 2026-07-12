@@ -2,6 +2,25 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.6 — 2026-07-12
+
+### Added
+
+-   Add image support to the `read` tool — a PNG, JPEG, GIF, or WEBP file is detected from its magic bytes (regardless of extension) and returned as image content instead of erroring as binary, up to a 10 MiB cap, and gated on the active model actually accepting image input (falls back to a clear error naming the model instead of silently dropping the image)
+-   Add `gemma-4-31b` model configuration to the Cerebras provider
+-   Add `RESOURCE_EXHAUSTED` to the rate-limit error keyword list so those errors get retried instead of surfacing as hard failures
+
+### Changed
+
+-   Refactor `APIProvider` definitions in `tau/builtins/providers/text.py` for improved readability
+-   Remove unused strict tool-calling infrastructure and constraints
+
+### Fixed
+
+-   Fix `read`, `glob`, `grep`, `ls`, `write`, `edit`, and the sandboxed `terminal` variant's result renderers silently showing a success-shaped summary (e.g. "Read 0 lines", "No files matched") on error instead of the actual error text, because they ignored the `is_error` flag passed to `render_result`
+-   Fix tool errors losing their full traceback and being formatted by a tool's custom renderer instead of the plain unhandled-exception path
+-   Fix empty thinking blocks that contain a signature being dropped instead of preserved, which lost the signature and broke Anthropic turn replays
+
 ## 0.7.5 — 2026-07-11
 
 ### Added
