@@ -3,8 +3,8 @@ Unified WatchDog Service for monitoring UI Automation events.
 Allows single instantiation to handle multiple monitors (Focus, Structure) safely in one STA thread.
 """
 
-from windows_mcp.uia.core import _AutomationClient
-from windows_mcp.uia.enums import TreeScope
+from ..uia.core import _AutomationClient
+from ..uia.enums import TreeScope
 from threading import Thread, Event
 import comtypes.client
 import comtypes

@@ -1,4 +1,4 @@
-from windows_mcp.uia.core import _AutomationClient
+from ..uia.core import _AutomationClient
 import comtypes
 import logging
 import weakref

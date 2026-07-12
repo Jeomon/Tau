@@ -1,0 +1,25 @@
+{
+  "tau": {
+    "name": "Computer Use",
+    "author": "jeomon",
+    "dependencies": [
+      "pyobjc-core; sys_platform == 'darwin'",
+      "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
+      "pyobjc-framework-Quartz; sys_platform == 'darwin'",
+      "pyobjc-framework-ApplicationServices; sys_platform == 'darwin'",
+      "comtypes; sys_platform == 'win32'"
+    ],
+    "settings": {
+      "title": "Computer Use",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": false,
+          "description": "Register the computer tool, letting the agent control the real mouse, keyboard, and application windows on this machine."
+        }
+      ]
+    }
+  }
+}
