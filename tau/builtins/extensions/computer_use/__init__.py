@@ -16,13 +16,17 @@ extensions.list settings.
   }
 
 While the desktop session is open (after a computer action='open' call), a
-compact desktop-state summary — focused/open windows plus the accessible
-interactive elements on screen (see state.py) — is injected ephemerally into
-LLM context at the start of every turn, the same way the todo extension
-re-asserts its live list: via the "context" hook returning
+compact desktop-state summary is injected ephemerally into LLM context at the
+start of every turn, the same way the todo extension re-asserts its live
+list: via the "context" hook returning
 ContextEventResult(ephemeral_messages=[...]). It is never written to session
 history, so it always reflects the current screen rather than a stale
 snapshot from whenever the model last looked.
+
+The `mode` setting (see manifest.json) controls what that summary contains:
+"screenshot" (an image of the screen), "accessibility_tree" (the default —
+focused/open windows plus accessible interactive elements, see state.py), or
+"both".
 """
 
 from __future__ import annotations
@@ -49,14 +53,13 @@ def register(tau: ExtensionAPI) -> None:
 
     tau.register_tool(ComputerTool(desktop))
 
+    mode = config.get("mode", "accessibility_tree")
+
     def _inject_desktop_state(_event, _ctx: ExtensionContext):
-        text = build_state_message(desktop)
-        if text is not None:
-            from tau.hooks.engine import ContextEventResult
-            from tau.message.types import UserMessage
-            message = UserMessage.from_text(text)
-            return ContextEventResult(ephemeral_messages=[message])
-        return ContextEventResult(ephemeral_messages=[])
+        from tau.hooks.engine import ContextEventResult
+
+        message = build_state_message(desktop, mode)
+        return ContextEventResult(ephemeral_messages=[message] if message is not None else [])
 
     tau.on("context", _inject_desktop_state)
 

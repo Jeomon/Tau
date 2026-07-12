@@ -104,8 +104,15 @@ class Desktop(ABC):
     # -- State / inspection ------------------------------------------------
 
     @abstractmethod
-    def get_state(self, as_bytes: bool = False) -> DesktopState:
-        """Return a full snapshot of the current desktop."""
+    def get_state(
+        self,
+        as_bytes: bool = False,
+        use_screenshot: bool = True,
+        use_accessibility: bool = True,
+    ) -> DesktopState:
+        """Return a snapshot of the current desktop. Skips capturing the
+        screenshot/accessibility tree when the corresponding flag is False,
+        so callers that only need one can avoid paying for the other."""
 
     @abstractmethod
     def get_screen_size(self) -> Size:

@@ -86,19 +86,28 @@ class Desktop(DesktopBase):
 
     # -- State / inspection ---------------------------------------------------
 
-    def get_state(self, as_bytes: bool = False) -> DesktopState:
+    def get_state(
+        self,
+        as_bytes: bool = False,
+        use_screenshot: bool = True,
+        use_accessibility: bool = True,
+    ) -> DesktopState:
         active_window = self.get_foreground_window()
-        active_handle = active_window.native_handle if active_window else None
-        other_handles = [
-            control.NativeWindowHandle
-            for control in uia.GetRootControl().GetChildren()
-            if control.NativeWindowHandle and control.NativeWindowHandle != active_handle
-        ]
+        screenshot = self.get_screenshot(as_bytes=as_bytes) if use_screenshot else None
+        tree_state = None
+        if use_accessibility:
+            active_handle = active_window.native_handle if active_window else None
+            other_handles = [
+                control.NativeWindowHandle
+                for control in uia.GetRootControl().GetChildren()
+                if control.NativeWindowHandle and control.NativeWindowHandle != active_handle
+            ]
+            tree_state = self._tree.get_state(active_handle, other_handles)
         return DesktopState(
             active_window=active_window,
             windows=self.get_windows(),
-            screenshot=self.get_screenshot(as_bytes=as_bytes),
-            tree_state=self._tree.get_state(active_handle, other_handles),
+            screenshot=screenshot,
+            tree_state=tree_state,
         )
 
     def get_screen_size(self) -> Size:

@@ -18,6 +18,14 @@
           "type": "bool",
           "default": false,
           "description": "Register the computer tool, letting the agent control the real mouse, keyboard, and application windows on this machine."
+        },
+        {
+          "key": "mode",
+          "label": "Observation Mode",
+          "type": "enum",
+          "values": ["screenshot", "accessibility_tree", "both"],
+          "default": "accessibility_tree",
+          "description": "What desktop state is injected into context each turn: a screenshot image, the accessibility tree of interactive elements, or both."
         }
       ]
     }

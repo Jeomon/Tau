@@ -73,13 +73,18 @@ class Desktop(DesktopBase):
 
     # -- State / inspection ---------------------------------------------------
 
-    def get_state(self, as_bytes: bool = False) -> DesktopState:
+    def get_state(
+        self,
+        as_bytes: bool = False,
+        use_screenshot: bool = True,
+        use_accessibility: bool = True,
+    ) -> DesktopState:
         active_window = self.get_foreground_window()
         return DesktopState(
             active_window=active_window,
             windows=self.get_windows(),
-            screenshot=self.get_screenshot(as_bytes=as_bytes),
-            tree_state=self._tree.get_state(active_window),
+            screenshot=self.get_screenshot(as_bytes=as_bytes) if use_screenshot else None,
+            tree_state=self._tree.get_state(active_window) if use_accessibility else None,
         )
 
     def get_screen_size(self) -> Size:
