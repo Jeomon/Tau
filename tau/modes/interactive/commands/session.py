@@ -447,8 +447,13 @@ def cmd_session(ctx: CommandContext) -> None:
             tool_call_count += len(msg.tool_calls())
             input_tokens += msg.usage.input_tokens
             output_tokens += msg.usage.output_tokens
-            cache_read_tokens += msg.usage.cache_read_tokens
-            cache_write_tokens += msg.usage.cache_write_tokens
+            # When input_tokens already folds in the cache read/write breakdown
+            # (OpenAI, Gemini), summing them separately here would double-count
+            # against the Total line below; only providers that report cache
+            # tokens as fully separate from input_tokens (Anthropic) add them.
+            if not msg.usage.input_tokens_include_cache_read:
+                cache_read_tokens += msg.usage.cache_read_tokens
+                cache_write_tokens += msg.usage.cache_write_tokens
             total_cost += msg.usage.cost.total
         elif isinstance(msg, ToolMessage):
             tool_result_count += len(msg.contents)

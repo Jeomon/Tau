@@ -16,6 +16,7 @@ import websockets.asyncio.client
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
+    openai_gpt56_prompt_cache_options,
     openai_responses_function_call_output,
     parse_tool_args,
 )
@@ -261,6 +262,10 @@ def _build_body(
     # ("Unsupported parameter") — unlike the standard OpenAI Responses API.
     # Output length is governed by the subscription, so we never send it.
 
+    cache_options = openai_gpt56_prompt_cache_options(model.id)
+    if cache_options is not None:
+        body["prompt_cache_options"] = cache_options
+
     if tools:
         body["tools"] = [
             {
@@ -416,6 +421,7 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
     _input_tokens = 0
     _output_tokens = 0
     _cache_read_tokens = 0
+    _cache_write_tokens = 0
 
     async for event in events:
         etype = event.get("type", "")
@@ -489,8 +495,9 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
             usage = response.get("usage") or {}
             _input_tokens = usage.get("input_tokens", 0) or 0
             _output_tokens = usage.get("output_tokens", 0) or 0
-            _details = usage.get("prompt_tokens_details") or {}
+            _details = usage.get("input_tokens_details") or {}
             _cache_read_tokens = _details.get("cached_tokens", 0) or 0
+            _cache_write_tokens = _details.get("cache_write_tokens", 0) or 0
             stop_reason = _STOP_REASON.get(response.get("stop_reason") or "", StopReason.Stop)
             if saw_tool_call and stop_reason == StopReason.Stop:
                 stop_reason = StopReason.ToolCalls
@@ -499,6 +506,7 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
                 input_tokens=_input_tokens,
                 output_tokens=_output_tokens,
                 cache_read_tokens=_cache_read_tokens,
+                cache_write_tokens=_cache_write_tokens,
                 input_tokens_include_cache_read=True,
             )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "openai_assistant_content",
     "openai_messages_to_chat",
     "openai_response_format",
+    "openai_gpt56_prompt_cache_options",
     "anthropic_messages_to_list",
     "anthropic_output_config",
     "anthropic_apply_message_cache",
@@ -27,6 +29,20 @@ __all__ = [
 _CACHE_MARKER = {"type": "ephemeral"}
 
 _NO_TOOL_OUTPUT = "(no tool output)"
+
+# GPT-5.6 adds an explicit prompt_cache_options request field (mode/ttl) and a
+# matching cache_write_tokens usage field, on both the direct Responses API
+# and the Codex/ChatGPT OAuth backend (which speaks the same Responses shape).
+# Older models keep the old implicit (no-config) caching behavior, so this is
+# only sent for the 5.6 family. See https://github.com/anomalyco/opencode/pull/36320.
+_GPT56_RE = re.compile(r"(?:^|[/.])gpt-5\.6(?:$|[-_/.])", re.I)
+_GPT56_PROMPT_CACHE_OPTIONS = {"mode": "implicit", "ttl": "30m"}
+
+
+def openai_gpt56_prompt_cache_options(model_id: str) -> dict[str, str] | None:
+    """Return the request-level prompt_cache_options for GPT-5.6+ models, else None."""
+    return dict(_GPT56_PROMPT_CACHE_OPTIONS) if _GPT56_RE.search(model_id) else None
+
 
 _GEMINI_UNSUPPORTED_SCHEMA_KEYS = {
     "title",

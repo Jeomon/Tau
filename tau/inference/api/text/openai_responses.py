@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.utils import (
+    openai_gpt56_prompt_cache_options,
     openai_responses_function_call_output,
     parse_tool_args,
 )
@@ -253,6 +254,14 @@ class OpenAIResponsesAPI(BaseAPI):
             if modified is not None:
                 params = modified
 
+        # prompt_cache_options isn't in the installed SDK's typed stream()
+        # signature yet, so it has to ride in extra_body rather than be spread
+        # as a keyword argument (same pattern as openai_completions.py).
+        extra_body: dict[str, Any] = {}
+        cache_options = openai_gpt56_prompt_cache_options(model.id)
+        if cache_options is not None:
+            extra_body["prompt_cache_options"] = cache_options
+
         # Keyed by the response item's own id (event.item_id in the arguments
         # delta/done events), mapping to (call_id, name). item_id and call_id
         # are two distinct identifiers — OpenAI's backend happens to make them
@@ -262,10 +271,11 @@ class OpenAIResponsesAPI(BaseAPI):
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
+        _cache_write_tokens = 0
 
         yield StartEvent()
 
-        async with self._client.responses.stream(**params) as stream:
+        async with self._client.responses.stream(**params, extra_body=extra_body or None) as stream:
             async for event in stream:
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
@@ -315,8 +325,9 @@ class OpenAIResponsesAPI(BaseAPI):
                     if u:
                         _input_tokens = getattr(u, "input_tokens", 0) or 0
                         _output_tokens = getattr(u, "output_tokens", 0) or 0
-                        _details = getattr(u, "prompt_tokens_details", None)
+                        _details = getattr(u, "input_tokens_details", None)
                         _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
+                        _cache_write_tokens = getattr(_details, "cache_write_tokens", 0) or 0
                     stop_reason = _STOP_REASON.get(
                         getattr(resp, "stop_reason", None) or "",
                         StopReason.Stop,
@@ -326,6 +337,7 @@ class OpenAIResponsesAPI(BaseAPI):
                         input_tokens=_input_tokens,
                         output_tokens=_output_tokens,
                         cache_read_tokens=_cache_read_tokens,
+                        cache_write_tokens=_cache_write_tokens,
                         input_tokens_include_cache_read=True,
                     )
 

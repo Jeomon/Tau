@@ -78,16 +78,18 @@ class ModelBadge(Component):
             self.update_context_from_ctx(ctx)
             return
 
-        cache_read = (
-            0
-            if getattr(usage, "input_tokens_include_cache_read", False)
-            else getattr(usage, "cache_read_tokens", 0) or 0
-        )
+        # When input_tokens already folds in the cache read/write breakdown
+        # (OpenAI Responses/Chat Completions, Gemini), adding them again here
+        # would double-count; only add them for providers that report cache
+        # tokens as fully separate from input_tokens (Anthropic).
+        includes_cache = getattr(usage, "input_tokens_include_cache_read", False)
+        cache_read = 0 if includes_cache else getattr(usage, "cache_read_tokens", 0) or 0
+        cache_write = 0 if includes_cache else getattr(usage, "cache_write_tokens", 0) or 0
         tokens = (
             (getattr(usage, "input_tokens", 0) or 0)
             + (getattr(usage, "output_tokens", 0) or 0)
             + cache_read
-            + (getattr(usage, "cache_write_tokens", 0) or 0)
+            + cache_write
         )
         context = getattr(ctx, "get_context_usage", lambda: None)()
         window = (context or {}).get("context_window") or self._context_window
