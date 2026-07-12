@@ -26,7 +26,10 @@ snapshot from whenever the model last looked.
 The `mode` setting (see manifest.json) controls what that summary contains:
 "screenshot" (an image of the screen), "accessibility_tree" (the default —
 focused/open windows plus accessible interactive elements, see state.py), or
-"both".
+"both". The screenshot is only ever included if the active model actually
+accepts image input (checked fresh every turn against Modality.Image, since
+/model can switch models mid-session); otherwise the accessibility tree is
+used instead so the turn still gets a usable observation.
 """
 
 from __future__ import annotations
@@ -57,8 +60,11 @@ def register(tau: ExtensionAPI) -> None:
 
     def _inject_desktop_state(_event, _ctx: ExtensionContext):
         from tau.hooks.engine import ContextEventResult
+        from tau.inference.model.types import Modality
 
-        message = build_state_message(desktop, mode)
+        model = getattr(_ctx.llm, "model", None)
+        supports_image = model is not None and Modality.Image in model.input
+        message = build_state_message(desktop, mode, supports_image)
         return ContextEventResult(ephemeral_messages=[message] if message is not None else [])
 
     tau.on("context", _inject_desktop_state)
