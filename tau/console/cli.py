@@ -282,6 +282,15 @@ async def _start(opts: dict) -> None:
     if opts.get("session_name"):
         runtime.session_manager.append_session_info(opts["session_name"])
 
+    # Interactive mode manages its own log file (it also has to strip
+    # terminal-writing handlers and restore them on exit); every other mode
+    # gets a plain one here so the path advertised in the system prompt is
+    # backed by an actual file regardless of which mode is running.
+    if opts["mode"] != "interactive" and runtime.session_manager.session_id:
+        from tau.utils.logging import attach_session_log_file
+
+        attach_session_log_file(runtime.session_manager.session_id)
+
     try:
         match opts["mode"]:
             case "interactive":
@@ -296,6 +305,17 @@ async def _start(opts: dict) -> None:
                 from tau.modes.rpc.mode import run_rpc_mode
 
                 await run_rpc_mode(runtime)
+    except click.ClickException:
+        # Deliberate user-facing validation errors, not bugs — Click already
+        # renders these; logging them as a crash would be noise.
+        raise
+    except Exception:
+        # An exception that escapes here would otherwise only reach Python's
+        # default excepthook (stderr, never through `logging`), invisible to
+        # the session log file. Log it before re-raising so the crash is
+        # still fatal but the traceback survives in the file for debugging.
+        logging.getLogger(__name__).exception("Unhandled error in %s mode", opts["mode"])
+        raise
     finally:
         # Emit `runtime_stop` once, in every mode, on the way out — symmetric to
         # the `runtime_ready` fired in Runtime.create.

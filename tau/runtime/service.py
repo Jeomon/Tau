@@ -549,6 +549,7 @@ class Runtime:
         from tau.extensions.api import LoadExtensionsResult, _RuntimeRef
         from tau.extensions.runtime import ExtensionRuntime
         from tau.resources.types import ResourceContext
+        from tau.settings.paths import get_log_file_path
         from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
@@ -640,6 +641,11 @@ class Runtime:
                             skills=skills,
                             model_name=getattr(self._context.llm.model, "name", None),
                             provider=getattr(self._context.llm.model, "provider", None),
+                            log_file_path=(
+                                str(get_log_file_path(self._context.session_manager.session_id))
+                                if self._context.session_manager.session_id
+                                else None
+                            ),
                             disable_context_files=self._config.disable_context_files,
                             project_trusted=self._context.project_trusted,
                             context_files=resources.context_files,
@@ -684,7 +690,7 @@ class Runtime:
         from tau.extensions.api import LoadExtensionsResult
         from tau.extensions.loader import ExtensionLoader
         from tau.extensions.runtime import ExtensionRuntime
-        from tau.settings.paths import get_extensions_dir
+        from tau.settings.paths import get_extensions_dir, get_log_file_path
         from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
@@ -776,6 +782,11 @@ class Runtime:
                             skills=skill_registry.list(),
                             model_name=getattr(self._context.llm.model, "name", None),
                             provider=getattr(self._context.llm.model, "provider", None),
+                            log_file_path=(
+                                str(get_log_file_path(self._context.session_manager.session_id))
+                                if self._context.session_manager.session_id
+                                else None
+                            ),
                             disable_context_files=self._config.disable_context_files,
                             project_trusted=self._context.project_trusted,
                             context_files=(

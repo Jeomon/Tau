@@ -859,6 +859,7 @@ class Engine:
                     break
         except Exception as e:
             end_reason = AgentEndReason.Error
+            _log.exception("agent loop raised")
             await emit(AgentErrorEvent(error=str(e)))
 
         _log.debug("agent loop ended: reason=%s", end_reason.value)

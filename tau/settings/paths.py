@@ -165,6 +165,18 @@ def get_logs_dir(cwd: Path | None = None) -> Path:
     return get_config_dir(cwd) / "logs"
 
 
+def get_log_file_path(session_id: str) -> Path:
+    """Get the path to this run's log file, named by session id.
+
+    One log file per run — everything routed through the ``logging`` module
+    (including exceptions that would otherwise be silently swallowed, e.g. a
+    render error) lands here once the interactive TUI redirects logging off
+    the terminal. Always under the global logs dir, matching
+    ``get_logs_dir()`` called with no ``cwd``.
+    """
+    return get_logs_dir() / f"{session_id}.log"
+
+
 def get_themes_dir(cwd: Path | None = None) -> Path:
     """Get the path to the themes directory.
 

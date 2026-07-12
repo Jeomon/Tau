@@ -340,6 +340,7 @@ class PromptBuilder:
       Skills section        — available skills
       Git snapshot          — branch, redacted remote, status, recent commits
       Environment           — cwd, OS, architecture, shell, date
+      Log file              — path to this run's log file, if known
       APPEND_SYSTEM.md      — verbatim append, deliberately last
 
     RuntimeConfig.system_prompt and the CLI --system option bypass this builder.
@@ -362,9 +363,19 @@ class PromptBuilder:
         skills = self._skills_section()
         git = self._git_section()
         footer = self._footer()
+        log_file = self._log_file_section()
         append = self._append()
         return (
-            identity + guidelines + tools + docs + project_context + skills + git + footer + append
+            identity
+            + guidelines
+            + tools
+            + docs
+            + project_context
+            + skills
+            + git
+            + footer
+            + log_file
+            + append
         )
 
     # ------------------------------------------------------------------
@@ -523,6 +534,25 @@ class PromptBuilder:
         if self._opts.provider:
             lines.append(f"Provider: {self._opts.provider}")
         return "\n".join(lines)
+
+    def _log_file_section(self) -> str:
+        """Point at this run's log file for post-hoc error debugging.
+
+        This is the plain-text ``logging`` output (warnings, exceptions,
+        swallowed errors like a failed render) — not the JSONL conversation
+        transcript. Omitted when the path isn't known yet rather than
+        printing a placeholder.
+        """
+        if not self._opts.log_file_path:
+            return ""
+        return (
+            "\n\n# Log File\n"
+            f"This run's log file: {self._opts.log_file_path}\n"
+            "Warnings, exceptions, and errors raised anywhere in the codebase or a tool "
+            "during this run are written here — including ones swallowed before they'd "
+            "otherwise be visible (e.g. a failed render). If something misbehaves and the "
+            "visible output doesn't explain why, check this file."
+        )
 
     # ------------------------------------------------------------------
     # Helpers
