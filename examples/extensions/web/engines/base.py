@@ -94,3 +94,11 @@ class BaseSearchEngine(ABC):
     @abstractmethod
     async def fetch(self, url: str, timeout: int) -> str:
         """Fetch a URL and return its content as text."""
+
+    async def aclose(self) -> None:
+        """Release any held resources (connections, sessions). Default no-op.
+
+        Overridden by engines that keep a persistent client alive across
+        calls (e.g. DDG, to preserve its cookie/rate-limit state) — called
+        from the ``extension_unload`` handler so reload doesn't leak it.
+        """

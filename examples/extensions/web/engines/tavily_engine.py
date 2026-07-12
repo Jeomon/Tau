@@ -27,6 +27,11 @@ class TavilySearchEngine(BaseSearchEngine):
             self._client = TavilyClient(api_key=self._api_key)
         return self._client
 
+    async def aclose(self) -> None:
+        client, self._client = self._client, None
+        if client is not None:
+            await asyncio.to_thread(client.close)
+
     async def search(
         self,
         query: str,

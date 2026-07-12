@@ -54,3 +54,7 @@ def register(tau) -> None:
     engine = build_engine(config)
     tau.register_tool(WebSearchTool(engine))
     tau.register_tool(WebFetchTool(engine))
+
+    @tau.on("extension_unload")
+    async def _close_engine(_event, _ctx) -> None:
+        await engine.aclose()
