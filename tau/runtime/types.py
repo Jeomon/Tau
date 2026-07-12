@@ -29,7 +29,7 @@ from tau.runtime.dependencies import (
 from tau.session.compaction import CompactionSettings, validated_compaction_settings
 from tau.session.manager import SessionManager
 from tau.settings.manager import SettingsManager
-from tau.settings.paths import get_config_dir, get_log_file_path
+from tau.settings.paths import get_config_dir
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
 
@@ -410,13 +410,6 @@ class RuntimeContext:
                     tools=all_tools,
                     extra_appends=extra_appends,
                     skills=skills,
-                    model_name=getattr(llm.model, "name", None),
-                    provider=getattr(llm.model, "provider", None),
-                    log_file_path=(
-                        str(get_log_file_path(session_manager.session_id))
-                        if session_manager.session_id
-                        else None
-                    ),
                     disable_context_files=config.disable_context_files,
                     project_trusted=project_trusted,
                     context_files=resources.context_files,
