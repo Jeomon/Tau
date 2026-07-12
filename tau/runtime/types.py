@@ -410,6 +410,8 @@ class RuntimeContext:
                     tools=all_tools,
                     extra_appends=extra_appends,
                     skills=skills,
+                    model_name=getattr(llm.model, "name", None),
+                    provider=getattr(llm.model, "provider", None),
                     disable_context_files=config.disable_context_files,
                     project_trusted=project_trusted,
                     context_files=resources.context_files,

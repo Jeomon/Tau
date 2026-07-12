@@ -510,14 +510,19 @@ class PromptBuilder:
     def _footer(self) -> str:
         cwd = str(self._opts.cwd).replace("\\", "/")
         today = date.today().isoformat()
-        return (
-            "\n\n# Environment\n"
-            f"Current working directory: {cwd}\n"
-            f"OS: {_detect_os()}\n"
-            f"Architecture: {_detect_machine()}\n"
-            f"Shell: {_detect_shell()}\n"
-            f"Date: {today}"
-        )
+        lines = [
+            "\n\n# Environment",
+            f"Current working directory: {cwd}",
+            f"OS: {_detect_os()}",
+            f"Architecture: {_detect_machine()}",
+            f"Shell: {_detect_shell()}",
+            f"Date: {today}",
+        ]
+        if self._opts.model_name:
+            lines.append(f"Model: {self._opts.model_name}")
+        if self._opts.provider:
+            lines.append(f"Provider: {self._opts.provider}")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Helpers

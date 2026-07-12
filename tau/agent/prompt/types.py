@@ -17,6 +17,11 @@ class PromptOptions(BaseModel):
     cwd: Path
     tools: list[Tool] = Field(default_factory=list)
 
+    # Active model/provider, surfaced in the environment footer. None omits
+    # the lines entirely rather than printing "unknown".
+    model_name: str | None = None
+    provider: str | None = None
+
     # Identity-layer override. Unlike RuntimeConfig.system_prompt, this does not
     # bypass the remaining generated prompt sections.
     identity_prompt: str | None = None

@@ -638,6 +638,8 @@ class Runtime:
                             tools=registry.list(),
                             extra_appends=extra_appends,
                             skills=skills,
+                            model_name=getattr(self._context.llm.model, "name", None),
+                            provider=getattr(self._context.llm.model, "provider", None),
                             disable_context_files=self._config.disable_context_files,
                             project_trusted=self._context.project_trusted,
                             context_files=resources.context_files,
@@ -772,6 +774,8 @@ class Runtime:
                             tools=registry.list(),
                             extra_appends=new_runtime.get_prompt_appends(),
                             skills=skill_registry.list(),
+                            model_name=getattr(self._context.llm.model, "name", None),
+                            provider=getattr(self._context.llm.model, "provider", None),
                             disable_context_files=self._config.disable_context_files,
                             project_trusted=self._context.project_trusted,
                             context_files=(
