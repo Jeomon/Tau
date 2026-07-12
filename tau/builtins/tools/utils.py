@@ -209,6 +209,26 @@ def looks_like_binary(data: bytes) -> bool:
     return b"\x00" in data[:_BINARY_SNIFF_BYTES]
 
 
+def detect_image_mime(data: bytes) -> str | None:
+    """Return the MIME type if ``data`` starts with a recognized image magic number.
+
+    Unlike ``tau.message.utils.detect_image_mime``, this never guesses — it
+    returns ``None`` for anything that isn't unambiguously PNG/JPEG/GIF/WEBP,
+    so callers can tell "this is an image" apart from "this is some other
+    binary format" (e.g. a zip, a compiled object) instead of mislabeling
+    every non-text file as a PNG.
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def resolve_tool_path(raw_path: str, cwd: Path | None) -> Path:
     """Resolve a tool's ``path`` argument against the invocation's working directory.
 

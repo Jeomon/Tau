@@ -4,7 +4,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import compute_line_hashes, looks_like_binary, resolve_tool_path
+from tau.builtins.tools.utils import (
+    compute_line_hashes,
+    detect_image_mime,
+    looks_like_binary,
+    resolve_tool_path,
+)
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -16,6 +21,7 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+from tau.utils.format import human_size
 
 
 def _render_read_call(args: dict, _streaming: bool) -> list[str]:
@@ -23,6 +29,10 @@ def _render_read_call(args: dict, _streaming: bool) -> list[str]:
 
 
 _MAX_LINE_CHARS = 4000
+# Generous enough for any real screenshot/photo while bounding the base64
+# payload handed to the model — most vision APIs downscale well past this
+# anyway, so there's little value in reading a larger file as an image.
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 def _display_line(line: str) -> str:
@@ -72,6 +82,10 @@ def _render_read_result(content: str, opts: Any) -> list[str]:
         return content.splitlines() or [content]
 
     metadata = opts.metadata or {}
+
+    if metadata.get("is_image"):
+        return [content]
+
     lines_returned = metadata.get("lines_returned", 0)
 
     line_word = "line" if lines_returned == 1 else "lines"
@@ -104,7 +118,11 @@ class ReadTool(Tool):
                 "'<line>:<hash>|<content>'. Every line in the file gets a distinct anchor, "
                 "including blank lines and repeated content. Use offset and limit to read "
                 f"large files in chunks. A single line longer than {_MAX_LINE_CHARS} characters "
-                "is truncated for display; refuses to read files that look like binary content."
+                "is truncated for display. A PNG, JPEG, GIF, or WEBP file (detected from its "
+                "magic bytes, regardless of extension) is returned as image content instead of "
+                f"text, up to {_MAX_IMAGE_BYTES // (1024 * 1024)} MiB; offset/limit don't apply "
+                "to images, and this fails if the active model doesn't accept image input. "
+                "Any other binary content is refused."
             ),
             schema=ReadParams,
             kind=ToolKind.Read,
@@ -142,6 +160,39 @@ class ReadTool(Tool):
             raw = path.read_bytes()
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
+
+        mime = detect_image_mime(raw)
+        if mime is not None:
+            model = getattr(context, "llm", None)
+            model = getattr(model, "model", None) if model is not None else None
+            if model is not None:
+                from tau.inference.model.types import Modality
+
+                if Modality.Image not in model.input:
+                    return ToolResult.error(
+                        invocation.id,
+                        f"'{params.path}' is a {mime} image, but the active model "
+                        f"({model.name}) doesn't accept image input. Switch to a "
+                        "vision-capable model to read this file.",
+                    )
+            if len(raw) > _MAX_IMAGE_BYTES:
+                return ToolResult.error(
+                    invocation.id,
+                    f"'{params.path}' is a {human_size(len(raw))} {mime} image, over the "
+                    f"{human_size(_MAX_IMAGE_BYTES)} limit for reading images.",
+                )
+            metadata = {
+                "file_path": str(path),
+                "is_image": True,
+                "mime_type": mime,
+                "byte_size": len(raw),
+            }
+            return ToolResult.with_images(
+                invocation.id,
+                f"Read image '{params.path}' ({mime}, {human_size(len(raw))})",
+                images=[raw],
+                metadata=metadata,
+            )
 
         if looks_like_binary(raw):
             return ToolResult.error(
