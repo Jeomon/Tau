@@ -16,7 +16,6 @@ import websockets.asyncio.client
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
-    openai_gpt56_prompt_cache_options,
     openai_responses_function_call_output,
     parse_tool_args,
 )
@@ -98,6 +97,7 @@ def _uuid7() -> str:
     b[8] = 0x80 | (rand[2] & 0x3F)
     b[9:16] = rand[3:10]
     return str(uuid.UUID(bytes=bytes(b)))
+
 
 _THINKING_EFFORT: dict[ThinkingLevel, str] = {
     ThinkingLevel.Low: "low",
@@ -258,13 +258,12 @@ def _build_body(
         "include": ["reasoning.encrypted_content"],
         "reasoning": {"effort": effort, "summary": "auto"},
     }
-    # NOTE: the ChatGPT Codex backend rejects `max_output_tokens`
-    # ("Unsupported parameter") — unlike the standard OpenAI Responses API.
-    # Output length is governed by the subscription, so we never send it.
-
-    cache_options = openai_gpt56_prompt_cache_options(model.id)
-    if cache_options is not None:
-        body["prompt_cache_options"] = cache_options
+    # NOTE: the ChatGPT Codex backend rejects `max_output_tokens` and
+    # `prompt_cache_options` ("Unsupported parameter") — unlike the standard
+    # OpenAI Responses API. Output length is governed by the subscription, and
+    # caching is handled server-side by the Codex backend itself, so neither
+    # is ever sent here. See openai_responses.py for the direct-API path,
+    # where prompt_cache_options is genuinely supported.
 
     if tools:
         body["tools"] = [

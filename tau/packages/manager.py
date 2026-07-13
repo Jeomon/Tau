@@ -54,7 +54,14 @@ class PackageManager:
             return
         self.venv_dir.mkdir(parents=True, exist_ok=True)
         if self._has_uv():
-            subprocess.run(["uv", "venv", str(self.venv_dir)], check=True, capture_output=True)
+            # Without --python, uv picks its own default toolchain (which can be a
+            # different version than the interpreter actually running Tau), producing
+            # a venv with import-incompatible native extensions. Pin explicitly.
+            subprocess.run(
+                ["uv", "venv", "--python", sys.executable, str(self.venv_dir)],
+                check=True,
+                capture_output=True,
+            )
         else:
             subprocess.run(
                 [sys.executable, "-m", "venv", str(self.venv_dir)],

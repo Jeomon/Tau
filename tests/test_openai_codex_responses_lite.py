@@ -19,6 +19,7 @@ from tau.inference.api.text.openai_codex_responses import (
     _RESPONSES_LITE_MODELS,
     OpenAICodexResponsesAPI,
     _apply_responses_lite,
+    _build_body,
     _build_headers,
     _uuid7,
 )
@@ -40,6 +41,17 @@ def test_uuid7_has_correct_version_and_variant_nibbles() -> None:
 
 def test_lite_models_are_exactly_the_gpt_5_6_family() -> None:
     assert _RESPONSES_LITE_MODELS == {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+
+
+def test_build_body_never_sends_prompt_cache_options() -> None:
+    """The Codex/ChatGPT backend rejects prompt_cache_options with HTTP 400
+    "Unsupported parameter" — unlike the direct Responses API, caching there is
+    handled server-side. Regression test for that exact production error.
+    """
+    for model_id in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"):
+        body = _build_body(_model(model_id), "instructions", [], LLMOptions())
+        assert "prompt_cache_options" not in body
+        assert "max_output_tokens" not in body
 
 
 def test_apply_responses_lite_folds_tools_and_instructions_into_input() -> None:
@@ -101,7 +113,9 @@ def test_build_headers_only_adds_lite_fields_when_lite() -> None:
     assert lite_ws[_RESPONSES_LITE_HEADER] == "true"
 
 
-def test_stream_applies_lite_transform_and_reuses_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_applies_lite_transform_and_reuses_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: list[dict[str, Any]] = []
 
     async def fake_stream_sse(

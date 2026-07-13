@@ -66,6 +66,27 @@ _STOP_REASON: dict[str, StopReason] = {
 }
 
 
+def _extra_body_for(model: Model) -> dict[str, Any]:
+    """Build the extra_body payload for fields not in the installed SDK's typed
+    stream() signature (currently just prompt_cache_options).
+
+    This adapter (api="openai_responses") is shared by openai, perplexity, xai,
+    and bedrock (see tau/builtins/providers/text.py) — bedrock in particular
+    proxies real OpenAI model ids (e.g. "openai.gpt-5.5") through AWS's Mantle
+    gateway, a different backend than OpenAI's own servers with no guarantee it
+    supports every new OpenAI-only request field. Gate on provider, not just
+    model id, so a future "openai.gpt-5.6" on bedrock doesn't inherit an
+    OpenAI-only field the proxy may reject — the same class of bug already hit
+    and fixed on the Codex OAuth path.
+    """
+    extra_body: dict[str, Any] = {}
+    if model.provider == "openai":
+        cache_options = openai_gpt56_prompt_cache_options(model.id)
+        if cache_options is not None:
+            extra_body["prompt_cache_options"] = cache_options
+    return extra_body
+
+
 def _content_to_openai(content_items: list, supports_thinking: bool = True) -> list[dict[str, Any]]:
     """Convert typed message content items to OpenAI Responses API content parts.
 
@@ -257,10 +278,7 @@ class OpenAIResponsesAPI(BaseAPI):
         # prompt_cache_options isn't in the installed SDK's typed stream()
         # signature yet, so it has to ride in extra_body rather than be spread
         # as a keyword argument (same pattern as openai_completions.py).
-        extra_body: dict[str, Any] = {}
-        cache_options = openai_gpt56_prompt_cache_options(model.id)
-        if cache_options is not None:
-            extra_body["prompt_cache_options"] = cache_options
+        extra_body = _extra_body_for(model)
 
         # Keyed by the response item's own id (event.item_id in the arguments
         # delta/done events), mapping to (call_id, name). item_id and call_id
