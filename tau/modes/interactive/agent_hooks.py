@@ -15,9 +15,16 @@ if TYPE_CHECKING:
     from tau.runtime.service import Runtime
     from tau.tui.service import TUI
 
-# Flush streamed tokens to the block at most once per frame (~60fps).
-# Markdown is re-parsed only on each flush, not on every token.
-_STREAM_FLUSH_INTERVAL = 1 / 60
+# Flush streamed tokens to the block at most this often. Markdown is
+# re-parsed only on each flush, not on every token — kept well below 60fps
+# on purpose: every flush prints to the live terminal scrollback, and since
+# Tau renders into the terminal's native scrollback (no alt-screen, see
+# ScrollbackTerminal in tui/frame.py) rather than an app-owned viewport, any
+# such write makes the terminal auto-snap the view back to the live cursor
+# row if the user had scrolled up to read earlier history. 60fps flushing
+# fought a mid-stream manual scroll dozens of times a second; ~12fps is
+# still smooth-looking token streaming while cutting that down by ~5x.
+_STREAM_FLUSH_INTERVAL = 1 / 12
 
 
 def _find_component(root: object, attr: str) -> object | None:
