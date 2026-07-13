@@ -514,15 +514,24 @@ class AgentHookHandler:
         if self._current_block is None:
             return
         self._current_block._message = msg
+        if not streaming:
+            reset_streaming_md = getattr(
+                self._current_block,
+                "reset_streaming_markdown_cache",
+                None,
+            )
+            if callable(reset_streaming_md):
+                reset_streaming_md()
         self._current_block.set_streaming(streaming)
         self._current_block.invalidate()
         if clear:
-            # No finalize(): this is always an AssistantMessage/ToolMessage,
-            # a ctrl+o target — toggle_details_expanded only reaches
-            # still-live blocks, so freezing here the instant a reply
-            # finishes would make it permanently un-toggleable. It still
-            # freezes safely once something else is added after it (the
-            # "not last unit" fallback in render_split_cells).
+            # The driver is dropping its live reference to this block at true
+            # message completion.  Its content is now render-stable, so let
+            # MessageList freeze it immediately even if it is still the last
+            # unit.  This does not make ctrl+o/theme/session changes impossible:
+            # those paths explicitly invalidate frozen caches from the touched
+            # block and rebuild on demand.
+            self._current_block.finalize()
             self._current_block = None
             self._current_text_length = 0
 

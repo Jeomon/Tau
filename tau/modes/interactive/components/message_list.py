@@ -7,7 +7,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.component import Component, StaticComponent
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
-from tau.tui.markdown import render_markdown
+from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
 from tau.tui.style import Style, apply_style
 from tau.tui.theme import MessageTheme
 from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
@@ -108,6 +108,10 @@ class MessageBlock:
         self._tool_results_cache: list[str] | None = None
         self._tool_results_message: object | None = None
         self._tool_results_width = 0
+        # Incremental markdown renderers for append-only streaming text/thinking
+        # content. They keep full streamed output visible while avoiding a full
+        # CommonMark parse of the whole growing response on every frame.
+        self._streaming_markdown: dict[tuple[int, bool], StreamingMarkdownRenderer] = {}
 
     # -------------------------------------------------------------------------
     # Public API
@@ -123,6 +127,13 @@ class MessageBlock:
         self._tool_results_cache = None
         self._tool_results_message = None
 
+    def reset_streaming_markdown_cache(self) -> None:
+        """Drop incremental markdown state for this block.
+
+        Used when a streamed message completes so the final render goes through
+        the normal whole-document path exactly once.
+        """
+        self._streaming_markdown.clear()
     def toggle_expanded(self) -> None:
         self._expanded = not self._expanded
         self.invalidate()
@@ -220,6 +231,33 @@ class MessageBlock:
     @property
     def message(self) -> object:
         return self._message
+
+    def _render_markdown_text(
+        self,
+        key: tuple[int, bool],
+        text: str,
+        width: int,
+        *,
+        preserve_soft_breaks: bool = False,
+    ) -> list[str]:
+        """Render markdown, using append-only incremental caching while streaming."""
+        if self._streaming:
+            renderer = self._streaming_markdown.get(key)
+            if renderer is None:
+                renderer = StreamingMarkdownRenderer()
+                self._streaming_markdown[key] = renderer
+            return renderer.render(
+                text,
+                width,
+                self._theme.markdown,
+                preserve_soft_breaks=preserve_soft_breaks,
+            )
+        return render_markdown(
+            text,
+            width,
+            self._theme.markdown,
+            preserve_soft_breaks=preserve_soft_breaks,
+        )
 
     # -------------------------------------------------------------------------
     # Rendering
@@ -407,10 +445,10 @@ class MessageBlock:
                     thinking_idx += 1
                 thinking_text = "".join(thinking_parts).rstrip()
                 thinking_lines = (
-                    render_markdown(
+                    self._render_markdown_text(
+                        (idx, True),
                         thinking_text,
                         inner_width,
-                        t.markdown,
                         preserve_soft_breaks=True,
                     )
                     if thinking_text
@@ -437,7 +475,11 @@ class MessageBlock:
                 lines.append("")
 
             elif isinstance(item, TextContent) and item.content:
-                for line in render_markdown(item.content.rstrip(), inner_width, t.markdown):
+                for line in self._render_markdown_text(
+                    (idx, False),
+                    item.content.rstrip(),
+                    inner_width,
+                ):
                     lines.append("  " + line)
 
             elif isinstance(item, _ImageContent):
