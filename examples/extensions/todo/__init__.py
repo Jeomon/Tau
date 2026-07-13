@@ -64,7 +64,7 @@ class TodoBoard:
 
         glyphs = {
             "pending": ("☐", theme.muted),
-            "in_progress": ("■", theme.warning),
+            "in_progress": ("■", theme.accent),
             "done": ("✓", theme.success),
             "failed": ("✗", theme.error),
         }
