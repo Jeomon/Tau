@@ -58,6 +58,61 @@ def _render_as_lines(ml: MessageList, width: int) -> list[str]:
     return [row_to_ansi(buf, y).rstrip() for y in range(row)]
 
 
+def _viewport_as_lines(ml: MessageList, width: int, start: int, height: int) -> list[str]:
+    view = ml.render_viewport_cells(width, start, height)
+    return [row_to_ansi(view.buf, y).rstrip() for y in range(view.buf.area.height)]
+
+
+def test_row_metadata_tracks_frozen_and_live_units() -> None:
+    ml = MessageList(theme=MessageTheme())
+    _add_conversation(ml, 5)
+    ml.add_message(UserMessage.from_text("stream please"))
+    streaming = ml.add_message(AssistantMessage.from_text("partial answer"), streaming=True)
+
+    ml.render_split_cells(WIDTH, collect_metadata=True)
+
+    metadata = ml.row_metadata
+    assert metadata
+    assert sum(unit.row_count for unit in metadata) == len(_split_as_lines(ml, WIDTH))
+    assert metadata[-1].start_block == len(ml._blocks) - 1
+    assert metadata[-1].end_block == len(ml._blocks)
+    assert metadata[-1].frozen is False
+    assert any(unit.frozen for unit in metadata[:-1])
+
+    streaming.set_streaming(False)
+    streaming.finalize()
+    streaming.invalidate()
+    ml.render_split_cells(WIDTH, collect_metadata=True)
+    assert all(unit.frozen for unit in ml.row_metadata)
+
+
+def test_render_viewport_cells_matches_full_render_slices() -> None:
+    ml = MessageList(theme=MessageTheme())
+    _add_conversation(ml, 20)
+    ml.add_message(UserMessage.from_text("final question"))
+    ml.add_message(AssistantMessage.from_text("final answer " * 20), streaming=True)
+
+    full = _split_as_lines(ml, WIDTH)
+    for start in (0, 3, 17, max(0, len(full) - 8), len(full) + 5):
+        height = 7
+        view = ml.render_viewport_cells(WIDTH, start, height)
+        expected = full[start : start + height]
+        assert view.total_rows == len(full)
+        assert view.row_offset == max(0, start)
+        assert _viewport_as_lines(ml, WIDTH, start, height) == expected
+
+
+def test_render_viewport_cells_reflows_after_width_change() -> None:
+    ml = MessageList(theme=MessageTheme())
+    _add_conversation(ml, 8)
+    ml.add_message(AssistantMessage.from_text("wide words " * 30), streaming=True)
+
+    narrow_full = _split_as_lines(ml, 32)
+    wide_full = _split_as_lines(ml, WIDTH)
+    assert narrow_full != wide_full
+
+    assert _viewport_as_lines(ml, 32, 2, 10) == narrow_full[2:12]
+    assert _viewport_as_lines(ml, WIDTH, 2, 10) == wide_full[2:12]
 def _add_conversation(ml: MessageList, n: int) -> None:
     for i in range(n):
         ml.add_message(UserMessage.from_text(f"question number {i}"))
