@@ -200,13 +200,135 @@ def render_markdown(
     preserve_soft_breaks: bool = False,
 ) -> list[str]:
     """Render a markdown string to a list of ANSI-coloured terminal lines."""
+    return _render_markdown(text, width, theme, preserve_soft_breaks=preserve_soft_breaks)
+
+
+def _render_markdown(
+    text: str,
+    width: int,
+    theme: MarkdownTheme,
+    *,
+    preserve_soft_breaks: bool = False,
+    trim_trailing_blank_lines: bool = True,
+) -> list[str]:
     document, html_block, html_span, md_context = _mistletoe()
     with md_context(html_span, html_block):
         doc = document(text.splitlines(keepends=True))
         lines = _Renderer(width, theme, preserve_soft_breaks).render_blocks(doc.children or [])
-    while lines and lines[-1] == "":
-        lines.pop()
+    if trim_trailing_blank_lines:
+        while lines and lines[-1] == "":
+            lines.pop()
     return lines
+
+
+class StreamingMarkdownRenderer:
+    """Incremental renderer for append-only streamed markdown.
+
+    A normal ``render_markdown(growing_text, ...)`` call reparses the entire
+    CommonMark document every frame.  For long streamed replies that becomes
+    O(total_response_size) on the UI event loop and can delay keystroke echo.
+
+    This cache freezes complete top-level block groups once a blank-line
+    boundary has moved behind the live tail, then reparses only the still-open
+    suffix on subsequent frames.  The final non-streaming render should still
+    call ``render_markdown`` once for exact whole-document semantics.
+    """
+
+    def __init__(self) -> None:
+        self._width = -1
+        self._theme_id = 0
+        self._preserve_soft_breaks = False
+        self._text = ""
+        self._frozen_until = 0
+        self._frozen_lines: list[str] = []
+
+    def reset(self) -> None:
+        self._text = ""
+        self._frozen_until = 0
+        self._frozen_lines = []
+
+    def render(
+        self,
+        text: str,
+        width: int,
+        theme: MarkdownTheme,
+        *,
+        preserve_soft_breaks: bool = False,
+    ) -> list[str]:
+        theme_id = id(theme)
+        if (
+            width != self._width
+            or theme_id != self._theme_id
+            or preserve_soft_breaks != self._preserve_soft_breaks
+            or not text.startswith(self._text)
+        ):
+            self._width = width
+            self._theme_id = theme_id
+            self._preserve_soft_breaks = preserve_soft_breaks
+            self.reset()
+
+        self._text = text
+        freeze_until = _streaming_markdown_freeze_cutoff(text)
+        if freeze_until > self._frozen_until:
+            newly_stable = text[self._frozen_until:freeze_until]
+            rendered = _render_markdown(
+                newly_stable,
+                width,
+                theme,
+                preserve_soft_breaks=preserve_soft_breaks,
+            )
+            if rendered:
+                if self._frozen_lines and self._frozen_lines[-1] != "":
+                    self._frozen_lines.append("")
+                self._frozen_lines.extend(rendered)
+                # Preserve the block separator represented by the stable blank
+                # boundary; render_markdown trims it for full-document display.
+                if self._frozen_lines[-1] != "":
+                    self._frozen_lines.append("")
+            self._frozen_until = freeze_until
+
+        tail = text[self._frozen_until :]
+        tail_lines = _render_markdown(
+            tail,
+            width,
+            theme,
+            preserve_soft_breaks=preserve_soft_breaks,
+        )
+        if not tail_lines:
+            frozen = self._frozen_lines
+            return list(frozen[:-1] if frozen[-1:] == [""] else frozen)
+        return [*self._frozen_lines, *tail_lines]
+
+
+def _streaming_markdown_freeze_cutoff(text: str) -> int:
+    """Return a safe append-only cutoff for already-stable markdown blocks.
+
+    The cutoff is the last blank-line block boundary outside fenced code, but
+    never the most recent boundary.  Keeping one completed block group in the
+    live tail is deliberately conservative: constructs like tables, lists and
+    link definitions can be affected by immediately following lines while the
+    model is still typing.
+    """
+    boundaries: list[int] = []
+    in_fence = False
+    fence_marker = ""
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            marker = stripped[:3]
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif marker == fence_marker:
+                in_fence = False
+                fence_marker = ""
+        pos += len(line)
+        if not in_fence and stripped == "":
+            boundaries.append(pos)
+    if len(boundaries) < 2:
+        return 0
+    return boundaries[-2]
 
 
 # ── Renderer ──────────────────────────────────────────────────────────────────

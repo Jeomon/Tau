@@ -360,12 +360,10 @@ def test_toggle_details_expanded_still_affects_the_live_tail() -> None:
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
-def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
-    """Regression: agent_hooks.py's _update_block(clear=True) — called the
-    instant an assistant reply finishes — must NOT finalize() the block.
-    An AssistantMessage/ToolMessage is a ctrl+o target
-    (toggle_details_expanded); finalizing it on completion would make it
-    permanently frozen the moment it appears, and freezing is one-way."""
+def test_ctrl_o_still_works_after_a_reply_is_finalized_and_frozen() -> None:
+    """A completed assistant reply should freeze immediately for input latency,
+    while still remaining expandable/collapsible through explicit invalidation.
+    """
     ml = MessageList(theme=MessageTheme())
     ml.add_message(UserMessage.from_text("explain"))
     long_thinking = "\n".join(f"reasoning {j}" for j in range(8))
@@ -374,11 +372,13 @@ def test_ctrl_o_still_works_right_after_a_reply_finishes() -> None:
     )
     ml.render_split_cells(WIDTH)  # mid-stream render, like a real session
 
-    # Mirrors _on_message_end -> _update_block(msg, streaming=False, clear=True):
-    # NOT calling finalize() here is exactly the point of this test.
+    # Mirrors _on_message_end -> _update_block(msg, streaming=False, clear=True).
     block.set_streaming(False)
     block.invalidate()
-    ml.render_split_cells(WIDTH)  # one more frame after the reply completes
+    block.finalize()
+    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    assert ml._frozen_block_count == len(ml._blocks)
+    assert live_lines == []
 
     before = _render_as_lines(ml, WIDTH)
     ml.toggle_details_expanded()

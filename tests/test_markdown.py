@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tau.tui.markdown import render_markdown
+from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
 from tau.tui.theme import MarkdownTheme
 from tau.tui.utils import strip_ansi
 
@@ -291,3 +291,39 @@ class TestTable:
         lines_wide = plain(md, width=120)
         # wider terminal → fewer rows needed for the long cell
         assert len(lines_wide) <= len(lines_narrow)
+
+
+class TestStreamingMarkdownRenderer:
+    def test_matches_full_render_for_completed_prefix_plus_live_tail(self):
+        theme = _theme()
+        md = (
+            "# Heading\n\n"
+            "First paragraph with **bold** text.\n\n"
+            "| A | B |\n|---|---|\n| 1 | 2 |\n\n"
+            "Final paragraph still streaming"
+        )
+        renderer = StreamingMarkdownRenderer()
+        streamed = renderer.render(md, 80, theme)
+        assert [strip_ansi(line) for line in streamed] == plain(md)
+
+    def test_append_only_render_updates_tail_without_losing_prefix(self):
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        first = "Intro paragraph.\n\nSecond paragraph"
+        second = first + " with more streamed words."
+
+        renderer.render(first, 80, theme)
+        streamed = renderer.render(second, 80, theme)
+
+        assert [strip_ansi(line) for line in streamed] == plain(second)
+
+    def test_does_not_freeze_inside_fenced_code_block(self):
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        first = "Before.\n\n```python\nprint('hi')\n\n"
+        second = first + "print('bye')\n```\n\nAfter."
+
+        renderer.render(first, 80, theme)
+        streamed = renderer.render(second, 80, theme)
+
+        assert [strip_ansi(line) for line in streamed] == plain(second)
