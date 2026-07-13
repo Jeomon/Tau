@@ -8,8 +8,8 @@ Tau supports the following inference providers:
 
 Built-in API-key providers are `openai`, `anthropic`, `google`, `nvidia`,
 `groq`, `openrouter`, `perplexity`, `xai`, `bedrock`, `kimi`, `minimax`,
-`cerebras`, `deepseek`, `zai`, `kilocode`, `fireworks`, `huggingface`, and
-`mistral`.
+`cerebras`, `deepseek`, `zai`, `kilocode`, `fireworks`, `huggingface`,
+`subconscious`, and `mistral`.
 
 Tau also includes local `ollama`, Google/Anthropic/OpenAI-compatible Vertex AI
 providers, and OAuth providers for OpenAI Codex, Claude Code, GitHub Copilot,
@@ -160,6 +160,36 @@ tau --model huggingface/deepseek-ai/DeepSeek-V3-0324 -p "Say hello"
 - Uses the OpenAI-compatible completions API under the hood, routed through `https://router.huggingface.co/v1`
 - Model IDs are Hugging Face Hub repo IDs (e.g. `meta-llama/Llama-3.3-70B-Instruct`)
 - Built-in model entries are pinned to a specific backend with `<repo>:<provider>` (e.g. `openai/gpt-oss-120b:groq`) rather than the router's default `:fastest` routing, since unpinned routing can silently switch to a backend with different tool-calling behavior. You can still use any model/backend combination the router supports via `tau --model huggingface/<repo>[:<provider>]` even if it isn't in the built-in list.
+
+## Subconscious
+
+Subconscious provides hosted inference through OpenAI-compatible Chat Completions
+and Anthropic-compatible Messages APIs. Tau uses Chat Completions because dashboard
+keys with the documented `sky_` prefix authenticate through Bearer authorization on
+that endpoint.
+
+### Setup
+
+1. Create an account at [Subconscious](https://www.subconscious.dev/)
+2. Generate an API key in the dashboard
+3. Set the environment variable:
+
+```bash
+export SUBCONSCIOUS_API_KEY=...
+```
+
+### Verify
+
+```bash
+tau --model subconscious/subconscious/tim-qwen3.6-27b -p "Say hello"
+```
+
+### Notes
+
+- The built-in model ID is `subconscious/tim-qwen3.6-27b`; the advertised `subconscious/glm-5.2` is omitted because the live API currently rejects it as an unknown model
+- `TIM-Qwen3.6 27B` is published as multimodal with optional thinking; Tau enables its documented image modality and thinking selector
+- Subconscious does not publish numeric context-window or maximum-output limits, so Tau leaves those fields unspecified rather than guessing
+- Model availability and pricing come from the [official pricing page](https://www.subconscious.dev/pricing)
 
 ## Ollama (Local)
 

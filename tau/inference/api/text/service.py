@@ -283,14 +283,16 @@ class TextLLM:
         )
         from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
 
+        api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
+        if api_key:
+            # Set credentials before resolving the lazy adapter: SDK clients such as
+            # Anthropic validate and capture authentication during construction.
+            self.api.options.api_key = api_key
+
         # Resolve the provider SDK (first-use import + client construction) on a
         # worker thread so a cold import doesn't block the event loop — and with
         # it, the render loop's spinner animation.
         await self.api.resolve_async()
-
-        api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
-        if api_key:
-            self.api.options.api_key = api_key
 
         messages = self._resolve_messages(context)
         api_context = LLMContext(
@@ -399,14 +401,15 @@ class TextLLM:
         from tau.inference.types import ErrorEvent, StopReason, ThinkingLevel
         from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
 
+        api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
+        if api_key:
+            # Set credentials before resolving the lazy adapter; see stream().
+            self.api.options.api_key = api_key
+
         # Resolve the provider SDK (first-use import + client construction) on a
         # worker thread so a cold import doesn't block the event loop — and with
         # it, the render loop's spinner animation.
         await self.api.resolve_async()
-
-        api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
-        if api_key:
-            self.api.options.api_key = api_key
 
         original = self.api.options.thinking_level
         if thinking_level is not None and thinking_level != ThinkingLevel.Off:

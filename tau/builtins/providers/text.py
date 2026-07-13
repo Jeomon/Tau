@@ -9,24 +9,9 @@ from tau.inference.provider.types import APIProvider
 from tau.inference.types import AuthType, LLMOptions
 
 api_providers = [
-    APIProvider(
-        id="openai",
-        name="OpenAI",
-        api="openai_responses",
-        options=LLMOptions()
-    ),
-    APIProvider(
-        id="anthropic",
-        name="Anthropic",
-        api="anthropic_messages",
-        options=LLMOptions()
-    ),
-    APIProvider(
-        id="google",
-        name="Google",
-        api="gemini_generate",
-        options=LLMOptions()
-    ),
+    APIProvider(id="openai", name="OpenAI", api="openai_responses", options=LLMOptions()),
+    APIProvider(id="anthropic", name="Anthropic", api="anthropic_messages", options=LLMOptions()),
+    APIProvider(id="google", name="Google", api="gemini_generate", options=LLMOptions()),
     APIProvider(
         id="google-vertex",
         name="Google Vertex AI",
@@ -135,6 +120,12 @@ api_providers = [
         name="Hugging Face",
         api="openai_completions",
         options=LLMOptions(base_url="https://router.huggingface.co/v1"),
+    ),
+    APIProvider(
+        id="subconscious",
+        name="Subconscious",
+        api="openai_completions",
+        options=LLMOptions(base_url="https://api.subconscious.dev/v1"),
     ),
     APIProvider(id="mistral", name="Mistral", api="mistral_chat", options=LLMOptions()),
     APIProvider(

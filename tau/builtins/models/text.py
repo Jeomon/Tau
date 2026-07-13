@@ -7349,4 +7349,19 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
+    # Subconscious. The provider publishes prices but not numeric context/output limits,
+    # so leave context_window unknown (0) and retain Tau's conservative 16K output default.
+    # Chat Completions is used because dashboard `sky_` keys authenticate through its
+    # Bearer scheme; the same key is rejected by the Anthropic-compatible endpoint.
+    Model(
+        id="subconscious/tim-qwen3.6-27b",
+        name="TIM-Qwen3.6 27B",
+        provider="subconscious",
+        cost=Cost(input=0.30, output=3.00, cache_read=0.15),
+        thinking=True,
+        thinking_format="chat-template",
+        context_window=0,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
 ]

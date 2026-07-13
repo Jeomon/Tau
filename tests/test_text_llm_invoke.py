@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from tau.inference.types import (
     EndEvent,
     ErrorEvent,
@@ -78,6 +80,21 @@ def _make_llm(api_invoke_side_effect=None, max_retries: int = 2):
     llm.__dict__["_resolve_messages"] = lambda context: context.messages
 
     return llm
+
+
+@pytest.mark.asyncio
+async def test_invoke_sets_api_key_before_lazy_resolution() -> None:
+    llm = _make_llm(api_invoke_side_effect=[])
+    llm._auth_manager.get_api_key = AsyncMock(return_value="stored-key")
+
+    async def assert_key_is_set() -> None:
+        assert llm.api.options.api_key == "stored-key"
+
+    llm.api.resolve_async = AsyncMock(side_effect=assert_key_is_set)
+
+    await llm.invoke(_context())
+
+    llm.api.resolve_async.assert_awaited_once()
 
 
 def _context() -> LLMContext:
