@@ -2,6 +2,13 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.9 — 2026-07-13
+
+### Fixed
+
+-   Improve TUI responsiveness around streamed Markdown by freezing completed assistant messages immediately after they finish, while preserving expand/collapse invalidation behavior
+-   Reduce active streaming Markdown render work by caching completed top-level blocks at blank-line boundaries outside fenced code blocks
+
 ## 0.7.8 — 2026-07-13
 
 ### Added
