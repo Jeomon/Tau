@@ -350,3 +350,15 @@ class TestStreamingMarkdownRenderer:
 
         assert [strip_ansi(line) for line in streamed] == plain(second)
         assert renderer._frozen_until == len("Intro.\n\n")
+
+    def test_render_split_exposes_frozen_and_live_lines(self):
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        md = "Intro.\n\nCurrent paragraph still streaming"
+
+        split = renderer.render_split(md, 80, theme)
+
+        assert [strip_ansi(line) for line in split.lines] == plain(md)
+        assert [strip_ansi(line) for line in split.frozen_lines] == ["Intro.", ""]
+        assert any("Current paragraph" in strip_ansi(line) for line in split.live_lines)
+        assert split.frozen_generation > 0

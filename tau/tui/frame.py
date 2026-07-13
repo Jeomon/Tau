@@ -264,6 +264,12 @@ class ScrollbackTerminal:
         O(still-live content), which is what actually degrades over a long
         session — the vast majority of rows are finalized and provably
         unchanged, so there is nothing to gain by re-checking them.
+
+        Callers may intentionally leave those rows blank in ``buf`` (see
+        elision in ``TUI.render_cells``) to avoid re-copying a long frozen
+        history.  This method reinstates them from the previous frame before
+        diffing or committing ``_prev``, so blanks never paint or poison the
+        next baseline.
         """
         try:
             self._render(buf, stable_through)
@@ -296,6 +302,24 @@ class ScrollbackTerminal:
         assert prev is not None
         prev_rows = prev.area.height
 
+        # Reinstate any cells the caller left blank for the stable prefix.
+        # TUI.render_cells elides re-splicing already-stable MessageList rows
+        # (they're already on screen and in ``prev``); without this copy those
+        # holes would either paint as blanks or become the next frame's
+        # baseline and erase history until a full redraw (e.g. resize).
+        # Only fill rows that are still entirely blank sentinels — children
+        # above MessageList (header, spacer) are re-rendered every frame and
+        # must keep their fresh cells, even when they fall inside
+        # ``stable_through`` for skip-diff purposes.
+        if stable_through > 0 and prev.area.width == buf.area.width:
+            st = min(stable_through, prev.area.height, buf.area.height)
+            for y in range(st):
+                start = y * width
+                end = start + width
+                row = buf.content[start:end]
+                if row and all(c is _BLANK_CELL for c in row):
+                    buf.content[start:end] = prev.content[start:end]
+
         max_rows = max(new_rows, prev_rows)
         scan_start = max(0, min(stable_through, max_rows))
         first_changed = -1
@@ -307,8 +331,13 @@ class ScrollbackTerminal:
                 last_changed = y
 
         if first_changed == -1:
-            self._position_hw_cursor(cursor_pos, new_rows)
+            # Still commit buf as the baseline so any non-scanned growth beyond
+            # prev (shouldn't happen with first_changed == -1) and any
+            # reinstated prefix stay aligned with what the terminal shows.
+            self._prev = buf
+            self._prev_width = width
             self._prev_height = height
+            self._position_hw_cursor(cursor_pos, new_rows)
             return
 
         if first_changed < self._viewport_top:

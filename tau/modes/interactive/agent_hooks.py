@@ -528,10 +528,20 @@ class AgentHookHandler:
             # The driver is dropping its live reference to this block at true
             # message completion.  Its content is now render-stable, so let
             # MessageList freeze it immediately even if it is still the last
-            # unit.  This does not make ctrl+o/theme/session changes impossible:
+            # unit — UNLESS this is an assistant message carrying a pending
+            # tool call: MessageList._iter_units only merges an assistant
+            # block with its ToolMessage into one paired render (tool-call
+            # header + truncated/expandable result) when the assistant block
+            # is still live at the time the ToolMessage is appended (see
+            # render_split_cells). The ToolMessage doesn't exist yet here —
+            # finalizing now would freeze the assistant block standalone and
+            # permanently lose that pairing, dropping the result's truncation
+            # and "(ctrl+o to expand)" hint. This does not make ctrl+o/theme/
+            # session changes impossible for messages that ARE finalized here:
             # those paths explicitly invalidate frozen caches from the touched
             # block and rebuild on demand.
-            self._current_block.finalize()
+            if not _has_pending_tool_call(msg):
+                self._current_block.finalize()
             self._current_block = None
             self._current_text_length = 0
 
@@ -545,3 +555,11 @@ def _text_length(message: object) -> int:
 
     contents = getattr(message, "contents", [])
     return sum(len(item.content) for item in contents if isinstance(item, TextContent))
+
+
+def _has_pending_tool_call(message: object) -> bool:
+    from tau.message.types import AssistantMessage, ToolCallContent
+
+    if not isinstance(message, AssistantMessage):
+        return False
+    return any(isinstance(item, ToolCallContent) for item in message.contents)

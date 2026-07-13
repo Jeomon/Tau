@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -221,6 +222,25 @@ def _render_markdown(
     return lines
 
 
+@dataclass(frozen=True)
+class StreamingMarkdownRender:
+    """Rendered split for append-only streamed markdown.
+
+    ``frozen_lines`` are completed top-level markdown blocks cached across
+    frames. ``live_lines`` are the current open block rendered for this frame.
+    ``frozen_generation`` changes whenever the frozen prefix is rebuilt or
+    extended, so callers can invalidate downstream cell caches precisely.
+    """
+
+    frozen_lines: list[str]
+    live_lines: list[str]
+    frozen_generation: int
+
+    @property
+    def lines(self) -> list[str]:
+        return [*self.frozen_lines, *self.live_lines]
+
+
 class StreamingMarkdownRenderer:
     """Incremental renderer for append-only streamed markdown.
 
@@ -241,20 +261,22 @@ class StreamingMarkdownRenderer:
         self._text = ""
         self._frozen_until = 0
         self._frozen_lines: list[str] = []
+        self._frozen_generation = 0
 
     def reset(self) -> None:
         self._text = ""
         self._frozen_until = 0
         self._frozen_lines = []
+        self._frozen_generation += 1
 
-    def render(
+    def render_split(
         self,
         text: str,
         width: int,
         theme: MarkdownTheme,
         *,
         preserve_soft_breaks: bool = False,
-    ) -> list[str]:
+    ) -> StreamingMarkdownRender:
         theme_id = id(theme)
         if (
             width != self._width
@@ -285,6 +307,7 @@ class StreamingMarkdownRenderer:
                 # boundary; render_markdown trims it for full-document display.
                 if self._frozen_lines[-1] != "":
                     self._frozen_lines.append("")
+                self._frozen_generation += 1
             self._frozen_until = freeze_until
 
         tail = text[self._frozen_until :]
@@ -294,10 +317,24 @@ class StreamingMarkdownRenderer:
             theme,
             preserve_soft_breaks=preserve_soft_breaks,
         )
-        if not tail_lines:
-            frozen = self._frozen_lines
-            return list(frozen[:-1] if frozen[-1:] == [""] else frozen)
-        return [*self._frozen_lines, *tail_lines]
+        frozen = self._frozen_lines
+        frozen_lines = list(frozen[:-1] if not tail_lines and frozen[-1:] == [""] else frozen)
+        return StreamingMarkdownRender(frozen_lines, tail_lines, self._frozen_generation)
+
+    def render(
+        self,
+        text: str,
+        width: int,
+        theme: MarkdownTheme,
+        *,
+        preserve_soft_breaks: bool = False,
+    ) -> list[str]:
+        return self.render_split(
+            text,
+            width,
+            theme,
+            preserve_soft_breaks=preserve_soft_breaks,
+        ).lines
 
 
 def _streaming_markdown_freeze_cutoff(text: str) -> int:

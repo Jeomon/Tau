@@ -371,12 +371,25 @@ class Renderer:
         """Render component differentially into the terminal scrollback buffer."""
         width = self._terminal.width - _LEFT_PAD - _RIGHT_PAD
         height = self._terminal.height
+        has_overlays = bool(overlays)
 
         buf = Buffer.empty(Rect(0, 0, self._terminal.width, 0))
-        rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
+        can_elide_stable_prefix = (
+            not has_overlays
+            and not self._had_overlays
+            and getattr(self._engine, "_prev", None) is not None
+            and not getattr(self._engine, "_resized", False)
+            and getattr(self._engine, "_prev_width", 0) == self._terminal.width
+        )
+        if hasattr(component, "_elide_stable_prefix_for_next_render"):
+            component._elide_stable_prefix_for_next_render = can_elide_stable_prefix  # type: ignore[attr-defined]
+        try:
+            rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
+        finally:
+            if hasattr(component, "_elide_stable_prefix_for_next_render"):
+                component._elide_stable_prefix_for_next_render = False  # type: ignore[attr-defined]
         buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
 
-        has_overlays = bool(overlays)
         if has_overlays:
             self._composite_overlays(buf, overlays, width, height)
 
@@ -597,6 +610,10 @@ class TUI(Container):
         # rebuilt or truncated — see MessageList.render_split_cells) rather
         # than object identity, since id() can be recycled by the allocator.
         self._child_row_cache: dict[int, _ChildRowCache] = {}
+        # Set only by Renderer.render() for the no-overlay production path.
+        # Direct render_cells() calls still materialize full buffers for tests
+        # and public component behavior.
+        self._elide_stable_prefix_for_next_render = False
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -626,9 +643,12 @@ class TUI(Container):
         gets special-cased: its already-finalized rows are spliced in by
         reference from its own cache instead of being re-parsed every frame,
         and only its still-live tail goes through the normal per-frame path.
-        ``self._stable_rows`` records how many of those spliced rows are also
-        guaranteed identical to last frame's buffer (Renderer reads this to
-        let ScrollbackTerminal skip re-diffing them).
+        ``self._stable_rows`` is the absolute buffer row end of the MessageList
+        frozen prefix that is also known identical to last frame (includes any
+        children rendered above MessageList — header, spacer).  Renderer hands
+        it to ScrollbackTerminal as ``stable_through`` so re-diff can skip that
+        prefix; elided holes in the MessageList portion are reinstated from the
+        previous frame before paint/commit (see ScrollbackTerminal._render).
         """
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
@@ -636,6 +656,12 @@ class TUI(Container):
         self._child_rows = {}
         frozen_rows_this_frame = 0
         frozen_content_changed = False
+        # Absolute row index through which the composed buffer's frozen
+        # MessageList prefix is known identical to last frame — includes any
+        # children rendered before MessageList (header, spacer).  ScrollbackTerminal
+        # skips re-diffing [0, _stable_rows); elision holes must also use this
+        # absolute value so reinstatement lands on the right span.
+        stable_rows_abs = 0
         for child in self.children:
             self._child_rows[id(child)] = y - area.y
             split = getattr(child, "render_split_cells", None)
@@ -643,19 +669,52 @@ class TUI(Container):
                 frozen_buf, live_lines = split(area.width)
                 if frozen_buf is not None and frozen_buf.area.height:
                     frozen_rows = frozen_buf.area.height
+                    child_start = y
                     buf.grow_to(y + frozen_rows)
-                    self._splice_frozen_rows(child, frozen_buf, buf, y, area.x)
+                    gen = getattr(child, "frozen_generation", None)
+                    frozen_content_changed = (
+                        gen is not None and self._child_frozen_gen.get(id(child)) != gen
+                    )
+                    if frozen_content_changed and gen is not None:
+                        # The frozen cache was rebuilt since we last saw this child (e.g.
+                        # a theme/prefix change) — row count may be unchanged while the
+                        # actual cell content differs, which a row-count-only comparison
+                        # below can't detect. Force one full re-diff of the frozen span
+                        # this frame so the renderer can't skip painting the change.
+                        self._child_frozen_gen[id(child)] = gen
+                    stable_prefix_rows = min(frozen_rows, self._prev_stable_rows)
+                    can_elide = (
+                        self._elide_stable_prefix_for_next_render
+                        and not frozen_content_changed
+                        and stable_prefix_rows > 0
+                    )
+                    if can_elide:
+                        # Native-scrollback Option A: keep the full logical row
+                        # count, but do not copy rows ScrollbackTerminal will skip
+                        # via stable_through anyway.  Copy only any newly-frozen
+                        # rows after the already-stable prefix.
+                        # (ScrollbackTerminal reinstates the skipped span from
+                        # its previous buffer before diffing/committing _prev —
+                        # otherwise these holes would paint as blanks or poison
+                        # the next frame's baseline.)
+                        if frozen_rows > stable_prefix_rows:
+                            self._splice_frozen_rows(
+                                child,
+                                frozen_buf,
+                                buf,
+                                y + stable_prefix_rows,
+                                area.x,
+                                source_start_row=stable_prefix_rows,
+                            )
+                    else:
+                        self._splice_frozen_rows(child, frozen_buf, buf, y, area.x)
                     frozen_rows_this_frame = frozen_rows
+                    if not frozen_content_changed:
+                        # Absolute: header/spacer rows above the MessageList plus
+                        # the MessageList-relative rows still covered by last
+                        # frame's frozen cache.
+                        stable_rows_abs = child_start + stable_prefix_rows
                     y += frozen_rows
-                gen = getattr(child, "frozen_generation", None)
-                if gen is not None and self._child_frozen_gen.get(id(child)) != gen:
-                    # The frozen cache was rebuilt since we last saw this child (e.g.
-                    # a theme/prefix change) — row count may be unchanged while the
-                    # actual cell content differs, which a row-count-only comparison
-                    # below can't detect. Force one full re-diff of the frozen span
-                    # this frame so the renderer can't skip painting the change.
-                    frozen_content_changed = True
-                    self._child_frozen_gen[id(child)] = gen
                 if live_lines:
                     for line in live_lines:
                         y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
@@ -665,17 +724,21 @@ class TUI(Container):
         # prefix last frame (same cached Cell objects both times) — a prefix
         # that just became frozen this frame may still differ from whatever
         # (different) content occupied those rows in last frame's buffer.
-        self._stable_rows = (
-            0 if frozen_content_changed else min(frozen_rows_this_frame, self._prev_stable_rows)
-        )
+        self._stable_rows = 0 if frozen_content_changed else stable_rows_abs
         self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
 
     def _splice_frozen_rows(
-        self, child: Component, frozen_buf: Buffer, buf: Buffer, y: int, x: int
+        self,
+        child: Component,
+        frozen_buf: Buffer,
+        buf: Buffer,
+        y: int,
+        x: int,
+        *,
+        source_start_row: int = 0,
     ) -> None:
         """Copy ``frozen_buf``'s rows into ``buf`` at screen row ``y``, column ``x``.
-
         Caches the "widened" (padded to ``buf``'s full width, positioned at
         ``x``) form of the child's frozen rows across frames, keyed on the
         child's ``frozen_generation`` — a long session's frozen span can be
@@ -724,19 +787,30 @@ class TUI(Container):
             cache.content.extend(widened)
             cache.rows = source_rows
 
+        source_start_row = max(0, min(source_start_row, source_rows))
+        rows_to_copy = source_rows - source_start_row
+        if rows_to_copy <= 0:
+            return
+
         dst_start = y * dst_width
-        span = source_rows * dst_width
+        cache_start = source_start_row * dst_width
+        span = rows_to_copy * dst_width
+        cache_end = cache_start + span
         # Avoid slicing cache.content when it's used in full (the common
         # case) — list.__getitem__ with a slice allocates a new list before
         # the assignment even runs, which would silently double the copy
         # cost this cache exists to avoid.
-        buf.content[dst_start : dst_start + span] = (
-            cache.content if span == len(cache.content) else cache.content[:span]
-        )
+        if cache_start == 0 and span == len(cache.content):
+            copy_content = cache.content
+        else:
+            copy_content = cache.content[cache_start:cache_end]
+        buf.content[dst_start : dst_start + span] = copy_content
 
         if frozen_buf.raw_writes:
             buf.raw_writes.extend(
-                RawWrite(x + rw.x, y + rw.y, rw.data, rw.token) for rw in frozen_buf.raw_writes
+                RawWrite(x + rw.x, y + rw.y - source_start_row, rw.data, rw.token)
+                for rw in frozen_buf.raw_writes
+                if source_start_row <= rw.y < source_rows
             )
 
 

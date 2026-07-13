@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.buffer import Buffer
@@ -806,6 +807,30 @@ def _render_extra_blocks(
 # ── MessageList ───────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class MessageUnitRowInfo:
+    """Rendered row span for one MessageList render unit.
+
+    This is groundwork for viewport rendering: a unit is either one message
+    block, or an assistant+tool-result pair rendered together.
+    """
+
+    start_block: int
+    end_block: int
+    row_start: int
+    row_count: int
+    frozen: bool
+
+
+@dataclass(frozen=True)
+class MessageListViewportRender:
+    """A rendered row slice of MessageList plus the full logical height."""
+
+    total_rows: int
+    row_offset: int
+    buf: Buffer
+
+
 class MessageList(Component):
     """
     Scrollable list of MessageBlock objects rendered inside a fixed-height
@@ -857,6 +882,13 @@ class MessageList(Component):
         # knows not to trust ScrollbackTerminal's stable_through for that row span
         # until it has re-diffed it at least once post-rebuild.
         self.frozen_generation = 0
+        # Phase-2 viewport groundwork: row spans for the latest render at
+        # ``_row_metadata_width``.  Production rendering does not consume this
+        # yet; tests and the future virtualized renderer can use it to map a
+        # viewport row range back to MessageList units.
+        self._row_metadata_width = -1
+        self._row_metadata: list[MessageUnitRowInfo] = []
+        self._row_metadata_total_rows = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -1143,6 +1175,73 @@ class MessageList(Component):
 
             yield index, index + 1, block.render(width)
             index += 1
+    @property
+    def row_metadata(self) -> list[MessageUnitRowInfo]:
+        """Return latest render-unit row spans.
+
+        Metadata is refreshed by ``render_split_cells(..., collect_metadata=True)``
+        for the active width.  It is intentionally read-only groundwork for the
+        future virtualized renderer; production rendering does not consume it.
+        """
+        return list(self._row_metadata)
+
+    def _refresh_row_metadata(
+        self,
+        width: int,
+        live_metadata: list[MessageUnitRowInfo],
+    ) -> None:
+        frozen_metadata: list[MessageUnitRowInfo] = []
+        prev_end = 0
+        prev_rows = 0
+        for end_idx, rows in zip(self._frozen_unit_ends, self._frozen_unit_rows, strict=False):
+            frozen_metadata.append(
+                MessageUnitRowInfo(
+                    start_block=prev_end,
+                    end_block=end_idx,
+                    row_start=prev_rows,
+                    row_count=rows - prev_rows,
+                    frozen=True,
+                )
+            )
+            prev_end = end_idx
+            prev_rows = rows
+        self._row_metadata_width = width
+        self._row_metadata = [*frozen_metadata, *live_metadata]
+        self._row_metadata_total_rows = sum(unit.row_count for unit in self._row_metadata)
+
+    def render_viewport_cells(
+        self,
+        width: int,
+        start_row: int,
+        height: int,
+    ) -> MessageListViewportRender:
+        """Render a row slice of the message list without changing production paths.
+
+        This is a Phase-3 API for a future virtualized renderer.  For now it
+        prioritizes correctness and API shape: it reuses the existing frozen
+        cell cache and live-line rendering, then returns only the requested row
+        range.  Production ``TUI.render_cells`` still uses ``render_split_cells``.
+        """
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        start_row = max(0, start_row)
+        height = max(0, height)
+        frozen_buf, live_lines = self.render_split_cells(width, collect_metadata=True)
+        total_rows = self._row_metadata_total_rows
+        slice_height = max(0, min(height, total_rows - start_row))
+        out = Buffer.empty(Rect(0, 0, max(1, width), 0))
+        if slice_height == 0:
+            return MessageListViewportRender(total_rows, start_row, out)
+
+        full = Buffer.empty(Rect(0, 0, max(1, width), 0))
+        if frozen_buf is not None and frozen_buf.area.height:
+            full.blit(frozen_buf, 0, 0)
+        live_row = frozen_buf.area.height if frozen_buf is not None else 0
+        for line in live_lines:
+            live_row += parse_ansi_wrapped_into(full, 0, live_row, line, width)
+
+        out.blit(full, 0, 0, Rect(0, start_row, width, slice_height))
+        return MessageListViewportRender(total_rows, start_row, out)
 
     def _render_blocks(self, width: int) -> list[str]:
         lines: list[str] = []
@@ -1151,7 +1250,12 @@ class MessageList(Component):
                 lines.extend(wrap(line, width) if visible_width(line) > width else [line])
         return lines
 
-    def render_split_cells(self, width: int) -> tuple[Buffer | None, list[str]]:
+    def render_split_cells(
+        self,
+        width: int,
+        *,
+        collect_metadata: bool = False,
+    ) -> tuple[Buffer | None, list[str]]:
         """Return (frozen_buf, live_lines) for the incremental render fast path.
 
         ``frozen_buf`` holds Cell rows for render units old enough to be
@@ -1228,12 +1332,26 @@ class MessageList(Component):
 
         units = list(self._iter_units(width, start_index=self._frozen_block_count))
         live_lines: list[str] = []
+        live_metadata: list[MessageUnitRowInfo] = []
+        live_row_start = self._frozen_buf.area.height if self._frozen_buf is not None else 0
         for i, (start_idx, end_idx, unit_lines) in enumerate(units):
             blocks = self._blocks[start_idx:end_idx]
             streaming = any(b.is_streaming for b in blocks)
             is_last_unit = i == len(units) - 1
             settled = all(b.is_settled for b in blocks)
             if streaming or (is_last_unit and not settled):
+                if collect_metadata:
+                    row_count = _rendered_row_count(unit_lines, width)
+                    live_metadata.append(
+                        MessageUnitRowInfo(
+                            start_block=start_idx,
+                            end_block=end_idx,
+                            row_start=live_row_start,
+                            row_count=row_count,
+                            frozen=False,
+                        )
+                    )
+                    live_row_start += row_count
                 live_lines.extend(unit_lines)
                 continue
             if self._frozen_buf is None:
@@ -1244,6 +1362,8 @@ class MessageList(Component):
             self._frozen_block_count = end_idx
             self._frozen_unit_ends.append(end_idx)
             self._frozen_unit_rows.append(self._frozen_buf.area.height)
+        if collect_metadata:
+            self._refresh_row_metadata(width, live_metadata)
         return self._frozen_buf, live_lines
 
     def handle_input(self, event: InputEvent) -> bool:
@@ -1269,6 +1389,17 @@ class MessageList(Component):
     def invalidate(self) -> None:
         for block in self._blocks:
             block.invalidate()
+
+
+def _rendered_row_count(lines: list[str], width: int) -> int:
+    """Return how many Buffer rows ANSI lines occupy after wrapping."""
+    from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+    buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
+    row = 0
+    for line in lines:
+        row += parse_ansi_wrapped_into(buf, 0, row, line, width)
+    return row
 
 
 # ── Arg formatter ─────────────────────────────────────────────────────────────
