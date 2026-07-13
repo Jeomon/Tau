@@ -332,7 +332,7 @@ class CustomOptions:
 # ── Renderer ──────────────────────────────────────────────────────────────────
 
 from tau.tui.ansi_bridge import row_to_ansi  # noqa: E402
-from tau.tui.buffer import Buffer, RawWrite  # noqa: E402
+from tau.tui.buffer import _BLANK_CELL, Buffer, Cell, RawWrite  # noqa: E402
 from tau.tui.frame import ScrollbackTerminal  # noqa: E402
 from tau.tui.geometry import Rect  # noqa: E402
 
@@ -472,6 +472,30 @@ def _log_task_exception(task: asyncio.Task) -> None:
         _log.error("Unhandled exception in background task", exc_info=exc)
 
 
+@dataclass(slots=True)
+class _ChildRowCache:
+    """Cached, pre-widened Cell rows for one ``render_split_cells``-capable child.
+
+    See TUI.render_cells: without this, splicing a child's frozen (finalized)
+    rows into the frame buffer re-pads every one of them out to the full
+    terminal width from scratch on *every* frame, even when nothing about
+    that child changed — an O(total finalized history) cost paid on every
+    keystroke in a long session. This caches that widened form and is only
+    ever extended with newly-appended rows (keyed on ``frozen_generation``,
+    which the child bumps whenever its cache is rebuilt/truncated rather than
+    just grown — see MessageList.render_split_cells), so the steady-state
+    cost of an unchanged frozen span drops to a single bulk list copy instead
+    of a per-row Python loop.
+    """
+
+    generation: int = -1
+    x: int = -1
+    source_width: int = -1
+    row_width: int = -1
+    rows: int = 0
+    content: list[Cell] = field(default_factory=list)
+
+
 # Minimum milliseconds between rendered frames (~60 fps)
 _MIN_RENDER_INTERVAL = 1 / 60
 
@@ -560,6 +584,19 @@ class TUI(Container):
         # without necessarily changing row count) even between frames where
         # frozen_rows_this_frame happens to match _prev_stable_rows.
         self._child_frozen_gen: dict[int, int] = {}
+        # Cache of each frozen-capable child's already-"widened" Cell rows
+        # (padded out to the full terminal width, at their fixed screen
+        # column) keyed by id(child) — see render_cells. A long session's
+        # frozen span can be thousands of rows; re-widening every one of them
+        # from scratch on every single frame (even when nothing changed) is
+        # an O(total finalized history) cost paid on every keystroke.
+        # Reusing this cache and only widening newly-appended rows turns the
+        # common case (nothing new since the last frame) into one bulk
+        # contiguous list copy instead of a per-row Python loop. Keyed off
+        # frozen_generation (bumped only when the child's frozen cache is
+        # rebuilt or truncated — see MessageList.render_split_cells) rather
+        # than object identity, since id() can be recycled by the allocator.
+        self._child_row_cache: dict[int, _ChildRowCache] = {}
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -607,16 +644,7 @@ class TUI(Container):
                 if frozen_buf is not None and frozen_buf.area.height:
                     frozen_rows = frozen_buf.area.height
                     buf.grow_to(y + frozen_rows)
-                    fw = frozen_buf.area.width
-                    for r in range(frozen_rows):
-                        src = r * fw
-                        dst = (y + r) * buf.area.width + area.x
-                        buf.content[dst : dst + fw] = frozen_buf.content[src : src + fw]
-                    if frozen_buf.raw_writes:
-                        buf.raw_writes.extend(
-                            RawWrite(area.x + rw.x, y + rw.y, rw.data, rw.token)
-                            for rw in frozen_buf.raw_writes
-                        )
+                    self._splice_frozen_rows(child, frozen_buf, buf, y, area.x)
                     frozen_rows_this_frame = frozen_rows
                     y += frozen_rows
                 gen = getattr(child, "frozen_generation", None)
@@ -642,6 +670,75 @@ class TUI(Container):
         )
         self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
+
+    def _splice_frozen_rows(
+        self, child: Component, frozen_buf: Buffer, buf: Buffer, y: int, x: int
+    ) -> None:
+        """Copy ``frozen_buf``'s rows into ``buf`` at screen row ``y``, column ``x``.
+
+        Caches the "widened" (padded to ``buf``'s full width, positioned at
+        ``x``) form of the child's frozen rows across frames, keyed on the
+        child's ``frozen_generation`` — a long session's frozen span can be
+        thousands of rows, and re-widening every one of them from scratch on
+        every single frame (even when the child added nothing new) is an
+        O(total finalized history) cost paid on every keystroke. When the
+        generation, source width, or screen column hasn't changed since the
+        last call, only rows appended since then are widened, and the whole
+        span is applied to ``buf`` as one bulk contiguous list copy instead
+        of a per-row Python loop.
+        """
+        cache = self._child_row_cache.get(id(child))
+        gen = getattr(child, "frozen_generation", None)
+        source_width = frozen_buf.area.width
+        dst_width = buf.area.width
+        source_rows = frozen_buf.area.height
+
+        reusable = (
+            cache is not None
+            and cache.x == x
+            and cache.row_width == dst_width
+            and cache.source_width == source_width
+            and (gen is None or cache.generation == gen)
+            and cache.rows <= source_rows
+        )
+        if not reusable:
+            cache = _ChildRowCache(
+                generation=gen if gen is not None else -1,
+                x=x,
+                source_width=source_width,
+                row_width=dst_width,
+            )
+            self._child_row_cache[id(child)] = cache
+
+        assert cache is not None
+        if cache.rows < source_rows:
+            # Widen only the rows appended since the cache was last built —
+            # a child's frozen buffer is only ever grown, never rewritten in
+            # place, between generation bumps (see MessageList._frozen_buf).
+            new_rows = source_rows - cache.rows
+            widened = [_BLANK_CELL] * (new_rows * dst_width)
+            for r in range(new_rows):
+                src = (cache.rows + r) * source_width
+                dst = r * dst_width + x
+                widened[dst : dst + source_width] = frozen_buf.content[src : src + source_width]
+            cache.content.extend(widened)
+            cache.rows = source_rows
+
+        dst_start = y * dst_width
+        span = source_rows * dst_width
+        # Avoid slicing cache.content when it's used in full (the common
+        # case) — list.__getitem__ with a slice allocates a new list before
+        # the assignment even runs, which would silently double the copy
+        # cost this cache exists to avoid.
+        buf.content[dst_start : dst_start + span] = (
+            cache.content if span == len(cache.content) else cache.content[:span]
+        )
+
+        if frozen_buf.raw_writes:
+            buf.raw_writes.extend(
+                RawWrite(x + rw.x, y + rw.y, rw.data, rw.token) for rw in frozen_buf.raw_writes
+            )
+
 
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
         """Return a mouse event as zero-based coordinates relative to a direct child."""

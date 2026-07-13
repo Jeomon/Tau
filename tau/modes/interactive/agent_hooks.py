@@ -75,6 +75,16 @@ class AgentHookHandler:
         self._pending_flush_handle: asyncio.TimerHandle | None = None
         self._last_flush_at: float = 0.0
 
+        # Raw terminal/tool output arrives far more densely than model tokens
+        # (a chatty subprocess can emit hundreds of lines/sec — see
+        # runtime/service.py's per-line TerminalOutputEvent). Without batching,
+        # _on_terminal_output would invalidate() the block and force a full
+        # re-render on every single line, which is O(total output so far) each
+        # time and starves keystroke handling on the same event loop. Batched
+        # at the same ~60fps cadence as token streaming below.
+        self._pending_terminal_flush_handle: asyncio.TimerHandle | None = None
+        self._last_terminal_flush_at: float = 0.0
+
     def subscribe(self) -> None:
         """Register all hook handlers on the current agent."""
         agent = self._runtime.agent
@@ -105,6 +115,9 @@ class AgentHookHandler:
         if self._pending_flush_handle is not None:
             self._pending_flush_handle.cancel()
             self._pending_flush_handle = None
+        if self._pending_terminal_flush_handle is not None:
+            self._pending_terminal_flush_handle.cancel()
+            self._pending_terminal_flush_handle = None
         self._pending_msg = None
         self._current_block = None
         self._current_terminal_block = None
@@ -378,6 +391,13 @@ class AgentHookHandler:
             block = self._layout.add_message(msg, streaming=True)
             self._current_terminal_block = block
         else:
+            # Cancel any pending batched flush — this event supersedes it, and
+            # finalize() below is about to freeze the block for good, so a
+            # stale timer must not fire and invalidate() it afterward.
+            if self._pending_terminal_flush_handle is not None:
+                self._pending_terminal_flush_handle.cancel()
+                self._pending_terminal_flush_handle = None
+            self._last_terminal_flush_at = 0.0
             if self._current_terminal_block is not None:
                 self._current_terminal_block.set_streaming(False)
                 # Dropping our own reference for good right here — safe to
@@ -387,6 +407,30 @@ class AgentHookHandler:
         self._tui.request_render()
 
     async def _on_terminal_output(self, _event: object) -> None:
+        """Batch invalidation of the live terminal block at ~60fps.
+
+        Raw subprocess output can arrive far more densely than model tokens
+        (runtime/service.py emits a TerminalOutputEvent per line — a chatty
+        command can be hundreds/sec). invalidate()-ing and re-rendering on
+        every line forces a full re-parse of the whole accumulated output
+        each time (cost grows with total output so far), and that work runs
+        synchronously on the same event loop that reads keystrokes — see
+        TUI._on_stdin_ready — so unthrottled it directly steals time from
+        input responsiveness. Mirrors the token-flush batching above.
+        """
+        if self._current_terminal_block is None:
+            return
+        if self._pending_terminal_flush_handle is None:
+            elapsed = time.monotonic() - self._last_terminal_flush_at
+            delay = max(0.0, _STREAM_FLUSH_INTERVAL - elapsed)
+            loop = asyncio.get_event_loop()
+            self._pending_terminal_flush_handle = loop.call_later(
+                delay, self._flush_terminal_output
+            )
+
+    def _flush_terminal_output(self) -> None:
+        self._pending_terminal_flush_handle = None
+        self._last_terminal_flush_at = time.monotonic()
         if self._current_terminal_block is not None:
             self._current_terminal_block.invalidate()
             self._tui.request_render()

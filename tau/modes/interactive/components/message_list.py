@@ -960,13 +960,19 @@ class MessageList(Component):
         this should rarely trigger. If it ever does (e.g. a render happened
         to land between adding a block and an immediate undo), resetting here
         forces one full rebuild rather than leaving the cache pointing past
-        the end of self._blocks.
+        the end of self._blocks. Must bump frozen_generation too — its
+        contract (see the field's docstring) is "bumped every time
+        _frozen_buf is rebuilt from scratch", and callers like
+        TUI.render_cells cache pre-widened frozen rows keyed on this counter;
+        resetting _frozen_buf without it would let that cache keep serving
+        now-stale content for a unit that no longer exists.
         """
         if self._frozen_block_count > len(self._blocks):
             self._frozen_buf = None
             self._frozen_block_count = 0
             self._frozen_unit_ends = []
             self._frozen_unit_rows = []
+            self.frozen_generation += 1
 
     def remove_last(self) -> bool:
         """Remove the last block (used to undo a user message on pre-stream abort)."""
@@ -1003,6 +1009,11 @@ class MessageList(Component):
         self._frozen_block_count = 0
         self._frozen_unit_ends = []
         self._frozen_unit_rows = []
+        # See _guard_frozen_bounds: any reset of _frozen_buf must bump this so
+        # callers caching pre-widened frozen rows keyed on it (TUI.render_cells)
+        # drop their now-stale cache instead of continuing to serve rows from
+        # the conversation that was just cleared.
+        self.frozen_generation += 1
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
         block = MessageBlock(
