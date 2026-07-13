@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import click
 
 from tau.console.commands.auth import auth
+from tau.console.commands.doctor import doctor
 from tau.console.commands.packages import install, list_packages, remove
 from tau.console.commands.serve import serve
 from tau.console.commands.update import update
@@ -436,6 +437,7 @@ async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) 
 
 
 cli.add_command(auth)
+cli.add_command(doctor)
 cli.add_command(install)
 cli.add_command(remove)
 cli.add_command(update)
