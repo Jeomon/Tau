@@ -233,6 +233,10 @@ class PackageManager:
                 selected.append(path)
         return selected
 
+    def is_installed(self, name: str) -> bool:
+        """Return True if a package with this name is importable in the venv."""
+        return self._get_installed_version(name) is not None
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _get_installed_version(self, name: str) -> str | None:

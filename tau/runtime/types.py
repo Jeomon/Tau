@@ -32,6 +32,7 @@ from tau.settings.manager import SettingsManager
 from tau.settings.paths import get_config_dir
 from tau.tool.registry import ToolRegistry
 from tau.tool.types import Tool
+from tau.utils import timing
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -221,6 +222,7 @@ class RuntimeContext:
                         project_trusted=project_trusted,
                     )
                 )
+        timing.mark("settings")
 
         # Kick off the git-status snapshot now (needed later for the system prompt)
         # so its subprocess calls run in a background thread concurrently with the
@@ -262,6 +264,7 @@ class RuntimeContext:
             llm.api.options.thinking_level = (
                 settings_manager.get_thinking_level() or llm.model.thinking_level
             )
+        timing.mark("llm")
 
         # ── Session manager ───────────────────────────────────────────────────
         # Don't create the session directory until trust is granted. When trust
@@ -303,6 +306,7 @@ class RuntimeContext:
             if llm.model.thinking and llm.api.options.thinking_level is not None:
                 session_manager.append_thinking_level_change(llm.api.options.thinking_level)
         _seed_initial_messages(session_manager, config)
+        timing.mark("session_manager")
 
         # ── Shared hook bus ───────────────────────────────────────────────────
         hooks = hooks or (
@@ -340,6 +344,7 @@ class RuntimeContext:
         # snapshot alone — running it first (not after, like the naive order
         # would) means those declarations survive instead of being wiped.
         resource_loader.apply_registries(resources, context=resource_context)
+        timing.mark("resources")
 
         if ext_runtime is None:
             runtime_ref = _RuntimeRef()
@@ -365,6 +370,7 @@ class RuntimeContext:
             ext_runtime = ExtensionRuntime(load_result, hooks, runtime_ref)
 
         assert ext_runtime is not None
+        timing.mark("extensions")
         # Collect tools and prompt appends contributed by extensions
         extra_appends = ext_runtime.get_prompt_appends()
 
@@ -444,6 +450,7 @@ class RuntimeContext:
             config=agent_config,
             hooks=hooks,
         )
+        timing.mark("agent")
 
         return cls(
             agent=agent,

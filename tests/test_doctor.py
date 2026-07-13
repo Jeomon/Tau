@@ -11,6 +11,7 @@ from tau.console.commands.doctor import (
     _check_extensions,
     _check_logs,
     _check_models,
+    _check_packages,
     _check_sessions,
     _check_settings,
 )
@@ -523,3 +524,106 @@ def test_check_sessions_fix_not_scanning_quarantine_dir(tmp_path, monkeypatch) -
 
     assert section.results[0].status == "pass"
     assert "no sessions yet" in section.results[0].detail
+
+
+# ---------------------------------------------------------------------------
+# Packages
+# ---------------------------------------------------------------------------
+
+
+def test_check_packages_pass_when_none_configured(tmp_path) -> None:
+    sm = SettingsManager.in_memory({})
+    section = _check_packages(sm, tmp_path)
+    assert len(section.results) == 1
+    assert section.results[0].status == "pass"
+
+
+def test_check_packages_pass_when_installed_path_exists(tmp_path) -> None:
+    pkg_dir = tmp_path / "installed" / "mypkg"
+    pkg_dir.mkdir(parents=True)
+    sm = SettingsManager.in_memory(
+        {
+            "packages": {
+                "list": [{"source": "pypi:mypkg", "name": "mypkg", "installed_path": str(pkg_dir)}]
+            }
+        }
+    )
+
+    section = _check_packages(sm, tmp_path)
+
+    assert len(section.results) == 1
+    assert section.results[0].status == "pass"
+
+
+def test_check_packages_flags_drift_when_missing_everywhere(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "tau.packages.manager.PackageManager.is_installed", lambda self, name: False
+    )
+    sm = SettingsManager.in_memory(
+        {
+            "packages": {
+                "list": [
+                    {
+                        "source": "pypi:mypkg==1.0",
+                        "name": "mypkg",
+                        "installed_path": str(tmp_path / "gone"),
+                    }
+                ]
+            }
+        }
+    )
+
+    section = _check_packages(sm, tmp_path)
+
+    result = next(r for r in section.results if r.name.startswith("mypkg"))
+    assert result.status == "fail"
+    assert "tau install pypi:mypkg==1.0" in result.detail
+
+
+def test_check_packages_pass_when_still_importable_despite_stale_path(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr("tau.packages.manager.PackageManager.is_installed", lambda self, name: True)
+    sm = SettingsManager.in_memory(
+        {
+            "packages": {
+                "list": [
+                    {
+                        "source": "pypi:mypkg",
+                        "name": "mypkg",
+                        "installed_path": str(tmp_path / "moved-away"),
+                    }
+                ]
+            }
+        }
+    )
+
+    section = _check_packages(sm, tmp_path)
+
+    assert len(section.results) == 1
+    assert section.results[0].status == "pass"
+
+
+def test_check_packages_skips_disabled_entries(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "tau.packages.manager.PackageManager.is_installed", lambda self, name: False
+    )
+    sm = SettingsManager.in_memory(
+        {
+            "packages": {
+                "list": [
+                    {
+                        "source": "pypi:mypkg",
+                        "name": "mypkg",
+                        "installed_path": str(tmp_path / "gone"),
+                        "enabled": False,
+                    }
+                ]
+            }
+        }
+    )
+
+    section = _check_packages(sm, tmp_path)
+
+    assert len(section.results) == 1
+    assert section.results[0].status == "pass"

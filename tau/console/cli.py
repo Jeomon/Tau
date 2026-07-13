@@ -45,6 +45,13 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
 @click.group(invoke_without_command=True, context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("--version", "-v", is_flag=True, default=False, help="Print version and exit.")
 @click.option("--debug", "-d", is_flag=True, default=False, help="Enable debug logging.")
+@click.option(
+    "--startup",
+    is_flag=True,
+    default=False,
+    help="Print per-phase startup timing diagnostics to stderr "
+    "(settings, model/LLM, session manager, resources, extensions, agent).",
+)
 @click.option("--cwd", "-c", default=None, metavar="PATH", help="Set the working directory.")
 @click.option(
     "--prompt",
@@ -155,6 +162,7 @@ def cli(
     ctx: click.Context,
     version: bool,
     debug: bool,
+    startup: bool,
     cwd: str | None,
     prompt: str | None,
     output_format: str,
@@ -184,6 +192,11 @@ def cli(
 
     if debug:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
+
+    if startup:
+        from tau.utils import timing
+
+        timing.enable()
 
     if cwd:
         os.chdir(cwd)
@@ -281,6 +294,11 @@ async def _start(opts: dict) -> None:
     )
 
     runtime = await Runtime.create(config)
+
+    from tau.utils import timing
+
+    timing.print_report()
+
     if opts.get("session_name"):
         runtime.session_manager.append_session_info(opts["session_name"])
 

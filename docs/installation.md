@@ -154,6 +154,17 @@ This removes the tau command but leaves configuration and session data in `~/.ta
 
 ## Troubleshooting
 
+Run `tau doctor` first — it checks settings/auth file integrity, credential
+status (including whether stored OAuth tokens are still valid), model/provider
+resolution, extensions, session storage, logs, and installed packages in one
+pass. Add `--fix` to auto-repair the safe, reversible cases (expired OAuth
+tokens, dangling extension entries, corrupt session files).
+
+```bash
+tau doctor
+tau doctor --fix
+```
+
 ### No Models Found
 
 Check that your API key is set correctly:

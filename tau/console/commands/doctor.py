@@ -72,6 +72,7 @@ async def _run_checks(fix: bool = False) -> list[Section]:
     sessions_section = _check_sessions(fix=fix)
     logs_section = _check_logs()
     environment_section = _check_environment(cwd)
+    packages_section = _check_packages(settings_manager, cwd)
 
     # Extension-entry fixes enqueue an async settings write (see SettingsManager._save);
     # flush it so the repair is durable before the process exits.
@@ -85,6 +86,7 @@ async def _run_checks(fix: bool = False) -> list[Section]:
         sessions_section,
         logs_section,
         environment_section,
+        packages_section,
     ]
 
 
@@ -550,6 +552,50 @@ def _check_environment(cwd: Path) -> Section:
     )
 
     return Section("Environment", results)
+
+
+# ---------------------------------------------------------------------------
+# 8. Packages
+# ---------------------------------------------------------------------------
+
+# No --fix here: a stale entry's ``source`` string is the only thing that
+# tells you how to reinstall it. Removing the settings entry would destroy
+# that, and reinstalling automatically means running a network install
+# without asking — neither is a "safe, reversible" repair in doctor's sense.
+
+
+def _check_packages(sm, cwd: Path) -> Section:
+    from tau.packages.manager import PackageManager
+    from tau.settings.paths import get_packages_venv
+
+    results: list[CheckResult] = []
+
+    for local, scope in ((False, "global"), (True, "project")):
+        packages = sm.get_packages(local=local)
+        if not packages:
+            continue
+        venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
+        pkg_mgr = PackageManager(venv_dir)
+        for pkg in packages:
+            if not pkg.enabled:
+                continue
+            if pkg.installed_path and Path(pkg.installed_path).is_dir():
+                continue
+            if pkg_mgr.is_installed(pkg.name):
+                continue  # importable even though the recorded path moved/vanished
+            results.append(
+                CheckResult(
+                    f"{pkg.name} ({scope})",
+                    "fail",
+                    f"recorded as installed but missing from the venv ({venv_dir}) "
+                    f"— run `tau install {pkg.source}` again",
+                )
+            )
+
+    if not results:
+        results.append(CheckResult("Packages", "pass", "no drift detected"))
+
+    return Section("Packages", results)
 
 
 # ---------------------------------------------------------------------------

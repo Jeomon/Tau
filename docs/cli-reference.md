@@ -15,6 +15,7 @@ augment it.
 |--------|-------|-------------|
 | `--version` | `-v` | Print the installed version |
 | `--debug` | `-d` | Enable debug logging |
+| `--startup` | | Print per-phase startup timing diagnostics to stderr (settings, model/LLM, session manager, resources, extensions, agent) |
 | `--cwd PATH` | `-c` | Set the working directory |
 | `--prompt` | `-p` | Run a non-interactive prompt |
 | `--output-format` | `-f` | Non-interactive output: `text` or `json` |
@@ -383,6 +384,24 @@ Manage provider credentials.
 ```bash
 tau auth --help
 ```
+
+### `tau doctor`
+
+Diagnose Tau's configuration, credentials, model setup, extensions, session
+storage, logs, environment, and installed packages. Reports each check as
+pass/warn/fail; exits non-zero if anything failed.
+
+```bash
+tau doctor              # report only
+tau doctor --json       # machine-readable output
+tau doctor --fix        # apply safe, reversible repairs:
+                         #   - refresh expired OAuth tokens
+                         #   - remove dangling extension entries
+                         #   - quarantine corrupt session files into .corrupt/
+```
+
+`--fix` never rewrites `settings.json`/`auth.json` directly, reinstalls
+packages, or touches anything that isn't easily reversible.
 
 Package management is available through `tau install`, `tau remove`,
 `tau list`, and `tau update`.

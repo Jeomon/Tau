@@ -102,11 +102,12 @@ Full flag list, environment variables, and exit codes: [CLI reference](docs/cli-
 ### Subcommands
 
 ```bash
-tau auth        # Manage provider credentials (login/logout, list)
-tau install      # Install a package (extension/skill/theme)
-tau remove        # Remove an installed package
-tau list           # List installed packages
-tau update          # Update installed packages
+tau auth      # Manage provider credentials (login/logout, list)
+tau doctor    # Diagnose config, auth, models, extensions, sessions, packages (--fix to repair)
+tau install   # Install a package (extension/skill/theme)
+tau remove    # Remove an installed package
+tau list      # List installed packages
+tau update    # Update installed packages
 ```
 
 ### Interactive slash commands
