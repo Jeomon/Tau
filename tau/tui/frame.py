@@ -173,6 +173,22 @@ def _row_equal(prev: Buffer, cur: Buffer, y: int, width: int) -> bool:
     return True
 
 
+def _row_equal_at(prev: Buffer, y_prev: int, cur: Buffer, y_cur: int, width: int) -> bool:
+    """Like ``_row_equal`` but compares two independently-indexed rows.
+
+    Used to detect a pure insertion/deletion above the viewport (see
+    ``ScrollbackTerminal._render``): the same visible text may now sit at a
+    different absolute row index in ``cur`` than it did in ``prev``.
+    """
+    for x in range(width):
+        cur_cell = _row_get(cur, x, y_cur)
+        if cur_cell.skip:
+            continue  # terminal owns these pixels; never a text-cell change
+        if _row_get(prev, x, y_prev) != cur_cell:
+            return False
+    return True
+
+
 def _diff_row_cells(prev: Buffer, cur: Buffer, y: int, width: int) -> str:
     """Compute a cell-buffer diff for one terminal row.
 
@@ -350,6 +366,39 @@ class ScrollbackTerminal:
                     return
                 first_changed = self._viewport_top
             else:
+                # A row-count change entirely above the viewport (e.g. expanding/
+                # collapsing a tool-call detail block that has already scrolled
+                # off-screen) can't be reflected with relative cursor moves in
+                # general — but the common case is a *pure* insertion/deletion:
+                # everything from the viewport down is byte-identical to before,
+                # just shifted by ``delta`` rows. When that holds, the physical
+                # screen is already correct pixel-for-pixel (a real terminal
+                # can't retroactively edit rows that already scrolled into
+                # native history anyway) — only our bookkeeping's row numbering
+                # needs to shift. Skipping the write here avoids the visible
+                # "scrollback jumps to bottom" snap on every such edit.
+                delta = new_rows - prev_rows
+                vt = self._viewport_top
+                tail_len = prev_rows - vt
+                shifted_vt = vt + delta
+                if (
+                    tail_len >= 0
+                    and shifted_vt >= 0
+                    and shifted_vt + tail_len <= new_rows
+                    and buf.area.width == prev.area.width
+                    and all(
+                        _row_equal_at(prev, vt + i, buf, shifted_vt + i, width)
+                        for i in range(tail_len)
+                    )
+                ):
+                    self._hw_cursor_row += delta
+                    self._viewport_top = shifted_vt
+                    self._max_lines = max(0, self._max_lines + delta)
+                    self._prev = buf
+                    self._prev_width = width
+                    self._prev_height = height
+                    self._position_hw_cursor(cursor_pos, new_rows)
+                    return
                 self._full_render(buf, cursor_pos, width, height, clear=True)
                 return
 

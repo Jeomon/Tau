@@ -226,6 +226,45 @@ class TestScrollbackTerminalDifferentialUpdate:
         assert "offscreen" not in content[0]
         assert "\x1b[2J" not in content[0]
 
+    def test_offscreen_insertion_shifts_bookkeeping_without_redraw(self):
+        """Row-count change entirely above the viewport (e.g. expanding a
+        scrolled-off tool-call detail block via ctrl+o) must not blow away
+        the terminal's native scrollback and snap the view to the bottom —
+        the visible screen is already correct, only the row numbering shifted.
+        """
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(_buf(lines, term.width))
+        assert renderer._viewport_top == 15
+        term.writes.clear()
+
+        # Insert two new rows well above the viewport (viewport_top == 15);
+        # everything from "line 15" on is untouched, just shifted down by 2.
+        changed = lines[:2] + ["extra 1", "extra 2"] + lines[2:]
+        renderer.render(_buf(changed, term.width))
+
+        assert _content_writes(term) == []
+        assert renderer._viewport_top == 17
+
+    def test_offscreen_change_touching_visible_tail_falls_back_to_full_redraw(self):
+        """If the insertion is paired with a real change to the visible
+        content, the visible-region-unchanged shortcut can't apply and the
+        renderer must still fall back to a full redraw to stay correct."""
+        term = FakeTerminal(width=20, height=5)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = [f"line {i}" for i in range(20)]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        changed = lines[:2] + ["extra 1", "extra 2"] + lines[2:]
+        changed[-1] = "visible change"
+        renderer.render(_buf(changed, term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        assert "\x1b[2J" in content[0]
+
     def test_growing_buffer_across_frames(self):
         """A component whose row count grows (real chat history growth)."""
         term = FakeTerminal(width=20, height=5)
