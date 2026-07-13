@@ -301,13 +301,14 @@ class StreamingMarkdownRenderer:
 
 
 def _streaming_markdown_freeze_cutoff(text: str) -> int:
-    """Return a safe append-only cutoff for already-stable markdown blocks.
+    """Return an append-only cutoff for completed top-level markdown blocks.
 
-    The cutoff is the last blank-line block boundary outside fenced code, but
-    never the most recent boundary.  Keeping one completed block group in the
-    live tail is deliberately conservative: constructs like tables, lists and
-    link definitions can be affected by immediately following lines while the
-    model is still typing.
+    During streaming, only the current open block needs to remain live.  Once a
+    blank-line boundary is seen outside a fenced code block, the block before
+    that boundary is structurally complete for the common assistant-output cases
+    we render here (paragraphs, headings, lists, tables, quotes, fenced code).
+    Freezing up to the latest such boundary keeps active streaming work bounded
+    to the current block instead of the whole reply.
     """
     boundaries: list[int] = []
     in_fence = False
@@ -326,9 +327,7 @@ def _streaming_markdown_freeze_cutoff(text: str) -> int:
         pos += len(line)
         if not in_fence and stripped == "":
             boundaries.append(pos)
-    if len(boundaries) < 2:
-        return 0
-    return boundaries[-2]
+    return boundaries[-1] if boundaries else 0
 
 
 # ── Renderer ──────────────────────────────────────────────────────────────────

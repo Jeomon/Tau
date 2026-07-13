@@ -327,3 +327,26 @@ class TestStreamingMarkdownRenderer:
         streamed = renderer.render(second, 80, theme)
 
         assert [strip_ansi(line) for line in streamed] == plain(second)
+
+    def test_freezes_completed_blocks_at_latest_blank_boundary(self):
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        md = "# Heading\n\nParagraph one.\n\nParagraph two still streaming"
+
+        streamed = renderer.render(md, 80, theme)
+
+        assert [strip_ansi(line) for line in streamed] == plain(md)
+        assert renderer._frozen_until == len("# Heading\n\nParagraph one.\n\n")
+        assert "Paragraph two" not in "\n".join(strip_ansi(line) for line in renderer._frozen_lines)
+
+    def test_keeps_current_table_live_until_blank_boundary(self):
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        first = "Intro.\n\n| A | B |\n|---|---|\n| 1 | 2 |"
+        second = first + "\n| longer value | 3 |"
+
+        renderer.render(first, 80, theme)
+        streamed = renderer.render(second, 80, theme)
+
+        assert [strip_ansi(line) for line in streamed] == plain(second)
+        assert renderer._frozen_until == len("Intro.\n\n")
