@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tau-coding-agent"
-version = "0.7.7"
+version = "0.7.8"
 description = "A self-extensible agent CLI with terminal UI, multi-provider LLM support, session management with branching, and a plugin system for tools and commands"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -84,4 +84,5 @@ dev = [
     "ruff>=0.4.0",
     "mypy==1.19.1",
     "pyright>=1.1.360",
+    "pytest-asyncio==1.3.0",
 ]

@@ -2,6 +2,21 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.7.8 — 2026-07-13
+
+### Added
+
+-   Add configurable `computer_use` observation modes for screenshots, accessibility trees, or both, with automatic accessibility-tree fallback when the active model does not support image input
+-   Add a `serve` mode with a web UI
+-   Add a `doctor` command to diagnose Tau configuration, credentials, Python compatibility, and installed packages, including guided repair support
+-   Add opt-in startup timing diagnostics for investigating slow initialization
+-   Track cache-write tokens across OpenAI inference providers and expose them in session and footer usage displays
+
+### Fixed
+
+-   Pin managed virtual environments to the Python interpreter running Tau, preventing package installation into an incompatible interpreter
+-   Restrict `prompt_cache_options` to the native OpenAI provider so compatible third-party endpoints do not receive unsupported request fields
+
 ## 0.7.7 — 2026-07-12
 
 ### Added
