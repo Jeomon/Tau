@@ -643,9 +643,12 @@ class TUI(Container):
         gets special-cased: its already-finalized rows are spliced in by
         reference from its own cache instead of being re-parsed every frame,
         and only its still-live tail goes through the normal per-frame path.
-        ``self._stable_rows`` records how many of those spliced rows are also
-        guaranteed identical to last frame's buffer (Renderer reads this to
-        let ScrollbackTerminal skip re-diffing them).
+        ``self._stable_rows`` is the absolute buffer row end of the MessageList
+        frozen prefix that is also known identical to last frame (includes any
+        children rendered above MessageList — header, spacer).  Renderer hands
+        it to ScrollbackTerminal as ``stable_through`` so re-diff can skip that
+        prefix; elided holes in the MessageList portion are reinstated from the
+        previous frame before paint/commit (see ScrollbackTerminal._render).
         """
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
@@ -653,6 +656,12 @@ class TUI(Container):
         self._child_rows = {}
         frozen_rows_this_frame = 0
         frozen_content_changed = False
+        # Absolute row index through which the composed buffer's frozen
+        # MessageList prefix is known identical to last frame — includes any
+        # children rendered before MessageList (header, spacer).  ScrollbackTerminal
+        # skips re-diffing [0, _stable_rows); elision holes must also use this
+        # absolute value so reinstatement lands on the right span.
+        stable_rows_abs = 0
         for child in self.children:
             self._child_rows[id(child)] = y - area.y
             split = getattr(child, "render_split_cells", None)
@@ -660,12 +669,13 @@ class TUI(Container):
                 frozen_buf, live_lines = split(area.width)
                 if frozen_buf is not None and frozen_buf.area.height:
                     frozen_rows = frozen_buf.area.height
+                    child_start = y
                     buf.grow_to(y + frozen_rows)
                     gen = getattr(child, "frozen_generation", None)
                     frozen_content_changed = (
                         gen is not None and self._child_frozen_gen.get(id(child)) != gen
                     )
-                    if frozen_content_changed:
+                    if frozen_content_changed and gen is not None:
                         # The frozen cache was rebuilt since we last saw this child (e.g.
                         # a theme/prefix change) — row count may be unchanged while the
                         # actual cell content differs, which a row-count-only comparison
@@ -683,6 +693,10 @@ class TUI(Container):
                         # count, but do not copy rows ScrollbackTerminal will skip
                         # via stable_through anyway.  Copy only any newly-frozen
                         # rows after the already-stable prefix.
+                        # (ScrollbackTerminal reinstates the skipped span from
+                        # its previous buffer before diffing/committing _prev —
+                        # otherwise these holes would paint as blanks or poison
+                        # the next frame's baseline.)
                         if frozen_rows > stable_prefix_rows:
                             self._splice_frozen_rows(
                                 child,
@@ -695,6 +709,11 @@ class TUI(Container):
                     else:
                         self._splice_frozen_rows(child, frozen_buf, buf, y, area.x)
                     frozen_rows_this_frame = frozen_rows
+                    if not frozen_content_changed:
+                        # Absolute: header/spacer rows above the MessageList plus
+                        # the MessageList-relative rows still covered by last
+                        # frame's frozen cache.
+                        stable_rows_abs = child_start + stable_prefix_rows
                     y += frozen_rows
                 if live_lines:
                     for line in live_lines:
@@ -705,9 +724,7 @@ class TUI(Container):
         # prefix last frame (same cached Cell objects both times) — a prefix
         # that just became frozen this frame may still differ from whatever
         # (different) content occupied those rows in last frame's buffer.
-        self._stable_rows = (
-            0 if frozen_content_changed else min(frozen_rows_this_frame, self._prev_stable_rows)
-        )
+        self._stable_rows = 0 if frozen_content_changed else stable_rows_abs
         self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
 

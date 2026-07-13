@@ -168,3 +168,54 @@ def test_width_change_rebuilds_cache_cleanly() -> None:
     assert _render_lines(tui, 20) == narrow
     # And back to wide must match too.
     assert _render_lines(tui, WIDTH - 2) == wide
+
+
+def test_elided_frozen_prefix_survives_across_renderer_frames() -> None:
+    """Regression: eliding stable MessageList rows must not erase history.
+
+    ``TUI.render_cells`` can skip re-copying already-stable frozen rows into
+    the frame buffer (perf path from 1c89b65). Those holes must be reinstated
+    from the previous frame before ScrollbackTerminal diffs/commits — otherwise
+    user/assistant messages vanish until a full redraw (e.g. terminal resize).
+    """
+    from tau.tui.component import StaticComponent
+    from tau.tui.service import Renderer
+
+    term = FakeTerminal(width=WIDTH, height=24)
+    tui = TUI(terminal=term)  # type: ignore[arg-type]
+    ml = MessageList(theme=MessageTheme())
+    # Match interactive Layout order: header + spacer + messages.
+    tui.children.extend(
+        [StaticComponent(["Tau v0.7.9"]), StaticComponent([""]), ml]
+    )
+    renderer = Renderer(term)  # type: ignore[arg-type]
+
+    ml.add_message(UserMessage.from_text("hi"))
+    ml.add_message(AssistantMessage.from_text("Hello! How can I help you today?"))
+    for block in ml._blocks:
+        block.finalize()
+    renderer.render(tui)
+
+    ml.add_message(UserMessage.from_text("second"))
+    ml.add_message(AssistantMessage.from_text("second answer"))
+    for block in ml._blocks:
+        block.finalize()
+    renderer.render(tui)
+
+    prev = renderer._engine._prev
+    assert prev is not None
+    joined = "\n".join(row_to_ansi(prev, y) for y in range(prev.area.height))
+    assert "hi" in joined
+    assert "Hello! How can I help you today?" in joined
+    assert "second" in joined
+    assert "second answer" in joined
+    # Absolute stable_through must cover header/spacer + frozen MessageList.
+    assert tui._stable_rows > 0
+
+    ml.add_message(UserMessage.from_text("third live"))
+    renderer.render(tui)
+    prev = renderer._engine._prev
+    assert prev is not None
+    joined = "\n".join(row_to_ansi(prev, y) for y in range(prev.area.height))
+    for needle in ("hi", "Hello", "second", "second answer", "third live"):
+        assert needle in joined
