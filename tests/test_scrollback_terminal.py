@@ -52,8 +52,19 @@ class FakeTerminal:
 
 
 def _content_writes(term: FakeTerminal) -> list[str]:
-    """Writes from render()'s main buffer, excluding the trailing cursor-hide write_flush."""
-    return [w for w in term.writes if w != "\x1b[?25l"]
+    """Writes from render()'s main buffer, with the trailing cursor-hide sequence
+    stripped off the end (batched into the same write since cursor positioning
+    was folded into the main sync block; these tests never set cursor_pos, so
+    that sequence is always exactly "\\x1b[?25l") — and empty results dropped,
+    matching the old behavior of filtering out a cursor-only write entirely.
+    """
+    result = []
+    for w in term.writes:
+        if w.endswith("\x1b[?25l"):
+            w = w[: -len("\x1b[?25l")]
+        if w:
+            result.append(w)
+    return result
 
 
 def _buf(lines: list[str], width: int) -> Buffer:

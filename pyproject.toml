@@ -37,6 +37,8 @@ dependencies = [
     "tiktoken==0.13.0",
     "rapidfuzz==3.14.3",
     "pyxclip==0.2.3",
+    "ddgs>=9.14.4",
+    "asyncddgs>=0.1.0a1",
 ]
 
 [project.scripts]

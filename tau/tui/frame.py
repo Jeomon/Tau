@@ -455,9 +455,6 @@ class ScrollbackTerminal:
                 out += "\r\n\x1b[2K"
             out += f"\x1b[{extra}A"
 
-        out += self._terminal.end_sync()
-        self._terminal.write(out)
-
         self._hw_cursor_row = final_cursor_row
         self._max_lines = max(self._max_lines, new_rows)
         self._viewport_top = max(viewport_top, final_cursor_row - height + 1)
@@ -465,7 +462,9 @@ class ScrollbackTerminal:
         self._prev_width = width
         self._prev_height = height
 
-        self._position_hw_cursor(cursor_pos, new_rows)
+        out += self._hw_cursor_ansi(cursor_pos, new_rows)
+        out += self._terminal.end_sync()
+        self._terminal.write(out)
 
     def clear(self) -> None:
         """Erase the entire screen and scrollback buffer."""
@@ -529,8 +528,6 @@ class ScrollbackTerminal:
                 out += "\r\n"
             out += "\x1b[2K"
             out += row_to_ansi(buf, buf.area.y + i, embed_raw=False)
-        out += self._terminal.end_sync()
-        self._terminal.write(out)
 
         self._hw_cursor_row = max(0, rows - 1)
         self._max_lines = rows if clear else max(self._max_lines, rows)
@@ -539,13 +536,36 @@ class ScrollbackTerminal:
         self._prev_width = width
         self._prev_height = height
 
-        self._position_hw_cursor(cursor_pos, rows)
+        out += self._hw_cursor_ansi(cursor_pos, rows)
+        out += self._terminal.end_sync()
+        self._terminal.write(out)
 
     def _position_hw_cursor(self, cursor_pos: Position | None, rows: int) -> None:
-        """Move the hardware terminal cursor to the IME position and show/hide it."""
+        """Move the hardware terminal cursor to the IME position and show/hide it.
+
+        Standalone entry point for the early-return render paths (no-change,
+        viewport-skip, pure scroll) where nothing else is written this frame —
+        see ``_hw_cursor_ansi`` for the paths that must batch this into the
+        same synchronized-output block as the main diff paint.
+        """
+        self._terminal.write_flush(self._hw_cursor_ansi(cursor_pos, rows))
+
+    def _hw_cursor_ansi(self, cursor_pos: Position | None, rows: int) -> str:
+        """Compute (without writing) the cursor move/show/hide sequence, updating _hw_cursor_row.
+
+        Split out from ``_position_hw_cursor`` so the main diff-paint and
+        full-render paths can append this to their own ``out`` string and
+        emit it inside the *same* begin_sync/end_sync batch as the content
+        write. Issuing it as a separate write after that batch already closed
+        (the previous behavior) is harmless while focused — it only ever
+        writes a redundant, invisible "hide an already-hidden cursor" code —
+        but while unfocused it instead shows/moves the real hardware cursor
+        on every single frame (including every spinner tick) as a second,
+        un-batched paint, which visibly flickers against the terminal's own
+        unfocused-cursor rendering.
+        """
         if cursor_pos is None or rows == 0:
-            self._terminal.write_flush("\x1b[?25l")
-            return
+            return "\x1b[?25l"
 
         target_row = max(0, min(cursor_pos.y, rows - 1))
 
@@ -563,8 +583,8 @@ class ScrollbackTerminal:
             out += "\x1b[?25h"  # show cursor
         else:
             out += "\x1b[?25l"  # hide cursor (we draw our own block)
-        self._terminal.write_flush(out)
         self._hw_cursor_row = target_row
+        return out
 
     def _flush_raw_writes(self, buf: Buffer) -> None:
         """Send any raw_writes whose token changed since last sent.
