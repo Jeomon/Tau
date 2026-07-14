@@ -256,14 +256,20 @@ def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
     """Convert user message contents to OpenAI chat format (completions/copilot/mistral).
 
     Shared by every "openai_completions"-family provider (OpenAI Completions,
-    GitHub Copilot, OpenAI Vertex, OpenRouter) plus Mistral. AudioContent is
-    only reachable here for models a curator explicitly flagged with
-    Modality.Audio — as of this writing that's a subset of OpenRouter's
-    proxied models (real audio-capable backends like Gemini-via-OpenRouter),
-    not the OpenAI/Copilot/Vertex/Mistral models themselves, none of which
-    currently claim Modality.Audio.
+    GitHub Copilot, OpenAI Vertex, OpenRouter) plus Mistral. AudioContent and
+    VideoContent are only reachable here for models a curator explicitly
+    flagged with Modality.Audio/Modality.Video — the UI-level modality gate
+    (InputHandler._on_submit) blocks submission before a message with
+    unsupported media ever reaches this function, so a model that doesn't
+    declare the modality never triggers these branches. As of this writing
+    Video is only claimed by a subset of NVIDIA's own models and OpenRouter's
+    proxied models — not the OpenAI/Copilot/Vertex/Mistral models themselves.
+
+    VideoContent uses the same "video_url" data-URI shape NVIDIA NIM's Vision
+    Language Model API documents (mirroring "image_url"); OpenRouter's
+    video-capable backends accept the same OpenAI-style shape.
     """
-    from tau.message.types import AudioContent, ImageContent, TextContent
+    from tau.message.types import AudioContent, ImageContent, TextContent, VideoContent
 
     parts: list[dict[str, Any]] = []
     for item in content_items:
@@ -289,6 +295,10 @@ def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
                     parts.append(
                         {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
                     )
+            case VideoContent():
+                for b64, mime in item.to_base64():
+                    url = b64 if b64.startswith("http") else f"data:{mime};base64,{b64}"
+                    parts.append({"type": "video_url", "video_url": {"url": url}})
     if len(parts) == 1 and parts[0]["type"] == "text":
         return parts[0]["text"]
     return parts

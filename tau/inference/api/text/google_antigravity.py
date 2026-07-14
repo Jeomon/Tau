@@ -56,6 +56,7 @@ from tau.message.types import (
     ToolMessage,
     ToolResultContent,
     UserMessage,
+    VideoContent,
 )
 
 if TYPE_CHECKING:
@@ -260,6 +261,9 @@ def _messages_to_contents(
                             for b64, mime in item.to_base64():
                                 parts.append({"inlineData": {"mimeType": mime, "data": b64}})
                         case AudioContent():
+                            for b64, mime in item.to_base64():
+                                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+                        case VideoContent():
                             for b64, mime in item.to_base64():
                                 parts.append({"inlineData": {"mimeType": mime, "data": b64}})
                 if parts:

@@ -2155,7 +2155,10 @@ models = [
         thinking=True,
         context_window=512_000,
         max_output_tokens=131_072,
-        input=_TEXT_IMAGE_VIDEO,
+        # Video omitted: Ollama's chat API has no video input support at all
+        # (open feature request, ollama/ollama#8419 and #10971) — declaring it
+        # here would silently drop any pasted video with no possible fix.
+        input=_TEXT_IMAGE,
         output=_TEXT,
     ),
     Model(

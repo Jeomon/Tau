@@ -51,6 +51,7 @@ from tau.message.types import (
     ToolMessage,
     ToolResultContent,
     UserMessage,
+    VideoContent,
 )
 
 if TYPE_CHECKING:
@@ -164,6 +165,16 @@ def _messages_to_gemini(
                                     )
                                 )
                         case AudioContent():
+                            for b64, mime in item.to_base64():
+                                parts.append(
+                                    genai_types.Part(
+                                        inline_data=genai_types.Blob(
+                                            mime_type=mime,
+                                            data=b64,  # type: ignore[arg-type]
+                                        ),
+                                    )
+                                )
+                        case VideoContent():
                             for b64, mime in item.to_base64():
                                 parts.append(
                                     genai_types.Part(
