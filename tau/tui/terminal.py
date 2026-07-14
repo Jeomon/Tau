@@ -20,7 +20,10 @@ if sys.platform != "win32":
     import tty
 
 # Windows has no SIGWINCH, so resize is detected by polling the console size.
-_WIN_RESIZE_POLL_INTERVAL = 0.25
+# _get_size() is a cheap console-buffer-info syscall, so polling frequently
+# costs negligible CPU — worth it to keep resize latency close to SIGWINCH's
+# effectively-instant delivery on POSIX.
+_WIN_RESIZE_POLL_INTERVAL = 0.05
 
 # ── Terminal Capabilities ─────────────────────────────────────────────────────
 

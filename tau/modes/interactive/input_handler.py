@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -858,11 +858,29 @@ class InputHandler:
         support there, unlike Windows). So a bare, whole-paste path that
         resolves to a real file is treated as a file paste instead of literal
         text — matching what the user actually did.
+
+        Some Windows terminals (and Explorer drag-and-drop) hit the same gap:
+        the path arrives as plain bracketed-paste text, wrapped in double
+        quotes when it contains a space (the cmd.exe/PowerShell/Explorer
+        convention). ``PureWindowsPath``/``PurePosixPath().is_absolute()`` —
+        rather than a hand-rolled prefix check — recognize both a drive-letter
+        (``C:\\...``) or UNC (``\\\\server\\share\\...``) path and a POSIX
+        absolute path, using the stdlib's own path-shape rules instead of
+        reimplementing them.
         """
         if "\n" in text:
             return None
         candidate = text.strip()
-        if not candidate or candidate[0] not in ("/", "~"):
+        if len(candidate) >= 2 and candidate[0] == candidate[-1] == '"':
+            candidate = candidate[1:-1]
+        if not candidate:
+            return None
+        looks_like_path = (
+            candidate.startswith("~")
+            or PureWindowsPath(candidate).is_absolute()
+            or PurePosixPath(candidate).is_absolute()
+        )
+        if not looks_like_path:
             return None
         path = Path(candidate).expanduser()
         if not path.is_file():

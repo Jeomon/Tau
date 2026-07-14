@@ -304,6 +304,7 @@ class TestDetectPastedFilePath:
     def test_tilde_path_is_expanded_and_detected(self, tmp_path, monkeypatch):
         h = make_handler()
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.expanduser() uses this on Windows
         p = tmp_path / "clip.mp3"
         p.write_bytes(b"ID3fake")
         assert h._detect_pasted_file_path("~/clip.mp3") == str(p)
