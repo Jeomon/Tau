@@ -193,6 +193,37 @@ ollama serve
 
 Tau currently expects the service at `http://localhost:11434`.
 
+### `uv tool install` fails building `pyxclip` on Python 3.14
+
+`pyxclip` (used for clipboard support) ships prebuilt wheels only up to
+Python 3.13 — its `pyo3` bindings don't yet support 3.14. `uv tool install`
+picks uv's newest managed Python by default (currently 3.14) regardless of
+this project's `requires-python` bound, so the install falls back to a source
+build that fails with an error like:
+
+```
+error: The configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)
+```
+
+Work around it by pinning the interpreter for the install:
+
+```bash
+uv tool install . --python 3.13
+```
+
+Or set it once for your shell so future installs don't need the flag:
+
+```bash
+# macOS/Linux
+export UV_PYTHON=3.13
+
+# Windows (PowerShell), current session
+$env:UV_PYTHON = "3.13"
+
+# Windows (PowerShell), persisted for future sessions
+[Environment]::SetEnvironmentVariable("UV_PYTHON", "3.13", "User")
+```
+
 ## Next Steps
 
 - [Quickstart](quickstart.md) - Run your first session
