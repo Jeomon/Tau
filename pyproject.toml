@@ -7,7 +7,7 @@ name = "tau-coding-agent"
 version = "0.7.9"
 description = "A self-extensible agent CLI with terminal UI, multi-provider LLM support, session management with branching, and a plugin system for tools and commands"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "anthropic==0.109.1",
     "certifi==2026.5.20",
