@@ -1,4 +1,4 @@
-"""DuckDuckGo engine — async search via asyncddgs, fetch/books via ddgs."""
+"""DuckDuckGo engine — search/fetch/books via ddgs, run off-thread since it's sync."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import asyncio
 
 from .base import BaseSearchEngine, SearchMode, SearchRecency, result
 
-# ddgs/asyncddgs `timelimit` codes — stable since duckduckgo_search's earliest
+# ddgs `timelimit` codes — stable since duckduckgo_search's earliest
 # releases: single-letter day/week/month/year.
 _TIMELIMIT = {
     SearchRecency.day: "d",
@@ -33,33 +33,32 @@ class DDGSearchEngine(BaseSearchEngine):
         self._region = region or "us-en"
         self._safesearch = safesearch or "off"
         self._client = None  # lazily-created, reused across calls — see _get_client
-        self._client_lock = asyncio.Lock()
 
-    async def _get_client(self):
-        """Return a persistent ``aDDGS`` client, creating it on first use.
+    def _get_client(self):
+        """Return a persistent ``DDGS`` client, creating it on first use.
 
-        ``aDDGS`` keeps per-instance cookie and rate-limit state
-        (``min_request_interval``) that only does anything useful if the same
-        instance is reused across requests. Opening a fresh ``async with
-        aDDGS()`` per search (the old behavior) reset that state every call,
-        so a handful of searches in a row looked bot-like to DuckDuckGo and
-        got served its 202 challenge page — which asyncddgs' parser silently
-        treats as zero results rather than an error.
+        Reusing one instance across calls (rather than a fresh ``DDGS()`` per
+        search) preserves whatever session/rate-limit state the client keeps
+        internally, same rationale as the previous asyncddgs-based client.
+
+        This project previously used ``asyncddgs`` (an early 0.1.0a1 alpha)
+        for text/news/images/videos search. That client's ``_get_url()``
+        passes ``allow_redirects=False`` and never checks the response status
+        code before parsing it as a results page — so a redirect or bot
+        challenge from DuckDuckGo (no session/cookie warmup precedes the
+        search request) gets silently parsed as zero results, no exception,
+        no log. ``ddgs`` (the actively-maintained sync package, already used
+        here for books/fetch) doesn't have this gap, so all search modes now
+        route through it via ``asyncio.to_thread`` instead.
         """
         if self._client is None:
-            async with self._client_lock:
-                if self._client is None:
-                    from asyncddgs import aDDGS  # type: ignore[import-not-found]
+            from ddgs import DDGS  # type: ignore[import-not-found]
 
-                    client = aDDGS()
-                    await client.__aenter__()
-                    self._client = client
+            self._client = DDGS()
         return self._client
 
     async def aclose(self) -> None:
-        client, self._client = self._client, None
-        if client is not None:
-            await client.__aexit__(None, None, None)
+        self._client = None
 
     async def search(
         self,
@@ -70,29 +69,27 @@ class DDGSearchEngine(BaseSearchEngine):
     ) -> list[dict]:
         region, safe = self._region, self._safesearch
         timelimit = _TIMELIMIT.get(recency) if recency else None
+        d = self._get_client()
 
-        if mode is SearchMode.books:
-            from ddgs import DDGS  # type: ignore[import-not-found]
-
-            raw = await asyncio.to_thread(
-                lambda: DDGS().books(query, max_results=max_results) or []
-            )
-            return [
-                result(
-                    title=r.get("title", ""),
-                    url=r.get("url", ""),
-                    author=r.get("author", ""),
-                    publisher=r.get("publisher", ""),
-                    info=r.get("info", ""),
-                )
-                for r in raw
-            ]
-
-        d = await self._get_client()
         match mode:
+            case SearchMode.books:
+                raw = await asyncio.to_thread(
+                    lambda: d.books(query, region=region, safesearch=safe, max_results=max_results)
+                    or []
+                )
+                return [
+                    result(
+                        title=r.get("title", ""),
+                        url=r.get("url", ""),
+                        author=r.get("author", ""),
+                        publisher=r.get("publisher", ""),
+                        info=r.get("info", ""),
+                    )
+                    for r in raw
+                ]
             case SearchMode.text:
-                raw = (
-                    await d.text(
+                raw = await asyncio.to_thread(
+                    lambda: d.text(
                         query,
                         region=region,
                         safesearch=safe,
@@ -110,8 +107,8 @@ class DDGSearchEngine(BaseSearchEngine):
                     for r in raw
                 ]
             case SearchMode.news:
-                raw = (
-                    await d.news(
+                raw = await asyncio.to_thread(
+                    lambda: d.news(
                         query,
                         region=region,
                         safesearch=safe,
@@ -131,8 +128,8 @@ class DDGSearchEngine(BaseSearchEngine):
                     for r in raw
                 ]
             case SearchMode.images:
-                raw = (
-                    await d.images(query, region=region, safesearch=safe, max_results=max_results)
+                raw = await asyncio.to_thread(
+                    lambda: d.images(query, region=region, safesearch=safe, max_results=max_results)
                     or []
                 )
                 return [
@@ -140,8 +137,8 @@ class DDGSearchEngine(BaseSearchEngine):
                     for r in raw
                 ]
             case SearchMode.videos:
-                raw = (
-                    await d.videos(query, region=region, safesearch=safe, max_results=max_results)
+                raw = await asyncio.to_thread(
+                    lambda: d.videos(query, region=region, safesearch=safe, max_results=max_results)
                     or []
                 )
                 return [
