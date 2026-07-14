@@ -2,6 +2,27 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.8.0 — 2026-07-14
+
+### Added
+
+-   Add web search extension with DuckDuckGo engine and dependency configuration, enabling agents to perform real-time web searches and retrieve current information
+-   Add ScrollbackTerminal to manage incremental terminal rendering and viewport updates, improving responsiveness and performance when displaying large output
+-   Add model definitions and inference provider implementations for Google Gemini and Antigravity services, expanding multi-provider LLM support
+-   Add InputHandler for managing session input, media, and deferred execution, providing a unified interface for user interactions
+-   Add modular inference API and local model support, including auto-discovery and integration with local Ollama, LM Studio, vLLM, and llama.cpp instances
+-   Add installation and authentication guide documentation for improved onboarding
+
+### Changed
+
+-   Refactor inference provider system to support modular architecture with local model auto-discovery
+
+### Fixed
+
+-   Fix offscreen row-count changes causing unnecessary full scrollback wipes, improving rendering efficiency
+-   Improve terminal responsiveness through optimized rendering with frozen transcript row preservation
+-   Improve performance through reduced streamed-content flush rate to minimize scroll-follow snaps
+
 ## 0.7.9 — 2026-07-13
 
 ### Fixed
