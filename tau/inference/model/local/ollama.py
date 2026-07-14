@@ -86,7 +86,9 @@ async def discover_local_ollama_models(base_url: str = "http://localhost:11434")
     """
     import httpx
 
-    async with httpx.AsyncClient() as client:
+    from tau.utils.ssl_context import get_shared_ssl_context
+
+    async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
         tags = await _fetch_tags(client, base_url)
         local_tags = [t for t in tags if not t.get("remote_host") and t.get("name")]
         if not local_tags:

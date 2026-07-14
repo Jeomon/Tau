@@ -42,9 +42,12 @@ class SarvamAudioAPI(BaseAPI):
     def _new_client(self) -> httpx.AsyncClient:
         # Per-call client (used inside `async with`) so its connection pool is
         # always closed — no persistent client left unclosed for the GC.
+        from tau.utils.ssl_context import get_shared_ssl_context
+
         return httpx.AsyncClient(
             base_url=self.options.base_url or _BASE_URL,
             timeout=self.options.timeout.total_seconds(),
+            verify=get_shared_ssl_context(),
         )
 
     def _auth_headers(self) -> dict[str, str]:

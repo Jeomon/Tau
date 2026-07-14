@@ -68,7 +68,9 @@ class FalVideoAPI(BaseVideoAPI):
         headers = self._headers()
         payload = self._build_payload(context)
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        from tau.utils.ssl_context import get_shared_ssl_context
+
+        async with httpx.AsyncClient(timeout=60.0, verify=get_shared_ssl_context()) as client:
             # Submit job
             resp = await client.post(f"{_BASE}/{model.id}", json=payload, headers=headers)
             resp.raise_for_status()

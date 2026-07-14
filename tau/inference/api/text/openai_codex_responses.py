@@ -533,12 +533,15 @@ class OpenAICodexResponsesAPI(BaseAPI):
         body_bytes = json.dumps(body).encode()
         last_error: Exception | None = None
 
+        from tau.utils.ssl_context import get_shared_ssl_context
+
         # Per-call client in an async-with so the connection pool is always
         # closed when the stream ends or is torn down — no persistent client
         # left unclosed for the GC to warn about.
         async with httpx.AsyncClient(
             timeout=self.options.timeout.total_seconds(),
             headers=self.options.headers or {},
+            verify=get_shared_ssl_context(),
         ) as client:
             for attempt in range(_MAX_RETRIES + 1):
                 if attempt > 0:

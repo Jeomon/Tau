@@ -133,7 +133,9 @@ async def resolve_project_id(access_token: str, base_url: str = _DEFAULT_BASE_UR
     """
     headers = _antigravity_headers(access_token)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    from tau.utils.ssl_context import get_shared_ssl_context
+
+    async with httpx.AsyncClient(timeout=30.0, verify=get_shared_ssl_context()) as client:
         load_payload: dict[str, Any] = {}
         try:
             r = await client.post(
@@ -541,8 +543,12 @@ class GoogleAntigravityAPI(BaseAPI):
 
         done = False
         try:
+            from tau.utils.ssl_context import get_shared_ssl_context
+
             async with (
-                httpx.AsyncClient(timeout=self.options.timeout.total_seconds()) as client,
+                httpx.AsyncClient(
+                    timeout=self.options.timeout.total_seconds(), verify=get_shared_ssl_context()
+                ) as client,
                 client.stream(
                     "POST",
                     f"{self._base_url}{_STREAM_PATH}",

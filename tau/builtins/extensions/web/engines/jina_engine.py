@@ -43,8 +43,10 @@ class JinaSearchEngine(BaseSearchEngine):
         # s.jina.ai has no structured date-range parameter; `recency` is
         # accepted (per the base interface) but intentionally not applied —
         # the tool warns the model instead of silently faking support.
+        from tau.utils.ssl_context import get_shared_ssl_context
+
         url = f"{_SEARCH_URL}{quote(query, safe='')}"
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=get_shared_ssl_context()) as client:
             response = await client.get(url, headers=self._headers(json=True))
             response.raise_for_status()
             data = response.json()
@@ -67,8 +69,10 @@ class JinaSearchEngine(BaseSearchEngine):
         return out
 
     async def fetch(self, url: str, timeout: int) -> str:
+        from tau.utils.ssl_context import get_shared_ssl_context
+
         jina_url = f"{_READER_URL}{url}"
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, verify=get_shared_ssl_context()) as client:
             response = await client.get(jina_url, headers=self._headers())
             response.raise_for_status()
             return response.text

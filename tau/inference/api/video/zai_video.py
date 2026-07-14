@@ -66,7 +66,9 @@ class ZaiVideoAPI(BaseVideoAPI):
             if modified is not None:
                 payload = modified
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        from tau.utils.ssl_context import get_shared_ssl_context
+
+        async with httpx.AsyncClient(timeout=60.0, verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 f"{base_url}/videos/generations", json=payload, headers=headers
             )

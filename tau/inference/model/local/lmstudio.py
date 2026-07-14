@@ -55,8 +55,10 @@ async def discover_local_lmstudio_models(base_url: str = "http://localhost:1234"
     """
     import httpx
 
+    from tau.utils.ssl_context import get_shared_ssl_context
+
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.get(f"{base_url}/api/v0/models", timeout=_MODELS_TIMEOUT)
             resp.raise_for_status()
             items = resp.json().get("data") or []

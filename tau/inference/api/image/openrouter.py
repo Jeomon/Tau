@@ -94,9 +94,13 @@ class OpenRouterImageAPI(BaseImageAPI):
         url = f"{(self.options.base_url or '').rstrip('/')}/chat/completions"
         last_error: Exception | None = None
 
+        from tau.utils.ssl_context import get_shared_ssl_context
+
         # Per-call client so its connection pool is always closed when generate()
         # returns — no persistent client left unclosed for the GC to warn about.
-        async with httpx.AsyncClient(timeout=self.options.timeout.total_seconds()) as client:
+        async with httpx.AsyncClient(
+            timeout=self.options.timeout.total_seconds(), verify=get_shared_ssl_context()
+        ) as client:
             for attempt in range(self.options.max_retries + 1):
                 if attempt > 0:
                     await asyncio.sleep(min(2 ** (attempt - 1), 30))
