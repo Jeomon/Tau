@@ -1744,13 +1744,18 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Cerebras (fast inference ~3000 tok/s, OpenAI-compatible)
+    # Cerebras (fast inference ~3000 tok/s, OpenAI-compatible). Per-model specs
+    # confirmed at inference-docs.cerebras.ai/capabilities/reasoning — these
+    # are Cerebras' own reasoning_effort wrappers, distinct from what each
+    # model's origin provider (Z.ai, Google) documents for the same weights.
     Model(
         id="gpt-oss-120b",
         name="GPT OSS 120B",
         provider="cerebras",
         cost=Cost(input=0.35, output=0.75),
         thinking=True,
+        # reasoning_effort accepts "low", "medium" (default), "high" — no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT,
@@ -1762,6 +1767,15 @@ models = [
         provider="cerebras",
         cost=Cost(input=2.25, output=2.75),
         thinking=True,
+        # "Reasoning is enabled by default"; reasoning_effort accepts "none"
+        # (disable) plus "low"/"medium"/"high" — graded, unlike Z.ai's own
+        # direct API which only exposes a binary thinking on/off toggle.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT,
@@ -1773,6 +1787,15 @@ models = [
         provider="cerebras",
         cost=Cost(input=0.99, output=1.49),
         thinking=True,
+        # "Reasoning is disabled by default"; reasoning_effort accepts "none"
+        # plus "low"/"medium"/"high", though docs note the three enabled
+        # tiers "all enable reasoning equivalently" (no depth differentiation).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT_IMAGE,
@@ -1803,6 +1826,9 @@ models = [
         provider="perplexity",
         cost=Cost(input=2.0, output=8.0),
         thinking=True,
+        # docs.perplexity.ai/docs/sonar/models/sonar-reasoning-pro documents no
+        # reasoning_effort parameter — this model is DeepSeek-R1-powered,
+        # which has no effort control on any host (thinking always on).
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1813,6 +1839,15 @@ models = [
         provider="perplexity",
         cost=Cost(input=2.0, output=8.0),
         thinking=True,
+        # community.perplexity.ai's official "Reasoning effort...now live"
+        # announcement: reasoning_effort accepts "minimal, low, medium, high"
+        # — no "none" (this model always does research/reasoning).
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -7390,6 +7425,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=3.00, output=7.00),
         thinking=True,
+        # fireworks.ai/blog/deepseek-models: R1 has thinking "always on" with
+        # "no clean API control" — genuinely uncontrollable, left unconfirmed
+        # rather than guessing a level (unlike DeepSeek V3.2+/V4, which do
+        # support reasoning_effort).
         context_window=160_000,
         input=_TEXT,
         output=_TEXT,
@@ -7409,6 +7448,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=0.22, output=0.88),
         thinking=True,
+        # fireworks.ai/blog/qwen-3: "Flip reasoning_effort='none' (or use the
+        # /think / /no_think tags) to trade transparency for raw throughput"
+        # — dual-mode on/off, no low/medium/high tier documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -7419,6 +7462,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same Qwen3 dual-mode (thinking/non-thinking) toggle confirmed for
+        # qwen3-235b-a22b above — shared family behavior, not independently
+        # documented for this smaller variant.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
