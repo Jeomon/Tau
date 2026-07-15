@@ -72,7 +72,7 @@ _COMPLETION_TYPES = {"response.done", "response.completed", "response.incomplete
 # legacy Responses envelope for them (HTTP 404 "Model not found") and expects
 # tools/instructions folded into `input`, forced tool_choice/parallel_tool_calls,
 # a prompt_cache_key tied to a UUIDv7 session id, and reasoning.context set.
-# See https://github.com/anomalyco/opencode/pull/36143.
+
 _RESPONSES_LITE_MODELS = {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
 _CODEX_COMPATIBILITY_VERSION = "0.144.0"
 _RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"

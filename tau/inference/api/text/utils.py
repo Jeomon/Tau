@@ -31,8 +31,10 @@ _CACHE_MARKER = {"type": "ephemeral"}
 _NO_TOOL_OUTPUT = "(no tool output)"
 
 # GPT-5.6 adds an explicit prompt_cache_options request field (mode/ttl) and a
-# matching cache_write_tokens usage field, on both the direct Responses API
-# and the Codex/ChatGPT OAuth backend (which speaks the same Responses shape).
+# matching cache_write_tokens usage field, on the direct Responses API
+# (openai_responses.py). The Codex/ChatGPT OAuth backend rejects this field
+# with HTTP 400 "Unsupported parameter" despite speaking the same Responses
+# shape otherwise, so openai_codex_responses.py never calls this helper.
 # Older models keep the old implicit (no-config) caching behavior, so this is
 # only sent for the 5.6 family. See https://github.com/anomalyco/opencode/pull/36320.
 _GPT56_RE = re.compile(r"(?:^|[/.])gpt-5\.6(?:$|[-_/.])", re.I)
