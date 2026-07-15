@@ -214,6 +214,17 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Claude Code (OAuth) hits the same api.anthropic.com Messages API as the
+        # direct API-key provider (see anthropic_claude_code.py's AsyncAnthropic
+        # client) — same adaptive-thinking spec applies: always-on, no Off, xhigh
+        # available.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -224,6 +235,16 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive-only, can
+        # disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -234,6 +255,15 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Same adaptive-thinking spec as claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -244,6 +274,16 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive on by default,
+        # can disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -254,6 +294,15 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -264,6 +313,19 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Sonnet 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -273,6 +335,20 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic-claude-code",
         cost=Cost(),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
