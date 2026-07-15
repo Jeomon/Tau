@@ -78,9 +78,14 @@ class ComputerSchema(BaseModel):
             "scroll, move, drag, or shortcut."
         )
     )
-    loc: tuple[int, int] | None = Field(default=None, description="Target screen coordinate as [x, y].")
-    x: int | None = Field(default=None, description="Target x coordinate. Used when loc is omitted.")
-    y: int | None = Field(default=None, description="Target y coordinate. Used when loc is omitted.")
+    loc: tuple[int, int] | None = Field(
+        default=None,
+        description=(
+            "Target screen coordinate as [x, y]. Required for click, type, move, and drag "
+            "(type clicks this location to focus it before sending keystrokes), and for "
+            "app with app_mode=move."
+        ),
+    )
     text: str | None = Field(default=None, description="Text to type. Required for action=type.")
     duration: float = Field(default=1.0, ge=0, le=60, description="Seconds to wait for action=wait.")
     button: MouseButton = Field(default=MouseButton.left, description="Mouse button for action=click.")
@@ -98,12 +103,11 @@ class ComputerSchema(BaseModel):
 
     @model_validator(mode="after")
     def _check_action_fields(self) -> ComputerSchema:
-        loc = self.loc or ((self.x, self.y) if self.x is not None and self.y is not None else None)
         if (
             self.action in {ComputerAction.click, ComputerAction.type, ComputerAction.move, ComputerAction.drag}
-            and loc is None
+            and self.loc is None
         ):
-            raise ValueError("'loc' or both 'x' and 'y' are required for this action")
+            raise ValueError("'loc' is required for this action")
         if self.action == ComputerAction.type and self.text is None:
             raise ValueError("'text' is required when action='type'")
         if self.action == ComputerAction.shortcut and not self.shortcut:
@@ -113,8 +117,8 @@ class ComputerSchema(BaseModel):
                 raise ValueError("'name' is required when action='app' with launch or switch")
             if self.app_mode == AppMode.resize and self.size is None:
                 raise ValueError("'size' is required when action='app' with resize")
-            if self.app_mode == AppMode.move and loc is None:
-                raise ValueError("'loc' or both 'x' and 'y' are required when action='app' with move")
+            if self.app_mode == AppMode.move and self.loc is None:
+                raise ValueError("'loc' is required when action='app' with move")
         return self
 
 
@@ -299,8 +303,4 @@ class ComputerTool(Tool):
         return f"Unknown action: {params.action.value}"
 
     def _loc(self, params: ComputerSchema) -> tuple[int, int] | None:
-        if params.loc is not None:
-            return params.loc
-        if params.x is not None and params.y is not None:
-            return (params.x, params.y)
-        return None
+        return params.loc

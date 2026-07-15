@@ -2066,6 +2066,8 @@ class UIAError(IntEnum):
     UIA_E_TIMEOUT = -2146233083  # 0x80131505 — UIA operation timed out
 
     EVENT_E_ALL_SUBSCRIBERS_FAILED = -2147220991  # 0x80040201 — same as UIA_E_ELEMENTNOTAVAILABLE
+    EVENT_E_INTERNALEXCEPTION = -2147220987  # 0x80040205 — unexpected exception in event system
+    EVENT_E_USER_EXCEPTION = -2147220984  # 0x80040208 — a subscriber raised an exception
 
     RO_E_CLOSED = -2147483629  # 0x80000013 — object has been closed/disposed
 
@@ -2092,7 +2094,15 @@ class UIAError(IntEnum):
     CO_E_RELEASED = -2147220993  # 0x800401FF — object has been released
     CO_E_NOTINITIALIZED = -2147220496  # 0x800401F0 — CoInitialize not called
 
+    E_NOTIMPL = -2147467263  # 0x80004001 — not implemented
+    E_NOINTERFACE = -2147467262  # 0x80004002 — interface not supported
+    E_POINTER = -2147467261  # 0x80004003 — invalid pointer
+    E_ABORT = -2147467260  # 0x80004004 — operation aborted
+    E_FAIL = -2147467259  # 0x80004005 — unspecified failure
+    E_UNEXPECTED = -2147418113  # 0x8000FFFF — catastrophic/unexpected failure
     E_ACCESSDENIED = -2147024891  # 0x80070005 — access denied
+    E_OUTOFMEMORY = -2147024882  # 0x8007000E — out of memory
+    E_INVALIDARG = -2147024809  # 0x80070057 — invalid argument
 
 
 def is_dead_element_error(code: int) -> bool:

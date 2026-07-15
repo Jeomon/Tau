@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 _MODES = ("interactive", "print", "json", "rpc")
 _OUTPUT_FORMATS = ("text", "json")
 
+# On Windows, stdio is often bound to a legacy codepage (e.g. cp1252) that can't
+# encode arbitrary Unicode (e.g. a zero-width space embedded in a COM error
+# message). Without this, such characters crash the log call itself and mask
+# the original error behind a "Logging error" traceback.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="backslashreplace")
+
 
 def resolve_mode(mode: str | None, print_flag: bool, prompt: str | None, output_format: str) -> str:
     """Determine the run mode: interactive, print, json, or rpc."""
