@@ -122,6 +122,8 @@ class TerminalTool(Tool):
 
         sm = context.settings if context is not None else None
         shell_path = (sm.get_shell_path() if sm is not None else None) or _DEFAULT_SHELL
+        if shell_path:
+            shell_path = os.path.expanduser(shell_path)
         shell_prefix = sm.get_shell_command_prefix() if sm is not None else None
 
         command = params.cmd
