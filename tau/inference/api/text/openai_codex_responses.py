@@ -197,24 +197,67 @@ def _messages_to_input(messages: list[LLMMessage]) -> tuple[str, list[dict[str, 
                                 "output": openai_responses_function_call_output(content),
                             }
                         )
-            case UserMessage() | AssistantMessage():
-                role = "user" if isinstance(msg, UserMessage) else "assistant"
-                parts = _content_to_input(msg.contents, role)
+            case UserMessage():
+                parts = _content_to_input(msg.contents, "user")
                 if parts:
-                    input_items.append({"role": role, "content": parts})
-                # function_call is a top-level input item in the Responses API,
-                # not nested inside a message's content array. It must precede
-                # its matching function_call_output (emitted by the ToolMessage).
+                    input_items.append({"role": "user", "content": parts})
+            case AssistantMessage():
+                # reasoning and function_call are top-level input items in the
+                # Responses API, not nested inside a message's content array, and
+                # a reasoning item must immediately precede the item it justified
+                # (the tool call or message that followed it in the original
+                # response). So this walks msg.contents in original order instead
+                # of grouping all text first, flushing buffered text parts before
+                # emitting any top-level item.
+                text_parts: list[dict[str, Any]] = []
                 for content in msg.contents:
-                    if isinstance(content, ToolCallContent):
-                        input_items.append(
-                            {
-                                "type": "function_call",
-                                "call_id": content.id,
-                                "name": content.name,
-                                "arguments": json.dumps(content.args),
-                            }
-                        )
+                    match content:
+                        case ThinkingContent():
+                            # Only a signed block can be replayed statelessly
+                            # (store: False) — the signature is the full raw
+                            # reasoning item (including encrypted_content) captured
+                            # at stream time. Drop unsigned blocks (older sessions,
+                            # or left over from a provider/model switch) instead of
+                            # sending a malformed reasoning item.
+                            if content.signature:
+                                if text_parts:
+                                    input_items.append({"role": "assistant", "content": text_parts})
+                                    text_parts = []
+                                try:
+                                    reasoning_item = json.loads(content.signature)
+                                except (TypeError, ValueError):
+                                    reasoning_item = None
+                                if isinstance(reasoning_item, dict):
+                                    input_items.append(reasoning_item)
+                        case TextContent():
+                            text_parts.append({"type": "output_text", "text": content.content})
+                        case ImageContent():
+                            for b64, mime in content.to_base64():
+                                url = (
+                                    b64
+                                    if b64.startswith("http")
+                                    else f"data:{mime or 'image/png'};base64,{b64}"
+                                )
+                                text_parts.append({"type": "input_image", "image_url": url})
+                        case FileContent():
+                            for b64, mime in content.to_base64():
+                                text_parts.append(
+                                    {"type": "input_file", "file_data": f"data:{mime};base64,{b64}"}
+                                )
+                        case ToolCallContent():
+                            if text_parts:
+                                input_items.append({"role": "assistant", "content": text_parts})
+                                text_parts = []
+                            input_items.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": content.id,
+                                    "name": content.name,
+                                    "arguments": json.dumps(content.args),
+                                }
+                            )
+                if text_parts:
+                    input_items.append({"role": "assistant", "content": text_parts})
 
     return instructions, input_items
 
@@ -416,6 +459,10 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
     # call_ids have already been started/ended so the two paths don't duplicate.
     started_calls: set[str] = set()
     ended_calls: set[str] = set()
+    # Final reasoning summary text, keyed by item id, buffered until
+    # response.output_item.done delivers the full item (id + encrypted_content)
+    # so ThinkingEndEvent can carry both in one shot.
+    reasoning_text_by_item: dict[str, str] = {}
     saw_tool_call = False
     _input_tokens = 0
     _output_tokens = 0
@@ -452,7 +499,7 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
             yield ThinkingDeltaEvent(thinking=ThinkingContent(content=event.get("delta", "")))  # type: ignore[arg-type]
 
         elif etype == "response.reasoning_summary_text.done":
-            yield ThinkingEndEvent(thinking=ThinkingContent(content=event.get("text", "")))  # type: ignore[arg-type]
+            reasoning_text_by_item[event.get("item_id", "")] = event.get("text", "")
 
         elif etype == "response.function_call_arguments.delta":
             item_id = event.get("item_id", "")
@@ -474,7 +521,8 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
 
         elif etype == "response.output_item.done":
             item = event.get("item") or {}
-            if item.get("type") == "function_call":
+            itype = item.get("type", "")
+            if itype == "function_call":
                 call_id = item.get("call_id", "")
                 name = item.get("name", "")
                 saw_tool_call = True
@@ -488,6 +536,16 @@ async def _process_events(events: AsyncIterator[dict[str, Any]]) -> AsyncGenerat
                     yield ToolCallEndEvent(
                         tool_call=ToolCallContent(id=call_id, name=name, args=args)  # type: ignore[arg-type]
                     )
+            elif itype == "reasoning":
+                # The full item (id, summary, encrypted_content when requested via
+                # `include: ["reasoning.encrypted_content"]`) is only available here,
+                # not on the earlier reasoning_summary_text.delta/.done events — so
+                # the signature (needed to replay this reasoning item statelessly on
+                # the next turn, since store: False) is captured now.
+                content = reasoning_text_by_item.pop(item.get("id", ""), "")
+                yield ThinkingEndEvent(
+                    thinking=ThinkingContent(content=content, signature=json.dumps(item))  # type: ignore[arg-type]
+                )
 
         elif etype == "response.completed":
             response = event.get("response") or {}

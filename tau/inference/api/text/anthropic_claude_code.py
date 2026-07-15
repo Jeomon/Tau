@@ -291,6 +291,7 @@ class AnthropicClaudeCodeAPI(BaseAPI):
         tool_names: dict[int, str] = {}
         text_bufs: dict[int, str] = {}
         thinking_bufs: dict[int, str] = {}
+        signature_bufs: dict[int, str] = {}
         tool_bufs: dict[int, str] = {}
         _input_tokens = 0
         _output_tokens = 0
@@ -343,6 +344,9 @@ class AnthropicClaudeCodeAPI(BaseAPI):
                         thinking = getattr(delta, "thinking", "")
                         thinking_bufs[idx] = thinking_bufs.get(idx, "") + thinking
                         yield ThinkingDeltaEvent(thinking=ThinkingContent(content=thinking))
+                    elif dtype == "signature_delta":
+                        signature = getattr(delta, "signature", "")
+                        signature_bufs[idx] = signature_bufs.get(idx, "") + signature
                     elif dtype == "input_json_delta":
                         partial = getattr(delta, "partial_json", "")
                         tool_bufs[idx] = tool_bufs.get(idx, "") + partial
@@ -357,7 +361,10 @@ class AnthropicClaudeCodeAPI(BaseAPI):
                         yield TextEndEvent(text=TextContent(content=text_bufs.get(idx, "")))
                     elif btype == "thinking":
                         yield ThinkingEndEvent(
-                            thinking=ThinkingContent(content=thinking_bufs.get(idx, ""))
+                            thinking=ThinkingContent(
+                                content=thinking_bufs.get(idx, ""),
+                                signature=signature_bufs.get(idx, ""),
+                            )
                         )
                     elif btype == "tool_use":
                         args_str = tool_bufs.get(idx, "").strip()

@@ -712,6 +712,7 @@ class Engine:
                             case ThinkingEndEvent(thinking=thinking):
                                 if _streaming_thinking is not None:
                                     _streaming_thinking.content = thinking.content
+                                    _streaming_thinking.signature = thinking.signature
                                     _streaming_thinking = None
                                 else:
                                     message.contents.append(thinking)
