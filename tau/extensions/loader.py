@@ -114,6 +114,53 @@ def _venv_matches_current(venv_dir: Path) -> bool:
     return _venv_python_version(venv_dir) == f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
+def resolve_extension_venv_dir(cwd: Path, source: str) -> Path:
+    """Pick the venv an extension's declared dependencies would install into.
+
+    Project extensions prefer the project's own ``.venv`` — but only if its
+    Python version matches the interpreter actually running Tau. Native
+    (C-extension) dependencies are built for a specific Python version, and
+    the resolved venv's site-packages is appended to *this* process's
+    ``sys.path``; a mismatch makes those imports fail (e.g. numpy raising
+    ``No module named 'numpy._core._multiarray_umath'``). This happens when
+    Tau is installed into its own venv (``uv tool install``) while the
+    project ``.venv`` was created with a different Python. In that case we
+    install into the running interpreter's own environment, which is the
+    only target guaranteed to be import-compatible. Everything else
+    (global, explicit, unknown sources) uses ``~/.tau/venv``.
+
+    Module-level so ``tau doctor`` can check dependency-install state for the
+    same venv ``ExtensionLoader`` would actually use, without instantiating a
+    loader or importing any extension code.
+    """
+    from tau.settings.paths import get_packages_venv
+
+    if source == "project":
+        project_venv = cwd / ".venv"
+        if project_venv.exists() and not _venv_matches_current(project_venv):
+            _log.warning(
+                "Project .venv at %s targets Python %s but Tau is running on %s; "
+                "installing extension dependencies into the running interpreter "
+                "to keep native packages import-compatible.",
+                project_venv,
+                _venv_python_version(project_venv) or "unknown",
+                f"{sys.version_info.major}.{sys.version_info.minor}",
+            )
+            return Path(sys.prefix)
+        return project_venv
+
+    return get_packages_venv(None)
+
+
+def dependency_digest(deps: list[str]) -> str:
+    """Stable hash of a dependency list, used as the install-cache key.
+
+    Shared with ``tau doctor`` so it can tell whether a manifest's current
+    ``dependencies`` list matches what was last actually installed.
+    """
+    return hashlib.sha256("\n".join(sorted(deps)).encode("utf-8")).hexdigest()
+
+
 class ExtensionLoader:
     """
     Discovers and loads Python extension files from configured directories.
@@ -370,40 +417,11 @@ class ExtensionLoader:
     # ── Dependency installation ──────────────────────────────────────────────────
 
     def _resolve_venv_dir(self, source: str) -> Path:
-        """Pick a venv to install extension dependencies into.
+        """Pick a venv to install this loader's extension dependencies into.
 
-        Project extensions prefer the project's own ``.venv`` — but only if its
-        Python version matches the interpreter actually running Tau. Native
-        (C-extension) dependencies are built for a specific Python version, and
-        the resolved venv's site-packages is appended to *this* process's
-        ``sys.path``; a mismatch makes those imports fail (e.g. numpy raising
-        ``No module named 'numpy._core._multiarray_umath'``). This happens when
-        Tau is installed into its own venv (``uv tool install``) while the
-        project ``.venv`` was created with a different Python. In that case we
-        install into the running interpreter's own environment, which is the
-        only target guaranteed to be import-compatible. Everything else
-        (global, explicit, unknown sources) uses ``~/.tau/venv``.
+        See :func:`resolve_extension_venv_dir` for the resolution rules.
         """
-        from tau.settings.paths import get_packages_venv
-
-        if source == "project":
-            project_venv = self._cwd / ".venv"
-            # An existing project .venv built for a different Python version would
-            # ship binaries this interpreter can't import — divert to the running
-            # interpreter's own (guaranteed-compatible) environment instead.
-            if project_venv.exists() and not _venv_matches_current(project_venv):
-                _log.warning(
-                    "Project .venv at %s targets Python %s but Tau is running on %s; "
-                    "installing extension dependencies into the running interpreter "
-                    "to keep native packages import-compatible.",
-                    project_venv,
-                    _venv_python_version(project_venv) or "unknown",
-                    f"{sys.version_info.major}.{sys.version_info.minor}",
-                )
-                return Path(sys.prefix)
-            return project_venv
-
-        return get_packages_venv(None)
+        return resolve_extension_venv_dir(self._cwd, source)
 
     def _ensure_dependencies(self, subdir: Path, deps: list[str], source: str) -> None:
         """Install an extension's declared dependencies, once per dependency set.
@@ -426,7 +444,7 @@ class ExtensionLoader:
             venv_dir, python_executable=Path(sys.executable) if running_interpreter else None
         )
 
-        digest = hashlib.sha256("\n".join(sorted(deps)).encode("utf-8")).hexdigest()
+        digest = dependency_digest(deps)
         cache_file = venv_dir / ".tau_ext_deps.json"
         cache: dict[str, Any] = {}
         if cache_file.is_file():

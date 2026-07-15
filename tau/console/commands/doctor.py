@@ -341,6 +341,65 @@ def _check_dangling_entries(sm, cwd: Path, fix: bool) -> list[CheckResult]:
     return results
 
 
+def _check_manifest_declarations(manifest: Path, subdir: Path, cwd: Path, source: str) -> list[CheckResult]:
+    """Check one extension's manifest-declared entry files, skill dirs, and
+    dependency install state. Static only — mirrors the resolution rules
+    ExtensionLoader itself uses (see tau/extensions/loader.py) without
+    importing the extension or running an installer.
+    """
+    from tau.extensions.loader import dependency_digest, resolve_extension_venv_dir
+    from tau.settings.paths import get_app_name
+
+    results: list[CheckResult] = []
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except Exception:
+        return results  # invalid JSON already reported by _check_manifest
+    if not isinstance(data, dict):
+        return results
+    app_data = data.get(get_app_name().lower(), {})
+    label = f"{subdir.name} ({source})"
+
+    for rel in app_data.get("extensions", []) or []:
+        if not (subdir / rel).resolve().is_file():
+            results.append(CheckResult(label, "fail", f"declared extension entry not found: {rel}"))
+
+    for rel in app_data.get("skills", []) or []:
+        if not (subdir / rel).resolve().is_dir():
+            results.append(CheckResult(label, "warn", f"declared skill path not found: {rel}"))
+
+    deps = app_data.get("dependencies", []) or []
+    if deps:
+        venv_dir = resolve_extension_venv_dir(cwd, source)
+        cache_file = venv_dir / ".tau_ext_deps.json"
+        cache: dict = {}
+        if cache_file.is_file():
+            try:
+                cache = json.loads(cache_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                cache = {}
+        cache_entry = cache.get(str(subdir.resolve()))
+        cached_digest = cache_entry.get("digest") if isinstance(cache_entry, dict) else cache_entry
+        if cached_digest != dependency_digest(deps):
+            results.append(
+                CheckResult(
+                    f"{label} dependencies",
+                    "warn",
+                    "not yet installed for the current dependency list — will install on next load",
+                )
+            )
+        elif isinstance(cache_entry, dict) and not cache_entry.get("ok", True):
+            results.append(
+                CheckResult(
+                    f"{label} dependencies",
+                    "fail",
+                    f"previously failed to install: {cache_entry.get('error', 'unknown error')}",
+                )
+            )
+
+    return results
+
+
 def _check_extensions(sm, cwd: Path, fix: bool = False) -> Section:
     from tau.settings.paths import get_extensions_dir
 
@@ -352,12 +411,27 @@ def _check_extensions(sm, cwd: Path, fix: bool = False) -> Section:
 
     results.extend(_check_dangling_entries(sm, cwd, fix))
 
-    for extensions_dir in (get_extensions_dir(cwd), get_extensions_dir()):
+    for source, extensions_dir in (("project", get_extensions_dir(cwd)), ("global", get_extensions_dir())):
         if not extensions_dir.is_dir():
             continue
-        for manifest in extensions_dir.glob("*/manifest.json"):
+        for subdir in sorted(extensions_dir.iterdir(), key=lambda e: e.name):
+            if subdir.name.startswith("_") or not subdir.is_dir():
+                continue
+            manifest = subdir / "manifest.json"
+            if not manifest.is_file():
+                if not (subdir / "__init__.py").is_file():
+                    results.append(
+                        CheckResult(
+                            f"{subdir.name} ({source})",
+                            "warn",
+                            "no manifest.json or __init__.py — not discoverable as an extension",
+                        )
+                    )
+                continue
             if result := _check_manifest(manifest):
                 results.append(result)
+                continue  # invalid/unexpected shape — skip declaration checks below
+            results.extend(_check_manifest_declarations(manifest, subdir, cwd, source))
 
     if not results:
         results.append(CheckResult("Extensions", "pass", "no issues found"))
