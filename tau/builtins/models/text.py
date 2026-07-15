@@ -458,6 +458,16 @@ models = [
         provider="google",
         cost=Cost(input=1.50, output=9.00, cache_read=0.15),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking
+        # (classic generateContent ThinkingConfig, matches the google-genai SDK
+        # this backend uses): "minimal, low, medium (default), high" — thinking
+        # cannot be fully disabled for Gemini 3 models, so no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -469,6 +479,15 @@ models = [
         provider="google",
         cost=Cost(input=0.25, output=1.50, cache_read=0.025),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "minimal (default), low, medium, high" — full range, no Off (can't
+        # fully disable thinking on Gemini 3 models).
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -480,6 +499,14 @@ models = [
         provider="google",
         cost=Cost(input=2.00, output=12.00, cache_read=0.20),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "Gemini 3.1 Pro does not support minimal... low, medium, high
+        # (default)"; "You cannot disable thinking for Gemini 3.1 Pro" (no Off).
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -491,6 +518,17 @@ models = [
         provider="google",
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 128-32768, "N/A: Cannot disable thinking" — no Off.
+        # Full budget-tier range fits within [128, 32768].
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -502,6 +540,17 @@ models = [
         provider="google",
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 0-24576, "thinkingBudget = 0 disables thinking".
+        # Max's 32768-token budget exceeds the 24576 cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -512,6 +561,18 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
+        thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 512-24576, "setting 0 disables thinking". Max's
+        # 32768-token budget exceeds the 24576 cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
