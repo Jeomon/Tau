@@ -1,4 +1,5 @@
 from tau.inference.model.types import Cost, Modality, Model
+from tau.inference.types import ThinkingLevel
 
 _TEXT = [Modality.Text]
 _TEXT_IMAGE = [Modality.Text, Modality.Image]
@@ -675,6 +676,15 @@ models = [
         provider="openai",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.5:
+        # "none, low, medium (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -686,6 +696,15 @@ models = [
         provider="openai",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -697,6 +716,15 @@ models = [
         provider="openai",
         cost=Cost(input=0.75, output=4.5, cache_read=0.075),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4-mini:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE,
@@ -709,6 +737,16 @@ models = [
         provider="openai",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6:
+        # "none, low, medium, high, and max"; defaults to medium.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -720,6 +758,15 @@ models = [
         provider="openai",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -731,6 +778,15 @@ models = [
         provider="openai",
         cost=Cost(input=1.0, output=6.0, cache_read=0.10),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
