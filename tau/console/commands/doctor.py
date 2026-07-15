@@ -65,7 +65,7 @@ async def _run_checks(fix: bool = False) -> list[Section]:
     settings_manager = SettingsManager.create(cwd)
     auth_manager = AuthManager.create(provider_registry)
 
-    settings_section = _check_settings(settings_manager)
+    settings_section = _check_settings(settings_manager, fix=fix)
     models_section, referenced_providers = _check_models(settings_manager, provider_registry)
     auth_section = await _check_auth(provider_registry, auth_manager, referenced_providers, fix=fix)
     extensions_section = _check_extensions(settings_manager, cwd, fix=fix)
@@ -95,22 +95,49 @@ async def _run_checks(fix: bool = False) -> list[Section]:
 # ---------------------------------------------------------------------------
 
 
-def _check_settings(sm: object) -> Section:
+def _check_settings_scope(sm, scope, label: str, fix: bool) -> list[CheckResult]:
+    from tau.settings.types import SCOPE
+
+    error = sm.global_settings_load_error if scope == SCOPE.GLOBAL else sm.project_settings_load_error
+    issues = (
+        sm.global_settings_recovered_issues
+        if scope == SCOPE.GLOBAL
+        else sm.project_settings_recovered_issues
+    )
     results: list[CheckResult] = []
 
-    global_error = getattr(sm, "global_settings_load_error", None)
-    results.append(
-        CheckResult("Global settings (~/.tau/settings.json)", "fail", str(global_error))
-        if global_error is not None
-        else CheckResult("Global settings (~/.tau/settings.json)", "pass")
-    )
+    if error is None and not issues:
+        results.append(CheckResult(label, "pass"))
+        return results
 
-    project_error = getattr(sm, "project_settings_load_error", None)
-    results.append(
-        CheckResult("Project settings (.tau/settings.json)", "fail", str(project_error))
-        if project_error is not None
-        else CheckResult("Project settings (.tau/settings.json)", "pass")
-    )
+    if fix:
+        backup = sm.heal_settings_scope(scope)
+        detail = f"backed up broken file to {backup}" if backup is not None else "reset to defaults"
+        results.append(CheckResult(label, "pass", f"fixed: {detail}", fixed=True))
+        return results
+
+    if error is not None:
+        results.append(
+            CheckResult(
+                label,
+                "fail",
+                f"{error} — whole scope fell back to defaults "
+                "(run 'tau doctor --fix' to back up the broken file and heal it)",
+            )
+        )
+    for issue in issues:
+        results.append(
+            CheckResult(f"{label}: {issue}", "warn", "run 'tau doctor --fix' to write the recovered value back")
+        )
+    return results
+
+
+def _check_settings(sm, fix: bool = False) -> Section:
+    from tau.settings.types import SCOPE
+
+    results: list[CheckResult] = []
+    results.extend(_check_settings_scope(sm, SCOPE.GLOBAL, "Global settings (~/.tau/settings.json)", fix))
+    results.extend(_check_settings_scope(sm, SCOPE.PROJECT, "Project settings (.tau/settings.json)", fix))
 
     return Section("Settings", results)
 
@@ -369,6 +396,7 @@ def _check_manifest_declarations(manifest: Path, subdir: Path, cwd: Path, source
             results.append(CheckResult(label, "warn", f"declared skill path not found: {rel}"))
 
     deps = app_data.get("dependencies", []) or []
+    venv_dir: Path | None = None
     if deps:
         venv_dir = resolve_extension_venv_dir(cwd, source)
         cache_file = venv_dir / ".tau_ext_deps.json"

@@ -5,6 +5,7 @@ import copy
 import dataclasses as dc
 import json
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -77,6 +78,8 @@ class SettingsManager:
         project_load_error: Exception | None = None,
         initial_errors: list[SettingsError] | None = None,
         project_trusted: bool = True,
+        global_recovered_issues: list[str] | None = None,
+        project_recovered_issues: list[str] | None = None,
     ):
         """Initialise with pre-loaded global and project settings and any load errors."""
         self.storage = storage
@@ -91,6 +94,10 @@ class SettingsManager:
         self.modified_project_nested_fields: dict[str, set[str]] = {}
         self.global_settings_load_error: Exception | None = global_load_error
         self.project_settings_load_error: Exception | None = project_load_error
+        # Fields that were malformed and reset to default rather than aborting
+        # the whole scope's load — see SettingsManager._settings_from_dict.
+        self.global_settings_recovered_issues: list[str] = global_recovered_issues or []
+        self.project_settings_recovered_issues: list[str] = project_recovered_issues or []
         self.errors: list[SettingsError] = initial_errors.copy() if initial_errors else []
         self._write_queue = None
         self._batch_mode: bool = False
@@ -110,10 +117,10 @@ class SettingsManager:
     @staticmethod
     def from_storage(storage: SettingsStorage, project_trusted: bool = True) -> SettingsManager:
         """Create a SettingsManager from an arbitrary storage backend."""
-        global_settings, global_error = SettingsManager._try_load_from_storage(
+        global_settings, global_error, global_issues = SettingsManager._try_load_from_storage(
             storage, SCOPE.GLOBAL
         )
-        project_settings, project_error = SettingsManager._try_load_from_storage(
+        project_settings, project_error, project_issues = SettingsManager._try_load_from_storage(
             storage, SCOPE.PROJECT
         )
         initial_errors = []
@@ -129,6 +136,8 @@ class SettingsManager:
             project_error,
             initial_errors,
             project_trusted=project_trusted,
+            global_recovered_issues=global_issues,
+            project_recovered_issues=project_issues,
         )
 
     @staticmethod
@@ -159,22 +168,51 @@ class SettingsManager:
         return PackageEntry(**{k: v for k, v in raw.items() if k in valid})
 
     @staticmethod
-    def _settings_from_dict(data: dict) -> Settings:
+    def _settings_from_dict(data: dict, issues: list[str] | None = None) -> Settings:
         """Construct a Settings instance from a raw dict,
         rebuilding nested dataclasses from plain dicts.
+
+        A field whose stored value has the wrong shape (e.g. a plain string
+        where an object was expected) is skipped, falling back to that
+        field's default, rather than leaking the malformed raw value into the
+        dataclass — dataclasses don't validate field types at construction,
+        so an unguarded assignment would succeed silently and then break the
+        first thing that calls a method on the field (e.g. ``.packages.list``
+        on a field that's actually still a string). When ``issues`` is given,
+        one human-readable description is appended per field skipped this
+        way, so callers (``tau doctor``) can report exactly what was dropped
+        instead of it failing silently or nuking the whole scope.
         """
+
+        def _issue(key: str, expected: str, value: Any) -> None:
+            if issues is not None:
+                issues.append(f"{key}: expected {expected}, got {type(value).__name__} — reset to default")
+
         valid_settings = {f.name for f in dc.fields(Settings)}
         kwargs: dict[str, Any] = {}
         for key, value in data.items():
             if key not in valid_settings:
                 continue
-            if key in _NESTED_FIELD_TYPES and isinstance(value, dict):
+            if key in _NESTED_FIELD_TYPES:
+                if value is None:
+                    continue  # unset — the field's own default already covers this
+                if not isinstance(value, dict):
+                    _issue(key, "object", value)
+                    continue
                 nested_cls = _NESTED_FIELD_TYPES[key]
                 valid_nested = {f.name for f in dc.fields(nested_cls)}
                 kwargs[key] = nested_cls(**{k: v for k, v in value.items() if k in valid_nested})
-            elif key == "retry" and isinstance(value, dict):
+            elif key == "retry":
+                if value is None:
+                    continue
+                if not isinstance(value, dict):
+                    _issue(key, "object", value)
+                    continue
                 provider = value.get("provider")
-                if isinstance(provider, dict):
+                if provider is not None and not isinstance(provider, dict):
+                    _issue("retry.provider", "object", provider)
+                    provider = None
+                elif isinstance(provider, dict):
                     valid_provider = {f.name for f in dc.fields(ProviderRetrySettings)}
                     provider = ProviderRetrySettings(
                         **{k: v for k, v in provider.items() if k in valid_provider}
@@ -184,77 +222,115 @@ class SettingsManager:
                     k: v for k, v in value.items() if k in valid_retry and k != "provider"
                 }
                 kwargs[key] = RetrySettings(**retry_kwargs, provider=provider)
-            elif key == "model" and isinstance(value, dict):
-                valid_modalities = {f.name for f in dc.fields(ModelSettings)}
-                valid_ref = {f.name for f in dc.fields(ModelRef)}
-                ms_kwargs = {
-                    modality: ModelRef(**{k: v for k, v in ref.items() if k in valid_ref})
-                    for modality, ref in value.items()
-                    if modality in valid_modalities and isinstance(ref, dict)
-                }
-                kwargs[key] = ModelSettings(**ms_kwargs)
-            elif key == "model" and isinstance(value, str):
-                # Legacy flat "model": "<id>" (+ sibling "provider"): fold into
-                # model.text so old config files load instead of crashing. The
-                # nested object is written back on the next save.
-                kwargs[key] = ModelSettings(text=ModelRef(id=value, provider=data.get("provider")))
-            elif key == "extensions" and not isinstance(value, dict):
-                pass  # ignore corrupt/non-dict extensions values
-            elif key == "extensions" and isinstance(value, dict):
+            elif key == "model":
+                if isinstance(value, dict):
+                    valid_modalities = {f.name for f in dc.fields(ModelSettings)}
+                    valid_ref = {f.name for f in dc.fields(ModelRef)}
+                    ms_kwargs: dict[str, Any] = {}
+                    for modality, ref in value.items():
+                        if modality not in valid_modalities:
+                            continue
+                        if ref is None:
+                            continue  # no model configured for this modality — expected, not an error
+                        if not isinstance(ref, dict):
+                            _issue(f"model.{modality}", "object", ref)
+                            continue
+                        ms_kwargs[modality] = ModelRef(**{k: v for k, v in ref.items() if k in valid_ref})
+                    kwargs[key] = ModelSettings(**ms_kwargs)
+                elif isinstance(value, str):
+                    # Legacy flat "model": "<id>" (+ sibling "provider"): fold into
+                    # model.text so old config files load instead of crashing. The
+                    # nested object is written back on the next save.
+                    kwargs[key] = ModelSettings(text=ModelRef(id=value, provider=data.get("provider")))
+                elif value is not None:
+                    _issue(key, "object or string", value)
+            elif key == "extensions":
+                if value is None:
+                    continue
+                if not isinstance(value, dict):
+                    _issue(key, "object", value)
+                    continue
                 entries = None
-                if isinstance(value.get("list"), list):
+                raw_list = value.get("list")
+                if isinstance(raw_list, list):
                     entries = [
                         e
                         for e in (
-                            SettingsManager._parse_extension_entry(item) for item in value["list"]
+                            SettingsManager._parse_extension_entry(item) for item in raw_list
                         )
                         if e is not None
                     ]
+                elif raw_list is not None:
+                    _issue("extensions.list", "array", raw_list)
                 kwargs[key] = ExtensionsSettings(
                     enabled=value.get("enabled"),
                     list=entries,
                 )
-            elif key == "packages" and isinstance(value, dict):
+            elif key == "packages":
+                if value is None:
+                    continue
+                if not isinstance(value, dict):
+                    _issue(key, "object", value)
+                    continue
                 pkg_entries = None
-                if isinstance(value.get("list"), list):
+                raw_list = value.get("list")
+                if isinstance(raw_list, list):
                     pkg_entries = [
                         e
                         for e in (
-                            SettingsManager._parse_package_entry(item) for item in value["list"]
+                            SettingsManager._parse_package_entry(item) for item in raw_list
                         )
                         if e is not None
                     ]
+                elif raw_list is not None:
+                    _issue("packages.list", "array", raw_list)
                 kwargs[key] = PackagesSettings(list=pkg_entries)
             elif key in _ENUM_FIELD_TYPES:
-                kwargs[key] = coerce_enum(_ENUM_FIELD_TYPES[key], value)
+                coerced = coerce_enum(_ENUM_FIELD_TYPES[key], value)
+                if coerced is None and value is not None:
+                    _issue(key, "a valid enum value", value)
+                kwargs[key] = coerced
             else:
                 kwargs[key] = value
         return Settings(**kwargs)
 
     @staticmethod
-    def _load_from_storage(storage: SettingsStorage, scope: SCOPE) -> Settings:
-        """Read and parse settings for the given scope from storage."""
+    def _load_from_storage(storage: SettingsStorage, scope: SCOPE, issues: list[str]) -> Settings:
+        """Read and parse settings for the given scope from storage.
+
+        ``issues`` collects human-readable descriptions of any individual
+        malformed field that was reset to its default rather than aborting
+        the whole load — see ``_settings_from_dict``.
+        """
 
         def load_fn(current):
             if not current:
                 return LockResult(result=Settings(), next=None)
-            return LockResult(
-                result=SettingsManager._settings_from_dict(json.loads(current)), next=None
-            )
+            parsed = json.loads(current)
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    f"settings file root must be an object, got {type(parsed).__name__}"
+                )
+            return LockResult(result=SettingsManager._settings_from_dict(parsed, issues), next=None)
 
         return storage.with_lock(scope, load_fn).result
 
     @staticmethod
     def _try_load_from_storage(
         storage: SettingsStorage, scope: SCOPE
-    ) -> tuple[Settings, Exception | None]:
+    ) -> tuple[Settings, Exception | None, list[str]]:
         """Load settings for the given scope,
         returning an empty Settings and the error on failure.
+
+        The third element lists individual fields that were malformed and
+        reset to default rather than failing the whole load (empty on total
+        failure, since nothing was recovered in that case).
         """
+        issues: list[str] = []
         try:
-            return (SettingsManager._load_from_storage(storage, scope), None)
+            return (SettingsManager._load_from_storage(storage, scope, issues), None, issues)
         except Exception as e:
-            return (Settings(), e)
+            return (Settings(), e, [])
 
     def _deep_merge_settings(
         self, global_settings: Settings, project_settings: Settings
@@ -341,7 +417,18 @@ class SettingsManager:
         """
 
         def persist_fn(current):
-            current_dict = json.loads(current) if current else {}
+            if current:
+                try:
+                    current_dict = json.loads(current)
+                    if not isinstance(current_dict, dict):
+                        current_dict = {}
+                except (json.JSONDecodeError, ValueError):
+                    # The on-disk file is corrupt — don't let that permanently
+                    # block every future save; write from this in-memory
+                    # snapshot instead of merging against garbage.
+                    current_dict = {}
+            else:
+                current_dict = {}
             snapshot_dict = asdict(snapshot_settings)
             merged = dict(current_dict)
             for field_name in modified_fields:
@@ -422,6 +509,62 @@ class SettingsManager:
         self.errors.clear()
         return drained
 
+    def heal_settings_scope(self, scope: SCOPE) -> Path | None:
+        """Back up a scope's on-disk settings file and rewrite it with only
+        the fields that were actually recovered from it.
+
+        Two cases, both driven by what's already in memory (no re-parsing):
+        a total parse failure (invalid JSON, or a non-object root) heals to
+        that scope's plain defaults, same as a missing file; a partial
+        failure (the file parsed but one or more fields were malformed —
+        see ``_settings_from_dict``'s ``issues``) heals to the already-loaded
+        ``Settings``, which kept every field that *did* parse and only
+        defaulted the broken one(s). Either way the original file is backed
+        up alongside itself first (e.g. ``settings.json.corrupt-1730000000``)
+        so nothing is destroyed — used by ``tau doctor --fix``.
+
+        Returns the backup file's path, or None if this scope had nothing to
+        heal (no load error and no recovered-field issues).
+        """
+        if scope == SCOPE.GLOBAL:
+            has_error = self.global_settings_load_error is not None
+            has_issues = bool(self.global_settings_recovered_issues)
+            recovered = self.global_settings
+        else:
+            has_error = self.project_settings_load_error is not None
+            has_issues = bool(self.project_settings_recovered_issues)
+            recovered = self.project_settings
+
+        if not has_error and not has_issues:
+            return None
+
+        backup_path: Path | None = None
+
+        def heal_fn(current: str | None) -> LockResult:
+            nonlocal backup_path
+            if current and isinstance(self.storage, FileSettingsStorage):
+                path = (
+                    self.storage.global_settings_path
+                    if scope == SCOPE.GLOBAL
+                    else self.storage.project_settings_path
+                )
+                backup_path = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+                backup_path.write_text(current, encoding="utf-8")
+            healed = json.dumps(asdict(recovered), indent=2, default=str)
+            return LockResult(result=None, next=healed)
+
+        self.storage.with_lock(scope, heal_fn)
+
+        if scope == SCOPE.GLOBAL:
+            self.global_settings_load_error = None
+            self.global_settings_recovered_issues = []
+        else:
+            self.project_settings_load_error = None
+            self.project_settings_recovered_issues = []
+        self.settings = self._deep_merge_settings(self.global_settings, self.project_settings)
+
+        return backup_path
+
     async def reload(self) -> None:
         """Flush pending writes, reload both scopes from storage, and recompute the merged view."""
         await self.flush()
@@ -432,6 +575,7 @@ class SettingsManager:
         else:
             self.global_settings_load_error = global_load[1]
             self._record_error(SCOPE.GLOBAL, global_load[1])
+        self.global_settings_recovered_issues = global_load[2]
 
         self.modified_fields.clear()
         self.modified_nested_fields.clear()
@@ -445,6 +589,7 @@ class SettingsManager:
         else:
             self.project_settings_load_error = project_load[1]
             self._record_error(SCOPE.PROJECT, project_load[1])
+        self.project_settings_recovered_issues = project_load[2]
 
         self.settings = self._deep_merge_settings(self.global_settings, self.project_settings)
 
@@ -1256,10 +1401,11 @@ class SettingsManager:
         self._project_trusted = trusted
         if trusted:
             # Re-load project settings now that trust is granted
-            project_settings, project_error = SettingsManager._try_load_from_storage(
+            project_settings, project_error, project_issues = SettingsManager._try_load_from_storage(
                 self.storage, SCOPE.PROJECT
             )
             self.project_settings = project_settings
+            self.project_settings_recovered_issues = project_issues
             if project_error:
                 err = SettingsError(scope=SCOPE.PROJECT, error=project_error)
                 if not any(e.scope == SCOPE.PROJECT for e in self.errors):
