@@ -127,6 +127,14 @@ api_providers = [
         api="openai_completions",
         options=LLMOptions(base_url="https://api.subconscious.dev/v1"),
     ),
+    APIProvider(
+        id="tinker",
+        name="Tinker",
+        api="openai_completions",
+        options=LLMOptions(
+            base_url="https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
+        ),
+    ),
     APIProvider(id="mistral", name="Mistral", api="mistral_chat", options=LLMOptions()),
     APIProvider(
         id="ollama",

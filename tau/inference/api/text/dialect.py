@@ -28,6 +28,7 @@ OPENROUTER = "openrouter"
 ANT_LING = "ant-ling"
 TOGETHER = "together"
 STRING_THINKING = "string-thinking"
+TINKER = "tinker"
 
 # Dialects whose assistant messages must carry the reasoning field back on
 # replay — omitting it doesn't always error (NVIDIA's qwen-chat-template
@@ -45,6 +46,18 @@ _REASONING_EFFORT: dict[ThinkingLevel, str] = {
     ThinkingLevel.High: "high",
     ThinkingLevel.XHigh: "high",
     ThinkingLevel.Max: "high",
+}
+
+# Tinker's reasoning_effort accepts the full OpenAI string set directly
+# (confirmed via tinker-docs.thinkingmachines.ai/tinker/compatible-apis/openai:
+# "none", "minimal", "low", "medium", "high", "xhigh" — no "max") rather than
+# collapsing to the generic 3-tier _REASONING_EFFORT mapping above.
+_TINKER_REASONING_EFFORT: dict[ThinkingLevel, str] = {
+    ThinkingLevel.Minimal: "minimal",
+    ThinkingLevel.Low: "low",
+    ThinkingLevel.Medium: "medium",
+    ThinkingLevel.High: "high",
+    ThinkingLevel.XHigh: "xhigh",
 }
 
 # Fields tried in order when pulling reasoning out of a streamed delta —
@@ -119,6 +132,18 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
 
     if tag == STRING_THINKING:
         return {"thinking": effort or "none"}
+
+    if tag == TINKER:
+        # Unlike OPENROUTER's mandatory-reasoning models, Tinker documents
+        # "none" as always a valid explicit value — send it rather than
+        # omitting the param, since reasoning_effort defaults to 0.9 (high)
+        # when omitted and Hybrid-category models would otherwise keep
+        # thinking on by default even when the user asked for Off.
+        if options.thinking_level == ThinkingLevel.Off:
+            return {"reasoning_effort": "none"}
+        if options.thinking_level is None:
+            return {}
+        return {"reasoning_effort": _TINKER_REASONING_EFFORT.get(options.thinking_level, "high")}
 
     if effort:
         return {"reasoning_effort": effort}
