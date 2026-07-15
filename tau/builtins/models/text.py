@@ -585,6 +585,16 @@ models = [
         provider="google-vertex",
         cost=Cost(input=2.0, output=12.0, cache_read=0.2),
         thinking=True,
+        # Vertex AI serves the same underlying model with the same thinkingConfig
+        # as the direct Gemini API (cross-confirmed: "minimal" is exclusive to
+        # Gemini 3 Flash and not available on either Pro model" —
+        # help.apiyi.com/blog.laozhang.ai Gemini 3.1 Pro thinking-level guides).
+        # No Off — thinking cannot be fully disabled on Gemini 3 models.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -595,6 +605,14 @@ models = [
         provider="google-vertex",
         cost=Cost(input=1.5, output=9.0, cache_read=0.15),
         thinking=True,
+        # Same spec as the direct API's gemini-3.5-flash: full minimal/low/
+        # medium/high range, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -605,6 +623,15 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.5, output=3.0, cache_read=0.05),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "Gemini 3 Flash supports all four: minimal, low, medium, and high
+        # (default)" — same model on Vertex, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -614,6 +641,15 @@ models = [
         name="Gemini 3.1 Flash Lite",
         provider="google-vertex",
         cost=Cost(input=0.25, output=1.5, cache_read=0.025),
+        thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "minimal (default), low, medium, high" — same model on Vertex, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -624,6 +660,18 @@ models = [
         provider="google-vertex",
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
+        # Confirmed via multiple sources (Google AI Developers Forum, GitHub
+        # issues) that Vertex AI's gemini-2.5-pro has the identical 128-32768
+        # thinkingBudget range as the direct API and cannot disable thinking.
+        # Full budget-tier range fits within [128, 32768]; no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -634,6 +682,16 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
+        # Same thinkingBudget spec as the direct API: 0-24576, 0 disables
+        # thinking. Max's 32768-token budget exceeds the cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -643,6 +701,17 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google-vertex",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
+        thinking=True,
+        # Same thinkingBudget spec as the direct API: 512-24576, 0 disables
+        # thinking. Max's 32768-token budget exceeds the cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
