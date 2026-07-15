@@ -1670,13 +1670,18 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # Groq (caps max_completion_tokens at 8192)
+    # Groq (caps max_completion_tokens at 8192). console.groq.com/docs/reasoning
+    # documents reasoning_effort support per model explicitly, rather than
+    # uniformly across the catalog.
     Model(
         id="openai/gpt-oss-120b",
         name="GPT-OSS 120B",
         provider="groq",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # "reasoning_effort...is only supported by GPT-OSS 20B and GPT-OSS
+        # 120B"; accepts "low", "medium", or "high" — no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -1688,6 +1693,7 @@ models = [
         provider="groq",
         cost=Cost(input=0.075, output=0.30),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -1699,6 +1705,10 @@ models = [
         provider="groq",
         cost=Cost(input=0.29, output=0.59),
         thinking=True,
+        # Confirmed unconfirmed/uncontrollable: Groq's docs explicitly say
+        # reasoning_effort is "only supported by Qwen 3.6 27B", not this
+        # model — reasoning is always-on with no way to disable or grade it
+        # (only `reasoning_format` display formatting is configurable).
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -2079,7 +2089,11 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # DeepSeek
+    # DeepSeek (api-docs.deepseek.com/guides/thinking_mode). deepseek-chat and
+    # deepseek-reasoner are the older aliases, scheduled for deprecation
+    # 2026-07-24 — DeepSeek's own docs say they now just map to
+    # deepseek-v4-flash's non-thinking and thinking modes respectively (not
+    # yet removed, so kept, but not independently spec'd models anymore).
     Model(
         id="deepseek-v4-pro",
         name="DeepSeek V4 Pro",
@@ -2087,6 +2101,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # "Three explicit reasoning modes: Non-think, Think High, and Think
+        # Max" — reasoning_effort accepts only "high" (default) or "max";
+        # low/medium collapse to high, xhigh collapses to max.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -2098,6 +2116,8 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # Same three-mode (Non-think/High/Max) spec as deepseek-v4-pro.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -2118,11 +2138,20 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # Aliased to deepseek-v4-flash's thinking mode specifically — always
+        # thinking (that's what distinguishes it from deepseek-chat, which is
+        # the non-thinking alias), but still forwards reasoning_effort
+        # high/max to the same v4-flash backend.
+        thinking_levels=[ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
     ),
-    # Z.ai (https://docs.z.ai — pricing per docs.z.ai/guides/overview/pricing)
+    # Z.ai (https://docs.z.ai — pricing per docs.z.ai/guides/overview/pricing).
+    # Every model's docs page (docs.z.ai/guides/llm/<id>) confirms the same
+    # binary thinking.type "enabled"/"disabled" toggle with no reasoning_effort
+    # param at all, EXCEPT glm-5.2, whose page (and Z.ai's own launch post)
+    # documents a genuine second reasoning_effort tier ("high" vs "max").
     Model(
         id="glm-4.6",
         name="GLM-4.6",
@@ -2130,6 +2159,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2142,6 +2172,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2154,6 +2185,7 @@ models = [
         cost=Cost(input=1.0, output=3.2, cache_read=0.2),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2166,6 +2198,7 @@ models = [
         cost=Cost(input=1.4, output=4.4, cache_read=0.26),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2178,6 +2211,11 @@ models = [
         cost=Cost(input=1.4, output=4.4, cache_read=0.26),
         thinking=True,
         thinking_format="zai",
+        # docs.z.ai/guides/llm/glm-5.2 + Z.ai's launch post: "Two levels of
+        # reasoning effort: GLM-5.2 (max) pushes the limits, while GLM-5.2
+        # (high) strikes a strong [balance]" — reasoning_effort accepts only
+        # "high"/"max" (max is default), on top of the usual thinking on/off.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2190,6 +2228,7 @@ models = [
         cost=Cost(input=1.2, output=4.0, cache_read=0.24),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2202,6 +2241,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2214,6 +2254,7 @@ models = [
         cost=Cost(input=0.07, output=0.4, cache_read=0.01),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -2226,6 +2267,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -2238,6 +2280,7 @@ models = [
         cost=Cost(input=2.2, output=8.9, cache_read=0.45),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -2250,6 +2293,7 @@ models = [
         cost=Cost(input=0.2, output=1.1, cache_read=0.03),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -2262,6 +2306,7 @@ models = [
         cost=Cost(input=1.1, output=4.5, cache_read=0.22),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -2274,6 +2319,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -2289,7 +2335,9 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # Z.ai vision models
+    # Z.ai vision models. Same binary thinking.type enabled/disabled toggle,
+    # no reasoning_effort — confirmed on docs.z.ai/guides/vlm/glm-5v-turbo and
+    # glm-4.6v (glm-4.6v-flash/-flashx/glm-4.5v share the same VLM lineage).
     Model(
         id="glm-5v-turbo",
         name="GLM-5V-Turbo",
@@ -2297,6 +2345,7 @@ models = [
         cost=Cost(input=1.2, output=4.0, cache_read=0.24),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202_752,
         max_output_tokens=128_000,
         input=_TEXT_IMAGE,
@@ -2309,6 +2358,7 @@ models = [
         cost=Cost(input=0.3, output=0.9, cache_read=0.05),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -2321,6 +2371,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -2333,6 +2384,7 @@ models = [
         cost=Cost(input=0.04, output=0.4, cache_read=0.004),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -2345,6 +2397,7 @@ models = [
         cost=Cost(input=0.6, output=1.8, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=64_000,
         max_output_tokens=16_000,
         input=_TEXT_IMAGE,
