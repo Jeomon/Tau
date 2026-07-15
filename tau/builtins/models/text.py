@@ -353,13 +353,29 @@ models = [
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
-    # Google Antigravity (OAuth — free IDE quota)
+    # Google Antigravity (OAuth — free IDE quota). This is a reverse-engineered
+    # internal gateway (cloudcode-pa.googleapis.com), not a documented public
+    # API — no official per-model docs exist. Per the community-verified
+    # ANTIGRAVITY_API_SPEC (NoeFabris/opencode-antigravity-auth), the wire
+    # protocol always sends a raw integer thinkingBudget (never a named
+    # level), and Google exposes separate model ids per fixed reasoning tier
+    # (e.g. gemini-3-pro-high vs gemini-3-pro-low) rather than one adjustable
+    # model — so ids with a baked-in tier suffix are treated as fixed to that
+    # single level, while unsuffixed ids reuse the adjustable range already
+    # verified for the equivalent model on provider="google-vertex" (same
+    # underlying Gemini models, routed through Vertex per the spec).
     Model(
         id="gemini-3-flash",
         name="Gemini 3 Flash",
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -371,6 +387,9 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        # "-high" is a baked-in fixed-tier id (mirrors the spec's confirmed
+        # gemini-3-pro-high/-low split) — not adjustable per-request.
+        thinking_levels=[ThinkingLevel.High],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -382,6 +401,9 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        # "(High)" in the display name mirrors the fixed-tier id pattern
+        # confirmed for gemini-3.1-pro-high above — treated as fixed.
+        thinking_levels=[ThinkingLevel.High],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -392,6 +414,13 @@ models = [
         name="Gemini 3.1 Flash Lite",
         provider="google-antigravity",
         cost=Cost(),
+        thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -403,6 +432,14 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -414,6 +451,14 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -424,6 +469,15 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google-antigravity",
         cost=Cost(),
+        thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -435,6 +489,18 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        # "(Thinking)" suffix marks this as a thinking-locked variant (like
+        # anthropic-claude-code's equivalent) — always on, no Off. Budget
+        # still passed as a raw integer per the spec, not Anthropic's native
+        # effort/budget_tokens field, since this routes through Google's gateway.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=250_000,
         max_output_tokens=64_000,
         input=_TEXT_IMAGE_FILE,
@@ -446,6 +512,14 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=250_000,
         max_output_tokens=64_000,
         input=_TEXT_IMAGE_FILE,
