@@ -2,6 +2,27 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.8.1 — 2026-07-16
+
+### Added
+
+-   Add per-model `thinking_levels` for every reasoning-capable model across all providers (OpenAI, Anthropic, Google, NVIDIA, Mistral, xAI, Z.ai, DeepSeek, Groq, Cerebras, Fireworks, Perplexity, Hugging Face, Bedrock, GitHub Copilot, Kilocode, MiniMax, Subconscious, OpenRouter), replacing the old singular `thinking_level` field and letting the reasoning-effort picker only offer levels a given model actually supports
+-   Add the Tinker provider (Thinking Machines' OpenAI-compatible endpoint), including their new Inkling model, with a dedicated reasoning-effort dialect and audio input support
+-   Add a `--effort` CLI flag to temporarily override the thinking level for a single run without touching persisted settings
+-   Add `Model.clamp_thinking_level()` and wire it through the effort picker, `/model` switching, and session startup, so a previously-selected level is validated against whichever model is active instead of silently sending an unsupported value
+
+### Changed
+
+-   Replace hardcoded `model.id` string matching in the Anthropic and Gemini/Antigravity backends with explicit per-model capability fields (`thinking_adaptive`, `thinking_suppresses_sampling`, `thinking_uses_level`, `antigravity_is_claude`)
+-   Reimplement reasoning-signature replay for the OpenAI Responses API backend (shared by OpenAI, Perplexity, xAI, Bedrock, and Grok CLI), live-verified end-to-end including chained multi-tool-call turns
+
+### Fixed
+
+-   Fix reasoning being silently left enabled when explicitly turned off (Mistral, Ollama, and OpenRouter backends)
+-   Fix Gemini 3 models on Vertex AI always receiving a raw token budget instead of the coarse thinking-level control they're designed around
+-   Fix `claude-fable-5` and `claude-sonnet-5` requests sending a `temperature` parameter that Anthropic's API rejects for those models
+-   Fix a "compaction blob" error from the Grok CLI proxy caused by re-serializing the reasoning signature with unset optional fields materialized as explicit nulls
+
 ## 0.8.0 — 2026-07-14
 
 ### Added
