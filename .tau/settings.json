@@ -3,9 +3,34 @@
     "list": [
       {
         "path": ".tau/extensions/lsp",
+        "name": null,
+        "enabled": true,
+        "source": null,
+        "author": null,
         "settings": {
           "lsp": true,
           "eager": []
+        }
+      },
+      {
+        "path": ".tau/extensions/sandbox",
+        "name": null,
+        "enabled": true,
+        "source": null,
+        "author": null,
+        "settings": {
+          "enabled": false
+        }
+      },
+      {
+        "path": ".tau/extensions/computer_use",
+        "name": null,
+        "enabled": true,
+        "source": null,
+        "author": null,
+        "settings": {
+          "enabled": true,
+          "mode": "accessibility_tree"
         }
       }
     ]

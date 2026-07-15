@@ -304,39 +304,40 @@ def _resolve_entry_path(entry, cwd: Path) -> Path:
 
 
 def _check_dangling_entries(sm, cwd: Path, fix: bool) -> list[CheckResult]:
-    """Check configured extension entries in both scopes; remove dangling ones if fix=True."""
+    """Check configured extension entries in both scopes; remove dangling ones if fix=True.
+
+    The removal itself (shared with automatic startup/reload housekeeping) lives in
+    SettingsManager.prune_dangling_extensions — this just reports what it did, or
+    what it *would* do when running without --fix.
+    """
     results: list[CheckResult] = []
-    scopes = (
-        ("global", sm.get_global_settings, sm.set_extension_list),
-        ("project", sm.get_project_settings, sm.set_project_extension_list),
-    )
-    for scope_name, get_settings, set_entries in scopes:
-        ext = get_settings().extensions
-        entries = list(ext.list) if ext and ext.list else []
-        kept = []
-        removed_any = False
-        for entry in entries:
-            if not entry.enabled or _resolve_entry_path(entry, cwd).exists():
-                kept.append(entry)
-                continue
+
+    if fix:
+        for scope_name, entry in sm.prune_dangling_extensions(cwd):
             label = entry.name or entry.path
             path = _resolve_entry_path(entry, cwd)
-            if fix:
-                removed_any = True
-                results.append(
-                    CheckResult(
-                        label,
-                        "pass",
-                        f"fixed: removed dangling {scope_name} extension entry "
-                        f"(path not found: {path})",
-                        fixed=True,
-                    )
+            results.append(
+                CheckResult(
+                    label,
+                    "pass",
+                    f"fixed: removed dangling {scope_name} extension entry "
+                    f"(path not found: {path})",
+                    fixed=True,
                 )
-            else:
-                kept.append(entry)
-                results.append(CheckResult(label, "fail", f"path not found: {path}"))
-        if removed_any:
-            set_entries(kept)
+            )
+        return results
+
+    for get_settings in (sm.get_global_settings, sm.get_project_settings):
+        ext = get_settings().extensions
+        entries = list(ext.list) if ext and ext.list else []
+        for entry in entries:
+            if not entry.enabled or _resolve_entry_path(entry, cwd).exists():
+                continue
+            results.append(
+                CheckResult(
+                    entry.name or entry.path, "fail", f"path not found: {_resolve_entry_path(entry, cwd)}"
+                )
+            )
     return results
 
 

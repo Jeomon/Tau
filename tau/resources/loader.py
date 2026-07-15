@@ -89,6 +89,15 @@ class DefaultResourceLoader:
         extension_configs: dict[str, dict] = {}
         diagnostics: list[ResourceDiagnostic] = []
 
+        # Drop settings.json records for extensions that no longer exist at their
+        # configured path (moved or deleted) before discovery reads them, so a
+        # stale record doesn't keep resurfacing as a phantom entry on every
+        # startup/reload. Skipped mid-batch (/settings open): the in-memory
+        # settings aren't the persisted truth yet, so pruning now could discard
+        # edits before save_batch() writes them.
+        if not settings.is_batching():
+            settings.prune_dangling_extensions(cwd)
+
         for entry in settings.get_all_extension_entries():
             path = Path(entry.path).expanduser().resolve()
             stem = path.stem

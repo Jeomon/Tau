@@ -941,6 +941,45 @@ class SettingsManager:
         """Return extension paths from the merged entry list (convenience flat view)."""
         return [entry.path for entry in self.get_extension_list()]
 
+    @staticmethod
+    def _resolve_extension_entry_path(entry_path: str, cwd: Path) -> Path:
+        p = Path(entry_path).expanduser()
+        return p if p.is_absolute() else (cwd / p).resolve()
+
+    def prune_dangling_extensions(self, cwd: Path) -> list[tuple[str, ExtensionEntry]]:
+        """Remove enabled extension entries (both scopes) whose path no longer exists.
+
+        Called during extension load/reload housekeeping (startup and every
+        ``/extensions`` reload) and by ``tau doctor --fix``, so a moved or
+        deleted extension's settings.json record doesn't linger and get
+        mislabeled once its old path stops matching anything real. Disabled
+        entries are left untouched — a deliberate disable shouldn't be undone
+        by silently deleting its record.
+
+        Returns the ``(scope, entry)`` pairs that were removed.
+        """
+        removed: list[tuple[str, ExtensionEntry]] = []
+        scopes = (
+            ("global", self.global_settings, self.set_extension_list),
+            ("project", self.project_settings, self.set_project_extension_list),
+        )
+        for scope_name, settings_obj, set_entries in scopes:
+            ext = settings_obj.extensions
+            entries = list(ext.list) if ext and ext.list else []
+            kept = []
+            changed = False
+            for entry in entries:
+                if not entry.enabled or self._resolve_extension_entry_path(
+                    entry.path, cwd
+                ).exists():
+                    kept.append(entry)
+                    continue
+                changed = True
+                removed.append((scope_name, entry))
+            if changed:
+                set_entries(kept)
+        return removed
+
     def set_extension_paths(self, paths: list[str]) -> None:
         """Set extension paths as plain entries, preserving the list shape."""
         self.set_extension_list([ExtensionEntry(path=p) for p in paths])

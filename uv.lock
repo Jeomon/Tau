@@ -1316,7 +1316,7 @@ wheels = [
 
 [[package]]
 name = "tau-coding-agent"
-version = "0.7.9"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

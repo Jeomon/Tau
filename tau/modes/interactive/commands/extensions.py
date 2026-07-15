@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -74,11 +75,20 @@ def open_config_panel(ctx: CommandContext) -> None:
         configured through /settings instead, so exclude them from display
         without touching the underlying list (on_toggle still writes the full,
         unfiltered list back — see below).
+
+        Compared case-insensitively: on case-insensitive filesystems (macOS,
+        Windows) a path can be persisted with different casing than
+        ``get_builtins_dir()`` returns (e.g. captured via a differently-cased
+        symlink or working directory) while still referring to the same
+        directory. A case-sensitive comparison would then wrongly treat a
+        genuine builtins entry as a regular extension.
         """
         from tau.settings.paths import get_builtins_dir
 
         try:
-            return Path(path).expanduser().resolve().is_relative_to(get_builtins_dir().resolve())
+            p = str(Path(path).expanduser().resolve()).casefold()
+            b = str(get_builtins_dir().resolve()).casefold()
+            return p == b or p.startswith(b + os.sep)
         except Exception:
             return False
 
