@@ -606,10 +606,93 @@ def _check_logs() -> Section:
 _MIN_PYTHON = (3, 12)  # matches pyproject.toml's requires-python
 
 
+def _check_version_consistency() -> CheckResult | None:
+    """Compare pyproject.toml's version against the installed package metadata.
+
+    A git reset/merge can revert one without the other, leaving `tau
+    --version` reporting a stale version while pyproject.toml has moved on
+    (or vice versa). Silent no-op when there's no pyproject.toml next to the
+    installed package — i.e. a real (non-editable) wheel/tool install, where
+    there's nothing to cross-check.
+    """
+    import re
+
+    from tau.settings.paths import get_app_version
+
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    if not pyproject_path.is_file():
+        return None
+    try:
+        match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject_path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    if not match:
+        return None
+    pyproject_version = match.group(1)
+    installed_version = get_app_version()
+
+    if pyproject_version == installed_version:
+        return CheckResult("Version consistency", "pass", f"({installed_version})")
+    return CheckResult(
+        "Version consistency",
+        "warn",
+        f"pyproject.toml ({pyproject_version}) != installed package metadata ({installed_version}) "
+        "— reinstall (e.g. 'pip install -e .' or 'uv tool install --reinstall .') to re-sync",
+    )
+
+
+def _check_command_installation() -> CheckResult:
+    """Report every `tau` executable found on PATH and which one actually runs.
+
+    Duplicate/shadowed installs (e.g. one from `uv tool install`, another
+    from a stray `pip install` into a different interpreter) are a real
+    source of confusion: a fix applied to one install silently doesn't touch
+    the other, and whichever comes first on PATH wins with no indication
+    another copy exists.
+    """
+    import os
+    import sys
+
+    exe_name = "tau.exe" if sys.platform == "win32" else "tau"
+    found: list[Path] = []
+    seen_real: set[Path] = set()
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d:
+            continue
+        candidate = Path(d) / exe_name
+        if not (candidate.is_file() and os.access(candidate, os.X_OK)):
+            continue
+        real = candidate.resolve()
+        if real in seen_real:
+            continue
+        seen_real.add(real)
+        found.append(candidate)
+
+    if not found:
+        return CheckResult("Command installation", "warn", f"no '{exe_name}' executable found on PATH")
+
+    if len(found) == 1:
+        return CheckResult("Command installation", "pass", str(found[0]))
+
+    described = [
+        f"{p} -> {p.resolve()}" + (" (active)" if i == 0 else "") for i, p in enumerate(found)
+    ]
+    return CheckResult(
+        "Command installation",
+        "warn",
+        f"{len(found)} '{exe_name}' executables on PATH, only the first (active) one runs "
+        f"when you type '{exe_name}': " + "; ".join(described),
+    )
+
+
 def _check_environment(cwd: Path) -> Section:
     import sys
 
     results: list[CheckResult] = []
+
+    if version_result := _check_version_consistency():
+        results.append(version_result)
+    results.append(_check_command_installation())
 
     py_version = sys.version_info[:2]
     if py_version < _MIN_PYTHON:
