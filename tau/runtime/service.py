@@ -376,7 +376,10 @@ class Runtime:
         if new_llm.model.thinking:
             sm = self._context.settings_manager
             saved_level = sm.get_thinking_level() if sm is not None else None
-            new_llm.api.options.thinking_level = saved_level or new_llm.model.default_thinking_level
+            # Clamp against the new model's supported levels — a level valid on
+            # the previous model (e.g. Max) may not be valid here.
+            clamped = new_llm.model.clamp_thinking_level(saved_level)
+            new_llm.api.options.thinking_level = clamped or new_llm.model.default_thinking_level
         # An explicit model switch means history may contain provider-specific
         # opaque state (e.g. Gemini's thoughtSignature) minted under a different
         # backend. Replaying it as-is to whichever provider ends up active next

@@ -106,6 +106,25 @@ class Model:
             return ThinkingLevel.Medium
         return self.thinking_levels[len(self.thinking_levels) // 2]
 
+    def clamp_thinking_level(self, level: ThinkingLevel | None) -> ThinkingLevel | None:
+        """Validate a (persisted or carried-over) level against this model's
+        `thinking_levels`, e.g. after a `/model` switch or a settings reload.
+
+        Returns `level` unchanged if it's None (no selection) or if
+        `thinking_levels` is empty (unconfirmed/unconstrained — pickers fall
+        back to the full enum, so any level is provisionally valid). If
+        `level` isn't one of this model's supported levels, returns the
+        nearest supported one by enum ordering rather than silently sending
+        an unsupported value to the backend.
+        """
+        if level is None or not self.thinking_levels:
+            return level
+        if level in self.thinking_levels:
+            return level
+        order = list(ThinkingLevel)
+        target_idx = order.index(level)
+        return min(self.thinking_levels, key=lambda lv: abs(order.index(lv) - target_idx))
+
     @property
     def is_stt(self) -> bool:
         """True for a speech-to-text model (audio in → text out). UI label: Voice."""

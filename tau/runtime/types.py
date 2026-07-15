@@ -261,9 +261,10 @@ class RuntimeContext:
         else:
             llm.api.options.max_retries = 0
         if llm.model.thinking:
-            llm.api.options.thinking_level = (
-                settings_manager.get_thinking_level() or llm.model.default_thinking_level
-            )
+            # Clamp the persisted level against this model's supported levels —
+            # it may have been saved while a different model was active.
+            clamped = llm.model.clamp_thinking_level(settings_manager.get_thinking_level())
+            llm.api.options.thinking_level = clamped or llm.model.default_thinking_level
         timing.mark("llm")
 
         # ── Session manager ───────────────────────────────────────────────────

@@ -24,6 +24,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "high": "Deep reasoning (~16k tokens)",
     "xhigh": "Maximum reasoning (~32k tokens)",
     "max": "Uncapped reasoning",
+    "ultra": "Beyond max reasoning",
 }
 
 
