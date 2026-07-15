@@ -1,0 +1,33 @@
+{
+  "tau": {
+    "name": "Computer Use",
+    "author": "jeomon",
+    "dependencies": [
+      "pyobjc-core; sys_platform == 'darwin'",
+      "pyobjc-framework-Cocoa; sys_platform == 'darwin'",
+      "pyobjc-framework-Quartz; sys_platform == 'darwin'",
+      "pyobjc-framework-ApplicationServices; sys_platform == 'darwin'",
+      "comtypes; sys_platform == 'win32'"
+    ],
+    "settings": {
+      "title": "Computer Use",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": false,
+          "description": "Register the computer tool, letting the agent control the real mouse, keyboard, and application windows on this machine."
+        },
+        {
+          "key": "mode",
+          "label": "Observation Mode",
+          "type": "enum",
+          "values": ["screenshot", "accessibility_tree", "both"],
+          "default": "accessibility_tree",
+          "description": "What desktop state is injected into context each turn: a screenshot image, the accessibility tree of interactive elements, or both."
+        }
+      ]
+    }
+  }
+}
