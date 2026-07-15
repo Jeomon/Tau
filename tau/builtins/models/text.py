@@ -35,6 +35,17 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same underlying model + reasoning_effort wire field as the raw API
+        # (developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6):
+        # "none, low, medium, high, and max"; defaults to medium.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -46,6 +57,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -57,6 +77,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -68,6 +97,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.5:
+        # "none, low, medium (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -79,6 +117,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -90,6 +137,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4-mini:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -101,6 +157,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.3-codex:
+        # "GPT-5.3-Codex supports low, medium, high, and xhigh reasoning effort
+        # settings" — no none/minimal/max documented.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -112,6 +177,11 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Actively researched (OpenAI's own model page 404s for this id; no
+        # reasoning-effort param appears in any third-party Spark example,
+        # unlike the standard gpt-5.3-codex examples that show reasoning="xhigh").
+        # No documented reasoning_effort support found — left unconfirmed
+        # rather than guessing. thinking_levels intentionally empty.
         context_window=128_000,
         max_input_tokens=100_000,
         input=_TEXT_IMAGE_FILE,
@@ -123,6 +193,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.2:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -799,6 +878,17 @@ models = [
         provider="anthropic",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0, cache_write=12.5),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive thinking always on, thinking:{type:"disabled"} not supported (no Off).
+        # xhigh explicitly listed as available on Fable 5; max available on all
+        # adaptive-supporting models.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -809,6 +899,17 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive-only mode, off unless thinking:{type:"adaptive"} is set explicitly
+        # (so Off/disabled is reachable), xhigh explicitly listed as available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -819,6 +920,15 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        # Same adaptive-thinking spec as claude-opus-4-8: adaptive-only, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -830,6 +940,17 @@ models = [
         # Introductory pricing through 2026-08-31; standard rate is $3/$15 after.
         cost=Cost(input=2.0, output=10.0, cache_read=0.20, cache_write=2.5),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive on by default, thinking:{type:"disabled"} explicitly supported,
+        # xhigh explicitly listed as available on Sonnet 5.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -840,6 +961,17 @@ models = [
         provider="anthropic",
         cost=Cost(input=3.0, output=15.0, cache_read=0.30, cache_write=3.75),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive off by default (must set explicitly), can disable; xhigh NOT
+        # listed as available for Sonnet 4.6 (only Fable 5/Opus 4.8/Opus 4.7/
+        # Sonnet 5 have xhigh) — max is available on all adaptive-supporting models.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -849,6 +981,22 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10, cache_write=1.25),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list, so manual budget_tokens
+        # only (no adaptive/effort mode) — the full budget-tier range applies since
+        # budget_tokens is a raw token count with no documented per-model value cap
+        # for Haiku 4.5 beyond the standard "< max_tokens" rule.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
