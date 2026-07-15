@@ -42,6 +42,36 @@ class Model:
     # starting level rather than assuming index 0.
     thinking_levels: list[ThinkingLevel] = field(default_factory=list)
     thinking_format: str | None = None
+    # True for Anthropic models that use the newer thinking:{type:"adaptive"} +
+    # output_config.effort mechanism instead of the older
+    # thinking:{type:"enabled", budget_tokens:N} shape. Only meaningful for
+    # models hitting an Anthropic-Messages-compatible backend (anthropic_messages.py,
+    # anthropic_vertex.py, anthropic_claude_code.py) — ignored elsewhere.
+    thinking_adaptive: bool = False
+    # True for the subset of adaptive-thinking Anthropic models that reject
+    # non-default temperature/top_p/top_k with a 400 error on every request,
+    # regardless of whether thinking is active (Fable 5, Opus 4.8, Opus 4.7,
+    # Sonnet 5 — NOT Sonnet 4.6 or Opus 4.6, which are adaptive but still
+    # accept temperature). Only meaningful for the same 3 Anthropic-Messages-
+    # compatible backends as thinking_adaptive.
+    thinking_suppresses_sampling: bool = False
+    # True for Gemini 3.x models that use the coarse thinking_config.thinking_level
+    # enum (MINIMAL/LOW/MEDIUM/HIGH — xhigh and max both collapse to HIGH, there is
+    # no distinct tier above it) instead of the older thinking_config.thinking_budget
+    # raw token count. Only meaningful for models hitting gemini_generate.py or
+    # google_vertex.py — ignored elsewhere (e.g. google-antigravity always uses a
+    # raw budget regardless of generation, so this stays False there).
+    thinking_uses_level: bool = False
+    # True for models on provider="google-antigravity" that are actually
+    # Anthropic Claude models proxied through Google's Cloud Code Assist
+    # gateway rather than native Gemini models. Google's gateway forces a
+    # uniform Gemini-style request envelope on every model regardless of the
+    # underlying vendor, so this tells google_antigravity.py where the Claude
+    # backend's stricter rules apply: explicit ids on functionCall/
+    # functionResponse parts, strict JSON Schema (every object needs an
+    # explicit "type"), snake_case thinkingConfig, and the interleaved-
+    # thinking beta header. Only meaningful for that one backend.
+    antigravity_is_claude: bool = False
     context_window: int = 0
     max_input_tokens: int | None = None
     max_output_tokens: int = 16384

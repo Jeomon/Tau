@@ -58,8 +58,6 @@ _STOP_REASON: dict[str, StopReason] = {
     "error": StopReason.Error,
 }
 
-_MINIMAL_LEVELS = {ThinkingLevel.Low, ThinkingLevel.Minimal}
-
 
 def _messages_to_mistral(
     messages: list[LLMMessage], supports_thinking: bool = True
@@ -177,9 +175,13 @@ class MistralChatAPI(BaseAPI):
                 {"role": "system", "content": context.system_prompt}
             ] + mistral_messages
 
+        # Mistral's reasoning_effort is binary (only "none"/"high" are valid) —
+        # every level other than Off maps to "high".
         reasoning_effort = None
         if self.options.thinking_level is not None:
-            reasoning_effort = "none" if self.options.thinking_level in _MINIMAL_LEVELS else "high"
+            reasoning_effort = (
+                "none" if self.options.thinking_level == ThinkingLevel.Off else "high"
+            )
 
         text_started = False
         text_buf = ""

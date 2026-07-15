@@ -264,6 +264,16 @@ def _response_schema(response_format: Any | None) -> dict[str, Any] | None:
     return structured.schema if structured is not None else None
 
 
+_GEMINI3_THINKING_LEVEL: dict[ThinkingLevel, genai_types.ThinkingLevel] = {
+    ThinkingLevel.Minimal: genai_types.ThinkingLevel.MINIMAL,
+    ThinkingLevel.Low: genai_types.ThinkingLevel.LOW,
+    ThinkingLevel.Medium: genai_types.ThinkingLevel.MEDIUM,
+    ThinkingLevel.High: genai_types.ThinkingLevel.HIGH,
+    ThinkingLevel.XHigh: genai_types.ThinkingLevel.HIGH,
+    ThinkingLevel.Max: genai_types.ThinkingLevel.HIGH,
+}
+
+
 class GoogleVertexAPI(BaseAPI):
     def __init__(self, options: LLMOptions) -> None:
         super().__init__(options)
@@ -271,6 +281,7 @@ class GoogleVertexAPI(BaseAPI):
 
     def _build_config(
         self,
+        uses_thinking_level: bool = False,
         tools: list[Tool] | None = None,
         response_format: Any | None = None,
     ) -> genai_types.GenerateContentConfig:
@@ -289,12 +300,25 @@ class GoogleVertexAPI(BaseAPI):
             self.options.thinking_level is not None
             and self.options.thinking_level != ThinkingLevel.Off
         ):
-            budgets = self.options.thinking_budgets or ThinkingBudgets()
-            budget = budgets.get(self.options.thinking_level)
-            params["thinking_config"] = genai_types.ThinkingConfig(
-                thinking_budget=budget,
-                include_thoughts=True,
-            )
+            if uses_thinking_level:
+                # Gemini 3 models are designed around a coarse thinking_level
+                # (MINIMAL/LOW/MEDIUM/HIGH), not an explicit token budget — sending
+                # thinking_budget instead produces much shorter test-time
+                # computation than the requested level actually calls for.
+                params["thinking_config"] = genai_types.ThinkingConfig(
+                    thinking_level=_GEMINI3_THINKING_LEVEL.get(
+                        self.options.thinking_level, genai_types.ThinkingLevel.HIGH
+                    ),
+                    include_thoughts=True,
+                )
+            else:
+                budgets = self.options.thinking_budgets or ThinkingBudgets()
+                budget = budgets.get(self.options.thinking_level)
+                if budget is not None:
+                    params["thinking_config"] = genai_types.ThinkingConfig(
+                        thinking_budget=budget,
+                        include_thoughts=True,
+                    )
 
         if tools:
             params["tools"] = [
@@ -320,6 +344,7 @@ class GoogleVertexAPI(BaseAPI):
             context.messages, distrust_thought_signatures=distrust_sigs
         )
         config = self._build_config(
+            uses_thinking_level=model.thinking_uses_level,
             tools=context.tools or None,
             response_format=context.response_format,
         )

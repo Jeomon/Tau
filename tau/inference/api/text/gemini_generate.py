@@ -215,10 +215,6 @@ def _response_schema(response_format: Any | None) -> dict[str, Any] | None:
     return structured.schema if structured is not None else None
 
 
-def _is_gemini3(model_id: str) -> bool:
-    return model_id.startswith("gemini-3")
-
-
 _GEMINI3_THINKING_LEVEL: dict[ThinkingLevel, genai_types.ThinkingLevel] = {
     ThinkingLevel.Minimal: genai_types.ThinkingLevel.MINIMAL,
     ThinkingLevel.Low: genai_types.ThinkingLevel.LOW,
@@ -239,7 +235,7 @@ class GeminiGenerateAPI(BaseAPI):
 
     def _build_config(
         self,
-        model_id: str = "",
+        uses_thinking_level: bool = False,
         tools: list[Tool] | None = None,
         response_format: Any | None = None,
     ) -> genai_types.GenerateContentConfig:
@@ -257,7 +253,7 @@ class GeminiGenerateAPI(BaseAPI):
             self.options.thinking_level is not None
             and self.options.thinking_level != ThinkingLevel.Off
         ):
-            if _is_gemini3(model_id):
+            if uses_thinking_level:
                 # Gemini 3 models are designed around a coarse thinking_level
                 # (MINIMAL/LOW/MEDIUM/HIGH), not an explicit token budget — sending
                 # thinking_budget instead produces much shorter test-time
@@ -301,7 +297,7 @@ class GeminiGenerateAPI(BaseAPI):
             context.messages, distrust_thought_signatures=distrust_sigs
         )
         config = self._build_config(
-            model.id,
+            uses_thinking_level=model.thinking_uses_level,
             tools=context.tools or None,
             response_format=context.response_format,
         )

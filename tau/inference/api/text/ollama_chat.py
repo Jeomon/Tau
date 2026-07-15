@@ -46,8 +46,6 @@ from tau.message.types import (
 if TYPE_CHECKING:
     from tau.message.types import LLMMessage
 
-_MINIMAL_LEVELS = {ThinkingLevel.Low, ThinkingLevel.Minimal}
-
 _STOP_REASON: dict[str, StopReason] = {
     "stop": StopReason.Stop,
     "length": StopReason.Length,
@@ -156,7 +154,7 @@ class OllamaChatAPI(BaseAPI):
 
         think: bool | None = None
         if self.options.thinking_level is not None:
-            think = self.options.thinking_level not in _MINIMAL_LEVELS
+            think = self.options.thinking_level != ThinkingLevel.Off
 
         text_started = False
         text_buf = ""

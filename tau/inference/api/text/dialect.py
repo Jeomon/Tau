@@ -98,8 +98,14 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
 
     if tag == OPENROUTER:
         # OpenRouter normalizes reasoning across providers via a nested object.
-        # Models marked as reasoning-capable may expose reasoning as mandatory;
-        # sending effort="none" makes those endpoints reject the request.
+        # An explicit Off must disable reasoning, not just fall through to the
+        # unset-level default below — those are different states even though
+        # _effort() collapses both to None. Models marked as reasoning-capable
+        # may expose reasoning as mandatory; sending effort="none" makes those
+        # endpoints reject the request, so unset (no level chosen at all)
+        # still defaults to leaving reasoning enabled.
+        if options.thinking_level == ThinkingLevel.Off:
+            return {"reasoning": {"enabled": False}}
         return {"reasoning": {"effort": effort}} if effort else {"reasoning": {"enabled": True}}
 
     if tag == ANT_LING:

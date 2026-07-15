@@ -214,6 +214,8 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Claude Code (OAuth) hits the same api.anthropic.com Messages API as the
         # direct API-key provider (see anthropic_claude_code.py's AsyncAnthropic
         # client) — same adaptive-thinking spec applies: always-on, no Off, xhigh
@@ -235,6 +237,8 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as the direct API: adaptive-only, can
         # disable, xhigh available.
         thinking_levels=[
@@ -255,6 +259,8 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as claude-opus-4-8.
         thinking_levels=[
             ThinkingLevel.Off,
@@ -274,6 +280,8 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as the direct API: adaptive on by default,
         # can disable, xhigh available.
         thinking_levels=[
@@ -294,6 +302,7 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
         # Same adaptive-thinking spec as the direct API: adaptive off by default
         # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
         thinking_levels=[
@@ -489,6 +498,7 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        antigravity_is_claude=True,
         # "(Thinking)" suffix marks this as a thinking-locked variant (like
         # anthropic-claude-code's equivalent) — always on, no Off. Budget
         # still passed as a raw integer per the spec, not Anthropic's native
@@ -512,6 +522,7 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        antigravity_is_claude=True,
         thinking_levels=[
             ThinkingLevel.Minimal,
             ThinkingLevel.Low,
@@ -532,6 +543,7 @@ models = [
         provider="google",
         cost=Cost(input=1.50, output=9.00, cache_read=0.15),
         thinking=True,
+        thinking_uses_level=True,
         # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking
         # (classic generateContent ThinkingConfig, matches the google-genai SDK
         # this backend uses): "minimal, low, medium (default), high" — thinking
@@ -553,6 +565,7 @@ models = [
         provider="google",
         cost=Cost(input=0.25, output=1.50, cache_read=0.025),
         thinking=True,
+        thinking_uses_level=True,
         # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
         # "minimal (default), low, medium, high" — full range, no Off (can't
         # fully disable thinking on Gemini 3 models).
@@ -573,6 +586,7 @@ models = [
         provider="google",
         cost=Cost(input=2.00, output=12.00, cache_read=0.20),
         thinking=True,
+        thinking_uses_level=True,
         # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
         # "Gemini 3.1 Pro does not support minimal... low, medium, high
         # (default)"; "You cannot disable thinking for Gemini 3.1 Pro" (no Off).
@@ -659,6 +673,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=2.0, output=12.0, cache_read=0.2),
         thinking=True,
+        thinking_uses_level=True,
         # Vertex AI serves the same underlying model with the same thinkingConfig
         # as the direct Gemini API (cross-confirmed: "minimal" is exclusive to
         # Gemini 3 Flash and not available on either Pro model" —
@@ -679,6 +694,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=1.5, output=9.0, cache_read=0.15),
         thinking=True,
+        thinking_uses_level=True,
         # Same spec as the direct API's gemini-3.5-flash: full minimal/low/
         # medium/high range, no Off.
         thinking_levels=[
@@ -697,6 +713,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.5, output=3.0, cache_read=0.05),
         thinking=True,
+        thinking_uses_level=True,
         # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
         # "Gemini 3 Flash supports all four: minimal, low, medium, and high
         # (default)" — same model on Vertex, no Off.
@@ -716,6 +733,7 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.25, output=1.5, cache_read=0.025),
         thinking=True,
+        thinking_uses_level=True,
         # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
         # "minimal (default), low, medium, high" — same model on Vertex, no Off.
         thinking_levels=[
@@ -815,6 +833,8 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as the direct API (platform.claude.com/docs/en/
         # build-with-claude/claude-on-vertex-ai confirms the Agent Platform API is
         # "nearly identical to the Messages API" with Extended thinking supported and
@@ -836,6 +856,8 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as the direct API: adaptive-only, can disable,
         # xhigh available.
         thinking_levels=[
@@ -856,6 +878,8 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as claude-opus-4-8.
         thinking_levels=[
             ThinkingLevel.Off,
@@ -875,6 +899,7 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
         # Same adaptive-thinking spec as the direct API: adaptive off by default
         # (settable), can disable; xhigh NOT listed as available for Opus 4.6.
         thinking_levels=[
@@ -894,6 +919,8 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as the direct API: adaptive on by default,
         # can disable, xhigh available.
         thinking_levels=[
@@ -914,6 +941,7 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        thinking_adaptive=True,
         # Same adaptive-thinking spec as the direct API: adaptive off by default
         # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
         thinking_levels=[
@@ -1264,6 +1292,8 @@ models = [
         provider="anthropic",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0, cache_write=12.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
         # adaptive thinking always on, thinking:{type:"disabled"} not supported (no Off).
         # xhigh explicitly listed as available on Fable 5; max available on all
@@ -1285,6 +1315,8 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
         # adaptive-only mode, off unless thinking:{type:"adaptive"} is set explicitly
         # (so Off/disabled is reachable), xhigh explicitly listed as available.
@@ -1306,6 +1338,8 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same adaptive-thinking spec as claude-opus-4-8: adaptive-only, xhigh available.
         thinking_levels=[
             ThinkingLevel.Off,
@@ -1326,6 +1360,8 @@ models = [
         # Introductory pricing through 2026-08-31; standard rate is $3/$15 after.
         cost=Cost(input=2.0, output=10.0, cache_read=0.20, cache_write=2.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
         # adaptive on by default, thinking:{type:"disabled"} explicitly supported,
         # xhigh explicitly listed as available on Sonnet 5.
@@ -1347,6 +1383,7 @@ models = [
         provider="anthropic",
         cost=Cost(input=3.0, output=15.0, cache_read=0.30, cache_write=3.75),
         thinking=True,
+        thinking_adaptive=True,
         # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
         # adaptive off by default (must set explicitly), can disable; xhigh NOT
         # listed as available for Sonnet 4.6 (only Fable 5/Opus 4.8/Opus 4.7/
@@ -1994,6 +2031,8 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same model, same adaptive-thinking spec as claude-opus-4-7 on
         # provider="anthropic" — this is just the Bedrock-hosted endpoint.
         thinking_levels=[
@@ -2016,6 +2055,8 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
         # Same spec as claude-sonnet-5 on provider="anthropic".
         thinking_levels=[
             ThinkingLevel.Off,
@@ -2037,6 +2078,7 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
         # Same spec as claude-sonnet-4-6 on provider="anthropic" — no xhigh.
         thinking_levels=[
             ThinkingLevel.Off,
