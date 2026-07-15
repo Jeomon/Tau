@@ -1380,13 +1380,18 @@ models = [
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
-    # NVIDIA NIM
+    # NVIDIA NIM. Each model here is a different open-weight family with its
+    # own reasoning-control mechanism (not a uniform provider-wide spec), so
+    # levels are researched per model against docs.api.nvidia.com/nim/reference
+    # rather than assumed from the ThinkingLevel enum's full range.
     Model(
         id="minimaxai/minimax-m3",
         name="MiniMax M3",
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/minimaxai-minimax-m3 documents no
+        # reasoning-effort/thinking-control parameter at all — left unconfirmed.
         context_window=1_000_000,
         max_output_tokens=8192,
         input=_TEXT_IMAGE_VIDEO,
@@ -1399,6 +1404,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="chat-template",
+        # docs.api.nvidia.com/nim/reference/diffusiongemma-26b-a4b-it: thinking
+        # is toggled by prefixing the system prompt with "<|think|>" — a binary
+        # on/off switch, no graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         max_output_tokens=4096,
         input=_TEXT_IMAGE_VIDEO,
@@ -1410,6 +1419,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-ultra-550b-a55b:
+        # chat_template_kwargs.enable_thinking accepts true (full reasoning,
+        # default) / false (off) / "medium_effort" (fewer reasoning tokens).
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -1420,6 +1433,8 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/stepfun-ai-step-3-7-flash documents
+        # no reasoning-effort/thinking-control parameter — left unconfirmed.
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1430,6 +1445,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/openai-gpt-oss-120b: "Configurable
+        # reasoning effort (low, medium, high)" — no none/xhigh/max.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1440,6 +1458,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # Same GPT-OSS reasoning_effort spec as gpt-oss-120b, confirmed via
+        # docs.api.nvidia.com/nim/reference/openai-gpt-oss-20b.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1450,6 +1471,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-llama-3_3-nemotron-super-49b-v1_5:
+        # reasoning ON by default; "/no_think" in the system prompt turns it
+        # off. Binary — no graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1488,6 +1513,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="qwen-chat-template",
+        # docs.api.nvidia.com/nim/reference/qwen-qwen3-5-397b-a17b: "operates in
+        # thinking mode by default...with an option to disable" — binary, no
+        # graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1499,6 +1528,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="qwen-chat-template",
+        # Same qwen-chat-template family and default-on/disable-only behavior
+        # confirmed for the qwen3.5-397b-a17b sibling above; NVIDIA's own
+        # reference page for this specific model doesn't restate the detail.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1509,6 +1542,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-pro: three
+        # reasoning modes — Non-think / Think High / Think Max — via a custom
+        # encoding pipeline; no low/medium tiers.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -1519,6 +1556,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # Same Non-think/High/Max three-mode spec as deepseek-v4-pro, confirmed
+        # via docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -1529,6 +1569,12 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/z-ai-glm5.1 documents no
+        # reasoning-control parameter specifics. Z.AI's broader GLM family
+        # (GLM-4.5/4.6) uses a binary thinking.type enabled/disabled switch
+        # with no graded effort, matching Tau's own "zai" dialect handling —
+        # applied here as the best-supported inference, not a confirmed spec.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1539,6 +1585,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/mistralai-mistral-medium-3-5-128b:
+        # reasoning_effort accepts "high" (complex/agentic tasks) or "none"
+        # (lighter tasks) — binary, no low/medium/xhigh/max documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1549,6 +1599,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/mistralai-mistral-small-4-119b-2603:
+        # reasoning_effort accepts "none" or "high" only, same binary spec as
+        # mistral-medium-3.5-128b above.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1578,6 +1632,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6 documents no
+        # reasoning-control parameter specifics — left unconfirmed rather than
+        # assuming the full low/medium/high range Tau's "deepseek" dialect
+        # sends, since that's Tau's request shape, not a confirmed model spec.
         context_window=131_072,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1588,6 +1646,11 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning:
+        # chat_template_kwargs.enable_thinking is boolean only (default true);
+        # the doc explicitly notes no low/medium/high effort levels exist,
+        # only numeric reasoning_budget/thinking_token_budget knobs.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT_IMAGE_VIDEO,
         output=_TEXT,
@@ -1598,6 +1661,11 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b:
+        # enable_thinking true (default)/false, plus a "low_effort": true
+        # sub-flag that uses "significantly fewer reasoning tokens" when
+        # thinking is on — same off/medium/full shape as nemotron-3-ultra.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT,
         output=_TEXT,
@@ -2347,6 +2415,10 @@ models = [
         provider="mistral",
         cost=Cost(input=1.50, output=7.50),
         thinking=True,
+        # docs.mistral.ai/studio-api/conversations/reasoning: reasoning_effort
+        # accepts only "high" (full thinking trace) or "none" (minimal, no
+        # trace) — binary, no low/medium/xhigh/max tier.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2357,28 +2429,18 @@ models = [
         provider="mistral",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same reasoning_effort "high"/"none" binary spec as
+        # mistral-medium-latest, confirmed on the same docs page.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    Model(
-        id="devstral-medium-latest",
-        name="Devstral 2",
-        provider="mistral",
-        cost=Cost(input=0.40, output=2.0),
-        context_window=262_144,
-        input=_TEXT,
-        output=_TEXT,
-    ),
-    Model(
-        id="devstral-small-latest",
-        name="Devstral Small 2",
-        provider="mistral",
-        cost=Cost(input=0.10, output=0.30),
-        context_window=262_144,
-        input=_TEXT,
-        output=_TEXT,
-    ),
+    # Devstral 2 (devstral-medium-latest) and Devstral Small 2
+    # (devstral-small-latest) are both deprecated per docs.mistral.ai — Devstral
+    # Small 2 since 2/27/2026, Devstral 2 from 5/22/2026, retiring 7/31/2026 —
+    # with Mistral Medium 3.5 (mistral-medium-latest, above) as the official
+    # replacement for both. Removed rather than kept as dead entries.
     Model(
         id="codestral-latest",
         name="Codestral",
@@ -2396,6 +2458,11 @@ models = [
         provider="mistral",
         cost=Cost(),
         thinking=True,
+        # Same reasoning_effort "high"/"none" binary spec as the rest of the
+        # Mistral family — confirmed via press coverage quoting reasoning_effort
+        # usage for this Labs model (no reasoning-specific page exists yet for
+        # this experimental release, unlike medium-3.5/small-4).
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
