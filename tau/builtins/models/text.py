@@ -1082,6 +1082,11 @@ models = [
         provider="github-copilot",
         cost=Cost(),
         thinking=True,
+        # github_copilot_chat.py's _build_params never sends a reasoning_effort
+        # or thinking param at all — Tau's Copilot integration has no wired-up
+        # mechanism to select a level, regardless of what o3-mini's own API
+        # supports elsewhere, so left unconfirmed rather than listing levels
+        # this specific integration can't actually reach.
         context_window=200_000,
         input=_TEXT,
         output=_TEXT,
@@ -1103,6 +1108,8 @@ models = [
         provider="github-copilot",
         cost=Cost(),
         thinking=True,
+        # Same gap as o3-mini above — no reasoning/thinking param is ever
+        # sent by this integration, so no level is genuinely selectable here.
         context_window=200_000,
         max_input_tokens=128_000,
         input=_TEXT_IMAGE,
@@ -1951,13 +1958,21 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # AWS Bedrock
+    # AWS Bedrock. Default api is "openai_responses" via the bedrock-mantle
+    # endpoint (see builtins/providers/text.py) — same OpenAIResponsesAPI
+    # reasoning:{effort} shape as provider="xai" above — except the three
+    # Claude entries below, which explicitly override api="anthropic_messages"
+    # to hit Bedrock's Anthropic-compatible path with the same adaptive-
+    # thinking mechanism as provider="anthropic", so they reuse those specs.
     Model(
         id="openai.gpt-oss-120b",
         name="GPT-OSS 120B",
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        # Same open-weight GPT-OSS model verified repeatedly this session
+        # (Groq/Cerebras/NVIDIA docs): reasoning_effort low/medium/high, no none.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1968,6 +1983,7 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1978,6 +1994,16 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        # Same model, same adaptive-thinking spec as claude-opus-4-7 on
+        # provider="anthropic" — this is just the Bedrock-hosted endpoint.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1990,6 +2016,15 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        # Same spec as claude-sonnet-5 on provider="anthropic".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2002,6 +2037,14 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        # Same spec as claude-sonnet-4-6 on provider="anthropic" — no xhigh.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2014,6 +2057,16 @@ models = [
         provider="bedrock",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Same model, same spec as gpt-5.5 on provider="openai"/"openai-codex":
+        # developers.openai.com/api/docs/models/gpt-5.5 — "none, low, medium
+        # (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -2025,18 +2078,31 @@ models = [
         provider="bedrock",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Same spec as gpt-5.4 on provider="openai"/"openai-codex": "none
+        # (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kimi / Moonshot
+    # Kimi / Moonshot (platform.kimi.ai). Moonshot's API rejects
+    # reasoning_effort outright when sent alongside thinking — control is
+    # purely the binary thinking.type "enabled"/"disabled" toggle, no graded
+    # intensity levels, for every model except k2.7-code (not in this catalog).
     Model(
         id="kimi-k2.6",
         name="Kimi K2.6",
         provider="kimi",
         cost=Cost(input=0.95, output=4.0, cache_read=0.16),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2047,6 +2113,7 @@ models = [
         provider="kimi",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2057,6 +2124,7 @@ models = [
         provider="kimi",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
@@ -2079,13 +2147,27 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # MiniMax
+    # MiniMax. provider="minimax" hits the Anthropic-compatible endpoint
+    # (api.minimax.io/anthropic, see builtins/providers/text.py) — MiniMax's
+    # own docs (platform.minimax.io/docs/api-reference/text-anthropic-api)
+    # confirm M2.x models use the older thinking:{type,budget_tokens} shape
+    # (not adaptive/effort), and explicitly: "For M2.x models, thinking
+    # cannot be disabled; thinking:{"type":"disabled"} is accepted but
+    # thinking remains on" — so no Off for any of these four.
     Model(
         id="MiniMax-M2.7",
         name="MiniMax M2.7",
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -2097,6 +2179,14 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -2108,6 +2198,14 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -2119,6 +2217,14 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -2438,13 +2544,20 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kilo Code Gateway
+    # Kilo Code Gateway (OpenRouter-compatible reasoning normalization layer —
+    # kilo.ai/docs/gateway/api-reference confirms it accepts and translates the
+    # full reasoning.effort range per underlying model, same as OpenRouter's
+    # own unified "minimal/low/medium/high/xhigh/max/none" interface — EXCEPT
+    # "kilocode/kilo/auto and x-ai/* refs skip reasoning-effort injection
+    # entirely", confirmed explicitly for the kilo-auto/* meta-routing models.
     Model(
         id="kilo-auto/frontier",
         name="Kilo Auto Frontier",
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        # kilo-auto/* explicitly skips reasoning-effort injection — no level
+        # is genuinely selectable for this meta-routing tier.
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2484,6 +2597,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -2494,6 +2616,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -2504,6 +2635,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
@@ -2514,6 +2654,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         input=_TEXT,
         output=_TEXT,
@@ -7497,12 +7646,20 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
+    # Hugging Face routes through router.huggingface.co to whichever backend
+    # the ":<provider>" id suffix names (Groq, DeepInfra, Novita, Nscale...),
+    # via the generic OpenAI-compatible reasoning_effort shape — so the real
+    # accepted values follow that specific backend's own docs, not a uniform
+    # HF-wide spec. Unsuffixed ids use HF's own default routing.
     Model(
         id="openai/gpt-oss-120b:groq",
         name="GPT-OSS 120B (Groq)",
         provider="huggingface",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same Groq-hosted gpt-oss-120b confirmed under provider="groq":
+        # reasoning_effort low/medium/high, no none.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -7513,6 +7670,9 @@ models = [
         provider="huggingface",
         cost=Cost(input=3.00, output=7.00),
         thinking=True,
+        # No backend suffix (HF's own default routing) and R1 has no clean
+        # API control on any platform confirmed so far (Fireworks) —
+        # genuinely uncontrollable, left unconfirmed rather than guessed.
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -7767,6 +7927,16 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.5, output=2.15),
         thinking=True,
+        # docs.deepinfra.com/chat/reasoning confirms reasoning_effort
+        # "none"/"low"/"medium"/"high" for DeepSeek-R1 on DeepInfra
+        # specifically — DeepInfra layers its own effort wrapper on top,
+        # unlike R1's lack of control on other hosts (e.g. Fireworks).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=163840,
         input=_TEXT,
         output=_TEXT,
@@ -7813,6 +7983,10 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.01, output=0.03),
         thinking=True,
+        # Same "-Thinking-2507" locked-always-on family confirmed for
+        # Qwen3-235B-A22B-Thinking-2507 below (Novita: "supports only
+        # thinking mode"; users report being unable to disable it) — no
+        # reasoning_effort or disable control found for these variants.
         context_window=262144,
         input=_TEXT,
         output=_TEXT,
@@ -7850,6 +8024,10 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.3, output=3.0),
         thinking=True,
+        # novita.ai: "this model supports only thinking mode...specifying
+        # enable_thinking=True is no longer required. The model automatically
+        # enforces thinking mode" — users confirm it can't even be suppressed
+        # via display flags. No reasoning_effort documented either.
         context_window=131072,
         input=_TEXT,
         output=_TEXT,
@@ -8121,6 +8299,8 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.98, output=3.95),
         thinking=True,
+        # Same locked-always-on "-Thinking" family behavior confirmed for the
+        # text-only Qwen3-235B-A22B-Thinking-2507:novita sibling above.
         context_window=131072,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -8145,6 +8325,11 @@ models = [
         cost=Cost(input=0.30, output=3.00, cache_read=0.15),
         thinking=True,
         thinking_format="chat-template",
+        # docs.subconscious.dev/api-reference/chat-completions: "enable_thinking:
+        # If true, enables step-by-step reasoning" via chat_template_kwargs —
+        # binary only; "does not support reasoning_effort or other
+        # thinking/reasoning control parameters."
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=0,
         input=_TEXT_IMAGE,
         output=_TEXT,
