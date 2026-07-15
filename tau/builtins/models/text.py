@@ -1807,13 +1807,19 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # xAI
+    # xAI. reasoning_effort is only sent when thinking_level != Off (see
+    # openai_responses.py, which XAIAPIResponses subclasses); models where
+    # reasoning can't genuinely be disabled omit Off from thinking_levels.
     Model(
         id="grok-4.5",
         name="Grok 4.5",
         provider="xai",
         cost=Cost(input=2.00, output=6.00),
         thinking=True,
+        # docs.x.ai/developers/model-capabilities/text/reasoning: "Reasoning
+        # cannot be disabled" for grok-4.5 — reasoning_effort only accepts
+        # low/medium/high (default high), no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=500_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1824,6 +1830,15 @@ models = [
         provider="xai",
         cost=Cost(input=1.25, output=2.50, cache_read=0.20),
         thinking=True,
+        # AWS Bedrock's Grok 4.3 model card (docs.aws.amazon.com/bedrock/.../
+        # model-card-xai-grok-4-3.html): reasoning.effort accepts "none"
+        # (disables reasoning), "low" (default), "medium", or "high".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1834,6 +1849,10 @@ models = [
         provider="xai",
         cost=Cost(input=1.00, output=2.00, cache_read=0.20),
         thinking=True,
+        # Grok Build is powered directly by grok-4.5 under the hood (per
+        # xAI's own docs), so it inherits grok-4.5's cannot-disable-reasoning
+        # low/medium/high spec rather than grok-4.3's.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1850,6 +1869,9 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying model and OpenAIResponsesAPI-derived reasoning
+        # mapping as provider="xai" grok-4.5 above — just OAuth-billed.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=500_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1860,6 +1882,13 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying model as provider="xai" grok-4.3 above.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1870,6 +1899,9 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying grok-4.5-powered model as provider="xai"
+        # grok-build-0.1 above.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
