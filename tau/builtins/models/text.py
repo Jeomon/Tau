@@ -535,6 +535,17 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API (platform.claude.com/docs/en/
+        # build-with-claude/claude-on-vertex-ai confirms the Agent Platform API is
+        # "nearly identical to the Messages API" with Extended thinking supported and
+        # this exact model ID listed): always-on adaptive, no Off, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -545,6 +556,16 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive-only, can disable,
+        # xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -555,6 +576,15 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        # Same adaptive-thinking spec as claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -565,6 +595,15 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Opus 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -575,6 +614,16 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive on by default,
+        # can disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -585,6 +634,15 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -595,6 +653,19 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        # Older model, not in the adaptive-thinking supported-models list — manual
+        # budget_tokens only (extended-thinking docs list Opus 4.5 as "Supported").
+        # Full budget-tier range applies (no documented per-model cap beyond the
+        # standard "budget_tokens < max_tokens" rule).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -604,6 +675,20 @@ models = [
         name="Claude Sonnet 4.5",
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Sonnet 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -613,6 +698,20 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic-vertex",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
