@@ -78,7 +78,8 @@ class TestCustomModelIdThinkingSuffix:
         assert llm.model.id == "my-custom-model"
         assert llm.model.name == "my-custom-model"
         assert llm.model.thinking is True
-        assert llm.model.thinking_level == ThinkingLevel.High
+        assert llm.model.thinking_levels == [ThinkingLevel.High]
+        assert llm.model.default_thinking_level == ThinkingLevel.High
 
     def test_invalid_suffix_is_kept_as_part_of_the_id(self) -> None:
         llm = TextLLM(
@@ -87,7 +88,8 @@ class TestCustomModelIdThinkingSuffix:
             options=LLMOptions(api_key="fake-key-for-test"),
         )
         assert llm.model.id == "my-custom-model:notarealvalue"
-        assert llm.model.thinking_level is None
+        assert llm.model.thinking_levels == []
+        assert llm.model.default_thinking_level is None
 
     def test_explicit_thinking_level_option_wins_suffix_is_not_stripped(self) -> None:
         llm = TextLLM(

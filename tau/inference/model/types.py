@@ -34,7 +34,13 @@ class Model:
     provider: str
     cost: Cost = field(default_factory=Cost)
     thinking: bool = False
-    thinking_level: ThinkingLevel | None = None
+    # The exact reasoning-effort values this model's API genuinely accepts (verified
+    # against the provider's own docs/model page, not the full ThinkingLevel range) —
+    # e.g. GPT-5 Pro only accepts High, o-series models max out at High with no XHigh/
+    # Max. Empty means unconfirmed/unconstrained: pickers should fall back to the full
+    # enum. Ordered weakest-to-strongest; use `default_thinking_level` for the model's
+    # starting level rather than assuming index 0.
+    thinking_levels: list[ThinkingLevel] = field(default_factory=list)
     thinking_format: str | None = None
     context_window: int = 0
     max_input_tokens: int | None = None
@@ -58,6 +64,17 @@ class Model:
         sits below the backend's hard limit instead of above it.
         """
         return self.max_input_tokens or self.context_window
+
+    @property
+    def default_thinking_level(self) -> ThinkingLevel | None:
+        """Starting reasoning effort for this model: Medium if supported, else the
+        middle of its supported range, else None if thinking_levels is unconfirmed/empty.
+        """
+        if not self.thinking_levels:
+            return None
+        if ThinkingLevel.Medium in self.thinking_levels:
+            return ThinkingLevel.Medium
+        return self.thinking_levels[len(self.thinking_levels) // 2]
 
     @property
     def is_stt(self) -> bool:
