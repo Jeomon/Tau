@@ -180,15 +180,6 @@ async def resolve_project_id(access_token: str, base_url: str = _DEFAULT_BASE_UR
     return _FALLBACK_PROJECT_ID
 
 
-def _requires_tool_call_id(model_id: str) -> bool:
-    """Claude models routed through Google's Cloud Code Assist (antigravity) API
-    require an explicit ``id`` on both functionCall and functionResponse parts —
-    omitting it fails multi-turn tool use with ``tool_use.id: Field required``.
-    Gemini models tolerate name-based correlation without it.
-    """
-    return "claude" in model_id
-
-
 def _claude_strict_schema(node: Any) -> Any:
     """Recursively adapt a tool schema for Claude's strict JSON Schema draft
     2020-12 validation, which Gemini tolerates violating but Claude 400s on:
@@ -231,7 +222,7 @@ def _claude_strict_schema(node: Any) -> Any:
 
 def _messages_to_contents(
     messages: list[LLMMessage],
-    model_id: str = "",
+    requires_tool_call_id: bool = False,
     *,
     distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -311,7 +302,7 @@ def _messages_to_contents(
                                     "name": item.name,
                                     "args": item.args if isinstance(item.args, dict) else {},
                                 }
-                                if _requires_tool_call_id(model_id):
+                                if requires_tool_call_id:
                                     function_call["id"] = item.id
                                 fc_entry: dict[str, Any] = {"functionCall": function_call}
                                 if sig:
@@ -344,7 +335,7 @@ def _messages_to_contents(
                             "name": content.tool_name,
                             "response": {response_key: tool_result_text(content)},
                         }
-                        if _requires_tool_call_id(model_id):
+                        if requires_tool_call_id:
                             function_response["id"] = content.id
                         response_parts = gemini_function_response_parts_raw(content)
                         if response_parts is not None:
@@ -418,7 +409,7 @@ class GoogleAntigravityAPI(BaseAPI):
         return self._project_id
 
     @staticmethod
-    def _tools_to_declarations(tools: list[Tool], model_id: str = "") -> list[dict[str, Any]]:
+    def _tools_to_declarations(tools: list[Tool], is_claude: bool = False) -> list[dict[str, Any]]:
         """Convert Tool objects to Gemini functionDeclarations format.
 
         The wire envelope always uses ``functionDeclarations[].parameters`` —
@@ -429,7 +420,6 @@ class GoogleAntigravityAPI(BaseAPI):
         inside `items`/`anyOf`/`oneOf`/`allOf`, which Gemini tolerates but
         Claude does not — so the fix has to walk the whole tree, not just the root.
         """
-        is_claude = "claude" in model_id
         seen: set[str] = set()
         decls = []
         for t in tools:
@@ -461,7 +451,7 @@ class GoogleAntigravityAPI(BaseAPI):
         if schema is not None:
             generation_config["responseMimeType"] = "application/json"
             generation_config["responseSchema"] = schema
-        is_claude = "claude" in model.id
+        is_claude = model.antigravity_is_claude
         if self.options.thinking_level is not None:
             from tau.inference.types import ThinkingBudgets
             from tau.inference.types import ThinkingLevel as _TL
@@ -498,7 +488,7 @@ class GoogleAntigravityAPI(BaseAPI):
         if generation_config:
             inner["generationConfig"] = generation_config
         if tools:
-            decls = self._tools_to_declarations(tools, model.id)
+            decls = self._tools_to_declarations(tools, is_claude)
             if decls:
                 inner["tools"] = [{"functionDeclarations": decls}]
 
@@ -508,7 +498,9 @@ class GoogleAntigravityAPI(BaseAPI):
         project = await self._ensure_project_id()
         distrust_sigs = self.options.distrust_thought_signatures
         system, contents = _messages_to_contents(
-            context.messages, model.id, distrust_thought_signatures=distrust_sigs
+            context.messages,
+            model.antigravity_is_claude,
+            distrust_thought_signatures=distrust_sigs,
         )
         if context.system_prompt:
             system = context.system_prompt
@@ -521,7 +513,7 @@ class GoogleAntigravityAPI(BaseAPI):
             response_format=context.response_format,
         )
         headers = _antigravity_headers(self.options.api_key or "")
-        if "claude" in model.id and model.thinking:
+        if model.antigravity_is_claude and model.thinking:
             # Antigravity's Claude backend disables interleaved thinking (thinking
             # between tool calls) unless this beta flag is explicitly present.
             headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
@@ -626,9 +618,9 @@ class GoogleAntigravityAPI(BaseAPI):
                                 input_tokens = (usage_meta.get("promptTokenCount", 0) or 0) + (
                                     usage_meta.get("toolUsePromptTokenCount", 0) or 0
                                 )
-                                output_tokens = (
-                                    usage_meta.get("candidatesTokenCount", 0) or 0
-                                ) + (usage_meta.get("thoughtsTokenCount", 0) or 0)
+                                output_tokens = (usage_meta.get("candidatesTokenCount", 0) or 0) + (
+                                    usage_meta.get("thoughtsTokenCount", 0) or 0
+                                )
                                 cache_read_tokens = (
                                     usage_meta.get("cachedContentTokenCount", 0) or 0
                                 )

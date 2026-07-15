@@ -92,6 +92,14 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     help="Temporarily override the base URL for this run's provider (not persisted).",
 )
 @click.option(
+    "--effort",
+    "thinking_level",
+    type=click.Choice(("off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")),
+    default=None,
+    help="Temporarily override the thinking/reasoning effort level for this run "
+    "(not persisted; clamped to what the selected model actually supports).",
+)
+@click.option(
     "--theme",
     "-t",
     default=None,
@@ -178,6 +186,7 @@ def cli(
     provider: str | None,
     model: str | None,
     base_url: str | None,
+    thinking_level: str | None,
     theme: str | None,
     resume: str | None,
     fork_session: str | None,
@@ -214,6 +223,7 @@ def cli(
     ctx.obj["provider"] = provider
     ctx.obj["model"] = model
     ctx.obj["base_url"] = base_url
+    ctx.obj["thinking_level"] = thinking_level
     ctx.obj["theme"] = theme
     ctx.obj["resume"] = resume
     ctx.obj["fork_session"] = fork_session
@@ -290,6 +300,7 @@ async def _start(opts: dict) -> None:
         model_id=resolved_model,
         provider=resolved_provider,
         base_url=opts.get("base_url"),
+        thinking_level=opts.get("thinking_level"),
         resume=resume_latest,
         session_file=session_file,
         session_dir=custom_session_dir,

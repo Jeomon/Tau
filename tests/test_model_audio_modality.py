@@ -3,12 +3,14 @@
 Modality.Audio is only meaningful where the provider layer actually has an
 AudioContent conversion branch (see test_provider_audio_content.py): Gemini
 (generate, Vertex, Antigravity) via inline_data, and openai_user_content
-(shared by the "openai_completions" family) via input_audio — reachable in
-practice only through OpenRouter's proxied audio-capable models, since none
-of the OpenAI/Copilot/Vertex/Mistral models themselves are flagged. Anthropic
-has no audio input support in its API at all, and the OpenAI Codex/Responses
-models Tau uses explicitly list audio as unsupported (gpt-audio/gpt-audio-mini
-are a separate product line) — so neither should ever claim Modality.Audio.
+(shared by the "openai_completions" family) via input_audio — reachable
+through OpenRouter's proxied audio-capable models and Tinker's Inkling
+(confirmed audio-input support per tinker-docs.thinkingmachines.ai), since
+none of the OpenAI/Copilot/Vertex/Mistral models themselves are flagged.
+Anthropic has no audio input support in its API at all, and the OpenAI
+Codex/Responses models Tau uses explicitly list audio as unsupported
+(gpt-audio/gpt-audio-mini are a separate product line) — so neither should
+ever claim Modality.Audio.
 """
 
 from __future__ import annotations
@@ -16,7 +18,13 @@ from __future__ import annotations
 from tau.builtins.models.text import models
 from tau.inference.model.types import Modality
 
-_AUDIO_CAPABLE_PROVIDERS = {"google", "google-vertex", "google-antigravity", "openrouter"}
+_AUDIO_CAPABLE_PROVIDERS = {
+    "google",
+    "google-vertex",
+    "google-antigravity",
+    "openrouter",
+    "tinker",
+}
 
 # Providers that must NOT have audio, including the two other File-capable
 # families (Anthropic, OpenAI Codex) to make the distinction explicit — File

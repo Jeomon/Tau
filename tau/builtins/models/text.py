@@ -1,4 +1,5 @@
 from tau.inference.model.types import Cost, Modality, Model
+from tau.inference.types import ThinkingLevel
 
 _TEXT = [Modality.Text]
 _TEXT_IMAGE = [Modality.Text, Modality.Image]
@@ -21,6 +22,11 @@ _TEXT_IMAGE_VIDEO_AUDIO_FILE = [
     Modality.Audio,
     Modality.File,
 ]
+# Audio input via the "openai_completions" family's shared openai_user_content
+# helper (input_audio content parts) — reachable for OpenRouter's proxied
+# audio-capable models and Tinker's Inkling, not the OpenAI/Copilot/Vertex/
+# Mistral models themselves (see test_model_audio_modality.py).
+_TEXT_IMAGE_AUDIO = [Modality.Text, Modality.Image, Modality.Audio]
 
 models = [
     # OpenAI Codex (OAuth). context_window = total window; max_input_tokens = prompt
@@ -34,6 +40,17 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same underlying model + reasoning_effort wire field as the raw API
+        # (developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6):
+        # "none, low, medium, high, and max"; defaults to medium.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -45,6 +62,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -56,6 +82,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=500_000,
         max_input_tokens=372_000,
         input=_TEXT_IMAGE_FILE,
@@ -67,6 +102,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.5:
+        # "none, low, medium (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -78,6 +122,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -89,6 +142,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4-mini:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -100,6 +162,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.3-codex:
+        # "GPT-5.3-Codex supports low, medium, high, and xhigh reasoning effort
+        # settings" — no none/minimal/max documented.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -111,6 +182,11 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Actively researched (OpenAI's own model page 404s for this id; no
+        # reasoning-effort param appears in any third-party Spark example,
+        # unlike the standard gpt-5.3-codex examples that show reasoning="xhigh").
+        # No documented reasoning_effort support found — left unconfirmed
+        # rather than guessing. thinking_levels intentionally empty.
         context_window=128_000,
         max_input_tokens=100_000,
         input=_TEXT_IMAGE_FILE,
@@ -122,6 +198,15 @@ models = [
         provider="openai-codex",
         cost=Cost(),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.2:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE_FILE,
@@ -134,6 +219,19 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Claude Code (OAuth) hits the same api.anthropic.com Messages API as the
+        # direct API-key provider (see anthropic_claude_code.py's AsyncAnthropic
+        # client) — same adaptive-thinking spec applies: always-on, no Off, xhigh
+        # available.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -144,6 +242,18 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API: adaptive-only, can
+        # disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -154,6 +264,17 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -164,6 +285,18 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API: adaptive on by default,
+        # can disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -174,6 +307,16 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -184,6 +327,19 @@ models = [
         provider="anthropic-claude-code",
         cost=Cost(),
         thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Sonnet 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -193,17 +349,47 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic-claude-code",
         cost=Cost(),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
-    # Google Antigravity (OAuth — free IDE quota)
+    # Google Antigravity (OAuth — free IDE quota). This is a reverse-engineered
+    # internal gateway (cloudcode-pa.googleapis.com), not a documented public
+    # API — no official per-model docs exist. Per the community-verified
+    # ANTIGRAVITY_API_SPEC (NoeFabris/opencode-antigravity-auth), the wire
+    # protocol always sends a raw integer thinkingBudget (never a named
+    # level), and Google exposes separate model ids per fixed reasoning tier
+    # (e.g. gemini-3-pro-high vs gemini-3-pro-low) rather than one adjustable
+    # model — so ids with a baked-in tier suffix are treated as fixed to that
+    # single level, while unsuffixed ids reuse the adjustable range already
+    # verified for the equivalent model on provider="google-vertex" (same
+    # underlying Gemini models, routed through Vertex per the spec).
     Model(
         id="gemini-3-flash",
         name="Gemini 3 Flash",
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -215,6 +401,9 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        # "-high" is a baked-in fixed-tier id (mirrors the spec's confirmed
+        # gemini-3-pro-high/-low split) — not adjustable per-request.
+        thinking_levels=[ThinkingLevel.High],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -226,6 +415,9 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        # "(High)" in the display name mirrors the fixed-tier id pattern
+        # confirmed for gemini-3.1-pro-high above — treated as fixed.
+        thinking_levels=[ThinkingLevel.High],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -236,6 +428,13 @@ models = [
         name="Gemini 3.1 Flash Lite",
         provider="google-antigravity",
         cost=Cost(),
+        thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -247,6 +446,14 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -258,6 +465,14 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -268,6 +483,15 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google-antigravity",
         cost=Cost(),
+        thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_535,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -279,6 +503,19 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        antigravity_is_claude=True,
+        # "(Thinking)" suffix marks this as a thinking-locked variant (like
+        # anthropic-claude-code's equivalent) — always on, no Off. Budget
+        # still passed as a raw integer per the spec, not Anthropic's native
+        # effort/budget_tokens field, since this routes through Google's gateway.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=250_000,
         max_output_tokens=64_000,
         input=_TEXT_IMAGE_FILE,
@@ -290,6 +527,15 @@ models = [
         provider="google-antigravity",
         cost=Cost(),
         thinking=True,
+        antigravity_is_claude=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=250_000,
         max_output_tokens=64_000,
         input=_TEXT_IMAGE_FILE,
@@ -302,6 +548,17 @@ models = [
         provider="google",
         cost=Cost(input=1.50, output=9.00, cache_read=0.15),
         thinking=True,
+        thinking_uses_level=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking
+        # (classic generateContent ThinkingConfig, matches the google-genai SDK
+        # this backend uses): "minimal, low, medium (default), high" — thinking
+        # cannot be fully disabled for Gemini 3 models, so no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -313,6 +570,16 @@ models = [
         provider="google",
         cost=Cost(input=0.25, output=1.50, cache_read=0.025),
         thinking=True,
+        thinking_uses_level=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "minimal (default), low, medium, high" — full range, no Off (can't
+        # fully disable thinking on Gemini 3 models).
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -324,6 +591,15 @@ models = [
         provider="google",
         cost=Cost(input=2.00, output=12.00, cache_read=0.20),
         thinking=True,
+        thinking_uses_level=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "Gemini 3.1 Pro does not support minimal... low, medium, high
+        # (default)"; "You cannot disable thinking for Gemini 3.1 Pro" (no Off).
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -335,6 +611,17 @@ models = [
         provider="google",
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 128-32768, "N/A: Cannot disable thinking" — no Off.
+        # Full budget-tier range fits within [128, 32768].
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -346,6 +633,17 @@ models = [
         provider="google",
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 0-24576, "thinkingBudget = 0 disables thinking".
+        # Max's 32768-token budget exceeds the 24576 cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -356,6 +654,18 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
+        thinking=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # thinkingBudget range 512-24576, "setting 0 disables thinking". Max's
+        # 32768-token budget exceeds the 24576 cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         max_output_tokens=65_536,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
@@ -368,6 +678,17 @@ models = [
         provider="google-vertex",
         cost=Cost(input=2.0, output=12.0, cache_read=0.2),
         thinking=True,
+        thinking_uses_level=True,
+        # Vertex AI serves the same underlying model with the same thinkingConfig
+        # as the direct Gemini API (cross-confirmed: "minimal" is exclusive to
+        # Gemini 3 Flash and not available on either Pro model" —
+        # help.apiyi.com/blog.laozhang.ai Gemini 3.1 Pro thinking-level guides).
+        # No Off — thinking cannot be fully disabled on Gemini 3 models.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -378,6 +699,15 @@ models = [
         provider="google-vertex",
         cost=Cost(input=1.5, output=9.0, cache_read=0.15),
         thinking=True,
+        thinking_uses_level=True,
+        # Same spec as the direct API's gemini-3.5-flash: full minimal/low/
+        # medium/high range, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -388,6 +718,16 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.5, output=3.0, cache_read=0.05),
         thinking=True,
+        thinking_uses_level=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "Gemini 3 Flash supports all four: minimal, low, medium, and high
+        # (default)" — same model on Vertex, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -397,6 +737,16 @@ models = [
         name="Gemini 3.1 Flash Lite",
         provider="google-vertex",
         cost=Cost(input=0.25, output=1.5, cache_read=0.025),
+        thinking=True,
+        thinking_uses_level=True,
+        # Confirmed via ai.google.dev/gemini-api/docs/generate-content/thinking:
+        # "minimal (default), low, medium, high" — same model on Vertex, no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -407,6 +757,18 @@ models = [
         provider="google-vertex",
         cost=Cost(input=1.25, output=10.0, cache_read=0.13),
         thinking=True,
+        # Confirmed via multiple sources (Google AI Developers Forum, GitHub
+        # issues) that Vertex AI's gemini-2.5-pro has the identical 128-32768
+        # thinkingBudget range as the direct API and cannot disable thinking.
+        # Full budget-tier range fits within [128, 32768]; no Off.
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -417,6 +779,16 @@ models = [
         provider="google-vertex",
         cost=Cost(input=0.30, output=2.50, cache_read=0.03),
         thinking=True,
+        # Same thinkingBudget spec as the direct API: 0-24576, 0 disables
+        # thinking. Max's 32768-token budget exceeds the cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -426,6 +798,17 @@ models = [
         name="Gemini 2.5 Flash Lite",
         provider="google-vertex",
         cost=Cost(input=0.10, output=0.40, cache_read=0.01),
+        thinking=True,
+        # Same thinkingBudget spec as the direct API: 512-24576, 0 disables
+        # thinking. Max's 32768-token budget exceeds the cap, so excluded.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_VIDEO_AUDIO_FILE,
         output=_TEXT,
@@ -455,6 +838,19 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API (platform.claude.com/docs/en/
+        # build-with-claude/claude-on-vertex-ai confirms the Agent Platform API is
+        # "nearly identical to the Messages API" with Extended thinking supported and
+        # this exact model ID listed): always-on adaptive, no Off, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -465,6 +861,18 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API: adaptive-only, can disable,
+        # xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -475,6 +883,17 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -485,6 +904,16 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        thinking_adaptive=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Opus 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -495,6 +924,18 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API: adaptive on by default,
+        # can disable, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -505,6 +946,16 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
         thinking=True,
+        thinking_adaptive=True,
+        # Same adaptive-thinking spec as the direct API: adaptive off by default
+        # (settable), can disable; xhigh NOT listed as available for Sonnet 4.6.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -515,6 +966,19 @@ models = [
         provider="anthropic-vertex",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5),
         thinking=True,
+        # Older model, not in the adaptive-thinking supported-models list — manual
+        # budget_tokens only (extended-thinking docs list Opus 4.5 as "Supported").
+        # Full budget-tier range applies (no documented per-model cap beyond the
+        # standard "budget_tokens < max_tokens" rule).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -524,6 +988,20 @@ models = [
         name="Claude Sonnet 4.5",
         provider="anthropic-vertex",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Sonnet 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -533,6 +1011,20 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic-vertex",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list — manual budget_tokens
+        # only. Full budget-tier range applies.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -623,6 +1115,11 @@ models = [
         provider="github-copilot",
         cost=Cost(),
         thinking=True,
+        # github_copilot_chat.py's _build_params never sends a reasoning_effort
+        # or thinking param at all — Tau's Copilot integration has no wired-up
+        # mechanism to select a level, regardless of what o3-mini's own API
+        # supports elsewhere, so left unconfirmed rather than listing levels
+        # this specific integration can't actually reach.
         context_window=200_000,
         input=_TEXT,
         output=_TEXT,
@@ -644,6 +1141,8 @@ models = [
         provider="github-copilot",
         cost=Cost(),
         thinking=True,
+        # Same gap as o3-mini above — no reasoning/thinking param is ever
+        # sent by this integration, so no level is genuinely selectable here.
         context_window=200_000,
         max_input_tokens=128_000,
         input=_TEXT_IMAGE,
@@ -675,6 +1174,15 @@ models = [
         provider="openai",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.5:
+        # "none, low, medium (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -686,6 +1194,15 @@ models = [
         provider="openai",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -697,6 +1214,15 @@ models = [
         provider="openai",
         cost=Cost(input=0.75, output=4.5, cache_read=0.075),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/models/gpt-5.4-mini:
+        # "none (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400_000,
         max_input_tokens=272_000,
         input=_TEXT_IMAGE,
@@ -709,6 +1235,16 @@ models = [
         provider="openai",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Confirmed via developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6:
+        # "none, low, medium, high, and max"; defaults to medium.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -720,6 +1256,15 @@ models = [
         provider="openai",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -731,6 +1276,15 @@ models = [
         provider="openai",
         cost=Cost(input=1.0, output=6.0, cache_read=0.10),
         thinking=True,
+        # Same GPT-5.6 family reasoning_effort spec as gpt-5.6-sol.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -743,6 +1297,19 @@ models = [
         provider="anthropic",
         cost=Cost(input=10.0, output=50.0, cache_read=1.0, cache_write=12.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive thinking always on, thinking:{type:"disabled"} not supported (no Off).
+        # xhigh explicitly listed as available on Fable 5; max available on all
+        # adaptive-supporting models.
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -753,6 +1320,19 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive-only mode, off unless thinking:{type:"adaptive"} is set explicitly
+        # (so Off/disabled is reachable), xhigh explicitly listed as available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -763,6 +1343,17 @@ models = [
         provider="anthropic",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as claude-opus-4-8: adaptive-only, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -774,6 +1365,19 @@ models = [
         # Introductory pricing through 2026-08-31; standard rate is $3/$15 after.
         cost=Cost(input=2.0, output=10.0, cache_read=0.20, cache_write=2.5),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive on by default, thinking:{type:"disabled"} explicitly supported,
+        # xhigh explicitly listed as available on Sonnet 5.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -784,6 +1388,18 @@ models = [
         provider="anthropic",
         cost=Cost(input=3.0, output=15.0, cache_read=0.30, cache_write=3.75),
         thinking=True,
+        thinking_adaptive=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/adaptive-thinking:
+        # adaptive off by default (must set explicitly), can disable; xhigh NOT
+        # listed as available for Sonnet 4.6 (only Fable 5/Opus 4.8/Opus 4.7/
+        # Sonnet 5 have xhigh) — max is available on all adaptive-supporting models.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1_048_576,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
@@ -793,17 +1409,38 @@ models = [
         name="Claude Haiku 4.5",
         provider="anthropic",
         cost=Cost(input=1.0, output=5.0, cache_read=0.10, cache_write=1.25),
+        thinking=True,
+        # Confirmed via platform.claude.com/docs/en/build-with-claude/extended-thinking:
+        # "Claude Haiku 4.5 | Manual extended thinking (budget_tokens) | Supported".
+        # Not in the adaptive-thinking supported-models list, so manual budget_tokens
+        # only (no adaptive/effort mode) — the full budget-tier range applies since
+        # budget_tokens is a raw token count with no documented per-model value cap
+        # for Haiku 4.5 beyond the standard "< max_tokens" rule.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
-    # NVIDIA NIM
+    # NVIDIA NIM. Each model here is a different open-weight family with its
+    # own reasoning-control mechanism (not a uniform provider-wide spec), so
+    # levels are researched per model against docs.api.nvidia.com/nim/reference
+    # rather than assumed from the ThinkingLevel enum's full range.
     Model(
         id="minimaxai/minimax-m3",
         name="MiniMax M3",
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/minimaxai-minimax-m3 documents no
+        # reasoning-effort/thinking-control parameter at all — left unconfirmed.
         context_window=1_000_000,
         max_output_tokens=8192,
         input=_TEXT_IMAGE_VIDEO,
@@ -816,6 +1453,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="chat-template",
+        # docs.api.nvidia.com/nim/reference/diffusiongemma-26b-a4b-it: thinking
+        # is toggled by prefixing the system prompt with "<|think|>" — a binary
+        # on/off switch, no graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         max_output_tokens=4096,
         input=_TEXT_IMAGE_VIDEO,
@@ -827,6 +1468,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-ultra-550b-a55b:
+        # chat_template_kwargs.enable_thinking accepts true (full reasoning,
+        # default) / false (off) / "medium_effort" (fewer reasoning tokens).
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -837,6 +1482,8 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/stepfun-ai-step-3-7-flash documents
+        # no reasoning-effort/thinking-control parameter — left unconfirmed.
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -847,6 +1494,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/openai-gpt-oss-120b: "Configurable
+        # reasoning effort (low, medium, high)" — no none/xhigh/max.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -857,6 +1507,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # Same GPT-OSS reasoning_effort spec as gpt-oss-120b, confirmed via
+        # docs.api.nvidia.com/nim/reference/openai-gpt-oss-20b.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -867,6 +1520,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-llama-3_3-nemotron-super-49b-v1_5:
+        # reasoning ON by default; "/no_think" in the system prompt turns it
+        # off. Binary — no graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -905,6 +1562,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="qwen-chat-template",
+        # docs.api.nvidia.com/nim/reference/qwen-qwen3-5-397b-a17b: "operates in
+        # thinking mode by default...with an option to disable" — binary, no
+        # graded effort levels documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -916,6 +1577,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="qwen-chat-template",
+        # Same qwen-chat-template family and default-on/disable-only behavior
+        # confirmed for the qwen3.5-397b-a17b sibling above; NVIDIA's own
+        # reference page for this specific model doesn't restate the detail.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -926,6 +1591,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-pro: three
+        # reasoning modes — Non-think / Think High / Think Max — via a custom
+        # encoding pipeline; no low/medium tiers.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -936,6 +1605,9 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # Same Non-think/High/Max three-mode spec as deepseek-v4-pro, confirmed
+        # via docs.api.nvidia.com/nim/reference/deepseek-ai-deepseek-v4-flash.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -946,6 +1618,12 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/z-ai-glm5.1 documents no
+        # reasoning-control parameter specifics. Z.AI's broader GLM family
+        # (GLM-4.5/4.6) uses a binary thinking.type enabled/disabled switch
+        # with no graded effort, matching Tau's own "zai" dialect handling —
+        # applied here as the best-supported inference, not a confirmed spec.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -956,6 +1634,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/mistralai-mistral-medium-3-5-128b:
+        # reasoning_effort accepts "high" (complex/agentic tasks) or "none"
+        # (lighter tasks) — binary, no low/medium/xhigh/max documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -966,6 +1648,10 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/mistralai-mistral-small-4-119b-2603:
+        # reasoning_effort accepts "none" or "high" only, same binary spec as
+        # mistral-medium-3.5-128b above.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -995,6 +1681,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-6 documents no
+        # reasoning-control parameter specifics — left unconfirmed rather than
+        # assuming the full low/medium/high range Tau's "deepseek" dialect
+        # sends, since that's Tau's request shape, not a confirmed model spec.
         context_window=131_072,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1005,6 +1695,11 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning:
+        # chat_template_kwargs.enable_thinking is boolean only (default true);
+        # the doc explicitly notes no low/medium/high effort levels exist,
+        # only numeric reasoning_budget/thinking_token_budget knobs.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT_IMAGE_VIDEO,
         output=_TEXT,
@@ -1015,17 +1710,27 @@ models = [
         provider="nvidia",
         cost=Cost(),
         thinking=True,
+        # docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b:
+        # enable_thinking true (default)/false, plus a "low_effort": true
+        # sub-flag that uses "significantly fewer reasoning tokens" when
+        # thinking is on — same off/medium/full shape as nemotron-3-ultra.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT,
         output=_TEXT,
     ),
-    # Groq (caps max_completion_tokens at 8192)
+    # Groq (caps max_completion_tokens at 8192). console.groq.com/docs/reasoning
+    # documents reasoning_effort support per model explicitly, rather than
+    # uniformly across the catalog.
     Model(
         id="openai/gpt-oss-120b",
         name="GPT-OSS 120B",
         provider="groq",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # "reasoning_effort...is only supported by GPT-OSS 20B and GPT-OSS
+        # 120B"; accepts "low", "medium", or "high" — no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -1037,6 +1742,7 @@ models = [
         provider="groq",
         cost=Cost(input=0.075, output=0.30),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -1048,6 +1754,10 @@ models = [
         provider="groq",
         cost=Cost(input=0.29, output=0.59),
         thinking=True,
+        # Confirmed unconfirmed/uncontrollable: Groq's docs explicitly say
+        # reasoning_effort is "only supported by Qwen 3.6 27B", not this
+        # model — reasoning is always-on with no way to disable or grade it
+        # (only `reasoning_format` display formatting is configurable).
         context_window=131_072,
         max_output_tokens=8192,
         input=_TEXT,
@@ -1083,13 +1793,18 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Cerebras (fast inference ~3000 tok/s, OpenAI-compatible)
+    # Cerebras (fast inference ~3000 tok/s, OpenAI-compatible). Per-model specs
+    # confirmed at inference-docs.cerebras.ai/capabilities/reasoning — these
+    # are Cerebras' own reasoning_effort wrappers, distinct from what each
+    # model's origin provider (Z.ai, Google) documents for the same weights.
     Model(
         id="gpt-oss-120b",
         name="GPT OSS 120B",
         provider="cerebras",
         cost=Cost(input=0.35, output=0.75),
         thinking=True,
+        # reasoning_effort accepts "low", "medium" (default), "high" — no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT,
@@ -1101,6 +1816,15 @@ models = [
         provider="cerebras",
         cost=Cost(input=2.25, output=2.75),
         thinking=True,
+        # "Reasoning is enabled by default"; reasoning_effort accepts "none"
+        # (disable) plus "low"/"medium"/"high" — graded, unlike Z.ai's own
+        # direct API which only exposes a binary thinking on/off toggle.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT,
@@ -1112,6 +1836,15 @@ models = [
         provider="cerebras",
         cost=Cost(input=0.99, output=1.49),
         thinking=True,
+        # "Reasoning is disabled by default"; reasoning_effort accepts "none"
+        # plus "low"/"medium"/"high", though docs note the three enabled
+        # tiers "all enable reasoning equivalently" (no depth differentiation).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=131_072,
         max_output_tokens=40_960,
         input=_TEXT_IMAGE,
@@ -1142,6 +1875,9 @@ models = [
         provider="perplexity",
         cost=Cost(input=2.0, output=8.0),
         thinking=True,
+        # docs.perplexity.ai/docs/sonar/models/sonar-reasoning-pro documents no
+        # reasoning_effort parameter — this model is DeepSeek-R1-powered,
+        # which has no effort control on any host (thinking always on).
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
@@ -1152,17 +1888,32 @@ models = [
         provider="perplexity",
         cost=Cost(input=2.0, output=8.0),
         thinking=True,
+        # community.perplexity.ai's official "Reasoning effort...now live"
+        # announcement: reasoning_effort accepts "minimal, low, medium, high"
+        # — no "none" (this model always does research/reasoning).
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=128_000,
         input=_TEXT,
         output=_TEXT,
     ),
-    # xAI
+    # xAI. reasoning_effort is only sent when thinking_level != Off (see
+    # openai_responses.py, which XAIAPIResponses subclasses); models where
+    # reasoning can't genuinely be disabled omit Off from thinking_levels.
     Model(
         id="grok-4.5",
         name="Grok 4.5",
         provider="xai",
         cost=Cost(input=2.00, output=6.00),
         thinking=True,
+        # docs.x.ai/developers/model-capabilities/text/reasoning: "Reasoning
+        # cannot be disabled" for grok-4.5 — reasoning_effort only accepts
+        # low/medium/high (default high), no "none".
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=500_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1173,6 +1924,15 @@ models = [
         provider="xai",
         cost=Cost(input=1.25, output=2.50, cache_read=0.20),
         thinking=True,
+        # AWS Bedrock's Grok 4.3 model card (docs.aws.amazon.com/bedrock/.../
+        # model-card-xai-grok-4-3.html): reasoning.effort accepts "none"
+        # (disables reasoning), "low" (default), "medium", or "high".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1183,6 +1943,10 @@ models = [
         provider="xai",
         cost=Cost(input=1.00, output=2.00, cache_read=0.20),
         thinking=True,
+        # Grok Build is powered directly by grok-4.5 under the hood (per
+        # xAI's own docs), so it inherits grok-4.5's cannot-disable-reasoning
+        # low/medium/high spec rather than grok-4.3's.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1199,6 +1963,9 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying model and OpenAIResponsesAPI-derived reasoning
+        # mapping as provider="xai" grok-4.5 above — just OAuth-billed.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=500_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1209,6 +1976,13 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying model as provider="xai" grok-4.3 above.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1219,17 +1993,28 @@ models = [
         provider="xai-grok",
         cost=Cost(),
         thinking=True,
+        # Same underlying grok-4.5-powered model as provider="xai"
+        # grok-build-0.1 above.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # AWS Bedrock
+    # AWS Bedrock. Default api is "openai_responses" via the bedrock-mantle
+    # endpoint (see builtins/providers/text.py) — same OpenAIResponsesAPI
+    # reasoning:{effort} shape as provider="xai" above — except the three
+    # Claude entries below, which explicitly override api="anthropic_messages"
+    # to hit Bedrock's Anthropic-compatible path with the same adaptive-
+    # thinking mechanism as provider="anthropic", so they reuse those specs.
     Model(
         id="openai.gpt-oss-120b",
         name="GPT-OSS 120B",
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        # Same open-weight GPT-OSS model verified repeatedly this session
+        # (Groq/Cerebras/NVIDIA docs): reasoning_effort low/medium/high, no none.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1240,6 +2025,7 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1250,6 +2036,18 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same model, same adaptive-thinking spec as claude-opus-4-7 on
+        # provider="anthropic" — this is just the Bedrock-hosted endpoint.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1262,6 +2060,17 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same spec as claude-sonnet-5 on provider="anthropic".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1_000_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1274,6 +2083,15 @@ models = [
         provider="bedrock",
         cost=Cost(),
         thinking=True,
+        thinking_adaptive=True,
+        # Same spec as claude-sonnet-4-6 on provider="anthropic" — no xhigh.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1286,6 +2104,16 @@ models = [
         provider="bedrock",
         cost=Cost(input=5.0, output=30.0, cache_read=0.50),
         thinking=True,
+        # Same model, same spec as gpt-5.5 on provider="openai"/"openai-codex":
+        # developers.openai.com/api/docs/models/gpt-5.5 — "none, low, medium
+        # (default), high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
@@ -1297,18 +2125,31 @@ models = [
         provider="bedrock",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25),
         thinking=True,
+        # Same spec as gpt-5.4 on provider="openai"/"openai-codex": "none
+        # (default), low, medium, high and xhigh".
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1_050_000,
         max_input_tokens=922_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kimi / Moonshot
+    # Kimi / Moonshot (platform.kimi.ai). Moonshot's API rejects
+    # reasoning_effort outright when sent alongside thinking — control is
+    # purely the binary thinking.type "enabled"/"disabled" toggle, no graded
+    # intensity levels, for every model except k2.7-code (not in this catalog).
     Model(
         id="kimi-k2.6",
         name="Kimi K2.6",
         provider="kimi",
         cost=Cost(input=0.95, output=4.0, cache_read=0.16),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1319,6 +2160,7 @@ models = [
         provider="kimi",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1329,6 +2171,7 @@ models = [
         provider="kimi",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
@@ -1351,13 +2194,27 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # MiniMax
+    # MiniMax. provider="minimax" hits the Anthropic-compatible endpoint
+    # (api.minimax.io/anthropic, see builtins/providers/text.py) — MiniMax's
+    # own docs (platform.minimax.io/docs/api-reference/text-anthropic-api)
+    # confirm M2.x models use the older thinking:{type,budget_tokens} shape
+    # (not adaptive/effort), and explicitly: "For M2.x models, thinking
+    # cannot be disabled; thinking:{"type":"disabled"} is accepted but
+    # thinking remains on" — so no Off for any of these four.
     Model(
         id="MiniMax-M2.7",
         name="MiniMax M2.7",
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -1369,6 +2226,14 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -1380,6 +2245,14 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
@@ -1391,12 +2264,24 @@ models = [
         provider="minimax",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         max_output_tokens=196_608,
         input=_TEXT,
         output=_TEXT,
     ),
-    # DeepSeek
+    # DeepSeek (api-docs.deepseek.com/guides/thinking_mode). deepseek-chat and
+    # deepseek-reasoner are the older aliases, scheduled for deprecation
+    # 2026-07-24 — DeepSeek's own docs say they now just map to
+    # deepseek-v4-flash's non-thinking and thinking modes respectively (not
+    # yet removed, so kept, but not independently spec'd models anymore).
     Model(
         id="deepseek-v4-pro",
         name="DeepSeek V4 Pro",
@@ -1404,6 +2289,10 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # "Three explicit reasoning modes: Non-think, Think High, and Think
+        # Max" — reasoning_effort accepts only "high" (default) or "max";
+        # low/medium collapse to high, xhigh collapses to max.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -1415,6 +2304,8 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # Same three-mode (Non-think/High/Max) spec as deepseek-v4-pro.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
@@ -1435,11 +2326,20 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="deepseek",
+        # Aliased to deepseek-v4-flash's thinking mode specifically — always
+        # thinking (that's what distinguishes it from deepseek-chat, which is
+        # the non-thinking alias), but still forwards reasoning_effort
+        # high/max to the same v4-flash backend.
+        thinking_levels=[ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         input=_TEXT,
         output=_TEXT,
     ),
-    # Z.ai (https://docs.z.ai — pricing per docs.z.ai/guides/overview/pricing)
+    # Z.ai (https://docs.z.ai — pricing per docs.z.ai/guides/overview/pricing).
+    # Every model's docs page (docs.z.ai/guides/llm/<id>) confirms the same
+    # binary thinking.type "enabled"/"disabled" toggle with no reasoning_effort
+    # param at all, EXCEPT glm-5.2, whose page (and Z.ai's own launch post)
+    # documents a genuine second reasoning_effort tier ("high" vs "max").
     Model(
         id="glm-4.6",
         name="GLM-4.6",
@@ -1447,6 +2347,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1459,6 +2360,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1471,6 +2373,7 @@ models = [
         cost=Cost(input=1.0, output=3.2, cache_read=0.2),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1483,6 +2386,7 @@ models = [
         cost=Cost(input=1.4, output=4.4, cache_read=0.26),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1495,6 +2399,11 @@ models = [
         cost=Cost(input=1.4, output=4.4, cache_read=0.26),
         thinking=True,
         thinking_format="zai",
+        # docs.z.ai/guides/llm/glm-5.2 + Z.ai's launch post: "Two levels of
+        # reasoning effort: GLM-5.2 (max) pushes the limits, while GLM-5.2
+        # (high) strikes a strong [balance]" — reasoning_effort accepts only
+        # "high"/"max" (max is default), on top of the usual thinking on/off.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1_000_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1507,6 +2416,7 @@ models = [
         cost=Cost(input=1.2, output=4.0, cache_read=0.24),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1519,6 +2429,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1531,6 +2442,7 @@ models = [
         cost=Cost(input=0.07, output=0.4, cache_read=0.01),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=200_000,
         max_output_tokens=128_000,
         input=_TEXT,
@@ -1543,6 +2455,7 @@ models = [
         cost=Cost(input=0.6, output=2.2, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -1555,6 +2468,7 @@ models = [
         cost=Cost(input=2.2, output=8.9, cache_read=0.45),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -1567,6 +2481,7 @@ models = [
         cost=Cost(input=0.2, output=1.1, cache_read=0.03),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -1579,6 +2494,7 @@ models = [
         cost=Cost(input=1.1, output=4.5, cache_read=0.22),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -1591,6 +2507,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=96_000,
         input=_TEXT,
@@ -1606,7 +2523,9 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # Z.ai vision models
+    # Z.ai vision models. Same binary thinking.type enabled/disabled toggle,
+    # no reasoning_effort — confirmed on docs.z.ai/guides/vlm/glm-5v-turbo and
+    # glm-4.6v (glm-4.6v-flash/-flashx/glm-4.5v share the same VLM lineage).
     Model(
         id="glm-5v-turbo",
         name="GLM-5V-Turbo",
@@ -1614,6 +2533,7 @@ models = [
         cost=Cost(input=1.2, output=4.0, cache_read=0.24),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202_752,
         max_output_tokens=128_000,
         input=_TEXT_IMAGE,
@@ -1626,6 +2546,7 @@ models = [
         cost=Cost(input=0.3, output=0.9, cache_read=0.05),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -1638,6 +2559,7 @@ models = [
         cost=Cost(),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -1650,6 +2572,7 @@ models = [
         cost=Cost(input=0.04, output=0.4, cache_read=0.004),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128_000,
         max_output_tokens=32_000,
         input=_TEXT_IMAGE,
@@ -1662,18 +2585,26 @@ models = [
         cost=Cost(input=0.6, output=1.8, cache_read=0.11),
         thinking=True,
         thinking_format="zai",
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=64_000,
         max_output_tokens=16_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kilo Code Gateway
+    # Kilo Code Gateway (OpenRouter-compatible reasoning normalization layer —
+    # kilo.ai/docs/gateway/api-reference confirms it accepts and translates the
+    # full reasoning.effort range per underlying model, same as OpenRouter's
+    # own unified "minimal/low/medium/high/xhigh/max/none" interface — EXCEPT
+    # "kilocode/kilo/auto and x-ai/* refs skip reasoning-effort injection
+    # entirely", confirmed explicitly for the kilo-auto/* meta-routing models.
     Model(
         id="kilo-auto/frontier",
         name="Kilo Auto Frontier",
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        # kilo-auto/* explicitly skips reasoning-effort injection — no level
+        # is genuinely selectable for this meta-routing tier.
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1713,6 +2644,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200_000,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1723,6 +2663,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -1733,6 +2682,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
@@ -1743,6 +2701,15 @@ models = [
         provider="kilocode",
         cost=Cost(),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204_800,
         input=_TEXT,
         output=_TEXT,
@@ -1764,6 +2731,10 @@ models = [
         provider="mistral",
         cost=Cost(input=1.50, output=7.50),
         thinking=True,
+        # docs.mistral.ai/studio-api/conversations/reasoning: reasoning_effort
+        # accepts only "high" (full thinking trace) or "none" (minimal, no
+        # trace) — binary, no low/medium/xhigh/max tier.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -1774,28 +2745,18 @@ models = [
         provider="mistral",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same reasoning_effort "high"/"none" binary spec as
+        # mistral-medium-latest, confirmed on the same docs page.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262_144,
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    Model(
-        id="devstral-medium-latest",
-        name="Devstral 2",
-        provider="mistral",
-        cost=Cost(input=0.40, output=2.0),
-        context_window=262_144,
-        input=_TEXT,
-        output=_TEXT,
-    ),
-    Model(
-        id="devstral-small-latest",
-        name="Devstral Small 2",
-        provider="mistral",
-        cost=Cost(input=0.10, output=0.30),
-        context_window=262_144,
-        input=_TEXT,
-        output=_TEXT,
-    ),
+    # Devstral 2 (devstral-medium-latest) and Devstral Small 2
+    # (devstral-small-latest) are both deprecated per docs.mistral.ai — Devstral
+    # Small 2 since 2/27/2026, Devstral 2 from 5/22/2026, retiring 7/31/2026 —
+    # with Mistral Medium 3.5 (mistral-medium-latest, above) as the official
+    # replacement for both. Removed rather than kept as dead entries.
     Model(
         id="codestral-latest",
         name="Codestral",
@@ -1813,6 +2774,11 @@ models = [
         provider="mistral",
         cost=Cost(),
         thinking=True,
+        # Same reasoning_effort "high"/"none" binary spec as the rest of the
+        # Mistral family — confirmed via press coverage quoting reasoning_effort
+        # usage for this Labs model (no reasoning-specific page exists yet for
+        # this experimental release, unlike medium-3.5/small-4).
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256_000,
         input=_TEXT,
         output=_TEXT,
@@ -2318,7 +3284,19 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
-    # OpenRouter
+    # OpenRouter (283 models, 174 thinking-capable). thinking_levels here were
+    # derived from openrouter.ai/api/v1/models' per-model `supported_parameters`
+    # (fetched directly, not guessed): models listing "reasoning_effort" accept
+    # OpenRouter's graded minimal/low/medium/high/xhigh/max scale; models with
+    # only "reasoning" (no "reasoning_effort") expose just a binary/budget
+    # toggle. Off is included only where independently confirmed elsewhere in
+    # this file for the same underlying model, or via a well-established
+    # family pattern (e.g. every GPT-5.x variant sharing OpenAI's documented
+    # "none, low, medium, high, xhigh" spec) — never assumed, since OpenRouter's
+    # own docs warn "none" gets rejected by mandatory-reasoning models. Models
+    # with no independently-verifiable spec (obscure/unlisted models, "-latest"
+    # moving aliases, meta-routers like openrouter/auto, locked "-thinking"
+    # variants) are left with empty thinking_levels rather than guessed.
     Model(
         id="qwen/qwen3.7-max",
         name="Qwen: Qwen3.7 Max",
@@ -2326,6 +3304,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=2.5, output=7.5, cache_read=0.0, cache_write=3.125),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text],
@@ -2341,6 +3320,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.0, output=2.0, cache_read=0.19999999999999998, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=256000,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -2356,6 +3336,12 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.5, output=9.0, cache_read=0.15, cache_write=0.08333333333333334),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video, Modality.Audio],
@@ -2371,6 +3357,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=30.0, output=150.0, cache_read=3.0, cache_write=37.5),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -2386,6 +3380,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.075, output=0.625, cache_read=0.015, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=262144,
         max_output_tokens=65536,
         input=[Modality.Text],
@@ -2403,6 +3405,12 @@ models = [
             input=0.25, output=1.5, cache_read=0.024999999999999998, cache_write=0.08333333333333334
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video, Modality.Audio],
@@ -2448,6 +3456,12 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=2.5, cache_read=0.19999999999999998, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1000000,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -2483,6 +3497,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.5, output=7.5, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -2513,6 +3528,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Audio, Modality.Image, Modality.Video],
@@ -2663,6 +3679,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.3, output=1.7999999999999998, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -2678,6 +3695,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.1875, output=1.125, cache_read=0.0, cache_write=0.234375),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -2693,6 +3711,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.15, output=1.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=262140,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -2708,6 +3727,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.04, output=6.24, cache_read=0.0, cache_write=1.3),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=65536,
         input=[Modality.Text],
@@ -2723,6 +3743,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.3, output=3.1999999999999997, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262140,
         max_output_tokens=262140,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -2738,6 +3759,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=30.0, output=180.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1050000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -2753,6 +3781,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=5.0, output=30.0, cache_read=0.5, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1050000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -2768,6 +3803,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.435, output=0.87, cache_read=0.003625, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1048576,
         max_output_tokens=384000,
         input=[Modality.Text],
@@ -2783,6 +3819,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1048576,
         max_output_tokens=384000,
         input=[Modality.Text],
@@ -2800,6 +3837,7 @@ models = [
             input=0.09999999999999999, output=0.19999999999999998, cache_read=0.02, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High, ThinkingLevel.Max],
         context_window=1000000,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -2830,6 +3868,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.06599999999999999, output=0.26, cache_read=0.029, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=262144,
         max_output_tokens=262144,
         input=[Modality.Text],
@@ -2920,6 +3966,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.73, output=3.49, cache_read=0.25, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262142,
         max_output_tokens=262142,
         input=[Modality.Text, Modality.Image],
@@ -2935,6 +3982,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -2950,6 +4005,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=30.0, output=150.0, cache_read=3.0, cache_write=37.5),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -2965,6 +4027,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.98, output=3.08, cache_read=0.182, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202752,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -3040,6 +4103,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.325, output=1.95, cache_read=0.0, cache_write=0.40625),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3055,6 +4119,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.2, output=4.0, cache_read=0.24, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202752,
         max_output_tokens=131072,
         input=[Modality.Image, Modality.Text, Modality.Video],
@@ -3177,6 +4242,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.27899999999999997, output=1.2, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=196608,
         max_output_tokens=131072,
         input=[Modality.Text],
@@ -3192,6 +4266,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.19999999999999998, output=1.25, cache_read=0.02, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -3207,6 +4288,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.75, output=4.5, cache_read=0.075, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -3222,6 +4310,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.15, output=0.6, cache_read=0.015, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -3237,6 +4326,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.2, output=4.0, cache_read=0.24, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=131072,
         input=[Modality.Text],
@@ -3252,6 +4342,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=262144,
         input=[Modality.Text],
@@ -3267,6 +4358,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.09, output=0.44999999999999996, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -3282,6 +4374,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.25, output=2.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=262144,
         max_output_tokens=131072,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3297,6 +4397,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.04, output=0.15, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=81920,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3312,6 +4413,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=30.0, output=180.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1050000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3327,6 +4435,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=2.5, output=15.0, cache_read=0.25, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1050000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3342,6 +4457,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.25, output=0.75, cache_read=0.024999999999999998, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=128000,
         max_output_tokens=50000,
         input=[Modality.Text],
@@ -3374,6 +4497,12 @@ models = [
             input=0.25, output=1.5, cache_read=0.024999999999999998, cache_write=0.08333333333333334
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video, Modality.Audio],
@@ -3391,6 +4520,14 @@ models = [
             input=0.09999999999999999, output=0.39999999999999997, cache_read=0.0, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=262144,
         max_output_tokens=131072,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3406,6 +4543,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.13899999999999998, output=1.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3421,6 +4559,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.195, output=1.56, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3436,6 +4575,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.26, output=2.08, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=262144,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3451,6 +4591,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.065, output=0.26, cache_read=0.0, cache_write=0.08125),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3466,6 +4607,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=2.0, output=12.0, cache_read=0.19999999999999998, cache_write=0.375),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Audio, Modality.Image, Modality.Video],
@@ -3481,6 +4623,12 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.75, output=14.0, cache_read=0.175, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3516,6 +4664,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=2.0, output=12.0, cache_read=0.19999999999999998, cache_write=0.375),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Audio, Modality.Image, Modality.Text, Modality.Video],
@@ -3531,6 +4680,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3, cache_write=3.75),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3546,6 +4702,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.26, output=1.56, cache_read=0.0, cache_write=0.325),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=1000000,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3561,6 +4718,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.39, output=2.34, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Video],
@@ -3576,6 +4734,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=204800,
         max_output_tokens=8192,
         input=[Modality.Text],
@@ -3591,6 +4757,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.15, output=1.15, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=196608,
         max_output_tokens=196608,
         input=[Modality.Text],
@@ -3606,6 +4780,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.6, output=1.92, cache_read=0.12, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202752,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -3636,6 +4811,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3696,6 +4878,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.39999999999999997, output=1.9, cache_read=0.09, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=256000,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -3771,6 +4962,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.06, output=0.39999999999999997, cache_read=0.01, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202752,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -3786,6 +4978,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.75, output=14.0, cache_read=0.175, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -3831,6 +5030,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.29, output=0.95, cache_read=0.03, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=196608,
         max_output_tokens=196608,
         input=[Modality.Text],
@@ -3846,6 +5053,12 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.39999999999999997, output=1.75, cache_read=0.08, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=202752,
         max_output_tokens=131072,
         input=[Modality.Text],
@@ -3863,6 +5076,12 @@ models = [
             input=0.5, output=3.0, cache_read=0.049999999999999996, cache_write=0.08333333333333334
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Audio, Modality.Video],
@@ -3893,6 +5112,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=256000,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -3910,6 +5130,7 @@ models = [
             input=0.049999999999999996, output=0.19999999999999998, cache_read=0.0, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=228000,
         input=[Modality.Text],
@@ -3940,6 +5161,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=21.0, output=168.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -3955,6 +5183,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.75, output=14.0, cache_read=0.175, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -4002,6 +5237,7 @@ models = [
             input=0.3, output=0.8999999999999999, cache_read=0.049999999999999996, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=24000,
         input=[Modality.Image, Modality.Text, Modality.Video],
@@ -4047,6 +5283,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=10.0, cache_read=0.125, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -4171,6 +5414,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.252, output=0.378, cache_read=0.0252, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=128000,
         max_output_tokens=65536,
         input=[Modality.Text],
@@ -4201,6 +5453,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200000,
         max_output_tokens=64000,
         input=[Modality.Image, Modality.Text],
@@ -4216,6 +5477,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=10.0, cache_read=0.13, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -4246,6 +5514,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=10.0, cache_read=0.125, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -4261,6 +5536,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.25, output=2.0, cache_read=0.03, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -4276,6 +5558,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.6, output=2.5, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=262144,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -4336,6 +5619,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text, Modality.Video],
@@ -4398,6 +5682,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.0, output=5.0, cache_read=0.09999999999999999, cache_write=1.25),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200000,
         max_output_tokens=64000,
         input=[Modality.Text, Modality.Image],
@@ -4475,6 +5768,7 @@ models = [
             input=0.09999999999999999, output=0.39999999999999997, cache_read=0.0, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -4535,6 +5829,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=15.0, output=120.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Image, Modality.Text],
@@ -4550,6 +5851,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.43, output=1.74, cache_read=0.08, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=202752,
         max_output_tokens=131072,
         input=[Modality.Text],
@@ -4565,6 +5867,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3, cache_write=3.75),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=64000,
         input=[Modality.Text, Modality.Image],
@@ -4580,6 +5891,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.27, output=0.41, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=163840,
         max_output_tokens=65536,
         input=[Modality.Text],
@@ -4600,6 +5912,14 @@ models = [
             cache_write=0.08333333333333334,
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1048576,
         max_output_tokens=65535,
         input=[Modality.Text, Modality.Image, Modality.Audio, Modality.Video],
@@ -4690,6 +6010,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.27, output=0.95, cache_read=0.13, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=163840,
         max_output_tokens=32768,
         input=[Modality.Text],
@@ -4810,6 +6131,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=128000,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -4825,6 +6147,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.04, output=0.16, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -4870,6 +6193,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.21, output=0.7899999999999999, cache_read=0.13, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=163840,
         max_output_tokens=32768,
         input=[Modality.Text],
@@ -4945,6 +6269,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.6, output=1.7999999999999998, cache_read=0.11, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=65536,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -4975,6 +6300,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=10.0, cache_read=0.125, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -4990,6 +6322,13 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.25, output=2.0, cache_read=0.024999999999999998, cache_write=0.0),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=128000,
         input=[Modality.Text, Modality.Image],
@@ -5007,6 +6346,13 @@ models = [
             input=0.049999999999999996, output=0.39999999999999997, cache_read=0.01, cache_write=0.0
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=400000,
         max_output_tokens=16384,
         input=[Modality.Text, Modality.Image],
@@ -5022,6 +6368,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -5037,6 +6384,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.039, output=0.18, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -5052,6 +6400,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=8192,
         input=[Modality.Text],
@@ -5067,6 +6416,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.03, output=0.14, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -5082,6 +6432,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=15.0, output=75.0, cache_read=1.5, cache_write=18.75),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200000,
         max_output_tokens=32000,
         input=[Modality.Image, Modality.Text],
@@ -5142,6 +6501,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.6, output=2.2, cache_read=0.11, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=98304,
         input=[Modality.Text],
@@ -5157,6 +6517,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.0, output=0.0, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=96000,
         input=[Modality.Text],
@@ -5172,6 +6533,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.13, output=0.85, cache_read=0.024999999999999998, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=98304,
         input=[Modality.Text],
@@ -5252,6 +6614,14 @@ models = [
             cache_write=0.08,
         ),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1048576,
         max_output_tokens=65535,
         input=[Modality.Text, Modality.Image, Modality.Audio, Modality.Video],
@@ -5387,6 +6757,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.3, output=2.5, cache_read=0.03, cache_write=0.083),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
         context_window=1048576,
         max_output_tokens=65535,
         input=[Modality.Image, Modality.Text, Modality.Audio, Modality.Video],
@@ -5402,6 +6780,14 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.25, output=10.0, cache_read=0.125, cache_write=0.375),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1048576,
         max_output_tokens=65536,
         input=[Modality.Text, Modality.Image, Modality.Audio, Modality.Video],
@@ -5462,6 +6848,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=15.0, output=75.0, cache_read=1.5, cache_write=18.75),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=200000,
         max_output_tokens=32000,
         input=[Modality.Image, Modality.Text],
@@ -5477,6 +6872,15 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=3.0, output=15.0, cache_read=0.3, cache_write=3.75),
         thinking=True,
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
         context_window=1000000,
         max_output_tokens=64000,
         input=[Modality.Image, Modality.Text],
@@ -5567,6 +6971,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.09, output=0.44, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=40960,
         max_output_tokens=20000,
         input=[Modality.Text],
@@ -5587,6 +6992,7 @@ models = [
             cache_write=0.0,
         ),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=40960,
         max_output_tokens=8192,
         input=[Modality.Text],
@@ -5602,6 +7008,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.09, output=0.24, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=40960,
         max_output_tokens=40960,
         input=[Modality.Text],
@@ -5617,6 +7024,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.08, output=0.28, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=40960,
         max_output_tokens=16384,
         input=[Modality.Text],
@@ -5632,6 +7040,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=0.45, output=1.81, cache_read=0.0, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131072,
         max_output_tokens=8192,
         input=[Modality.Text],
@@ -5647,6 +7056,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.1, output=4.4, cache_read=0.275, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=200000,
         max_output_tokens=100000,
         input=[Modality.Image, Modality.Text],
@@ -5882,6 +7292,7 @@ models = [
         thinking_format="openrouter",
         cost=Cost(input=1.1, output=4.4, cache_read=0.55, cache_write=0.0),
         thinking=True,
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=200000,
         max_output_tokens=100000,
         input=[Modality.Text],
@@ -6655,6 +8066,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=3.00, output=7.00),
         thinking=True,
+        # fireworks.ai/blog/deepseek-models: R1 has thinking "always on" with
+        # "no clean API control" — genuinely uncontrollable, left unconfirmed
+        # rather than guessing a level (unlike DeepSeek V3.2+/V4, which do
+        # support reasoning_effort).
         context_window=160_000,
         input=_TEXT,
         output=_TEXT,
@@ -6674,6 +8089,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=0.22, output=0.88),
         thinking=True,
+        # fireworks.ai/blog/qwen-3: "Flip reasoning_effort='none' (or use the
+        # /think / /no_think tags) to trade transparency for raw throughput"
+        # — dual-mode on/off, no low/medium/high tier documented.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -6684,6 +8103,10 @@ models = [
         provider="fireworks",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same Qwen3 dual-mode (thinking/non-thinking) toggle confirmed for
+        # qwen3-235b-a22b above — shared family behavior, not independently
+        # documented for this smaller variant.
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -6715,12 +8138,20 @@ models = [
         input=_TEXT,
         output=_TEXT,
     ),
+    # Hugging Face routes through router.huggingface.co to whichever backend
+    # the ":<provider>" id suffix names (Groq, DeepInfra, Novita, Nscale...),
+    # via the generic OpenAI-compatible reasoning_effort shape — so the real
+    # accepted values follow that specific backend's own docs, not a uniform
+    # HF-wide spec. Unsuffixed ids use HF's own default routing.
     Model(
         id="openai/gpt-oss-120b:groq",
         name="GPT-OSS 120B (Groq)",
         provider="huggingface",
         cost=Cost(input=0.15, output=0.60),
         thinking=True,
+        # Same Groq-hosted gpt-oss-120b confirmed under provider="groq":
+        # reasoning_effort low/medium/high, no none.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -6731,6 +8162,9 @@ models = [
         provider="huggingface",
         cost=Cost(input=3.00, output=7.00),
         thinking=True,
+        # No backend suffix (HF's own default routing) and R1 has no clean
+        # API control on any platform confirmed so far (Fireworks) —
+        # genuinely uncontrollable, left unconfirmed rather than guessed.
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
@@ -6985,6 +8419,16 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.5, output=2.15),
         thinking=True,
+        # docs.deepinfra.com/chat/reasoning confirms reasoning_effort
+        # "none"/"low"/"medium"/"high" for DeepSeek-R1 on DeepInfra
+        # specifically — DeepInfra layers its own effort wrapper on top,
+        # unlike R1's lack of control on other hosts (e.g. Fireworks).
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+        ],
         context_window=163840,
         input=_TEXT,
         output=_TEXT,
@@ -7031,6 +8475,10 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.01, output=0.03),
         thinking=True,
+        # Same "-Thinking-2507" locked-always-on family confirmed for
+        # Qwen3-235B-A22B-Thinking-2507 below (Novita: "supports only
+        # thinking mode"; users report being unable to disable it) — no
+        # reasoning_effort or disable control found for these variants.
         context_window=262144,
         input=_TEXT,
         output=_TEXT,
@@ -7068,6 +8516,10 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.3, output=3.0),
         thinking=True,
+        # novita.ai: "this model supports only thinking mode...specifying
+        # enable_thinking=True is no longer required. The model automatically
+        # enforces thinking mode" — users confirm it can't even be suppressed
+        # via display flags. No reasoning_effort documented either.
         context_window=131072,
         input=_TEXT,
         output=_TEXT,
@@ -7339,6 +8791,8 @@ models = [
         provider="huggingface",
         cost=Cost(input=0.98, output=3.95),
         thinking=True,
+        # Same locked-always-on "-Thinking" family behavior confirmed for the
+        # text-only Qwen3-235B-A22B-Thinking-2507:novita sibling above.
         context_window=131072,
         input=_TEXT_IMAGE,
         output=_TEXT,
@@ -7363,8 +8817,205 @@ models = [
         cost=Cost(input=0.30, output=3.00, cache_read=0.15),
         thinking=True,
         thinking_format="chat-template",
+        # docs.subconscious.dev/api-reference/chat-completions: "enable_thinking:
+        # If true, enables step-by-step reasoning" via chat_template_kwargs —
+        # binary only; "does not support reasoning_effort or other
+        # thinking/reasoning control parameters."
+        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=0,
         input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    # Tinker (tinker-docs.thinkingmachines.ai/tinker/compatible-apis/openai +
+    # .../tinker/models). Hybrid-category models document reasoning_effort
+    # accepting "none"/"minimal"/"low"/"medium"/"high"/"xhigh" (no "max");
+    # Reasoning-category models (GPT-OSS-120B) "always use chain-of-thought
+    # before output" and keep their own already-confirmed native constraint
+    # (low/medium/high only, no Off) rather than Tinker's wrapper's full set.
+    Model(
+        id="thinkingmachines/Inkling",
+        name="Inkling",
+        provider="tinker",
+        cost=Cost(input=1.87, output=4.68),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT_IMAGE_AUDIO,
+        output=_TEXT,
+    ),
+    Model(
+        id="thinkingmachines/Inkling:peft:262144",
+        name="Inkling (256K)",
+        provider="tinker",
+        cost=Cost(input=3.74, output=9.36),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=262_144,
+        input=_TEXT_IMAGE_AUDIO,
+        output=_TEXT,
+    ),
+    Model(
+        id="nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
+        name="Nemotron 3 Ultra 550B",
+        provider="tinker",
+        cost=Cost(input=1.66, output=4.15),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
+        name="Nemotron 3 Super 120B",
+        provider="tinker",
+        cost=Cost(input=0.38, output=0.96),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+        name="Nemotron 3 Nano 30B",
+        provider="tinker",
+        cost=Cost(input=0.13, output=0.33),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="Qwen/Qwen3.6-35B-A3B",
+        name="Qwen3.6 35B A3B",
+        provider="tinker",
+        cost=Cost(input=0.36, output=0.89),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
+        id="Qwen/Qwen3.5-9B",
+        name="Qwen3.5 9B",
+        provider="tinker",
+        cost=Cost(input=0.44, output=1.33),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=64_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+    ),
+    Model(
+        id="Qwen/Qwen3-8B",
+        name="Qwen3 8B",
+        provider="tinker",
+        cost=Cost(input=0.13, output=0.40),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=32_000,
+        input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="openai/gpt-oss-120b",
+        name="GPT-OSS 120B",
+        provider="tinker",
+        cost=Cost(input=0.18, output=0.44),
+        thinking=True,
+        thinking_format="tinker",
+        # Reasoning-category: always thinks, no Off. Kept to GPT-OSS's
+        # well-established native reasoning_effort constraint (low/medium/high
+        # only) rather than Tinker's broader Hybrid-category string set.
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.Medium, ThinkingLevel.High],
+        context_window=32_000,
+        input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="deepseek-ai/DeepSeek-V3.1",
+        name="DeepSeek V3.1",
+        provider="tinker",
+        cost=Cost(input=1.13, output=2.81),
+        thinking=True,
+        thinking_format="tinker",
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Minimal,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+        ],
+        context_window=32_000,
+        input=_TEXT,
         output=_TEXT,
     ),
 ]

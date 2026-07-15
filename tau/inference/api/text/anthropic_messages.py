@@ -10,6 +10,7 @@ from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
     anthropic_messages_to_list,
     anthropic_output_config,
+    anthropic_thinking_params,
     has_tool_history,
     parse_tool_args,
 )
@@ -25,10 +26,8 @@ from tau.inference.types import (
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
-    ThinkingBudgets,
     ThinkingDeltaEvent,
     ThinkingEndEvent,
-    ThinkingLevel,
     ThinkingStartEvent,
     ToolCallDeltaEvent,
     ToolCallEndEvent,
@@ -76,27 +75,18 @@ class AnthropicMessagesAPI(BaseAPI):
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
         """Assemble the Anthropic API request payload, including thinking and tool configs."""
-        _suppress_temp = any(s in model.id for s in ("opus-4-7", "opus-4-8"))
         params: dict[str, Any] = {
             "model": model.id,
             "messages": anthropic_apply_message_cache(messages, skip_tail=ephemeral_message_count),
             "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
         }
-        if not _suppress_temp:
+        if not model.thinking_suppresses_sampling:
             params["temperature"] = self.options.temperature
         if system:
             params["system"] = [
                 {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
             ]
-        if (
-            self.options.thinking_level is not None
-            and self.options.thinking_level != ThinkingLevel.Off
-        ):
-            budgets = self.options.thinking_budgets or ThinkingBudgets()
-            params["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budgets.get(self.options.thinking_level),
-            }
+        params.update(anthropic_thinking_params(model, self.options))
 
         if tools:
             tool_defs = [
@@ -135,7 +125,9 @@ class AnthropicMessagesAPI(BaseAPI):
         )
         output_config = anthropic_output_config(context.response_format)
         if output_config is not None:
-            params["output_config"] = output_config
+            # Merge rather than overwrite: adaptive-thinking models may have
+            # already set output_config.effort in _build_params.
+            params.setdefault("output_config", {}).update(output_config)
 
         if self.options.on_payload:
             modified = self.options.on_payload(params)

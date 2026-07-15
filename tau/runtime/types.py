@@ -72,6 +72,7 @@ class RuntimeConfig(BaseModel):
     model_id: str | None = None
     provider: str | None = None
     base_url: str | None = None  # temporary override for the resolved provider's base URL
+    thinking_level: str | None = None  # temporary override, not persisted to settings
 
     # Session
     session_file: Path | None = None
@@ -261,9 +262,19 @@ class RuntimeContext:
         else:
             llm.api.options.max_retries = 0
         if llm.model.thinking:
-            llm.api.options.thinking_level = (
-                settings_manager.get_thinking_level() or llm.model.thinking_level
-            )
+            if config.thinking_level:
+                # --effort override: not persisted, applied as-is (clamped) for
+                # this run only — lets a single invocation exercise a level
+                # different from whatever's saved in settings.
+                from tau.inference.types import ThinkingLevel as _TL
+
+                requested = _TL(config.thinking_level)
+                llm.api.options.thinking_level = llm.model.clamp_thinking_level(requested)
+            else:
+                # Clamp the persisted level against this model's supported levels —
+                # it may have been saved while a different model was active.
+                clamped = llm.model.clamp_thinking_level(settings_manager.get_thinking_level())
+                llm.api.options.thinking_level = clamped or llm.model.default_thinking_level
         timing.mark("llm")
 
         # ── Session manager ───────────────────────────────────────────────────

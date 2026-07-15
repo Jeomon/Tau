@@ -170,9 +170,12 @@ def open_effort_selector(ctx: CommandContext) -> None:
     current_level = None
     if agent is not None:
         current_level = agent._engine.llm.api.options.thinking_level
+    current_level = model.clamp_thinking_level(current_level)
+    if current_level is None:
+        current_level = model.default_thinking_level
     current = current_level if current_level is not None else ThinkingLevel.Off
 
-    levels = list(ThinkingLevel)
+    levels = model.thinking_levels or list(ThinkingLevel)
 
     def commit(level: ThinkingLevel) -> None:
         asyncio.ensure_future(_apply_effort(ctx, level.value))

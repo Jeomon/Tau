@@ -127,9 +127,15 @@ class TextLLM:
                     if prefix and suffix in set(ThinkingLevel):
                         fallback_id = prefix
                         thinking_level = ThinkingLevel(suffix)
-                base = replace(provider_models[0], id=fallback_id, name=fallback_id)
+                # thinking_levels is model-specific (see the per-model lists in
+                # tau/builtins/models/text.py) and must not leak from whichever
+                # same-provider model happens to be first in the registry onto
+                # this unrelated, unregistered custom id.
+                base = replace(
+                    provider_models[0], id=fallback_id, name=fallback_id, thinking_levels=[]
+                )
                 if thinking_level is not None:
-                    base = replace(base, thinking=True, thinking_level=thinking_level)
+                    base = replace(base, thinking=True, thinking_levels=[thinking_level])
                 candidates = [base]
                 used_custom_model_id = True
 

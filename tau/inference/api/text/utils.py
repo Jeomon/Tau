@@ -21,6 +21,7 @@ __all__ = [
     "openai_gpt56_prompt_cache_options",
     "anthropic_messages_to_list",
     "anthropic_output_config",
+    "anthropic_thinking_params",
     "anthropic_apply_message_cache",
     "has_tool_history",
 ]
@@ -545,3 +546,34 @@ def anthropic_output_config(response_format: Any | None) -> dict[str, Any] | Non
     if structured is None:
         return None
     return {"format": {"type": "json_schema", "schema": structured.schema}}
+
+
+def anthropic_thinking_params(model: Any, options: Any) -> dict[str, Any]:
+    """Build the ``thinking`` (and, for adaptive models, ``output_config.effort``)
+    request params for an Anthropic-Messages-compatible request.
+
+    Dispatches on ``model.thinking_adaptive``: adaptive models (Opus 4.7+,
+    Sonnet 4.6+/5, Fable 5) use ``thinking: {type: "adaptive"}`` with the level
+    name passed as ``output_config.effort`` (or ``{type: "disabled"}`` for Off);
+    older models (Haiku 4.5, Sonnet 4.5, Opus 4.5 and earlier) use
+    ``thinking: {type: "enabled", budget_tokens: N}`` and have no notion of
+    Off — omitting ``thinking`` entirely leaves it off by default.
+    """
+    from tau.inference.types import ThinkingBudgets, ThinkingLevel
+
+    level = options.thinking_level
+    if level is None:
+        return {}
+
+    if model.thinking_adaptive:
+        if level == ThinkingLevel.Off:
+            return {"thinking": {"type": "disabled"}}
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": level.value},
+        }
+
+    if level == ThinkingLevel.Off:
+        return {}
+    budgets = options.thinking_budgets or ThinkingBudgets()
+    return {"thinking": {"type": "enabled", "budget_tokens": budgets.get(level)}}

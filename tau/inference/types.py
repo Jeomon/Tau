@@ -67,6 +67,7 @@ class ThinkingLevel(StrEnum):
     High = "high"
     XHigh = "xhigh"
     Max = "max"
+    Ultra = "ultra"
 
 
 @dataclass

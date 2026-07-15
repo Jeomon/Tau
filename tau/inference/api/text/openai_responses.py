@@ -124,10 +124,10 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
         return parts
 
     # ThinkingContent and ToolCallContent are intentionally not handled here:
-    # the Responses API has no "thinking" content-part type (reasoning is
-    # ephemeral and isn't replayed on later turns — see openai_codex_responses.py),
-    # and function_call is a top-level input item, not nested inside a
-    # message's content array. _messages_to_input hoists it out separately.
+    # a reasoning item and function_call are both top-level input items, not
+    # nested inside a message's content array — _messages_to_input hoists them
+    # out and interleaves them in original order (see the AssistantMessage
+    # case there for why order matters for reasoning replay).
     parts = []
     for item in content_items:
         match item:
@@ -157,8 +157,8 @@ def _messages_to_input(
     for msg in messages:
         match msg:
             case SystemMessage():
-                text_parts = [c.content for c in msg.contents if isinstance(c, TextContent)]
-                instructions = "\n".join(text_parts)
+                system_text_parts = [c.content for c in msg.contents if isinstance(c, TextContent)]
+                instructions = "\n".join(system_text_parts)
             case ToolMessage():
                 for content in msg.contents:
                     if isinstance(content, ToolResultContent):
@@ -169,14 +169,14 @@ def _messages_to_input(
                                 "output": openai_responses_function_call_output(content),
                             }
                         )
-            case UserMessage() | AssistantMessage():
-                role = "user" if isinstance(msg, UserMessage) else "assistant"
+            case UserMessage():
                 parts = _content_to_openai(msg.contents, supports_thinking=supports_thinking)
                 if parts:
-                    input_items.append({"role": role, "content": parts})
-                # function_call is a top-level input item in the Responses API,
-                # not nested inside a message's content array. It must precede
-                # its matching function_call_output (emitted by the ToolMessage).
+                    input_items.append({"role": "user", "content": parts})
+            case AssistantMessage() if not supports_thinking:
+                parts = _content_to_openai(msg.contents, supports_thinking=False)
+                if parts:
+                    input_items.append({"role": "assistant", "content": parts})
                 for content in msg.contents:
                     if isinstance(content, ToolCallContent):
                         input_items.append(
@@ -187,6 +187,58 @@ def _messages_to_input(
                                 "arguments": json.dumps(content.args),
                             }
                         )
+            case AssistantMessage():
+                # reasoning and function_call are top-level input items in the
+                # Responses API, not nested inside a message's content array, and
+                # a reasoning item must immediately precede the item it justified
+                # (the tool call or message that followed it in the original
+                # response). So this walks msg.contents in original order instead
+                # of grouping all text first, flushing buffered text parts before
+                # emitting any top-level item.
+                text_parts: list[dict[str, Any]] = []
+                for content in msg.contents:
+                    match content:
+                        case ThinkingContent():
+                            # Only a signed block can be replayed statelessly
+                            # (store: false) — the signature is the full raw
+                            # reasoning item (including encrypted_content)
+                            # captured at stream time. Drop unsigned blocks
+                            # (older sessions, or left over from a provider/model
+                            # switch) instead of sending a malformed reasoning item.
+                            if content.signature:
+                                if text_parts:
+                                    input_items.append({"role": "assistant", "content": text_parts})
+                                    text_parts = []
+                                try:
+                                    reasoning_item = json.loads(content.signature)
+                                except (TypeError, ValueError):
+                                    reasoning_item = None
+                                if isinstance(reasoning_item, dict):
+                                    input_items.append(reasoning_item)
+                        case TextContent():
+                            text_parts.append({"type": "input_text", "text": content.content})
+                        case ImageContent():
+                            for b64, mime in content.to_base64():
+                                url = (
+                                    b64
+                                    if b64.startswith("http")
+                                    else f"data:{mime or 'image/png'};base64,{b64}"
+                                )
+                                text_parts.append({"type": "input_image", "image_url": url})
+                        case ToolCallContent():
+                            if text_parts:
+                                input_items.append({"role": "assistant", "content": text_parts})
+                                text_parts = []
+                            input_items.append(
+                                {
+                                    "type": "function_call",
+                                    "call_id": content.id,
+                                    "name": content.name,
+                                    "arguments": json.dumps(content.args),
+                                }
+                            )
+                if text_parts:
+                    input_items.append({"role": "assistant", "content": text_parts})
 
     return instructions, input_items
 
@@ -242,6 +294,14 @@ class OpenAIResponsesAPI(BaseAPI):
             and self.options.thinking_level != ThinkingLevel.Off
         ):
             params["reasoning"] = {"effort": _THINKING_EFFORT[self.options.thinking_level]}
+            # Whenever reasoning is engaged, request the encrypted reasoning
+            # item back (store: False keeps this stateless — no server-side
+            # conversation state, matching every other provider/turn in this
+            # session) so it can be captured and replayed on the next turn
+            # (see _messages_to_input's AssistantMessage case). Without this,
+            # reasoning never reaches the model on subsequent turns.
+            params["store"] = False
+            params["include"] = ["reasoning.encrypted_content"]
 
         if tools:
             tool_defs = []
@@ -286,6 +346,11 @@ class OpenAIResponsesAPI(BaseAPI):
         # equal, but other Responses-API-compatible backends (e.g. xAI's Grok
         # CLI proxy) don't, so they must be tracked separately.
         tool_calls: dict[str, tuple[str, str]] = {}
+        # Final reasoning summary text, keyed by item id, buffered until
+        # response.output_item.done delivers the full item (id + summary +
+        # encrypted_content when requested via include=["reasoning.encrypted_content"])
+        # so ThinkingEndEvent can carry both the text and the replay signature at once.
+        reasoning_text_by_item: dict[str, str] = {}
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
@@ -322,7 +387,24 @@ class OpenAIResponsesAPI(BaseAPI):
                     yield ThinkingDeltaEvent(thinking=ThinkingContent(content=event.delta))  # type: ignore[union-attr]
 
                 elif etype == "response.reasoning_summary_text.done":
-                    yield ThinkingEndEvent(thinking=ThinkingContent(content=event.text))  # type: ignore[union-attr]
+                    reasoning_text_by_item[event.item_id] = event.text  # type: ignore[union-attr]
+
+                elif etype == "response.output_item.done":
+                    item = event.item  # type: ignore[union-attr]
+                    if item.type == "reasoning":
+                        content = reasoning_text_by_item.pop(item.id, "")  # type: ignore[union-attr]
+                        # exclude_unset=True: the typed SDK model declares fields
+                        # like `content` with a default of None, and a plain
+                        # model_dump() would materialize those as an explicit
+                        # `"content": null` even when the server never sent that
+                        # key at all — an addition relative to the raw wire item
+                        # that some backends' stateless-replay validation (e.g.
+                        # xAI's Grok CLI proxy, which round-trips this signature
+                        # as a "compaction blob") rejects as "modified".
+                        signature = json.dumps(item.model_dump(mode="json", exclude_unset=True))  # type: ignore[union-attr]
+                        yield ThinkingEndEvent(
+                            thinking=ThinkingContent(content=content, signature=signature)
+                        )
 
                 elif etype == "response.function_call_arguments.delta":
                     call_id, _ = tool_calls.get(event.item_id, (event.item_id, ""))  # type: ignore[union-attr]

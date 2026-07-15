@@ -50,7 +50,7 @@ def _history() -> list:
 
 
 def test_function_response_name_is_tool_name_not_call_id() -> None:
-    _, contents = _messages_to_contents(_history(), "gemini-2.5-pro")
+    _, contents = _messages_to_contents(_history(), False)
 
     tool_turn = next(c for c in contents if any("functionResponse" in p for p in c["parts"]))
     response = next(p["functionResponse"] for p in tool_turn["parts"] if "functionResponse" in p)
@@ -75,7 +75,7 @@ def test_function_response_error_uses_error_key() -> None:
         ),
     ]
 
-    _, contents = _messages_to_contents(messages, "gemini-2.5-pro")
+    _, contents = _messages_to_contents(messages, False)
 
     tool_turn = next(c for c in contents if any("functionResponse" in p for p in c["parts"]))
     response = next(p["functionResponse"] for p in tool_turn["parts"] if "functionResponse" in p)
@@ -83,7 +83,7 @@ def test_function_response_error_uses_error_key() -> None:
 
 
 def test_claude_model_gets_explicit_tool_call_id() -> None:
-    _, contents = _messages_to_contents(_history(), "claude-sonnet-4-6")
+    _, contents = _messages_to_contents(_history(), True)
 
     call_turn = next(c for c in contents if any("functionCall" in p for p in c["parts"]))
     call = next(p["functionCall"] for p in call_turn["parts"] if "functionCall" in p)
@@ -97,7 +97,7 @@ def test_claude_model_gets_explicit_tool_call_id() -> None:
 
 
 def test_gemini_model_omits_tool_call_id() -> None:
-    _, contents = _messages_to_contents(_history(), "gemini-2.5-pro")
+    _, contents = _messages_to_contents(_history(), False)
 
     call_turn = next(c for c in contents if any("functionCall" in p for p in c["parts"]))
     call = next(p["functionCall"] for p in call_turn["parts"] if "functionCall" in p)
@@ -121,7 +121,7 @@ def test_unsigned_tool_call_downgrades_matching_result_too() -> None:
         ),
     ]
 
-    _, contents = _messages_to_contents(messages, "claude-sonnet-4-6")
+    _, contents = _messages_to_contents(messages, True)
 
     for content in contents:
         for part in content["parts"]:
@@ -137,7 +137,7 @@ def test_empty_thinking_content_is_dropped() -> None:
         ),
     ]
 
-    _, contents = _messages_to_contents(messages, "claude-sonnet-4-6")
+    _, contents = _messages_to_contents(messages, True)
 
     model_turn = next(c for c in contents if c["role"] == "model")
     assert not any(p.get("thought") for p in model_turn["parts"])
@@ -150,7 +150,7 @@ def test_unsigned_tool_call_falls_back_to_text_on_gemini3() -> None:
         AssistantMessage(contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"})]),
     ]
 
-    _, contents = _messages_to_contents(messages, "gemini-3-pro-preview")
+    _, contents = _messages_to_contents(messages, False)
 
     model_turn = contents[-1]
     assert not any("functionCall" in p for p in model_turn["parts"])
@@ -166,7 +166,7 @@ def test_unsigned_tool_call_falls_back_to_text_on_gemini_2_5_too() -> None:
         AssistantMessage(contents=[ToolCallContent(id="tc1", name="bash", args={"command": "ls"})]),
     ]
 
-    _, contents = _messages_to_contents(messages, "gemini-2.5-flash")
+    _, contents = _messages_to_contents(messages, False)
 
     model_turn = contents[-1]
     assert not any("functionCall" in p for p in model_turn["parts"])
@@ -183,10 +183,9 @@ def test_signed_tool_call_stays_a_function_call() -> None:
         ),
     ]
 
-    for model_id in ("gemini-3-pro-preview", "gemini-2.5-flash"):
-        _, contents = _messages_to_contents(messages, model_id)
-        model_turn = contents[-1]
-        assert any("functionCall" in p for p in model_turn["parts"])
+    _, contents = _messages_to_contents(messages, False)
+    model_turn = contents[-1]
+    assert any("functionCall" in p for p in model_turn["parts"])
 
 
 def test_distrust_thought_signatures_forces_text_fallback() -> None:
@@ -199,10 +198,9 @@ def test_distrust_thought_signatures_forces_text_fallback() -> None:
         ),
     ]
 
-    for model_id in ("gemini-3-pro-preview", "gemini-2.5-flash"):
-        _, contents = _messages_to_contents(messages, model_id, distrust_thought_signatures=True)
-        model_turn = contents[-1]
-        # Distrusting the stored signature leaves the call unsigned, so it now
-        # falls back to text regardless of model — same path as never having
-        # had a signature at all.
-        assert not any("functionCall" in p for p in model_turn["parts"])
+    _, contents = _messages_to_contents(messages, False, distrust_thought_signatures=True)
+    model_turn = contents[-1]
+    # Distrusting the stored signature leaves the call unsigned, so it now
+    # falls back to text regardless of model — same path as never having
+    # had a signature at all.
+    assert not any("functionCall" in p for p in model_turn["parts"])
