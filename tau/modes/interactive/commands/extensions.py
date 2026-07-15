@@ -92,9 +92,68 @@ def open_config_panel(ctx: CommandContext) -> None:
         except Exception:
             return False
 
-    all_entries = [_entry(e, "global") for e in global_list if not _is_builtin(e.path)] + [
-        _entry(e, "project") for e in project_list if not _is_builtin(e.path)
-    ]
+    def _builtin_entries() -> list[ConfigEntry]:
+        """Discover builtin extensions that declare a manifest-driven "enabled"
+        settings field, so they can be toggled from the same panel instead of
+        only through /settings.
+
+        Builtins without a manifest (e.g. footer/header — core UI, nothing to
+        configure) are skipped: there's no "enabled" concept to show or
+        toggle for them.
+        """
+        import json
+
+        from tau.settings.paths import get_app_name, get_builtins_dir
+
+        entries: list[ConfigEntry] = []
+        builtins_ext_dir = get_builtins_dir() / "extensions"
+        if not builtins_ext_dir.is_dir():
+            return entries
+
+        for subdir in sorted(builtins_ext_dir.iterdir(), key=lambda p: p.name):
+            if not subdir.is_dir() or subdir.name.startswith("_"):
+                continue
+            manifest = subdir / "manifest.json"
+            if not manifest.is_file():
+                continue
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            app = data.get(get_app_name().lower(), {})
+            fields = (app.get("settings") or {}).get("fields") or []
+            enabled_field = next((f for f in fields if f.get("key") == "enabled"), None)
+            if enabled_field is None:
+                continue
+
+            enabled = bool(enabled_field.get("default", True))
+            path_str = str(subdir)
+            # A persisted override lands in global settings, keyed by this
+            # exact absolute path — see SettingsManager.set_extension_config_key
+            # and ExtensionLoader._attach_manifest_panel.
+            for e in global_list:
+                if _is_builtin(e.path) and Path(e.path).expanduser().resolve() == subdir.resolve():
+                    if e.settings and "enabled" in e.settings:
+                        enabled = bool(e.settings["enabled"])
+                    break
+
+            entries.append(
+                ConfigEntry(
+                    path=path_str,
+                    name=app.get("name") or subdir.name,
+                    author=app.get("author"),
+                    path_display=_display(path_str),
+                    enabled=enabled,
+                    scope="builtin",
+                )
+            )
+        return entries
+
+    all_entries = (
+        [_entry(e, "global") for e in global_list if not _is_builtin(e.path)]
+        + [_entry(e, "project") for e in project_list if not _is_builtin(e.path)]
+        + _builtin_entries()
+    )
 
     if not all_entries:
         ctx.notify("No extensions configured. Add extension paths to settings first.")
@@ -104,7 +163,9 @@ def open_config_panel(ctx: CommandContext) -> None:
 
     def on_toggle(entry: ConfigEntry, enabled: bool) -> None:
         nonlocal changed
-        if entry.scope == "global":
+        if entry.scope == "builtin":
+            sm.set_extension_config_key(entry.path, "enabled", enabled)
+        elif entry.scope == "global":
             for ext in global_list:
                 if ext.path == entry.path:
                     ext.enabled = enabled

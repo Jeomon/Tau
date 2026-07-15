@@ -26,7 +26,7 @@ class ConfigEntry:
     path: str  # raw path key, used for toggling/matching
     name: str  # extension name or title
     enabled: bool
-    scope: Literal["global", "project"]
+    scope: Literal["global", "project", "builtin"]
     author: str | None = None
     path_display: str = ""  # pretty path shown in parentheses
 
@@ -210,7 +210,7 @@ class ConfigSelector(Component):
         """Return interleaved header + item entries for rendering."""
         flat: list[tuple[str, str | ConfigEntry]] = []
         current_scope: str | None = None
-        _SCOPE_LABELS = {"global": "Global", "project": "Project"}
+        _SCOPE_LABELS = {"global": "Global", "project": "Project", "builtin": "Builtin"}
         for entry in self._filtered:
             if entry.scope != current_scope:
                 current_scope = entry.scope
