@@ -100,11 +100,12 @@ class MessageList:
         self._live_streaming = False
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
+        self._at_bottom = True
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
         with ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"):
-            scroll_area = ui.scroll_area().classes("w-full h-full")
+            scroll_area = ui.scroll_area(on_scroll=self._on_scroll).classes("w-full h-full")
             with scroll_area:
                 self._container = ui.column().classes("w-full gap-4 pr-2")
             self.scroll_area = scroll_area
@@ -152,6 +153,20 @@ class MessageList:
 
         self._replay_history()
 
+    def _on_scroll(self, event: Any) -> None:
+        """Track whether new content should keep the transcript pinned to bottom."""
+        vertical_size = float(getattr(event, "vertical_size", 0) or 0)
+        container_size = float(getattr(event, "vertical_container_size", 0) or 0)
+        percentage = float(getattr(event, "vertical_percentage", 1) or 0)
+        self._at_bottom = vertical_size <= container_size or percentage >= 0.98
+
+    def _scroll_to_bottom(self, *, force: bool = False, animate: bool = False) -> None:
+        if self.scroll_area is None:
+            return
+        if not force and not self._at_bottom:
+            return
+        self.scroll_area.scroll_to(percent=1.0, duration=0.2 if animate else 0.0)
+
     def set_compact(self, compact: bool) -> None:
         """Tighten or restore vertical spacing between messages."""
         if self._container is None:
@@ -170,8 +185,8 @@ class MessageList:
         self._live_container = None
         self._live_message = None
         self._live_streaming = False
-        self._live_streaming = False
         self._live_tool_results = {}
+        self._at_bottom = True
         with (
             self._container,
             ui.column().classes("w-full h-[45vh] items-center justify-center gap-3"),
@@ -180,28 +195,39 @@ class MessageList:
             ui.label("Loading session...").classes("text-xs text-[var(--text-muted)]")
 
     def _append_message(
-        self, text: str, *, role: MessageRole, timestamp: float | None = None
+        self,
+        text: str,
+        *,
+        role: MessageRole,
+        timestamp: float | None = None,
+        auto_scroll: bool = True,
     ) -> RenderedMessage | None:
         """Append a chat bubble and return its markdown element."""
         if self._container is None:
             return None
 
+        should_scroll = self._at_bottom
         with self._container:
             rendered = MessageView(text, role=role, timestamp=timestamp).render()
 
         self._messages.append(rendered)
+        if auto_scroll and should_scroll:
+            self._scroll_to_bottom(force=True, animate=True)
         return rendered
 
     def _start_live_turn(self) -> None:
         """Open a fresh container for the in-progress assistant turn and render it."""
         if self._container is None:
             return
+        should_scroll = self._at_bottom
         with self._container:
             root = ui.column().classes("w-full gap-2")
         self._live_container = root
         self._messages.append(RenderedMessage(root=root, content=root))
         self._live_streaming = True
         self._rerender_live_turn()
+        if should_scroll:
+            self._scroll_to_bottom(force=True, animate=True)
 
     def _rerender_live_turn(self) -> None:
         """Redraw the in-progress (or just-finished) assistant turn's blocks.
@@ -212,6 +238,7 @@ class MessageList:
         """
         if self._live_container is None or self._live_message is None:
             return
+        should_scroll = self._at_bottom
         self._live_container.clear()
         with self._live_container:
             _render_assistant_blocks(
@@ -219,6 +246,8 @@ class MessageList:
                 self._live_tool_results,
                 streaming=self._live_streaming,
             )
+        if should_scroll:
+            self._scroll_to_bottom(force=True)
 
     def preview_session(self, session_file: Any) -> None:
         """Render a session file immediately without waiting for Runtime to switch."""
@@ -245,6 +274,7 @@ class MessageList:
         self._live_message = None
         self._live_streaming = False
         self._live_tool_results = {}
+        self._at_bottom = True
 
         manager = session_manager or self._runtime.session_manager
         context = manager.build_session_context()
@@ -259,8 +289,12 @@ class MessageList:
             text = _message_text(message)
             if text:
                 self._append_message(
-                    text, role="user", timestamp=getattr(message, "timestamp", None)
+                    text,
+                    role="user",
+                    timestamp=getattr(message, "timestamp", None),
+                    auto_scroll=False,
                 )
+        self._scroll_to_bottom(force=True)
 
     def _rollback_messages(self, count: int) -> None:
         """Remove recently appended message bubbles."""
