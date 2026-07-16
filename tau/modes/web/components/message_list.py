@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ _HOOK_NAMES = (
     "message_end",
     "message_rollback",
     "session_start",
+    "tool_execution_end",
 )
 
 
@@ -58,14 +60,32 @@ def _collect_tool_results(messages: Sequence[object]) -> dict[str, ToolResultCon
     return results
 
 
+def _render_assistant_blocks(message: AssistantMessage, tool_results: dict[str, ToolResultContent]) -> None:
+    """Render one assistant turn's text, thinking, and tool-call blocks in order.
+
+    Must be called inside a `with <container>:` block — used for both history
+    replay and live re-rendering of the in-progress turn.
+    """
+    for block in message.contents:
+        if isinstance(block, TextContent):
+            if block.content:
+                MessageView(block.content, role="assistant", timestamp=message.timestamp).render()
+        elif isinstance(block, ThinkingContent):
+            render_thinking_block(block)
+        elif isinstance(block, ToolCallContent):
+            render_tool_call_block(block, tool_results.get(block.id))
+
+
 class MessageList:
     """Chat transcript for the browser chat page."""
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
         self._messages: list[RenderedMessage] = []
-        self._assistant_message: RenderedMessage | None = None
         self._container: Any | None = None
+        self._live_container: Any | None = None
+        self._live_message: object | None = None
+        self._live_tool_results: dict[str, ToolResultContent] = {}
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
@@ -78,7 +98,7 @@ class MessageList:
         async def on_event(event: object) -> None:
             event_type = getattr(event, "type", "")
             if event_type == "input":
-                self._append_message(str(getattr(event, "text", "")), role="user")
+                self._append_message(str(getattr(event, "text", "")), role="user", timestamp=time.time())
                 return
             if event_type == "message_rollback":
                 self._rollback_messages(int(getattr(event, "count", 0)))
@@ -86,39 +106,61 @@ class MessageList:
             if event_type == "session_start":
                 self._replay_history()
                 return
+            if event_type == "tool_execution_end":
+                result = getattr(event, "tool_result", None)
+                if result is not None:
+                    self._live_tool_results[result.id] = result
+                self._rerender_live_turn()
+                return
 
-            message = getattr(event, "message", None)
-            text = _message_text(message)
             if event_type == "message_start":
-                self._assistant_message = self._append_message(text or "…", role="assistant")
+                self._live_message = getattr(event, "message", None)
+                self._start_live_turn()
                 return
             if event_type in {"message_update", "message_end"}:
-                self._update_assistant_message(text or "…")
-                if event_type == "message_end":
-                    self._assistant_message = None
+                self._live_message = getattr(event, "message", None)
+                self._rerender_live_turn()
 
         unsubs = [self._runtime.hooks.register(name, on_event) for name in _HOOK_NAMES]
         ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
 
         self._replay_history()
 
-    def _append_message(self, text: str, *, role: MessageRole) -> RenderedMessage | None:
+    def _append_message(
+        self, text: str, *, role: MessageRole, timestamp: float | None = None
+    ) -> RenderedMessage | None:
         """Append a chat bubble and return its markdown element."""
         if self._container is None:
             return None
 
         with self._container:
-            rendered = MessageView(text, role=role).render()
+            rendered = MessageView(text, role=role, timestamp=timestamp).render()
 
         self._messages.append(rendered)
         return rendered
 
-    def _update_assistant_message(self, text: str) -> None:
-        """Update the active assistant bubble, creating one if needed."""
-        if self._assistant_message is None:
-            self._assistant_message = self._append_message(text, role="assistant")
+    def _start_live_turn(self) -> None:
+        """Open a fresh container for the in-progress assistant turn and render it."""
+        if self._container is None:
             return
-        self._assistant_message.update_content(text)
+        with self._container:
+            root = ui.column().classes("w-full gap-2")
+        self._live_container = root
+        self._messages.append(RenderedMessage(root=root, content=root))
+        self._rerender_live_turn()
+
+    def _rerender_live_turn(self) -> None:
+        """Redraw the in-progress (or just-finished) assistant turn's blocks.
+
+        Called on every message_update/message_end, and again on
+        tool_execution_end so a tool call's result appears as soon as it's
+        available even though the turn that issued it has already closed.
+        """
+        if self._live_container is None or self._live_message is None:
+            return
+        self._live_container.clear()
+        with self._live_container:
+            _render_assistant_blocks(self._live_message, self._live_tool_results)  # type: ignore[arg-type]
 
     def _replay_history(self) -> None:
         """Clear the transcript and rebuild it from the (newly active) session."""
@@ -127,7 +169,9 @@ class MessageList:
 
         self._container.clear()
         self._messages = []
-        self._assistant_message = None
+        self._live_container = None
+        self._live_message = None
+        self._live_tool_results = {}
 
         context = self._runtime.session_manager.build_session_context()
         tool_results = _collect_tool_results(context.messages)
@@ -135,27 +179,12 @@ class MessageList:
             if not _is_chat_message(message):
                 continue
             if getattr(message, "role", None) == Role.ASSISTANT:
-                self._append_assistant_blocks(message, tool_results)  # type: ignore[arg-type]
+                with self._container:
+                    _render_assistant_blocks(message, tool_results)  # type: ignore[arg-type]
                 continue
             text = _message_text(message)
             if text:
-                self._append_message(text, role="user")
-
-    def _append_assistant_blocks(
-        self, message: AssistantMessage, tool_results: dict[str, ToolResultContent]
-    ) -> None:
-        """Render one assistant turn's text, thinking, and tool-call blocks in order."""
-        if self._container is None:
-            return
-        with self._container:
-            for block in message.contents:
-                if isinstance(block, TextContent):
-                    if block.content:
-                        MessageView(block.content, role="assistant").render()
-                elif isinstance(block, ThinkingContent):
-                    render_thinking_block(block)
-                elif isinstance(block, ToolCallContent):
-                    render_tool_call_block(block, tool_results.get(block.id))
+                self._append_message(text, role="user", timestamp=getattr(message, "timestamp", None))
 
     def _rollback_messages(self, count: int) -> None:
         """Remove recently appended message bubbles."""
@@ -163,4 +192,5 @@ class MessageList:
             if not self._messages:
                 return
             self._messages.pop().delete()
-        self._assistant_message = None
+        self._live_container = None
+        self._live_message = None

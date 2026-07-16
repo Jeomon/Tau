@@ -31,7 +31,7 @@ class InputSection:
                 .classes("flex-grow text-[var(--text)]")
                 .style("max-height: 200px")
             )
-            input_box.on("keydown.enter.prevent", send)
+            input_box.on("keydown.enter.exact.prevent", send)
             ui.button(on_click=send).props("unelevated icon=arrow_upward round").style(
                 "background: var(--accent) !important; color: #fff !important;"
                 " box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25) !important;"

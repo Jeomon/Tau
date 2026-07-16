@@ -21,20 +21,21 @@ CSS = """
     --user-bg: #eff6ff;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #1a1a1a;
-        --bg-panel: #242424;
-        --bg-hover: #2e2e2e;
-        --bg-selected: #383838;
-        --border: #3a3a3a;
-        --text: #e8e8e8;
-        --text-muted: #9ca3af;
-        --text-dim: #6b7280;
-        --accent: #60a5fa;
-        --accent-hover: #93c5fd;
-        --user-bg: #1e293b;
-    }
+/* Dark mode is toggled by NiceGUI's ui.dark_mode(), which adds .body--dark
+   to <body> (Quasar's Dark plugin) — not a prefers-color-scheme query, so a
+   manual toggle and the OS preference don't fight each other. */
+body.body--dark {
+    --bg: #1a1a1a;
+    --bg-panel: #242424;
+    --bg-hover: #2e2e2e;
+    --bg-selected: #383838;
+    --border: #3a3a3a;
+    --text: #e8e8e8;
+    --text-muted: #9ca3af;
+    --text-dim: #6b7280;
+    --accent: #60a5fa;
+    --accent-hover: #93c5fd;
+    --user-bg: #1e293b;
 }
 
 html, body {
@@ -53,6 +54,10 @@ html, body {
 
 pre, code {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
+}
+
+.tau-topbar {
+    border-bottom: 1px solid var(--border);
 }
 
 .nicegui-markdown pre {
@@ -111,6 +116,17 @@ pre, code {
     background: var(--bg-selected);
     border-left-color: var(--accent);
 }
+.tau-session-delete-btn {
+    color: var(--text-dim) !important;
+    opacity: 0;
+    transition: opacity 0.1s, color 0.12s;
+}
+.tau-session-row:hover .tau-session-delete-btn {
+    opacity: 1;
+}
+.tau-session-delete-btn:hover {
+    color: #ef4444 !important;
+}
 .tau-bubble-user {
     background: var(--user-bg);
     border: 1px solid var(--border);
@@ -163,5 +179,20 @@ pre, code {
 }
 .tau-tool-block .q-item__section {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
+}
+
+.tau-msg-meta {
+    min-height: 22px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.tau-msg-row:hover .tau-msg-meta {
+    opacity: 1;
+}
+.tau-msg-copy-btn {
+    color: var(--text-dim) !important;
+}
+.tau-msg-copy-btn:hover {
+    color: var(--accent) !important;
 }
 """

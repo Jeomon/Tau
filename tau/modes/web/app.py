@@ -53,7 +53,8 @@ class App:
     def _register_pages(self) -> None:
         @ui.page("/")
         def index() -> None:
-            ChatPage(self._runtime).render()
+            dark_mode = ui.dark_mode(value=False)
+            ChatPage(self._runtime, dark_mode=dark_mode).render()
 
 
 async def run_web(runtime: Runtime, host: str = "127.0.0.1", port: int = 8079) -> None:
