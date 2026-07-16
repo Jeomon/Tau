@@ -44,6 +44,13 @@ html, body {
     font-size: 14px;
 }
 
+/* NiceGUI's page container ships with 1rem padding/gap by default, which shows
+   up as a white border around the whole app since our layout wants edge-to-edge. */
+.nicegui-content {
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
 pre, code {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
 }
