@@ -86,14 +86,15 @@ class MessageList:
         self._live_container: Any | None = None
         self._live_message: object | None = None
         self._live_tool_results: dict[str, ToolResultContent] = {}
+        self.scroll_area: Any | None = None
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
-        with (
-            ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
-            ui.scroll_area().classes("w-full h-full"),
-        ):
-            self._container = ui.column().classes("w-full gap-4 pr-2")
+        with ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"):
+            scroll_area = ui.scroll_area().classes("w-full h-full")
+            with scroll_area:
+                self._container = ui.column().classes("w-full gap-4 pr-2")
+            self.scroll_area = scroll_area
 
         async def on_event(event: object) -> None:
             event_type = getattr(event, "type", "")
@@ -125,6 +126,15 @@ class MessageList:
         ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
 
         self._replay_history()
+
+    def set_compact(self, compact: bool) -> None:
+        """Tighten or restore vertical spacing between messages."""
+        if self._container is None:
+            return
+        if compact:
+            self._container.classes(remove="gap-4", add="gap-1")
+        else:
+            self._container.classes(remove="gap-1", add="gap-4")
 
     def _append_message(
         self, text: str, *, role: MessageRole, timestamp: float | None = None

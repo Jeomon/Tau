@@ -103,6 +103,45 @@ pre, code {
 .tau-file-viewer {
     border-top: 1px solid var(--border);
 }
+.tau-tab-bar {
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.tau-file-tab {
+    border-right: 1px solid var(--border);
+    background: transparent;
+}
+.tau-file-tab:hover {
+    background: var(--bg-hover);
+}
+.tau-file-tab.tau-active {
+    background: var(--bg);
+    border-bottom: 2px solid var(--accent);
+}
+.tau-file-tab-close {
+    color: var(--text-dim);
+    border-radius: 4px;
+}
+.tau-file-tab-close:hover {
+    color: var(--text);
+    background: var(--bg-selected);
+}
+
+.tau-minimap {
+    width: 52px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.tau-minimap-user {
+    background: var(--accent);
+    opacity: 0.6;
+}
+.tau-minimap-assistant {
+    background: var(--text-dim);
+}
+.tau-minimap-user:hover, .tau-minimap-assistant:hover {
+    opacity: 1;
+}
 
 .tau-settings-card {
     background: var(--bg) !important;

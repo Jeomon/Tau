@@ -46,9 +46,11 @@ class SessionTopBar:
         runtime: Runtime,
         *,
         on_toggle_files: Callable[[], None] | None = None,
+        on_open_branches: Callable[[], None] | None = None,
     ) -> None:
         self._runtime = runtime
         self._on_toggle_files = on_toggle_files
+        self._on_open_branches = on_open_branches
         self._model_label: Any | None = None
         self._context_label: Any | None = None
         self._cost_label: Any | None = None
@@ -59,6 +61,10 @@ class SessionTopBar:
             self._model_label = ui.label().classes("text-xs font-medium text-[var(--text-muted)]")
             self._context_label = ui.label().classes("text-xs text-[var(--text-dim)]")
             self._cost_label = ui.label().classes("text-xs text-[var(--text-dim)] ml-auto")
+            if self._on_open_branches is not None:
+                ui.button("Branches", icon="account_tree", on_click=self._on_open_branches).props(
+                    "flat no-caps dense"
+                ).classes("tau-footer-tab").style("color: var(--text-muted) !important;")
             if self._on_toggle_files is not None:
                 ui.button("Files", icon="folder_open", on_click=self._on_toggle_files).props(
                     "flat no-caps dense"

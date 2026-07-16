@@ -129,8 +129,11 @@ class FileExplorerPanel:
         self._root = runtime.session_manager.cwd
         self._panel: Any | None = None
         self._tree_container: Any | None = None
+        self._tab_bar_container: Any | None = None
         self._viewer_container: Any | None = None
         self._visible = False
+        self._open_tabs: list[Path] = []
+        self._active_tab: Path | None = None
 
     def render(self) -> None:
         """Render the (initially collapsed) panel."""
@@ -145,17 +148,21 @@ class FileExplorerPanel:
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                 ui.scroll_area().classes("w-full h-full"),
             ):
-                self._tree_container = ui.column().classes("w-full gap-0 p-1")
-            with (
-                ui.column().classes("w-full h-1/2 min-h-0 overflow-hidden tau-file-viewer"),
-                ui.scroll_area().classes("w-full h-full"),
-            ):
-                viewer = ui.column().classes("w-full gap-1 p-2")
-                with viewer:
-                    ui.label("Select a file to preview").classes(
-                        "text-xs text-[var(--text-dim)] px-1"
-                    )
-                self._viewer_container = viewer
+                self._tree_container = ui.column().classes("w-full min-w-0 items-stretch gap-0 p-1")
+            with ui.column().classes("w-full h-1/2 min-h-0 overflow-hidden tau-file-viewer"):
+                self._tab_bar_container = ui.row().classes(
+                    "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
+                )
+                with (
+                    ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
+                    ui.scroll_area().classes("w-full h-full"),
+                ):
+                    viewer = ui.column().classes("w-full gap-1 p-2")
+                    with viewer:
+                        ui.label("Select a file to preview").classes(
+                            "text-xs text-[var(--text-dim)] px-1"
+                        )
+                    self._viewer_container = viewer
         self._panel = panel
         self._refresh_tree()
 
@@ -181,19 +188,59 @@ class FileExplorerPanel:
             return
         path = Path(node_id)
         if path.is_file():
-            self._preview_file(path)
+            self._open_tab(path)
+
+    def _open_tab(self, path: Path) -> None:
+        """Open `path` as a tab (or switch to it if already open)."""
+        if path not in self._open_tabs:
+            self._open_tabs.append(path)
+        self._active_tab = path
+        self._render_tabs()
+        self._preview_file(path)
+
+    def _close_tab(self, path: Path) -> None:
+        if path not in self._open_tabs:
+            return
+        index = self._open_tabs.index(path)
+        self._open_tabs.remove(path)
+        if self._active_tab == path:
+            if self._open_tabs:
+                self._active_tab = self._open_tabs[min(index, len(self._open_tabs) - 1)]
+            else:
+                self._active_tab = None
+        self._render_tabs()
+        if self._active_tab is not None:
+            self._preview_file(self._active_tab)
+        else:
+            self._clear_viewer()
+
+    def _render_tabs(self) -> None:
+        if self._tab_bar_container is None:
+            return
+        self._tab_bar_container.clear()
+        with self._tab_bar_container:
+            for path in self._open_tabs:
+                is_active = path == self._active_tab
+                classes = "items-center gap-1 px-2 py-1 cursor-pointer tau-file-tab" + (
+                    " tau-active" if is_active else ""
+                )
+                with ui.row().classes(classes).on("click", lambda p=path: self._open_tab(p)):
+                    ui.label(path.name).classes("text-xs truncate max-w-[110px] text-[var(--text)]")
+                    close_btn = ui.icon("close").classes("text-xs tau-file-tab-close")
+                    close_btn.on("click.stop", lambda p=path: self._close_tab(p))
+
+    def _clear_viewer(self) -> None:
+        if self._viewer_container is None:
+            return
+        self._viewer_container.clear()
+        with self._viewer_container:
+            ui.label("Select a file to preview").classes("text-xs text-[var(--text-dim)] px-1")
 
     def _preview_file(self, path: Path) -> None:
         if self._viewer_container is None:
             return
         self._viewer_container.clear()
         with self._viewer_container:
-            try:
-                label = str(path.relative_to(self._root))
-            except ValueError:
-                label = str(path)
-            ui.label(label).classes("w-full truncate text-xs font-medium text-[var(--text)]")
-
             try:
                 raw = path.read_bytes()
             except OSError as e:
