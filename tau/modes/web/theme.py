@@ -92,6 +92,17 @@ pre, code {
     background: var(--bg-panel);
     border-right: 1px solid var(--border);
 }
+
+.tau-file-panel {
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: width 0.2s ease;
+}
+.tau-file-viewer {
+    border-top: 1px solid var(--border);
+}
 .tau-sidebar-header {
     border-bottom: 1px solid var(--border);
 }

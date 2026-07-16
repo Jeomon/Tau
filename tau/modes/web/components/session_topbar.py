@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -40,8 +41,9 @@ def _session_cost(runtime: Runtime) -> float:
 class SessionTopBar:
     """Slim header above the transcript: model, context usage, and running cost."""
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(self, runtime: Runtime, *, on_toggle_files: Callable[[], None] | None = None) -> None:
         self._runtime = runtime
+        self._on_toggle_files = on_toggle_files
         self._model_label: Any | None = None
         self._context_label: Any | None = None
         self._cost_label: Any | None = None
@@ -52,6 +54,10 @@ class SessionTopBar:
             self._model_label = ui.label().classes("text-xs font-medium text-[var(--text-muted)]")
             self._context_label = ui.label().classes("text-xs text-[var(--text-dim)]")
             self._cost_label = ui.label().classes("text-xs text-[var(--text-dim)] ml-auto")
+            if self._on_toggle_files is not None:
+                ui.button(icon="folder_open", on_click=self._on_toggle_files).props(
+                    "flat dense round size=sm"
+                ).style("color: var(--text-muted) !important;")
 
         self._refresh()
 
