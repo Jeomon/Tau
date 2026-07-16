@@ -62,7 +62,7 @@ class InputSection:
         async def on_agent_error(event: object) -> None:
             ui.notify(f"Error: {getattr(event, 'error', event)}", type="negative")
 
-        with ui.column().classes("w-full gap-1"):
+        with ui.column().classes("w-full gap-2"):
             with ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"):
                 input_box = (
                     ui.textarea(placeholder="Message Tau...")

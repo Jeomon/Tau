@@ -44,7 +44,7 @@ class ChatPage:
                 on_open_skills=skills_dialog.open,
                 on_open_plugins=plugins_dialog.open,
             ).render()
-            with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-4 px-6 py-4"):
+            with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-4 px-6 pt-4 pb-2"):
                 SessionTopBar(
                     self._runtime,
                     on_toggle_files=file_panel.toggle,
