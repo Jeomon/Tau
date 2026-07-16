@@ -12,9 +12,8 @@ from tau.modes.web.components.worktree_menu import WorktreeMenu
 from tau.session.manager import SessionManager
 
 if TYPE_CHECKING:
-    from tau.session.types import SessionInfo
-
     from tau.runtime.service import Runtime
+    from tau.session.types import SessionInfo
 
 
 def _humanize_age(dt: datetime) -> str:
@@ -108,10 +107,12 @@ class SessionSidebar:
                             " box-shadow: none !important;"
                         )
                 WorktreeMenu(self._runtime).render()
+
+            with ui.column().classes("w-full gap-1 px-3 py-2 tau-session-search-wrap"):
                 search_box = (
-                    ui.input(placeholder="Filter sessions…")
-                    .props("borderless dense clearable")
-                    .classes("w-full px-2 py-1 tau-project-path text-[var(--text)]")
+                    ui.input(placeholder="Search sessions")
+                    .props("borderless dense clearable append-icon=search")
+                    .classes("w-full tau-session-search text-[var(--text)]")
                 )
                 search_box.on_value_change(self._on_filter_change)
 
@@ -196,7 +197,8 @@ class SessionSidebar:
                 ui.button("Delete", on_click=lambda: self._confirm_delete(session.path)).props(
                     "unelevated dense"
                 ).style(
-                    "background: #ef4444 !important; color: #fff !important; box-shadow: none !important;"
+                    "background: #ef4444 !important; color: #fff !important;"
+                    " box-shadow: none !important;"
                 )
                 ui.button("Cancel", on_click=self._cancel_delete).props("flat dense").style(
                     "color: var(--text-muted) !important;"
@@ -211,11 +213,12 @@ class SessionSidebar:
                     .classes("flex-1 min-w-0 text-xs")
                 )
                 name_input.on(
-                    "keydown.enter", lambda: self._confirm_rename(session, name_input.value)
+                    "keydown.enter",
+                    lambda: self._confirm_rename_input(session, name_input),
                 )
                 name_input.on("keydown.escape", self._cancel_rename)
                 ui.button(
-                    icon="check", on_click=lambda: self._confirm_rename(session, name_input.value)
+                    icon="check", on_click=lambda: self._confirm_rename_input(session, name_input)
                 ).props("flat dense round size=sm").style("color: #16a34a !important;")
                 ui.button(icon="close", on_click=self._cancel_rename).props(
                     "flat dense round size=sm"
@@ -265,6 +268,9 @@ class SessionSidebar:
     def _cancel_rename(self) -> None:
         self._renaming_path = None
         self._refresh()
+
+    def _confirm_rename_input(self, session: SessionInfo, name_input: Any) -> None:
+        self._confirm_rename(session, str(name_input.value or ""))
 
     def _confirm_rename(self, session: SessionInfo, new_name: str) -> None:
         self._renaming_path = None

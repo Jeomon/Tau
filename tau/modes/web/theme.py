@@ -215,6 +215,25 @@ pre, code {
     border: 1px solid var(--border);
     border-radius: 7px;
 }
+.tau-session-search-wrap {
+    border-bottom: 1px solid var(--border);
+}
+.tau-session-search {
+    min-height: 34px !important;
+    padding: 0 10px !important;
+    color: var(--text);
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px !important;
+}
+.tau-session-search .q-field__control {
+    min-height: 32px !important;
+}
+.tau-session-search .q-field__native,
+.tau-session-search .q-field__append {
+    color: var(--text-muted) !important;
+}
 
 .tau-session-row {
     border-left: 2px solid transparent;
@@ -260,6 +279,34 @@ pre, code {
 .tau-composer textarea {
     font-size: 14px !important;
     line-height: 1.6 !important;
+}
+.tau-send-button {
+    width: 42px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    color: #fff !important;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.22) !important;
+    transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
+}
+.tau-send-button-idle {
+    background: var(--accent) !important;
+}
+.tau-send-button-idle:hover {
+    background: var(--accent-hover) !important;
+}
+.tau-send-button-disabled,
+.tau-send-button-disabled.q-btn--disabled {
+    background: var(--bg-selected) !important;
+    color: var(--text-dim) !important;
+    opacity: 1 !important;
+    box-shadow: none !important;
+}
+.tau-send-button-running {
+    background: #dc2626 !important;
+    box-shadow: 0 1px 3px rgba(220, 38, 38, 0.24) !important;
+}
+.tau-send-button-running:hover {
+    background: #b91c1c !important;
 }
 
 .tau-thinking-block, .tau-tool-block {

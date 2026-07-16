@@ -23,15 +23,25 @@ class InputSection:
         self._effort_button: Any | None = None
         self._effort_menu: Any | None = None
         self._compact_button: Any | None = None
+        self._send_button: Any | None = None
+        self._input_box: Any | None = None
+        self._is_running = False
 
     def render(self) -> None:
         """Render the prompt input, send button, and a footer of quick controls."""
 
         async def send() -> None:
+            if self._is_running:
+                agent = self._runtime.agent
+                if agent is not None:
+                    agent.abort()
+                self._refresh_send_button()
+                return
             value = input_box.value
             if not value or not value.strip():
                 return
             input_box.value = ""
+            self._refresh_send_button()
             await self._runtime.invoke(value)
 
         with ui.column().classes("w-full gap-1"):
@@ -43,10 +53,12 @@ class InputSection:
                     .style("max-height: 200px")
                 )
                 input_box.on("keydown.enter.exact.prevent", send)
-                ui.button(on_click=send).props("unelevated icon=arrow_upward round").style(
-                    "background: var(--accent) !important; color: #fff !important;"
-                    " box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25) !important;"
-                ).bind_enabled_from(input_box, "value", backward=lambda v: bool(v and v.strip()))
+                input_box.on_value_change(lambda _event: self._refresh_send_button())
+                self._input_box = input_box
+                self._send_button = (
+                    ui.button(on_click=send).props("unelevated round").classes("tau-send-button")
+                )
+                self._refresh_send_button()
 
             with ui.row().classes("items-center gap-1 px-1"):
                 effort_button = (
@@ -73,7 +85,42 @@ class InputSection:
             self._refresh_effort_control()
 
         unsub = self._runtime.hooks.register("model_select", on_model_select)
-        ui.context.client.on_disconnect(unsub)
+
+        async def on_agent_start(_event: object) -> None:
+            self._is_running = True
+            self._refresh_send_button()
+
+        async def on_agent_end(_event: object) -> None:
+            self._is_running = False
+            self._refresh_send_button()
+
+        agent_start_unsub = self._runtime.hooks.register("agent_start", on_agent_start)
+        agent_end_unsub = self._runtime.hooks.register("agent_end", on_agent_end)
+        ui.context.client.on_disconnect(lambda: [unsub(), agent_start_unsub(), agent_end_unsub()])
+
+    def _has_prompt_text(self) -> bool:
+        value = getattr(self._input_box, "value", None)
+        return bool(value and str(value).strip())
+
+    def _refresh_send_button(self) -> None:
+        if self._send_button is None:
+            return
+        if self._is_running:
+            self._send_button.props("icon=stop")
+            self._send_button.enable()
+            self._send_button.classes(remove="tau-send-button-idle tau-send-button-disabled")
+            self._send_button.classes(add="tau-send-button-running")
+            return
+
+        self._send_button.props("icon=arrow_upward")
+        if self._has_prompt_text():
+            self._send_button.enable()
+        else:
+            self._send_button.disable()
+        self._send_button.classes(remove="tau-send-button-running")
+        self._send_button.classes(
+            add="tau-send-button-idle" if self._has_prompt_text() else "tau-send-button-disabled"
+        )
 
     def _available_effort_levels(self) -> list[ThinkingLevel]:
         agent = self._runtime.agent
