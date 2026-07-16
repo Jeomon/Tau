@@ -25,14 +25,17 @@ class InputSection:
             await self._runtime.invoke(value)
 
         with (
-            ui.column().classes("w-full h-1/6 min-h-0 justify-end"),
-            ui.card().classes("w-full rounded-xl shadow-lg bg-white p-3"),
-            ui.row().classes("w-full items-center gap-3"),
+            ui.column().classes("w-full min-h-0 justify-end"),
+            ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"),
         ):
             input_box = (
-                ui.input(placeholder="Message Tau...")
-                .props("borderless dense")
-                .classes("flex-grow pl-3")
+                ui.textarea(placeholder="Message Tau...")
+                .props("borderless dense autogrow input-class=py-1")
+                .classes("flex-grow text-[var(--text)]")
+                .style("max-height: 200px")
             )
-            input_box.on("keydown.enter", send)
-            ui.button("Send", on_click=send).props("unelevated").classes("rounded-xl px-5")
+            input_box.on("keydown.enter.prevent", send)
+            ui.button(on_click=send).props("unelevated icon=arrow_upward round").style(
+                "background: var(--accent) !important; color: #fff !important;"
+                " box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25) !important;"
+            ).bind_enabled_from(input_box, "value", backward=lambda v: bool(v and v.strip()))

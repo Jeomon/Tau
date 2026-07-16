@@ -6,6 +6,7 @@ from nicegui import ui
 
 from tau.modes.web.components.input_section import InputSection
 from tau.modes.web.components.message_list import MessageList
+from tau.modes.web.components.session_sidebar import SessionSidebar
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -19,9 +20,8 @@ class ChatPage:
 
     def render(self) -> None:
         """Render the chat page into the current NiceGUI page context."""
-        with (
-            ui.column().classes("w-full h-[97vh] px-6 py-4"),
-            ui.column().classes("w-full max-w-5xl mx-auto flex-1 min-h-0 gap-4"),
-        ):
-            MessageList(self._runtime).render()
-            InputSection(self._runtime).render()
+        with ui.row().classes("w-full h-[100vh] gap-0"):
+            SessionSidebar(self._runtime).render()
+            with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-4 px-6 py-4"):
+                MessageList(self._runtime).render()
+                InputSection(self._runtime).render()

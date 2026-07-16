@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from nicegui import ui
 
+from tau.modes.web import theme
 from tau.modes.web.pages.chat import ChatPage
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ class App:
         of spinning up a second one.
         """
         self._register_pages()
+        ui.add_css(theme.CSS, shared=True)
         ui.run_with(self._fastapi_app, title="Tau", storage_secret="tau-web")
 
         config = uvicorn.Config(
@@ -51,7 +53,6 @@ class App:
     def _register_pages(self) -> None:
         @ui.page("/")
         def index() -> None:
-            ui.query("body").classes("bg-slate-50")
             ChatPage(self._runtime).render()
 
 
