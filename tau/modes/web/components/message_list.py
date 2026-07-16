@@ -20,6 +20,15 @@ if TYPE_CHECKING:
     from tau.message.types import AssistantMessage
     from tau.runtime.service import Runtime
 
+_PROGRAMMATIC_SCROLL_IGNORE_S = 0.7
+"""How long to ignore on_scroll events right after we trigger a scroll ourselves.
+
+q-scroll-area fires `scroll` for both user-driven and programmatic scrolling
+(including intermediate frames of an animated scroll_to), so without this
+window a single auto-scroll call could be misread as the user scrolling away
+and permanently disable auto-follow for the rest of the turn.
+"""
+
 _HOOK_NAMES = (
     "input",
     "message_start",
@@ -101,6 +110,7 @@ class MessageList:
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
         self._at_bottom = True
+        self._ignore_scroll_until = 0.0
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
@@ -113,6 +123,9 @@ class MessageList:
         async def on_event(event: object) -> None:
             event_type = getattr(event, "type", "")
             if event_type == "input":
+                # Sending a message means "follow the reply" — re-arm
+                # bottom-follow even if the user had scrolled away earlier.
+                self._at_bottom = True
                 self._append_message(
                     str(getattr(event, "text", "")), role="user", timestamp=time.time()
                 )
@@ -155,6 +168,12 @@ class MessageList:
 
     def _on_scroll(self, event: Any) -> None:
         """Track whether new content should keep the transcript pinned to bottom."""
+        if time.time() < self._ignore_scroll_until:
+            # This event was caused by our own scroll_to call, not the user —
+            # q-scroll-area fires `scroll` for animated programmatic scrolling
+            # too, and without this window a single auto-scroll call could be
+            # misread as the user scrolling away and disable auto-follow.
+            return
         vertical_size = float(getattr(event, "vertical_size", 0) or 0)
         container_size = float(getattr(event, "vertical_container_size", 0) or 0)
         percentage = float(getattr(event, "vertical_percentage", 1) or 0)
@@ -165,6 +184,7 @@ class MessageList:
             return
         if not force and not self._at_bottom:
             return
+        self._ignore_scroll_until = time.time() + _PROGRAMMATIC_SCROLL_IGNORE_S
         self.scroll_area.scroll_to(percent=1.0, duration=0.2 if animate else 0.0)
 
     def set_compact(self, compact: bool) -> None:
@@ -206,12 +226,11 @@ class MessageList:
         if self._container is None:
             return None
 
-        should_scroll = self._at_bottom
         with self._container:
             rendered = MessageView(text, role=role, timestamp=timestamp).render()
 
         self._messages.append(rendered)
-        if auto_scroll and should_scroll:
+        if auto_scroll:
             self._scroll_to_bottom(force=True, animate=True)
         return rendered
 
@@ -235,6 +254,8 @@ class MessageList:
         Called on every message_update/message_end, and again on
         tool_execution_end so a tool call's result appears as soon as it's
         available even though the turn that issued it has already closed.
+        Follows the transcript down to bottom as content streams in, as long
+        as the user hasn't scrolled away (`self._at_bottom`).
         """
         if self._live_container is None or self._live_message is None:
             return
