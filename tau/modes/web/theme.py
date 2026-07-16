@@ -188,6 +188,13 @@ pre, code {
     background: var(--bg-hover) !important;
     color: var(--text) !important;
 }
+.tau-model-tab .q-btn__content > span {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+}
 .tau-sidebar-footer-tab {
     height: 46px !important;
     min-height: 46px !important;

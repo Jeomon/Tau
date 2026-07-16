@@ -23,6 +23,10 @@ class InputSection:
         self._runtime = runtime
         self._on_toggle_compact = on_toggle_compact
         self._compact = False
+        self._model_button: Any | None = None
+        self._model_menu: Any | None = None
+        self._model_results: Any | None = None
+        self._model_query = ""
         self._effort_button: Any | None = None
         self._effort_menu: Any | None = None
         self._compact_button: Any | None = None
@@ -67,6 +71,28 @@ class InputSection:
                 self._refresh_send_button()
 
             with ui.row().classes("items-center gap-1 px-1"):
+                model_button = (
+                    ui.button(self._model_label(), icon="smart_toy")
+                    .props("flat no-caps dense")
+                    .classes("tau-footer-tab tau-model-tab")
+                    .style("color: var(--text-muted) !important;")
+                )
+                model_button.props(f'title="{self._model_label()}"')
+                with model_button, ui.menu().props("max-height=340px") as model_menu:
+                    self._model_menu = model_menu
+                    with ui.column().classes("gap-0 min-w-[260px]"):
+                        model_search = (
+                            ui.input(placeholder="Search models...")
+                            .props("dense borderless")
+                            .classes("px-3 pt-2 pb-1 text-xs")
+                        )
+                        model_search.on_value_change(
+                            lambda e: self._render_model_results(e.value or "")
+                        )
+                        self._model_results = ui.column().classes("gap-0 w-full")
+                    self._render_model_results("")
+                self._model_button = model_button
+
                 effort_button = (
                     ui.button(self._effort_label(), icon="tune")
                     .props("flat no-caps dense")
@@ -88,6 +114,7 @@ class InputSection:
                 self._compact_button = compact_button
 
         async def on_model_select(_event: object) -> None:
+            self._refresh_model_control()
             self._refresh_effort_control()
 
         unsub = self._runtime.hooks.register("model_select", on_model_select)
@@ -127,6 +154,89 @@ class InputSection:
         self._send_button.classes(
             add="tau-send-button-idle" if self._has_prompt_text() else "tau-send-button-disabled"
         )
+
+    def _current_model(self) -> Any | None:
+        agent = self._runtime.agent
+        if agent is None:
+            return None
+        return getattr(agent._engine.llm, "model", None)
+
+    def _model_label(self) -> str:
+        model = self._current_model()
+        if model is None:
+            return "Model"
+        return str(getattr(model, "name", None) or getattr(model, "id", "Model"))
+
+    def _available_models(self) -> list[Any]:
+        from tau.inference.api.text.service import TextLLM
+
+        try:
+            return TextLLM.list_available()
+        except Exception:
+            return []
+
+    def _render_model_results(self, query: str) -> None:
+        """(Re)populate the filtered model list without touching the search
+        box itself — it lives in a sibling container so retyping doesn't
+        rebuild (and steal focus from) the input on every keystroke."""
+        self._model_query = query
+        if self._model_results is None:
+            return
+        self._model_results.clear()
+        current = self._current_model()
+        current_key = (
+            f"{getattr(current, 'provider', '')}/{getattr(current, 'id', '')}"
+            if current is not None
+            else None
+        )
+        needle = query.strip().lower()
+        models = [
+            m
+            for m in self._available_models()
+            if not needle
+            or needle in m.id.lower()
+            or needle in m.name.lower()
+            or needle in m.provider.lower()
+        ]
+        models.sort(key=lambda m: (m.provider, m.name.lower()))
+        with self._model_results:
+            if not models:
+                ui.menu_item("No matching models").props("disable")
+                return
+            last_provider: str | None = None
+            for model in models:
+                if model.provider != last_provider:
+                    if last_provider is not None:
+                        ui.separator()
+                    ui.label(model.provider).classes(
+                        "px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--text-dim)]"
+                    )
+                    last_provider = model.provider
+                is_current = f"{model.provider}/{model.id}" == current_key
+                label = f"{'✓ ' if is_current else ''}{model.name}"
+                ui.menu_item(label, on_click=lambda _event, m=model: self._set_model(m))
+
+    def _refresh_model_control(self) -> None:
+        self._render_model_results(self._model_query)
+        if self._model_button is not None:
+            # Set via the props dict directly, not the `.props("k=v ...")`
+            # string form — that form splits on whitespace, so a multi-word
+            # value like "Claude Haiku 4.5" would truncate to "Claude".
+            label = self._model_label()
+            self._model_button.props["label"] = label
+            self._model_button.props["title"] = label
+
+    async def _set_model(self, model: Any) -> None:
+        if self._is_running:
+            ui.notify("Wait for the agent to finish before switching models", type="warning")
+            return
+        ok = await self._runtime.set_model(model.id, model.provider)
+        if ok:
+            ui.notify(f"Model set to {model.name}", type="positive")
+        else:
+            ui.notify(f"Could not switch to {model.name}", type="negative")
+        self._refresh_model_control()
+        self._refresh_effort_control()
 
     def _available_effort_levels(self) -> list[ThinkingLevel]:
         agent = self._runtime.agent
