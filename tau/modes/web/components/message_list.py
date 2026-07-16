@@ -26,6 +26,7 @@ _HOOK_NAMES = (
     "message_update",
     "message_end",
     "message_rollback",
+    "agent_end",
     "session_start",
     "tool_execution_end",
 )
@@ -62,7 +63,10 @@ def _collect_tool_results(messages: Sequence[object]) -> dict[str, ToolResultCon
 
 
 def _render_assistant_blocks(
-    message: AssistantMessage, tool_results: dict[str, ToolResultContent]
+    message: AssistantMessage,
+    tool_results: dict[str, ToolResultContent],
+    *,
+    streaming: bool = False,
 ) -> None:
     """Render one assistant turn's text, thinking, and tool-call blocks in order.
 
@@ -72,7 +76,12 @@ def _render_assistant_blocks(
     for block in message.contents:
         if isinstance(block, TextContent):
             if block.content:
-                MessageView(block.content, role="assistant", timestamp=message.timestamp).render()
+                MessageView(
+                    block.content,
+                    role="assistant",
+                    timestamp=message.timestamp,
+                    streaming=streaming,
+                ).render()
         elif isinstance(block, ThinkingContent):
             render_thinking_block(block)
         elif isinstance(block, ToolCallContent):
@@ -88,6 +97,7 @@ class MessageList:
         self._container: Any | None = None
         self._live_container: Any | None = None
         self._live_message: object | None = None
+        self._live_streaming = False
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
 
@@ -112,6 +122,10 @@ class MessageList:
             if event_type == "session_start":
                 self._replay_history()
                 return
+            if event_type == "agent_end":
+                self._live_streaming = False
+                self._rerender_live_turn()
+                return
             if event_type == "tool_execution_end":
                 result = getattr(event, "tool_result", None)
                 if result is not None:
@@ -121,10 +135,16 @@ class MessageList:
 
             if event_type == "message_start":
                 self._live_message = getattr(event, "message", None)
+                self._live_streaming = True
                 self._start_live_turn()
                 return
-            if event_type in {"message_update", "message_end"}:
+            if event_type == "message_update":
                 self._live_message = getattr(event, "message", None)
+                self._rerender_live_turn()
+                return
+            if event_type == "message_end":
+                self._live_message = getattr(event, "message", None)
+                self._live_streaming = False
                 self._rerender_live_turn()
 
         unsubs = [self._runtime.hooks.register(name, on_event) for name in _HOOK_NAMES]
@@ -149,6 +169,8 @@ class MessageList:
         self._messages = []
         self._live_container = None
         self._live_message = None
+        self._live_streaming = False
+        self._live_streaming = False
         self._live_tool_results = {}
         with (
             self._container,
@@ -178,6 +200,7 @@ class MessageList:
             root = ui.column().classes("w-full gap-2")
         self._live_container = root
         self._messages.append(RenderedMessage(root=root, content=root))
+        self._live_streaming = True
         self._rerender_live_turn()
 
     def _rerender_live_turn(self) -> None:
@@ -191,7 +214,11 @@ class MessageList:
             return
         self._live_container.clear()
         with self._live_container:
-            _render_assistant_blocks(self._live_message, self._live_tool_results)  # type: ignore[arg-type]
+            _render_assistant_blocks(
+                self._live_message,  # type: ignore[arg-type]
+                self._live_tool_results,
+                streaming=self._live_streaming,
+            )
 
     def preview_session(self, session_file: Any) -> None:
         """Render a session file immediately without waiting for Runtime to switch."""
@@ -216,6 +243,7 @@ class MessageList:
         self._messages = []
         self._live_container = None
         self._live_message = None
+        self._live_streaming = False
         self._live_tool_results = {}
 
         manager = session_manager or self._runtime.session_manager
