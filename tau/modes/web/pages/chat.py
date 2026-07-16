@@ -34,9 +34,12 @@ class ChatPage:
             skills_dialog = SkillsDialog()
             plugins_dialog = PluginsDialog(self._runtime)
             branch_dialog = BranchNavigatorDialog(self._runtime)
+            message_list = MessageList(self._runtime)
             SessionSidebar(
                 self._runtime,
                 dark_mode=self._dark_mode,
+                on_session_loading=message_list.show_loading,
+                on_preview_session=message_list.preview_session,
                 on_open_settings=settings_dialog.open,
                 on_open_skills=skills_dialog.open,
                 on_open_plugins=plugins_dialog.open,
@@ -47,7 +50,6 @@ class ChatPage:
                     on_toggle_files=file_panel.toggle,
                     on_open_branches=branch_dialog.open,
                 ).render()
-                message_list = MessageList(self._runtime)
                 with ui.row().classes("w-full flex-1 min-h-0 gap-1"):
                     with ui.column().classes("flex-1 min-w-0 h-full min-h-0"):
                         message_list.render()

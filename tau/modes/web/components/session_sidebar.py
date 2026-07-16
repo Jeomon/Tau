@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -67,12 +68,16 @@ class SessionSidebar:
         runtime: Runtime,
         *,
         dark_mode: ui.dark_mode,
+        on_session_loading: Callable[[], None] | None = None,
+        on_preview_session: Callable[[Path], None] | None = None,
         on_open_settings: Callable[[], None] | None = None,
         on_open_skills: Callable[[], None] | None = None,
         on_open_plugins: Callable[[], None] | None = None,
     ) -> None:
         self._runtime = runtime
         self._dark_mode = dark_mode
+        self._on_session_loading = on_session_loading
+        self._on_preview_session = on_preview_session
         self._on_open_settings = on_open_settings
         self._on_open_skills = on_open_skills
         self._on_open_plugins = on_open_plugins
@@ -81,6 +86,7 @@ class SessionSidebar:
         self._filter_text = ""
         self._confirming_delete: Path | None = None
         self._renaming_path: Path | None = None
+        self._pending_session_path: Path | None = None
 
     def render(self) -> None:
         """Render the sidebar and subscribe it to session-lifecycle events."""
@@ -146,6 +152,7 @@ class SessionSidebar:
 
         async def on_session_start(event: object) -> None:
             del event
+            self._pending_session_path = None
             self._refresh()
 
         unsub = self._runtime.hooks.register("session_start", on_session_start)
@@ -170,7 +177,7 @@ class SessionSidebar:
         if self._list_container is None:
             return
         cwd = self._runtime.session_manager.cwd
-        current_file = self._runtime.session_manager.session_file
+        current_file = self._pending_session_path or self._runtime.session_manager.session_file
         sessions = SessionManager.list(cwd)
         if self._filter_text:
             sessions = [s for s in sessions if self._filter_text in _session_label(s).lower()]
@@ -187,6 +194,13 @@ class SessionSidebar:
 
         async def switch() -> None:
             if not active:
+                self._pending_session_path = session.path
+                self._refresh()
+                if self._on_session_loading is not None:
+                    self._on_session_loading()
+                await asyncio.sleep(0.01)
+                if self._on_preview_session is not None:
+                    self._on_preview_session(session.path)
                 await self._runtime.resume_session(session.path)
 
         if self._confirming_delete == session.path:

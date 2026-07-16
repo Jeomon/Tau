@@ -14,6 +14,7 @@ from tau.modes.web.components.message_view import (
     render_thinking_block,
     render_tool_call_block,
 )
+from tau.session.manager import SessionManager
 
 if TYPE_CHECKING:
     from tau.message.types import AssistantMessage
@@ -44,7 +45,7 @@ def _message_text(message: object) -> str:
 
 
 def _is_chat_message(message: object) -> bool:
-    """True for plain user/assistant turns; false for tool calls, results, and other bookkeeping entries."""
+    """True for user/assistant turns; false for tools and bookkeeping entries."""
     return getattr(message, "role", None) in {Role.USER, Role.ASSISTANT}
 
 
@@ -60,7 +61,9 @@ def _collect_tool_results(messages: Sequence[object]) -> dict[str, ToolResultCon
     return results
 
 
-def _render_assistant_blocks(message: AssistantMessage, tool_results: dict[str, ToolResultContent]) -> None:
+def _render_assistant_blocks(
+    message: AssistantMessage, tool_results: dict[str, ToolResultContent]
+) -> None:
     """Render one assistant turn's text, thinking, and tool-call blocks in order.
 
     Must be called inside a `with <container>:` block — used for both history
@@ -99,7 +102,9 @@ class MessageList:
         async def on_event(event: object) -> None:
             event_type = getattr(event, "type", "")
             if event_type == "input":
-                self._append_message(str(getattr(event, "text", "")), role="user", timestamp=time.time())
+                self._append_message(
+                    str(getattr(event, "text", "")), role="user", timestamp=time.time()
+                )
                 return
             if event_type == "message_rollback":
                 self._rollback_messages(int(getattr(event, "count", 0)))
@@ -135,6 +140,22 @@ class MessageList:
             self._container.classes(remove="gap-4", add="gap-1")
         else:
             self._container.classes(remove="gap-1", add="gap-4")
+
+    def show_loading(self) -> None:
+        """Show immediate feedback while another session is being loaded."""
+        if self._container is None:
+            return
+        self._container.clear()
+        self._messages = []
+        self._live_container = None
+        self._live_message = None
+        self._live_tool_results = {}
+        with (
+            self._container,
+            ui.column().classes("w-full h-[45vh] items-center justify-center gap-3"),
+        ):
+            ui.spinner(size="lg").style("color: var(--text-muted) !important;")
+            ui.label("Loading session...").classes("text-xs text-[var(--text-muted)]")
 
     def _append_message(
         self, text: str, *, role: MessageRole, timestamp: float | None = None
@@ -172,7 +193,21 @@ class MessageList:
         with self._live_container:
             _render_assistant_blocks(self._live_message, self._live_tool_results)  # type: ignore[arg-type]
 
-    def _replay_history(self) -> None:
+    def preview_session(self, session_file: Any) -> None:
+        """Render a session file immediately without waiting for Runtime to switch."""
+        try:
+            manager = SessionManager(
+                self._runtime.session_manager.cwd,
+                session_dir=self._runtime.session_manager.session_dir,
+                session_file=session_file,
+                persist=False,
+            )
+        except Exception:
+            self.show_loading()
+            return
+        self._replay_history(manager)
+
+    def _replay_history(self, session_manager: SessionManager | None = None) -> None:
         """Clear the transcript and rebuild it from the (newly active) session."""
         if self._container is None:
             return
@@ -183,7 +218,8 @@ class MessageList:
         self._live_message = None
         self._live_tool_results = {}
 
-        context = self._runtime.session_manager.build_session_context()
+        manager = session_manager or self._runtime.session_manager
+        context = manager.build_session_context()
         tool_results = _collect_tool_results(context.messages)
         for message in context.messages:
             if not _is_chat_message(message):
@@ -194,7 +230,9 @@ class MessageList:
                 continue
             text = _message_text(message)
             if text:
-                self._append_message(text, role="user", timestamp=getattr(message, "timestamp", None))
+                self._append_message(
+                    text, role="user", timestamp=getattr(message, "timestamp", None)
+                )
 
     def _rollback_messages(self, count: int) -> None:
         """Remove recently appended message bubbles."""
