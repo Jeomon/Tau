@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from tau.runtime.service import Runtime
 
 
+_SUBMIT_ON_ENTER_JS = "(event) => { if (!event.shiftKey) { event.preventDefault(); emit(); } }"
+
+
 class InputSection:
     """Prompt input controls for the browser chat page."""
 
@@ -49,10 +52,13 @@ class InputSection:
                 input_box = (
                     ui.textarea(placeholder="Message Tau...")
                     .props("borderless dense autogrow input-class=py-1")
-                    .classes("flex-grow text-[var(--text)]")
-                    .style("max-height: 200px")
+                    .classes("flex-grow text-[var(--text)] tau-composer-input")
                 )
-                input_box.on("keydown.enter.exact.prevent", send)
+                input_box.on(
+                    "keydown.enter",
+                    send,
+                    js_handler=_SUBMIT_ON_ENTER_JS,
+                )
                 input_box.on_value_change(lambda _event: self._refresh_send_button())
                 self._input_box = input_box
                 self._send_button = (

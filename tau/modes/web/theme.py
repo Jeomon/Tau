@@ -280,6 +280,15 @@ pre, code {
     font-size: 14px !important;
     line-height: 1.6 !important;
 }
+.tau-composer-input .q-field__control {
+    min-height: 36px !important;
+}
+.tau-composer-input .q-field__native {
+    max-height: 168px !important;
+    overflow-y: auto !important;
+    resize: none !important;
+    scrollbar-width: thin;
+}
 .tau-send-button {
     width: 42px !important;
     height: 42px !important;
