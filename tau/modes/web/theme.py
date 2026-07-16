@@ -84,16 +84,46 @@ pre, code {
 }
 .nicegui-markdown table {
     display: block;
+    width: fit-content;
     overflow-x: auto;
     max-width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
 }
 .nicegui-markdown th, .nicegui-markdown td {
-    border: 1px solid var(--border);
+    /* Something upstream (NiceGUI/Quasar's base table styling) already gives
+       cells a border on all four sides. Zero out top/left explicitly so it
+       doesn't stack with the table's own outer border there — right/bottom
+       are overridden to a real 1px below, which incidentally fixes the same
+       doubling on those two sides too. */
+    border-top: none;
+    border-left: none;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     padding: 6px 10px;
+}
+.nicegui-markdown th:last-child, .nicegui-markdown td:last-child {
+    border-right: none;
+}
+.nicegui-markdown tr:last-child td {
+    border-bottom: none;
 }
 .nicegui-markdown th {
     background: var(--bg-panel);
+}
+.nicegui-markdown tr:first-child th:first-child {
+    border-top-left-radius: 7px;
+}
+.nicegui-markdown tr:first-child th:last-child {
+    border-top-right-radius: 7px;
+}
+.nicegui-markdown tr:last-child td:first-child {
+    border-bottom-left-radius: 7px;
+}
+.nicegui-markdown tr:last-child td:last-child {
+    border-bottom-right-radius: 7px;
 }
 
 .tau-sidebar {
