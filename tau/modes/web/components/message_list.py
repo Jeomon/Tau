@@ -27,6 +27,7 @@ _HOOK_NAMES = (
     "message_end",
     "message_rollback",
     "agent_end",
+    "agent_error",
     "session_start",
     "tool_execution_end",
 )
@@ -129,6 +130,16 @@ class MessageList:
             if event_type == "agent_end":
                 self._live_streaming = False
                 self._rerender_live_turn()
+                return
+            if event_type == "agent_error":
+                # A turn can fail before any content streams (e.g. every
+                # transient-error retry inside TextLLM exhausted) — in that
+                # case message_start never fires, so without this the
+                # transcript just silently stops with no explanation and
+                # looks hung. Mirrors the TUI surfacing this via its spinner.
+                self._live_streaming = False
+                error_text = str(getattr(event, "error", "") or "Unknown error")
+                self._append_error(error_text)
                 return
             if event_type == "tool_execution_end":
                 result = getattr(event, "tool_result", None)
@@ -259,6 +270,18 @@ class MessageList:
 
         self._messages.append(rendered)
         return rendered
+
+    def _append_error(self, text: str) -> None:
+        """Append a visible error notice, distinct from a normal chat bubble."""
+        if self._container is None:
+            return
+        with self._container:
+            root = ui.row().classes("w-full items-start gap-2 px-3 py-2 tau-tool-error rounded-lg")
+            with root:
+                ui.icon("error_outline").classes("text-[#f87171]").style("font-size: 18px;")
+                ui.markdown(text).classes("text-xs text-[#f87171] whitespace-pre-wrap flex-1")
+        self._messages.append(RenderedMessage(root=root, content=root))
+        self._client_scroll_to_bottom(smooth=True)
 
     def _start_live_turn(self) -> None:
         """Open a fresh container for the in-progress assistant turn and render it."""

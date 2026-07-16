@@ -47,7 +47,20 @@ class InputSection:
                 return
             input_box.value = ""
             self._refresh_send_button()
-            await self._runtime.invoke(value)
+            try:
+                await self._runtime.invoke(value)
+            except Exception as exc:
+                # Runtime.invoke() re-raises when the turn fails outright (e.g.
+                # every transient-error retry inside TextLLM is exhausted). If
+                # that happens before any content streamed, message_start never
+                # fires and nothing tells the transcript the turn is over —
+                # the UI just sits there looking hung. Mirrors the TUI's
+                # input_handler._invoke, which catches this and surfaces it
+                # instead of leaving the spinner running forever.
+                ui.notify(f"Error: {exc}", type="negative")
+
+        async def on_agent_error(event: object) -> None:
+            ui.notify(f"Error: {getattr(event, 'error', event)}", type="negative")
 
         with ui.column().classes("w-full gap-1"):
             with ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"):
@@ -138,6 +151,7 @@ class InputSection:
 
         agent_start_unsub = self._runtime.hooks.register("agent_start", on_agent_start)
         agent_end_unsub = self._runtime.hooks.register("agent_end", on_agent_end)
+        agent_error_unsub = self._runtime.hooks.register("agent_error", on_agent_error)
 
         async def on_compaction_start(_event: object) -> None:
             self._is_compacting = True
@@ -166,7 +180,13 @@ class InputSection:
         ]
 
         ui.context.client.on_disconnect(
-            lambda: [unsub(), agent_start_unsub(), agent_end_unsub(), *(u() for u in compaction_unsubs)]
+            lambda: [
+                unsub(),
+                agent_start_unsub(),
+                agent_end_unsub(),
+                agent_error_unsub(),
+                *(u() for u in compaction_unsubs),
+            ]
         )
 
     def _has_prompt_text(self) -> bool:
