@@ -90,7 +90,7 @@ pre, code {
     border-collapse: separate;
     border-spacing: 0;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 6px;
 }
 .nicegui-markdown th, .nicegui-markdown td {
     /* Something upstream (NiceGUI/Quasar's base table styling) already gives
@@ -114,16 +114,16 @@ pre, code {
     background: var(--bg-panel);
 }
 .nicegui-markdown tr:first-child th:first-child {
-    border-top-left-radius: 7px;
+    border-top-left-radius: 5px;
 }
 .nicegui-markdown tr:first-child th:last-child {
-    border-top-right-radius: 7px;
+    border-top-right-radius: 5px;
 }
 .nicegui-markdown tr:last-child td:first-child {
-    border-bottom-left-radius: 7px;
+    border-bottom-left-radius: 5px;
 }
 .nicegui-markdown tr:last-child td:last-child {
-    border-bottom-right-radius: 7px;
+    border-bottom-right-radius: 5px;
 }
 
 .tau-sidebar {
