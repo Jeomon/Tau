@@ -20,7 +20,7 @@ class ChatPage:
     def render(self) -> None:
         """Render the chat page into the current NiceGUI page context."""
         with (
-            ui.column().classes("w-full h-screen px-6 py-4"),
+            ui.column().classes("w-full h-[97vh] px-6 py-4"),
             ui.column().classes("w-full max-w-5xl mx-auto flex-1 min-h-0 gap-4"),
         ):
             MessageList(self._runtime).render()
