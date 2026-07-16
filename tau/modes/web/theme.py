@@ -103,8 +103,34 @@ pre, code {
 .tau-file-viewer {
     border-top: 1px solid var(--border);
 }
+
+.tau-settings-card {
+    background: var(--bg) !important;
+    color: var(--text) !important;
+}
 .tau-sidebar-header {
     border-bottom: 1px solid var(--border);
+}
+/* NiceGUI's scroll-area content defaults to align-items:flex-start, so rows
+   shrink-to-fit their own content instead of stretching to the sidebar's
+   width — a long session title then widens the whole list instead of
+   ellipsis-truncating, and the sidebar scrolls horizontally. */
+.tau-sidebar-scroll .q-scrollarea__content {
+    align-items: stretch !important;
+    max-width: 100%;
+}
+.tau-sidebar-footer {
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.tau-footer-tab {
+    border-radius: 0 !important;
+    color: var(--text-muted) !important;
+    padding: 10px 0 !important;
+}
+.tau-footer-tab:hover {
+    background: var(--bg-hover) !important;
+    color: var(--text) !important;
 }
 .tau-project-path {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;

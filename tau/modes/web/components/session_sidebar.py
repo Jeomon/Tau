@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from nicegui import ui
 
 from tau.modes.interactive.components.session_selector import _cleanup_session_media
+from tau.modes.web.components.worktree_menu import WorktreeMenu
 from tau.session.manager import SessionManager
 
 if TYPE_CHECKING:
@@ -22,25 +24,57 @@ def _humanize_age(dt: datetime) -> str:
     return arrow.get(dt).humanize(arrow.get(datetime.now()))
 
 
-def _session_label(session: SessionInfo) -> str:
-    return session.name or session.id[:12]
+def _first_message_snippet(path: Path, max_chars: int = 50) -> str | None:
+    """Best-effort peek at the first user message's text, for a session-list fallback title.
 
+    Bounded to the first ~60 lines so this stays cheap even though it's called
+    per row on every sidebar refresh — the first user turn always lands there,
+    right after the header and a handful of bookkeeping entries.
+    """
+    import json
 
-def _shorten_path(path: Path) -> str:
-    """Abbreviate a cwd under the user's home directory, e.g. '~/code/tau'."""
-    home = Path.home()
     try:
-        return "~/" + str(path.relative_to(home))
-    except ValueError:
-        return str(path)
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for _ in range(60):
+                line = fh.readline()
+                if not line:
+                    break
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                message = obj.get("message")
+                if not isinstance(message, dict) or message.get("role") != "user":
+                    continue
+                for block in message.get("contents", []):
+                    text = block.get("content") if block.get("type") == "text" else None
+                    if text:
+                        text = " ".join(text.split())
+                        return text[:max_chars] + ("…" if len(text) > max_chars else "")
+    except OSError:
+        pass
+    return None
+
+
+def _session_label(session: SessionInfo) -> str:
+    return session.name or _first_message_snippet(session.path) or session.id[:12]
 
 
 class SessionSidebar:
     """Session list and switcher for the browser chat page."""
 
-    def __init__(self, runtime: Runtime, *, dark_mode: ui.dark_mode) -> None:
+    def __init__(
+        self,
+        runtime: Runtime,
+        *,
+        dark_mode: ui.dark_mode,
+        on_open_settings: Callable[[], None] | None = None,
+        on_open_skills: Callable[[], None] | None = None,
+    ) -> None:
         self._runtime = runtime
         self._dark_mode = dark_mode
+        self._on_open_settings = on_open_settings
+        self._on_open_skills = on_open_skills
         self._list_container: Any | None = None
         self._theme_button: Any | None = None
         self._filter_text = ""
@@ -48,8 +82,6 @@ class SessionSidebar:
 
     def render(self) -> None:
         """Render the sidebar and subscribe it to session-lifecycle events."""
-        cwd = self._runtime.session_manager.cwd
-
         with ui.column().classes("w-[260px] h-full min-h-0 gap-0 tau-sidebar"):
             with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
                 with ui.row().classes("w-full items-center justify-between"):
@@ -71,9 +103,7 @@ class SessionSidebar:
                             " color: var(--text-muted) !important;"
                             " box-shadow: none !important;"
                         )
-                ui.label(_shorten_path(cwd)).classes(
-                    "w-full truncate px-2 py-1 tau-project-path"
-                )
+                WorktreeMenu(self._runtime).render()
                 search_box = (
                     ui.input(placeholder="Filter sessions…")
                     .props("borderless dense clearable")
@@ -83,9 +113,19 @@ class SessionSidebar:
 
             with (
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
-                ui.scroll_area().classes("w-full h-full"),
+                ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
             ):
-                self._list_container = ui.column().classes("w-full gap-0")
+                self._list_container = ui.column().classes("w-full min-w-0 gap-0")
+
+            with ui.row().classes("w-full gap-0 tau-sidebar-footer"):
+                if self._on_open_settings is not None:
+                    ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
+                        "flat no-caps"
+                    ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
+                if self._on_open_skills is not None:
+                    ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
+                        "flat no-caps"
+                    ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
 
         self._refresh()
 
@@ -148,9 +188,9 @@ class SessionSidebar:
             return
 
         with ui.row().classes(classes).on("click", switch):
-            with ui.column().classes("flex-1 min-w-0 gap-0"):
+            with ui.column().classes("flex-1 min-w-0 items-stretch gap-0"):
                 ui.label(_session_label(session)).classes(
-                    "text-xs font-medium truncate text-[var(--text)]"
+                    "w-full min-w-0 truncate text-xs font-medium text-[var(--text)]"
                 )
                 with ui.row().classes("w-full gap-2 text-[11px] text-[var(--text-dim)]"):
                     ui.label(_humanize_age(session.modified))

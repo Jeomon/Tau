@@ -41,7 +41,12 @@ def _session_cost(runtime: Runtime) -> float:
 class SessionTopBar:
     """Slim header above the transcript: model, context usage, and running cost."""
 
-    def __init__(self, runtime: Runtime, *, on_toggle_files: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        runtime: Runtime,
+        *,
+        on_toggle_files: Callable[[], None] | None = None,
+    ) -> None:
         self._runtime = runtime
         self._on_toggle_files = on_toggle_files
         self._model_label: Any | None = None
@@ -55,19 +60,19 @@ class SessionTopBar:
             self._context_label = ui.label().classes("text-xs text-[var(--text-dim)]")
             self._cost_label = ui.label().classes("text-xs text-[var(--text-dim)] ml-auto")
             if self._on_toggle_files is not None:
-                ui.button(icon="folder_open", on_click=self._on_toggle_files).props(
-                    "flat dense round size=sm"
+                ui.button("Files", icon="folder_open", on_click=self._on_toggle_files).props(
+                    "flat no-caps dense"
                 ).style("color: var(--text-muted) !important;")
 
         self._refresh()
 
         async def on_event(event: object) -> None:
-            if getattr(event, "type", "") in {"session_start", "message_end"}:
+            if getattr(event, "type", "") in {"session_start", "message_end", "model_select"}:
                 self._refresh()
 
         unsubs = [
             self._runtime.hooks.register(name, on_event)
-            for name in ("session_start", "message_end")
+            for name in ("session_start", "message_end", "model_select")
         ]
         ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
 

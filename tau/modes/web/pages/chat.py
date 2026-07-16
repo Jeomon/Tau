@@ -9,6 +9,8 @@ from tau.modes.web.components.input_section import InputSection
 from tau.modes.web.components.message_list import MessageList
 from tau.modes.web.components.session_sidebar import SessionSidebar
 from tau.modes.web.components.session_topbar import SessionTopBar
+from tau.modes.web.components.settings_dialog import SettingsDialog
+from tau.modes.web.components.skills_dialog import SkillsDialog
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -24,10 +26,19 @@ class ChatPage:
     def render(self) -> None:
         """Render the chat page into the current NiceGUI page context."""
         with ui.row().classes("w-full h-[100vh] gap-0"):
-            SessionSidebar(self._runtime, dark_mode=self._dark_mode).render()
             file_panel = FileExplorerPanel(self._runtime)
+            settings_dialog = SettingsDialog(self._runtime)
+            skills_dialog = SkillsDialog()
+            SessionSidebar(
+                self._runtime,
+                dark_mode=self._dark_mode,
+                on_open_settings=settings_dialog.open,
+                on_open_skills=skills_dialog.open,
+            ).render()
             with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-4 px-6 py-4"):
                 SessionTopBar(self._runtime, on_toggle_files=file_panel.toggle).render()
                 MessageList(self._runtime).render()
                 InputSection(self._runtime).render()
             file_panel.render()
+            settings_dialog.render()
+            skills_dialog.render()

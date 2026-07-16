@@ -879,6 +879,36 @@ class Runtime:
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.Resume)
 
+    async def switch_worktree(self, cwd: Path) -> bool:
+        """Shut down the current session and restart fresh, rooted at a different directory.
+
+        Unlike new_session()/resume_session(), which intentionally reuse the existing
+        SettingsManager because they stay within the same project, this passes
+        settings_manager=None so RuntimeContext.create() rebuilds settings (and
+        re-runs the project-trust check) from scratch for the new cwd — a git
+        worktree is a distinct working directory even when it shares history
+        with the current one.
+        """
+        cwd = Path(cwd).resolve()
+        if not cwd.is_dir():
+            return False
+
+        await self._emit_session_shutdown(SessionShutdownReason.New)
+        self._extension_generation += 1
+        self._config = self._config.model_copy(
+            update={"cwd": cwd, "session_file": None, "resume": False, "project_trusted": None}
+        )
+        self._context = await RuntimeContext.create(
+            self._config,
+            settings_manager=None,
+            hooks=self.hooks,
+            ext_runtime=self.extension_runtime,
+        )
+        self._reinit_after_context_create()
+        await self._run_with_session(None)
+        await self._emit_session_start(SessionStartReason.New)
+        return True
+
     async def navigate_tree(
         self,
         target_id: str,
