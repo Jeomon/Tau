@@ -54,7 +54,7 @@ class ChatPage:
                     with ui.column().classes("flex-1 min-w-0 h-full min-h-0"):
                         message_list.render()
                     ChatMinimap(self._runtime, message_list).render()
-                InputSection(self._runtime, on_toggle_compact=message_list.set_compact).render()
+                InputSection(self._runtime).render()
             file_panel.render()
             settings_dialog.render()
             skills_dialog.render()

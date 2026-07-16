@@ -221,15 +221,6 @@ class MessageList:
             """
         )
 
-    def set_compact(self, compact: bool) -> None:
-        """Tighten or restore vertical spacing between messages."""
-        if self._container is None:
-            return
-        if compact:
-            self._container.classes(remove="gap-4", add="gap-1")
-        else:
-            self._container.classes(remove="gap-1", add="gap-4")
-
     def show_loading(self) -> None:
         """Show immediate feedback while another session is being loaded."""
         if self._container is None:

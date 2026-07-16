@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -17,19 +16,18 @@ _SUBMIT_ON_ENTER_JS = "(event) => { if (!event.shiftKey) { event.preventDefault(
 class InputSection:
     """Prompt input controls for the browser chat page."""
 
-    def __init__(
-        self, runtime: Runtime, *, on_toggle_compact: Callable[[bool], None] | None = None
-    ) -> None:
+    def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
-        self._on_toggle_compact = on_toggle_compact
-        self._compact = False
         self._model_button: Any | None = None
         self._model_menu: Any | None = None
         self._model_results: Any | None = None
         self._model_query = ""
         self._effort_button: Any | None = None
         self._effort_menu: Any | None = None
-        self._compact_button: Any | None = None
+        self._tools_button: Any | None = None
+        self._tools_all_enabled = True
+        self._compaction_button: Any | None = None
+        self._is_compacting = False
         self._send_button: Any | None = None
         self._input_box: Any | None = None
         self._is_running = False
@@ -104,14 +102,25 @@ class InputSection:
                     self._render_effort_menu()
                 self._effort_button = effort_button
 
-                compact_button = (
-                    ui.button(icon=self._compact_icon(), on_click=self._toggle_compact)
-                    .props("flat dense round size=sm")
-                    .classes("ml-2")
+                tools_button = (
+                    ui.button(self._tools_label(), icon="build")
+                    .props("flat no-caps dense")
+                    .classes("tau-footer-tab")
                     .style("color: var(--text-muted) !important;")
                 )
-                compact_button.tooltip(self._compact_tooltip())
-                self._compact_button = compact_button
+                tools_button.on("click", lambda _e: self._toggle_tools())
+                tools_button.props(f'title="{self._tools_tooltip()}"')
+                self._tools_button = tools_button
+
+                compaction_button = (
+                    ui.button(self._compaction_label(), icon="compress")
+                    .props("flat no-caps dense")
+                    .classes("tau-footer-tab")
+                    .style("color: var(--text-muted) !important;")
+                )
+                compaction_button.on("click", lambda _e: self._toggle_compaction())
+                compaction_button.props('title="Summarize the conversation so far to free up context"')
+                self._compaction_button = compaction_button
 
         async def on_model_select(_event: object) -> None:
             self._refresh_model_control()
@@ -129,7 +138,36 @@ class InputSection:
 
         agent_start_unsub = self._runtime.hooks.register("agent_start", on_agent_start)
         agent_end_unsub = self._runtime.hooks.register("agent_end", on_agent_end)
-        ui.context.client.on_disconnect(lambda: [unsub(), agent_start_unsub(), agent_end_unsub()])
+
+        async def on_compaction_start(_event: object) -> None:
+            self._is_compacting = True
+            self._refresh_compaction_control()
+
+        async def on_compaction_end(_event: object) -> None:
+            self._is_compacting = False
+            self._refresh_compaction_control()
+            ui.notify("Compaction completed.", type="positive")
+
+        async def on_compaction_failure(event: object) -> None:
+            self._is_compacting = False
+            self._refresh_compaction_control()
+            ui.notify(f"Compaction failed: {getattr(event, 'error', '')}", type="negative")
+
+        async def on_compaction_cancelled(_event: object) -> None:
+            self._is_compacting = False
+            self._refresh_compaction_control()
+            ui.notify("Compaction cancelled.", type="warning")
+
+        compaction_unsubs = [
+            self._runtime.hooks.register("compaction_start", on_compaction_start),
+            self._runtime.hooks.register("compaction_end", on_compaction_end),
+            self._runtime.hooks.register("compaction_failure", on_compaction_failure),
+            self._runtime.hooks.register("compaction_cancelled", on_compaction_cancelled),
+        ]
+
+        ui.context.client.on_disconnect(
+            lambda: [unsub(), agent_start_unsub(), agent_end_unsub(), *(u() for u in compaction_unsubs)]
+        )
 
     def _has_prompt_text(self) -> bool:
         value = getattr(self._input_box, "value", None)
@@ -267,11 +305,58 @@ class InputSection:
         level = getattr(opts, "thinking_level", None) if opts is not None else None
         return level.value if level is not None else ThinkingLevel.Off.value
 
-    def _compact_icon(self) -> str:
-        return "unfold_more" if self._compact else "unfold_less"
+    def _tools_label(self) -> str:
+        return "Tools: All" if self._tools_all_enabled else "Tools: Off"
 
-    def _compact_tooltip(self) -> str:
-        return "Expand message spacing" if self._compact else "Compact message spacing"
+    def _tools_tooltip(self) -> str:
+        return (
+            "All tools available to the agent — click to disable tools"
+            if self._tools_all_enabled
+            else "Tools disabled — click to re-enable all tools"
+        )
+
+    def _toggle_tools(self) -> None:
+        agent = self._runtime.agent
+        if agent is None:
+            return
+        # Mirrors ExtensionAPI.set_active_tools (tau/extensions/api.py), inlined
+        # since that API is meant for extensions holding a registration-time
+        # handle, not a one-off call from here — and its "empty list" convention
+        # means "no restriction", so it can't itself express "zero tools".
+        registry = getattr(getattr(self._runtime, "_context", None), "tool_registry", None)
+        if registry is None:
+            return
+        self._tools_all_enabled = not self._tools_all_enabled
+        agent._engine.tools = list(registry.list()) if self._tools_all_enabled else []
+        if self._tools_button is not None:
+            self._tools_button.props["label"] = self._tools_label()
+            self._tools_button.props["title"] = self._tools_tooltip()
+        ui.notify(
+            "All tools enabled" if self._tools_all_enabled else "Tools disabled for this session",
+            type="positive" if self._tools_all_enabled else "warning",
+        )
+
+    def _compaction_label(self) -> str:
+        return "Stop" if self._is_compacting else "Compact"
+
+    def _refresh_compaction_control(self) -> None:
+        if self._compaction_button is not None:
+            self._compaction_button.props["label"] = self._compaction_label()
+
+    async def _toggle_compaction(self) -> None:
+        agent = self._runtime.agent
+        if agent is None:
+            return
+        if self._is_compacting:
+            agent.abort()
+            return
+        try:
+            did_compact = await agent.compact()
+        except Exception as e:
+            ui.notify(f"Compaction failed: {e}", type="negative")
+            return
+        if not did_compact:
+            ui.notify("Nothing to compact — conversation is too short to summarize.", type="warning")
 
     async def _set_effort(self, level: ThinkingLevel) -> None:
         from tau.hooks.tui import ThinkingLevelSelectEvent
@@ -298,10 +383,3 @@ class InputSection:
 
         self._refresh_effort_control()
         ui.notify(f"Effort set to {level.value}", type="positive")
-
-    def _toggle_compact(self) -> None:
-        self._compact = not self._compact
-        if self._compact_button is not None:
-            self._compact_button.props(f"icon={self._compact_icon()}")
-        if self._on_toggle_compact is not None:
-            self._on_toggle_compact(self._compact)
