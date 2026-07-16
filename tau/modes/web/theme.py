@@ -164,6 +164,24 @@ pre, code {
     color: var(--text);
     background: var(--bg-selected);
 }
+.tau-file-live-row {
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.tau-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.tau-live-dot-on {
+    background: #4ade80;
+    box-shadow: 0 0 4px #4ade80;
+}
+.tau-live-dot-off {
+    background: var(--border);
+    box-shadow: none;
+}
 
 .tau-minimap {
     width: 52px;

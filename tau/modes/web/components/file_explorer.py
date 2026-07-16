@@ -26,6 +26,7 @@ _SKIP_DIRS = {
 }
 _MAX_NODES = 3000
 _MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+_WATCH_INTERVAL_S = 1.5
 
 _LANGUAGE_BY_SUFFIX = {
     ".py": "python",
@@ -134,6 +135,12 @@ class FileExplorerPanel:
         self._visible = False
         self._open_tabs: list[Path] = []
         self._active_tab: Path | None = None
+        self._live_row: Any | None = None
+        self._live_dot: Any | None = None
+        self._live_label: Any | None = None
+        self._watch_timer: Any | None = None
+        self._watch_path: Path | None = None
+        self._watch_mtime: float | None = None
 
     def render(self) -> None:
         """Render the (initially collapsed) panel."""
@@ -153,6 +160,13 @@ class FileExplorerPanel:
                 self._tab_bar_container = ui.row().classes(
                     "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
                 )
+                with ui.row().classes(
+                    "w-full items-center gap-1 px-2 py-1 tau-file-live-row"
+                ) as live_row:
+                    self._live_dot = ui.element("span").classes("tau-live-dot")
+                    self._live_label = ui.label("").classes("text-[10px] text-[var(--text-dim)]")
+                live_row.set_visibility(False)
+                self._live_row = live_row
                 with (
                     ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                     ui.scroll_area().classes("w-full h-full"),
@@ -165,6 +179,7 @@ class FileExplorerPanel:
                     self._viewer_container = viewer
         self._panel = panel
         self._refresh_tree()
+        ui.context.client.on_disconnect(self._stop_watch)
 
     def toggle(self) -> None:
         """Show or hide the panel, sliding its width in/out."""
@@ -221,8 +236,9 @@ class FileExplorerPanel:
         with self._tab_bar_container:
             for path in self._open_tabs:
                 is_active = path == self._active_tab
-                classes = "items-center gap-1 px-2 py-1 cursor-pointer tau-file-tab" + (
-                    " tau-active" if is_active else ""
+                classes = (
+                    "items-center flex-nowrap flex-shrink-0 gap-1 px-2 py-1 cursor-pointer tau-file-tab"
+                    + (" tau-active" if is_active else "")
                 )
                 with ui.row().classes(classes).on("click", lambda p=path: self._open_tab(p)):
                     ui.label(path.name).classes("text-xs truncate max-w-[110px] text-[var(--text)]")
@@ -230,40 +246,87 @@ class FileExplorerPanel:
                     close_btn.on("click.stop", lambda p=path: self._close_tab(p))
 
     def _clear_viewer(self) -> None:
+        self._stop_watch()
         if self._viewer_container is None:
             return
         self._viewer_container.clear()
         with self._viewer_container:
             ui.label("Select a file to preview").classes("text-xs text-[var(--text-dim)] px-1")
 
+    def _stop_watch(self) -> None:
+        """Stop polling the previously-open file for on-disk changes."""
+        if self._watch_timer is not None:
+            self._watch_timer.cancel()
+            self._watch_timer = None
+        self._watch_path = None
+        self._watch_mtime = None
+        if self._live_row is not None:
+            self._live_row.set_visibility(False)
+
+    def _set_live_indicator(self, *, live: bool) -> None:
+        if self._live_dot is not None:
+            self._live_dot.classes(
+                remove="tau-live-dot-on tau-live-dot-off",
+                add="tau-live-dot-on" if live else "tau-live-dot-off",
+            )
+        if self._live_label is not None:
+            self._live_label.text = "live" if live else "static"
+
+    def _start_watch(self, path: Path) -> None:
+        """Poll `path`'s mtime so an on-disk change (e.g. the agent editing it)
+        refreshes the open preview automatically, mirroring pi-web's file
+        watch indicator."""
+        self._watch_path = path
+        try:
+            self._watch_mtime = path.stat().st_mtime
+            live = True
+        except OSError:
+            self._watch_mtime = None
+            live = False
+        if self._live_row is not None:
+            self._live_row.set_visibility(True)
+        self._set_live_indicator(live=live)
+        self._watch_timer = ui.timer(_WATCH_INTERVAL_S, lambda: self._check_watch(path))
+
+    def _check_watch(self, path: Path) -> None:
+        # A stale timer from a since-replaced tab/watch — let it die quietly.
+        if path != self._watch_path or path != self._active_tab:
+            return
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._set_live_indicator(live=False)
+            return
+        self._set_live_indicator(live=True)
+        if self._watch_mtime is not None and mtime != self._watch_mtime:
+            self._preview_file(path)
+
     def _preview_file(self, path: Path) -> None:
+        self._stop_watch()
         if self._viewer_container is None:
             return
         self._viewer_container.clear()
         with self._viewer_container:
             try:
-                raw = path.read_bytes()
+                raw: bytes | None = path.read_bytes()
             except OSError as e:
                 ui.label(f"Cannot read file: {e}").classes("text-xs text-[var(--text-dim)]")
-                return
+                raw = None
 
-            mime = detect_image_mime(raw)
-            if mime is not None:
-                b64 = base64.b64encode(raw).decode()
-                ui.image(f"data:{mime};base64,{b64}").classes("w-full")
-                return
-
-            if looks_like_binary(raw):
-                ui.label("Binary file — no preview available.").classes(
-                    "text-xs text-[var(--text-dim)]"
-                )
-                return
-
-            if len(raw) > _MAX_PREVIEW_BYTES:
-                ui.label(f"File too large to preview ({len(raw)} bytes).").classes(
-                    "text-xs text-[var(--text-dim)]"
-                )
-                return
-
-            text = raw.decode("utf-8", errors="replace")
-            ui.code(text, language=_guess_language(path.suffix)).classes("w-full text-xs")
+            if raw is not None:
+                mime = detect_image_mime(raw)
+                if mime is not None:
+                    b64 = base64.b64encode(raw).decode()
+                    ui.image(f"data:{mime};base64,{b64}").classes("w-full")
+                elif looks_like_binary(raw):
+                    ui.label("Binary file — no preview available.").classes(
+                        "text-xs text-[var(--text-dim)]"
+                    )
+                elif len(raw) > _MAX_PREVIEW_BYTES:
+                    ui.label(f"File too large to preview ({len(raw)} bytes).").classes(
+                        "text-xs text-[var(--text-dim)]"
+                    )
+                else:
+                    text = raw.decode("utf-8", errors="replace")
+                    ui.code(text, language=_guess_language(path.suffix)).classes("w-full text-xs")
+        self._start_watch(path)
