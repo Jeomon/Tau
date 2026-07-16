@@ -82,13 +82,34 @@ class MessageView:
         return "w-full px-0 py-0 tau-bubble-assistant"
 
 
-def _tool_preview(args: dict[str, Any]) -> str:
-    """Short single-line preview of a tool call's arguments."""
-    try:
-        preview = json.dumps(args, separators=(", ", ": "))
-    except (TypeError, ValueError):
-        preview = str(args)
-    return preview[:80] + ("…" if len(preview) > 80 else "")
+def _display_name(tool_name: str) -> str:
+    """Convert a snake_case tool name to Title Case, matching the TUI's naming."""
+    return " ".join(w.capitalize() for w in tool_name.split("_"))
+
+
+def _call_summary(tool_name: str, args: dict[str, Any]) -> str:
+    """Pick the 1-2 most meaningful args for a one-line call summary.
+
+    Mirrors each builtin tool's TUI `render_call` (see tau/builtins/tools/*.py
+    and tau/builtins/extensions/web/tools/*.py) so a call reads e.g.
+    "Web Fetch(https://wired.com/...)" instead of a raw `{"url": "..."}` dump.
+    """
+    if tool_name == "web_fetch":
+        values: list[Any] = [args.get("prompt") or args.get("url", "")]
+    elif tool_name == "web_search":
+        values = [args.get("query", "")]
+    elif tool_name == "grep":
+        values = [" ".join(str(args.get("pattern", "")).split()), args.get("path", "")]
+    elif tool_name in {"edit", "write", "read", "ls"}:
+        values = [args.get("path", "")]
+    elif tool_name == "glob":
+        values = [args.get("pattern", "")]
+    elif tool_name == "terminal":
+        values = [args.get("cmd", "")]
+    else:
+        values = [v for v in args.values() if isinstance(v, (str, int, float)) and str(v)]
+    joined = ", ".join(str(v).replace("\n", " ") for v in values if v)
+    return joined[:79] + "…" if len(joined) > 80 else joined
 
 
 def render_thinking_block(block: ThinkingContent) -> None:
@@ -106,13 +127,16 @@ def render_tool_call_block(block: ToolCallContent, result: ToolResultContent | N
     is_error = bool(result and result.is_error)
     status_classes = "tau-tool-error" if is_error else "tau-tool-ok"
 
-    header = f"{block.name}  {_tool_preview(block.args)}"
+    name = _display_name(block.name)
+    summary = _call_summary(block.name, block.args)
+    header = f"{name}({summary})" if summary else name
     with (
         ui.expansion(header)
         .classes(f"w-full tau-tool-block {status_classes}")
         .props('dense expand-icon="expand_more"')
     ):
-        ui.markdown(f"```json\n{json.dumps(block.args, indent=2)}\n```").classes("text-xs")
         if result is not None and result.content:
             result_color = "text-[#f87171]" if is_error else "text-[var(--text-muted)]"
             ui.markdown(result.content).classes(f"text-xs whitespace-pre-wrap {result_color}")
+        with ui.expansion("Arguments").classes("tau-tool-args-block").props('dense expand-icon="expand_more"'):
+            ui.markdown(f"```json\n{json.dumps(block.args, indent=2)}\n```").classes("text-xs")

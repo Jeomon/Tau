@@ -348,6 +348,18 @@ pre, code {
 .tau-tool-block .q-item__section {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
 }
+.tau-tool-args-block {
+    margin-top: 6px;
+    opacity: 0.7;
+}
+.tau-tool-args-block .q-item {
+    padding: 2px 0;
+    min-height: 0;
+}
+.tau-tool-args-block .q-item__section {
+    color: var(--text-dim);
+    font-size: 11px;
+}
 
 .tau-msg-meta {
     min-height: 22px;
