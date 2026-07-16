@@ -32,7 +32,7 @@ class InputSection:
             input_box = (
                 ui.input(placeholder="Message Tau...")
                 .props("borderless dense")
-                .classes("flex-grow")
+                .classes("flex-grow pl-3")
             )
             input_box.on("keydown.enter", send)
             ui.button("Send", on_click=send).props("unelevated").classes("rounded-xl px-5")
