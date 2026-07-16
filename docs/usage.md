@@ -19,11 +19,12 @@ available; local image paths link through an absolute `file://` URI.
 ## Browser UI
 
 Run `tau web` to launch the NiceGUI browser interface. It starts on
-`http://127.0.0.1:8080` by default and accepts provider/model flags:
+`http://127.0.0.1:8079` by default and accepts provider/model flags:
 
 ```bash
 tau web
-tau web --host 0.0.0.0 --port 8080 --provider openai --model gpt-5.6
+tau web --reload
+tau web --host 0.0.0.0 --port 8079 --provider openai --model gpt-5.6
 ```
 
 ## Editor Features

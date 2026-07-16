@@ -196,6 +196,8 @@ is `tau web`, matching the mode package name and separating browser UI code from
 terminal UI code.
 
 - `app.py` - FastAPI/NiceGUI app setup and runtime event wiring
+- `pages/` - NiceGUI page renderers
+- `components/` - Reusable NiceGUI UI components
 
 ### `runtime/` - Agent Runtime
 

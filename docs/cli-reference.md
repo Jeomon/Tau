@@ -93,11 +93,14 @@ Launch the browser-based NiceGUI interface:
 
 ```bash
 tau web
-tau web --host 0.0.0.0 --port 8080
+tau web --host 0.0.0.0 --port 8079
+tau web --reload
 tau web --provider openai --model gpt-5.6
 ```
 
-The page is served at `http://127.0.0.1:8080` by default.
+The page is served at `http://127.0.0.1:8079` by default. Use `--reload`
+during web UI development to restart the web process when files under
+`tau/modes/web/` change.
 
 #### Framing
 
