@@ -12,7 +12,7 @@ import click
 from tau.console.commands.auth import auth
 from tau.console.commands.doctor import doctor
 from tau.console.commands.packages import install, list_packages, remove
-from tau.console.commands.serve import serve
+from tau.console.commands.web import web
 from tau.console.commands.update import update
 from tau.settings.paths import get_app_version
 
@@ -478,7 +478,7 @@ cli.add_command(doctor)
 cli.add_command(install)
 cli.add_command(remove)
 cli.add_command(update)
-cli.add_command(serve)
+cli.add_command(web)
 cli.add_command(list_packages, name="list")
 
 

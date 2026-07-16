@@ -87,6 +87,18 @@ JSON-lines bidirectional protocol for IDE extensions and programmatic clients:
 tau --mode rpc
 ```
 
+### Web command
+
+Launch the browser-based NiceGUI interface:
+
+```bash
+tau web
+tau web --host 0.0.0.0 --port 8080
+tau web --provider openai --model gpt-5.6
+```
+
+The page is served at `http://127.0.0.1:8080` by default.
+
 #### Framing
 
 Records are delimited by `\n` (LF). Each record is a complete JSON object. When parsing stdout, split on `\n` only and strip an optional trailing `\r` from each line.

@@ -16,6 +16,16 @@ Alt+click or Cmd+click) to open the destination. Autolinks remain visible as URL
 Markdown images render as linked placeholders when inline image display is not
 available; local image paths link through an absolute `file://` URI.
 
+## Browser UI
+
+Run `tau web` to launch the NiceGUI browser interface. It starts on
+`http://127.0.0.1:8080` by default and accepts provider/model flags:
+
+```bash
+tau web
+tau web --host 0.0.0.0 --port 8080 --provider openai --model gpt-5.6
+```
+
 ## Editor Features
 
 | Feature | How |

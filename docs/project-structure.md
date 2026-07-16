@@ -33,7 +33,7 @@ tau/                                # Main package
 ├── packages/                       # Package/dependency management
 ├── prompts/                        # Prompt template system
 ├── resources/                      # Unified runtime resource discovery
-├── modes/                          # Interactive, print, and RPC modes
+├── modes/                          # Interactive terminal, web, print, and RPC modes
 ├── runtime/                        # Agent runtime service
 ├── session/                        # Session management and persistence
 ├── settings/                       # Configuration system
@@ -188,6 +188,14 @@ JSON-RPC server for IDE integration.
 
 - `mode.py` - RPC mode implementation
 - `types.py` - RPC message types
+
+### `modes/web/` - Browser Application
+
+NiceGUI-based browser interface for interactive Tau sessions. The CLI command
+is `tau web`, matching the mode package name and separating browser UI code from
+terminal UI code.
+
+- `app.py` - FastAPI/NiceGUI app setup and runtime event wiring
 
 ### `runtime/` - Agent Runtime
 
