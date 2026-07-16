@@ -165,7 +165,7 @@ pre, code {
 .tau-footer-tab {
     height: 32px !important;
     min-height: 32px !important;
-    padding: 0 !important;
+    padding: 0 12px !important;
     border-radius: 9px !important;
     color: var(--text-muted) !important;
     font-size: 12px !important;
@@ -177,6 +177,27 @@ pre, code {
     gap: 6px;
 }
 .tau-footer-tab:hover {
+    background: var(--bg-hover) !important;
+    color: var(--text) !important;
+}
+.tau-sidebar-footer-tab {
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 4px 4px !important;
+    border-radius: 9px !important;
+    color: var(--text-muted) !important;
+    font-size: 12px !important;
+}
+.tau-sidebar-footer-tab .q-btn__content {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+    line-height: 1.1;
+}
+.tau-sidebar-footer-tab .q-icon {
+    font-size: 16px;
+}
+.tau-sidebar-footer-tab:hover {
     background: var(--bg-hover) !important;
     color: var(--text) !important;
 }

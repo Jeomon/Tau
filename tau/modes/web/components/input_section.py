@@ -14,11 +14,14 @@ if TYPE_CHECKING:
 class InputSection:
     """Prompt input controls for the browser chat page."""
 
-    def __init__(self, runtime: Runtime, *, on_toggle_compact: Callable[[bool], None] | None = None) -> None:
+    def __init__(
+        self, runtime: Runtime, *, on_toggle_compact: Callable[[bool], None] | None = None
+    ) -> None:
         self._runtime = runtime
         self._on_toggle_compact = on_toggle_compact
         self._compact = False
         self._effort_button: Any | None = None
+        self._effort_menu: Any | None = None
         self._compact_button: Any | None = None
 
     def render(self) -> None:
@@ -52,9 +55,9 @@ class InputSection:
                     .classes("tau-footer-tab")
                     .style("color: var(--text-muted) !important;")
                 )
-                with effort_button, ui.menu():
-                    for level in ThinkingLevel:
-                        ui.menu_item(level.value, on_click=lambda lv=level: self._set_effort(lv))
+                with effort_button, ui.menu() as effort_menu:
+                    self._effort_menu = effort_menu
+                    self._render_effort_menu()
                 self._effort_button = effort_button
 
                 compact_button = (
@@ -66,8 +69,37 @@ class InputSection:
                 compact_button.tooltip(self._compact_tooltip())
                 self._compact_button = compact_button
 
+        async def on_model_select(_event: object) -> None:
+            self._refresh_effort_control()
+
+        unsub = self._runtime.hooks.register("model_select", on_model_select)
+        ui.context.client.on_disconnect(unsub)
+
+    def _available_effort_levels(self) -> list[ThinkingLevel]:
+        agent = self._runtime.agent
+        model = getattr(agent._engine.llm, "model", None) if agent is not None else None
+        if model is None or not getattr(model, "thinking", False):
+            return [ThinkingLevel.Off]
+        return list(getattr(model, "thinking_levels", None) or list(ThinkingLevel))
+
+    def _render_effort_menu(self) -> None:
+        if self._effort_menu is None:
+            return
+        self._effort_menu.clear()
+        with self._effort_menu:
+            for level in self._available_effort_levels():
+                ui.menu_item(level.value, on_click=lambda _event, lv=level: self._set_effort(lv))
+
+    def _refresh_effort_control(self) -> None:
+        self._render_effort_menu()
+        if self._effort_button is not None:
+            self._effort_button.props(f"label={self._effort_label()}")
+
     def _effort_label(self) -> str:
         llm = self._runtime.agent._engine.llm if self._runtime.agent is not None else None
+        model = getattr(llm, "model", None) if llm is not None else None
+        if model is None or not getattr(model, "thinking", False):
+            return ThinkingLevel.Off.value
         opts = getattr(getattr(llm, "api", None), "options", None) if llm is not None else None
         level = getattr(opts, "thinking_level", None) if opts is not None else None
         return level.value if level is not None else ThinkingLevel.Off.value
@@ -86,6 +118,7 @@ class InputSection:
             return
         llm = agent._engine.llm
         previous_level = llm.api.options.thinking_level
+        level = llm.model.clamp_thinking_level(level) or llm.model.default_thinking_level or level
         llm.api.options.thinking_level = None if level == ThinkingLevel.Off else level
 
         sm = self._runtime.session_manager
@@ -100,8 +133,7 @@ class InputSection:
             ThinkingLevelSelectEvent(level=level, previous_level=previous_level)
         )
 
-        if self._effort_button is not None:
-            self._effort_button.props(f"label={self._effort_label()}")
+        self._refresh_effort_control()
         ui.notify(f"Effort set to {level.value}", type="positive")
 
     def _toggle_compact(self) -> None:

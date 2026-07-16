@@ -125,15 +125,21 @@ class SessionSidebar:
                 if self._on_open_settings is not None:
                     ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
                         "flat no-caps dense"
-                    ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
+                    ).classes("flex-1 tau-sidebar-footer-tab").style(
+                        "color: var(--text-muted) !important;"
+                    )
                 if self._on_open_skills is not None:
                     ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
                         "flat no-caps dense"
-                    ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
+                    ).classes("flex-1 tau-sidebar-footer-tab").style(
+                        "color: var(--text-muted) !important;"
+                    )
                 if self._on_open_plugins is not None:
                     ui.button("Plugins", icon="extension", on_click=self._on_open_plugins).props(
                         "flat no-caps dense"
-                    ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
+                    ).classes("flex-1 tau-sidebar-footer-tab").style(
+                        "color: var(--text-muted) !important;"
+                    )
 
         self._refresh()
 
@@ -189,7 +195,9 @@ class SessionSidebar:
                 )
                 ui.button("Delete", on_click=lambda: self._confirm_delete(session.path)).props(
                     "unelevated dense"
-                ).style("background: #ef4444 !important; color: #fff !important; box-shadow: none !important;")
+                ).style(
+                    "background: #ef4444 !important; color: #fff !important; box-shadow: none !important;"
+                )
                 ui.button("Cancel", on_click=self._cancel_delete).props("flat dense").style(
                     "color: var(--text-muted) !important;"
                 )
@@ -206,9 +214,9 @@ class SessionSidebar:
                     "keydown.enter", lambda: self._confirm_rename(session, name_input.value)
                 )
                 name_input.on("keydown.escape", self._cancel_rename)
-                ui.button(icon="check", on_click=lambda: self._confirm_rename(session, name_input.value)).props(
-                    "flat dense round size=sm"
-                ).style("color: #16a34a !important;")
+                ui.button(
+                    icon="check", on_click=lambda: self._confirm_rename(session, name_input.value)
+                ).props("flat dense round size=sm").style("color: #16a34a !important;")
                 ui.button(icon="close", on_click=self._cancel_rename).props(
                     "flat dense round size=sm"
                 ).style("color: var(--text-muted) !important;")
@@ -222,13 +230,17 @@ class SessionSidebar:
                 with ui.row().classes("w-full gap-2 text-[11px] text-[var(--text-dim)]"):
                     ui.label(_humanize_age(session.modified))
                     ui.label(f"{session.message_count} msgs")
-            rename_btn = ui.button(icon="edit").props("flat dense round size=sm").classes(
-                "tau-session-delete-btn"
+            rename_btn = (
+                ui.button(icon="edit")
+                .props("flat dense round size=sm")
+                .classes("tau-session-delete-btn")
             )
             rename_btn.on("click.stop", lambda: self._start_rename(session.path))
             if not active:
-                delete_btn = ui.button(icon="delete_outline").props("flat dense round size=sm").classes(
-                    "tau-session-delete-btn"
+                delete_btn = (
+                    ui.button(icon="delete_outline")
+                    .props("flat dense round size=sm")
+                    .classes("tau-session-delete-btn")
                 )
                 delete_btn.on("click.stop", lambda: self._start_delete(session.path))
 
