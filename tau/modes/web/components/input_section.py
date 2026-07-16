@@ -72,7 +72,7 @@ class InputSection:
 
             with ui.row().classes("items-center gap-1 px-1"):
                 model_button = (
-                    ui.button(self._model_label(), icon="smart_toy")
+                    ui.button(self._model_label(), icon="memory")
                     .props("flat no-caps dense")
                     .classes("tau-footer-tab tau-model-tab")
                     .style("color: var(--text-muted) !important;")
@@ -94,7 +94,7 @@ class InputSection:
                 self._model_button = model_button
 
                 effort_button = (
-                    ui.button(self._effort_label(), icon="tune")
+                    ui.button(self._effort_label(), icon="lightbulb")
                     .props("flat no-caps dense")
                     .classes("tau-footer-tab")
                     .style("color: var(--text-muted) !important;")
