@@ -124,13 +124,28 @@ pre, code {
     flex-shrink: 0;
 }
 .tau-footer-tab {
-    border-radius: 0 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0 !important;
+    border-radius: 9px !important;
     color: var(--text-muted) !important;
-    padding: 10px 0 !important;
+    font-size: 12px !important;
+}
+.tau-footer-tab .q-icon {
+    font-size: 14px;
+}
+.tau-footer-tab .q-btn__content {
+    gap: 6px;
 }
 .tau-footer-tab:hover {
     background: var(--bg-hover) !important;
     color: var(--text) !important;
+}
+
+.tau-icon-btn-32 {
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
 }
 .tau-project-path {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;

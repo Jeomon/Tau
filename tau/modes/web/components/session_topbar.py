@@ -62,7 +62,7 @@ class SessionTopBar:
             if self._on_toggle_files is not None:
                 ui.button("Files", icon="folder_open", on_click=self._on_toggle_files).props(
                     "flat no-caps dense"
-                ).style("color: var(--text-muted) !important;")
+                ).classes("tau-footer-tab").style("color: var(--text-muted) !important;")
 
         self._refresh()
 

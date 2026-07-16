@@ -89,7 +89,8 @@ class SessionSidebar:
                     with ui.row().classes("items-center gap-1"):
                         self._theme_button = (
                             ui.button(on_click=self._toggle_theme)
-                            .props(f"unelevated round icon={self._theme_icon()}")
+                            .props(f"unelevated round dense icon={self._theme_icon()}")
+                            .classes("tau-icon-btn-32")
                             .style(
                                 "background: var(--bg-hover) !important;"
                                 " color: var(--text-muted) !important;"
@@ -97,8 +98,8 @@ class SessionSidebar:
                             )
                         )
                         ui.button(on_click=self._new_session).props(
-                            "unelevated icon=add round"
-                        ).style(
+                            "unelevated icon=add round dense"
+                        ).classes("tau-icon-btn-32").style(
                             "background: var(--bg-hover) !important;"
                             " color: var(--text-muted) !important;"
                             " box-shadow: none !important;"
@@ -117,14 +118,14 @@ class SessionSidebar:
             ):
                 self._list_container = ui.column().classes("w-full min-w-0 gap-0")
 
-            with ui.row().classes("w-full gap-0 tau-sidebar-footer"):
+            with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
                 if self._on_open_settings is not None:
                     ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
-                        "flat no-caps"
+                        "flat no-caps dense"
                     ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
                 if self._on_open_skills is not None:
                     ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
-                        "flat no-caps"
+                        "flat no-caps dense"
                     ).classes("flex-1 tau-footer-tab").style("color: var(--text-muted) !important;")
 
         self._refresh()

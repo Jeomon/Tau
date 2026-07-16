@@ -55,6 +55,44 @@ def _guess_language(suffix: str) -> str:
     return _LANGUAGE_BY_SUFFIX.get(suffix.lower(), "plaintext")
 
 
+_ICON_BY_SUFFIX = {
+    ".py": "code",
+    ".js": "code",
+    ".jsx": "code",
+    ".ts": "code",
+    ".tsx": "code",
+    ".go": "code",
+    ".rs": "code",
+    ".rb": "code",
+    ".java": "code",
+    ".c": "code",
+    ".cpp": "code",
+    ".sh": "terminal",
+    ".json": "data_object",
+    ".yml": "settings",
+    ".yaml": "settings",
+    ".toml": "settings",
+    ".md": "article",
+    ".txt": "article",
+    ".html": "html",
+    ".css": "css",
+    ".sql": "storage",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".gif": "image",
+    ".webp": "image",
+    ".svg": "image",
+    ".pdf": "picture_as_pdf",
+}
+_DEFAULT_FILE_ICON = "insert_drive_file"
+_FOLDER_ICON = "folder"
+
+
+def _file_icon(suffix: str) -> str:
+    return _ICON_BY_SUFFIX.get(suffix.lower(), _DEFAULT_FILE_ICON)
+
+
 def _build_tree(root: Path) -> list[dict]:
     """Build a `ui.tree` node list rooted at `root`, skipping noisy directories."""
     count = 0
@@ -71,9 +109,13 @@ def _build_tree(root: Path) -> list[dict]:
                 continue
             count += 1
             if entry.is_dir():
-                nodes.append({"id": str(entry), "label": entry.name, "children": walk(entry)})
+                nodes.append(
+                    {"id": str(entry), "label": entry.name, "icon": _FOLDER_ICON, "children": walk(entry)}
+                )
             else:
-                nodes.append({"id": str(entry), "label": entry.name})
+                nodes.append(
+                    {"id": str(entry), "label": entry.name, "icon": _file_icon(entry.suffix)}
+                )
         return nodes
 
     return walk(root)
