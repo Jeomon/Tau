@@ -20,15 +20,6 @@ if TYPE_CHECKING:
     from tau.message.types import AssistantMessage
     from tau.runtime.service import Runtime
 
-_PROGRAMMATIC_SCROLL_IGNORE_S = 0.7
-"""How long to ignore on_scroll events right after we trigger a scroll ourselves.
-
-q-scroll-area fires `scroll` for both user-driven and programmatic scrolling
-(including intermediate frames of an animated scroll_to), so without this
-window a single auto-scroll call could be misread as the user scrolling away
-and permanently disable auto-follow for the rest of the turn.
-"""
-
 _HOOK_NAMES = (
     "input",
     "message_start",
@@ -109,26 +100,25 @@ class MessageList:
         self._live_streaming = False
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
-        self._at_bottom = True
-        self._ignore_scroll_until = 0.0
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
         with ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"):
-            scroll_area = ui.scroll_area(on_scroll=self._on_scroll).classes("w-full h-full")
+            scroll_area = ui.scroll_area().classes("w-full h-full")
             with scroll_area:
                 self._container = ui.column().classes("w-full gap-4 pr-2")
             self.scroll_area = scroll_area
+            self._install_client_auto_scroll()
 
         async def on_event(event: object) -> None:
             event_type = getattr(event, "type", "")
             if event_type == "input":
-                # Sending a message means "follow the reply" — re-arm
-                # bottom-follow even if the user had scrolled away earlier.
-                self._at_bottom = True
+                # Sending a message means "follow the reply" — snap to bottom
+                # and re-arm auto-follow even if scrolled away earlier.
                 self._append_message(
                     str(getattr(event, "text", "")), role="user", timestamp=time.time()
                 )
+                self._client_scroll_to_bottom(smooth=True)
                 return
             if event_type == "message_rollback":
                 self._rollback_messages(int(getattr(event, "count", 0)))
@@ -166,26 +156,70 @@ class MessageList:
 
         self._replay_history()
 
-    def _on_scroll(self, event: Any) -> None:
-        """Track whether new content should keep the transcript pinned to bottom."""
-        if time.time() < self._ignore_scroll_until:
-            # This event was caused by our own scroll_to call, not the user —
-            # q-scroll-area fires `scroll` for animated programmatic scrolling
-            # too, and without this window a single auto-scroll call could be
-            # misread as the user scrolling away and disable auto-follow.
-            return
-        vertical_size = float(getattr(event, "vertical_size", 0) or 0)
-        container_size = float(getattr(event, "vertical_container_size", 0) or 0)
-        percentage = float(getattr(event, "vertical_percentage", 1) or 0)
-        self._at_bottom = vertical_size <= container_size or percentage >= 0.98
+    def _install_client_auto_scroll(self) -> None:
+        """Wire up client-side stick-to-bottom behavior for the transcript.
 
-    def _scroll_to_bottom(self, *, force: bool = False, animate: bool = False) -> None:
+        This intentionally lives entirely in the browser instead of round-
+        tripping through the server on every streamed chunk. A streaming
+        reply can mutate the DOM many times a second; if the "should we
+        follow the user down" decision depended on a server round-trip
+        (Python scroll-position tracking + a Python-issued scroll_to), a
+        chunk arriving while the user's manual scroll event is still in
+        flight would win the race and yank them back to the bottom even
+        though they were actively scrolling away. Doing both the tracking
+        (native `scroll` listener) and the reaction (`MutationObserver` on
+        the content div) synchronously in JS removes that race entirely.
+        """
         if self.scroll_area is None:
             return
-        if not force and not self._at_bottom:
+        self.scroll_area.client.run_javascript(
+            f"""
+            (function() {{
+                var root = document.getElementById('c{self.scroll_area.id}');
+                if (!root) return;
+                var container = root.querySelector('.q-scrollarea__container');
+                var content = root.querySelector('.q-scrollarea__content');
+                if (!container || !content || container.__tauAutoScroll) return;
+                container.__tauAutoScroll = true;
+
+                var THRESHOLD = 48;
+                var state = {{ atBottom: true }};
+                container.__tauScrollState = state;
+
+                function isNearBottom() {{
+                    return container.scrollHeight - container.scrollTop - container.clientHeight < THRESHOLD;
+                }}
+                container.addEventListener('scroll', function() {{
+                    state.atBottom = isNearBottom();
+                }}, {{ passive: true }});
+
+                var observer = new MutationObserver(function() {{
+                    if (state.atBottom) {{
+                        container.scrollTop = container.scrollHeight;
+                    }}
+                }});
+                observer.observe(content, {{ childList: true, subtree: true, characterData: true }});
+            }})();
+            """
+        )
+
+    def _client_scroll_to_bottom(self, *, smooth: bool = False) -> None:
+        """Force-scroll to bottom and re-arm client-side auto-follow."""
+        if self.scroll_area is None:
             return
-        self._ignore_scroll_until = time.time() + _PROGRAMMATIC_SCROLL_IGNORE_S
-        self.scroll_area.scroll_to(percent=1.0, duration=0.2 if animate else 0.0)
+        behavior = "smooth" if smooth else "auto"
+        self.scroll_area.client.run_javascript(
+            f"""
+            (function() {{
+                var root = document.getElementById('c{self.scroll_area.id}');
+                if (!root) return;
+                var container = root.querySelector('.q-scrollarea__container');
+                if (!container) return;
+                if (container.__tauScrollState) container.__tauScrollState.atBottom = true;
+                container.scrollTo({{ top: container.scrollHeight, behavior: '{behavior}' }});
+            }})();
+            """
+        )
 
     def set_compact(self, compact: bool) -> None:
         """Tighten or restore vertical spacing between messages."""
@@ -206,7 +240,6 @@ class MessageList:
         self._live_message = None
         self._live_streaming = False
         self._live_tool_results = {}
-        self._at_bottom = True
         with (
             self._container,
             ui.column().classes("w-full h-[45vh] items-center justify-center gap-3"),
@@ -220,9 +253,13 @@ class MessageList:
         *,
         role: MessageRole,
         timestamp: float | None = None,
-        auto_scroll: bool = True,
     ) -> RenderedMessage | None:
-        """Append a chat bubble and return its markdown element."""
+        """Append a chat bubble and return its markdown element.
+
+        No explicit scroll call needed — the client-side MutationObserver
+        installed by `_install_client_auto_scroll` follows this automatically
+        if the user is at the bottom.
+        """
         if self._container is None:
             return None
 
@@ -230,23 +267,18 @@ class MessageList:
             rendered = MessageView(text, role=role, timestamp=timestamp).render()
 
         self._messages.append(rendered)
-        if auto_scroll:
-            self._scroll_to_bottom(force=True, animate=True)
         return rendered
 
     def _start_live_turn(self) -> None:
         """Open a fresh container for the in-progress assistant turn and render it."""
         if self._container is None:
             return
-        should_scroll = self._at_bottom
         with self._container:
             root = ui.column().classes("w-full gap-2")
         self._live_container = root
         self._messages.append(RenderedMessage(root=root, content=root))
         self._live_streaming = True
         self._rerender_live_turn()
-        if should_scroll:
-            self._scroll_to_bottom(force=True, animate=True)
 
     def _rerender_live_turn(self) -> None:
         """Redraw the in-progress (or just-finished) assistant turn's blocks.
@@ -254,12 +286,10 @@ class MessageList:
         Called on every message_update/message_end, and again on
         tool_execution_end so a tool call's result appears as soon as it's
         available even though the turn that issued it has already closed.
-        Follows the transcript down to bottom as content streams in, as long
-        as the user hasn't scrolled away (`self._at_bottom`).
+        No explicit scroll call needed here either — see `_append_message`.
         """
         if self._live_container is None or self._live_message is None:
             return
-        should_scroll = self._at_bottom
         self._live_container.clear()
         with self._live_container:
             _render_assistant_blocks(
@@ -267,8 +297,6 @@ class MessageList:
                 self._live_tool_results,
                 streaming=self._live_streaming,
             )
-        if should_scroll:
-            self._scroll_to_bottom(force=True)
 
     def preview_session(self, session_file: Any) -> None:
         """Render a session file immediately without waiting for Runtime to switch."""
@@ -295,7 +323,6 @@ class MessageList:
         self._live_message = None
         self._live_streaming = False
         self._live_tool_results = {}
-        self._at_bottom = True
 
         manager = session_manager or self._runtime.session_manager
         context = manager.build_session_context()
@@ -313,9 +340,8 @@ class MessageList:
                     text,
                     role="user",
                     timestamp=getattr(message, "timestamp", None),
-                    auto_scroll=False,
                 )
-        self._scroll_to_bottom(force=True)
+        self._client_scroll_to_bottom(smooth=False)
 
     def _rollback_messages(self, count: int) -> None:
         """Remove recently appended message bubbles."""
