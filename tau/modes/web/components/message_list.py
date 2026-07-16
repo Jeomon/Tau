@@ -1,47 +1,94 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
+
+from tau.modes.web.components.message_view import MessageRole, MessageView, RenderedMessage
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
 
-# Hook events that get echoed into the page log. Mirrors the subset used by
-# `_run_json` in tau/console/cli.py; kept minimal here since this is a first
-# scaffold, not the final presentation layer.
 _HOOK_NAMES = (
+    "input",
     "message_start",
     "message_update",
     "message_end",
-    "tool_execution_start",
-    "tool_execution_end",
-    "settled",
+    "message_rollback",
 )
 
 
-def _describe(event: object) -> str:
-    """Render a hook event as one log line."""
-    message = getattr(event, "message", None)
+def _message_text(message: object) -> str:
+    """Return displayable text for a Tau message-like object."""
+    if message is None:
+        return ""
     text = getattr(message, "text_content", None)
     if callable(text):
-        return f"{type(event).__name__}: {text()}"
-    return type(event).__name__
+        return str(text())
+    return str(message or "")
 
 
 class MessageList:
-    """Runtime event log for the browser chat page."""
+    """Chat transcript for the browser chat page."""
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
+        self._messages: list[RenderedMessage] = []
+        self._assistant_message: RenderedMessage | None = None
+        self._container: Any | None = None
 
     def render(self) -> None:
-        """Render the message list and subscribe it to runtime hook events."""
-        with ui.column().classes("w-full h-5/6 min-h-0"):
-            log = ui.log().classes("w-full h-full")
+        """Render the message list and subscribe it to runtime message events."""
+        with (
+            ui.column().classes("w-full h-5/6 min-h-0 overflow-hidden"),
+            ui.scroll_area().classes("w-full h-full"),
+        ):
+            self._container = ui.column().classes("w-full gap-4 pr-2")
 
         async def on_event(event: object) -> None:
-            log.push(_describe(event))
+            event_type = getattr(event, "type", "")
+            if event_type == "input":
+                self._append_message(str(getattr(event, "text", "")), role="user")
+                return
+            if event_type == "message_rollback":
+                self._rollback_messages(int(getattr(event, "count", 0)))
+                return
+
+            message = getattr(event, "message", None)
+            text = _message_text(message)
+            if event_type == "message_start":
+                self._assistant_message = self._append_message(text or "…", role="assistant")
+                return
+            if event_type in {"message_update", "message_end"}:
+                self._update_assistant_message(text or "…")
+                if event_type == "message_end":
+                    self._assistant_message = None
 
         unsubs = [self._runtime.hooks.register(name, on_event) for name in _HOOK_NAMES]
         ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
+
+    def _append_message(self, text: str, *, role: MessageRole) -> RenderedMessage | None:
+        """Append a chat bubble and return its markdown element."""
+        if self._container is None:
+            return None
+
+        with self._container:
+            rendered = MessageView(text, role=role).render()
+
+        self._messages.append(rendered)
+        return rendered
+
+    def _update_assistant_message(self, text: str) -> None:
+        """Update the active assistant bubble, creating one if needed."""
+        if self._assistant_message is None:
+            self._assistant_message = self._append_message(text, role="assistant")
+            return
+        self._assistant_message.update_content(text)
+
+    def _rollback_messages(self, count: int) -> None:
+        """Remove recently appended message bubbles."""
+        for _ in range(max(count, 0)):
+            if not self._messages:
+                return
+            self._messages.pop().delete()
+        self._assistant_message = None

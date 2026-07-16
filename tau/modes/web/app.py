@@ -51,6 +51,7 @@ class App:
     def _register_pages(self) -> None:
         @ui.page("/")
         def index() -> None:
+            ui.query("body").classes("bg-slate-50")
             ChatPage(self._runtime).render()
 
 
