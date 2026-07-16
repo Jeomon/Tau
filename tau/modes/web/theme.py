@@ -126,4 +126,35 @@ pre, code {
     font-size: 14px !important;
     line-height: 1.6 !important;
 }
+
+.tau-thinking-block, .tau-tool-block {
+    border-radius: 6px;
+    font-size: 13px;
+}
+.tau-thinking-block {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+.tau-thinking-block .q-item, .tau-tool-block .q-item {
+    padding: 6px 10px;
+    min-height: 0;
+}
+.tau-thinking-block .q-item__section, .tau-tool-block .q-item__section {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.tau-tool-block {
+    border-radius: 7px;
+}
+.tau-tool-ok {
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    background: rgba(34, 197, 94, 0.04);
+}
+.tau-tool-error {
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.05);
+}
+.tau-tool-block .q-item__section {
+    font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
+}
 """

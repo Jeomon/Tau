@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
-from tau.message.types import Role, TextContent
-from tau.modes.web.components.message_view import MessageRole, MessageView, RenderedMessage
+from tau.message.types import Role, TextContent, ThinkingContent, ToolCallContent, ToolResultContent
+from tau.modes.web.components.message_view import (
+    MessageRole,
+    MessageView,
+    RenderedMessage,
+    render_thinking_block,
+    render_tool_call_block,
+)
 
 if TYPE_CHECKING:
+    from tau.message.types import AssistantMessage
     from tau.runtime.service import Runtime
 
 _HOOK_NAMES = (
@@ -33,14 +41,21 @@ def _message_text(message: object) -> str:
     return str(message or "")
 
 
-def _message_role(message: object) -> MessageRole:
-    """Map a session history message's role onto a chat bubble role."""
-    return "user" if getattr(message, "role", None) == Role.USER else "assistant"
-
-
 def _is_chat_message(message: object) -> bool:
     """True for plain user/assistant turns; false for tool calls, results, and other bookkeeping entries."""
     return getattr(message, "role", None) in {Role.USER, Role.ASSISTANT}
+
+
+def _collect_tool_results(messages: Sequence[object]) -> dict[str, ToolResultContent]:
+    """Map tool_call id -> its result, gathered from every ToolMessage in the session."""
+    results: dict[str, ToolResultContent] = {}
+    for message in messages:
+        if getattr(message, "role", None) != Role.TOOL:
+            continue
+        for block in getattr(message, "contents", []):
+            if isinstance(block, ToolResultContent):
+                results[block.id] = block
+    return results
 
 
 class MessageList:
@@ -55,7 +70,7 @@ class MessageList:
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
         with (
-            ui.column().classes("w-full h-5/6 min-h-0 overflow-hidden"),
+            ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
             ui.scroll_area().classes("w-full h-full"),
         ):
             self._container = ui.column().classes("w-full gap-4 pr-2")
@@ -115,12 +130,32 @@ class MessageList:
         self._assistant_message = None
 
         context = self._runtime.session_manager.build_session_context()
+        tool_results = _collect_tool_results(context.messages)
         for message in context.messages:
             if not _is_chat_message(message):
                 continue
+            if getattr(message, "role", None) == Role.ASSISTANT:
+                self._append_assistant_blocks(message, tool_results)  # type: ignore[arg-type]
+                continue
             text = _message_text(message)
             if text:
-                self._append_message(text, role=_message_role(message))
+                self._append_message(text, role="user")
+
+    def _append_assistant_blocks(
+        self, message: AssistantMessage, tool_results: dict[str, ToolResultContent]
+    ) -> None:
+        """Render one assistant turn's text, thinking, and tool-call blocks in order."""
+        if self._container is None:
+            return
+        with self._container:
+            for block in message.contents:
+                if isinstance(block, TextContent):
+                    if block.content:
+                        MessageView(block.content, role="assistant").render()
+                elif isinstance(block, ThinkingContent):
+                    render_thinking_block(block)
+                elif isinstance(block, ToolCallContent):
+                    render_tool_call_block(block, tool_results.get(block.id))
 
     def _rollback_messages(self, count: int) -> None:
         """Remove recently appended message bubbles."""

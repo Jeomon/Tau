@@ -24,10 +24,7 @@ class InputSection:
             input_box.value = ""
             await self._runtime.invoke(value)
 
-        with (
-            ui.column().classes("w-full min-h-0 justify-end"),
-            ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"),
-        ):
+        with ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"):
             input_box = (
                 ui.textarea(placeholder="Message Tau...")
                 .props("borderless dense autogrow input-class=py-1")
