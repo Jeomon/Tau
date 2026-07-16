@@ -18,6 +18,8 @@ CSS = """
     --text-dim: #9ca3af;
     --accent: #2563eb;
     --accent-hover: #1d4ed8;
+    --accent-solid: var(--accent);
+    --accent-solid-hover: var(--accent-hover);
     --user-bg: #eff6ff;
 }
 
@@ -35,6 +37,12 @@ body.body--dark {
     --text-dim: #6b7280;
     --accent: #60a5fa;
     --accent-hover: #93c5fd;
+    /* --accent is deliberately light in dark mode for text/borders on a dark
+       background, but that's too low-contrast as a solid fill behind a white
+       icon (the send button). Keep a separate, more saturated pair for
+       solid-fill controls only. */
+    --accent-solid: #2563eb;
+    --accent-solid-hover: #3b82f6;
     --user-bg: #1e293b;
 }
 
@@ -298,10 +306,10 @@ pre, code {
     transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
 }
 .tau-send-button-idle {
-    background: var(--accent) !important;
+    background: var(--accent-solid) !important;
 }
 .tau-send-button-idle:hover {
-    background: var(--accent-hover) !important;
+    background: var(--accent-solid-hover) !important;
 }
 .tau-send-button-disabled,
 .tau-send-button-disabled.q-btn--disabled {
