@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from nicegui import ui
 
 from tau.modes.interactive.components.session_selector import _cleanup_session_media
+from tau.modes.web.components.file_explorer import _build_tree
 from tau.modes.web.components.worktree_menu import WorktreeMenu
 from tau.session.manager import SessionManager
 
@@ -73,6 +74,7 @@ class SessionSidebar:
         on_open_settings: Callable[[], None] | None = None,
         on_open_skills: Callable[[], None] | None = None,
         on_open_plugins: Callable[[], None] | None = None,
+        on_open_file: Callable[[Path], None] | None = None,
     ) -> None:
         self._runtime = runtime
         self._dark_mode = dark_mode
@@ -81,7 +83,9 @@ class SessionSidebar:
         self._on_open_settings = on_open_settings
         self._on_open_skills = on_open_skills
         self._on_open_plugins = on_open_plugins
+        self._on_open_file = on_open_file
         self._list_container: Any | None = None
+        self._explorer_container: Any | None = None
         self._theme_button: Any | None = None
         self._filter_text = ""
         self._confirming_delete: Path | None = None
@@ -126,7 +130,22 @@ class SessionSidebar:
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                 ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
             ):
-                self._list_container = ui.column().classes("w-full min-w-0 gap-1 px-1 py-1")
+                self._list_container = ui.column().classes("w-full min-w-0 gap-0")
+
+            if self._on_open_file is not None:
+                # Always-visible collapsible file tree docked in the sidebar,
+                # matching pi-web's layout (an "Explorer" section under the
+                # session list) instead of tau's original slide-out right
+                # panel — the panel itself still exists and still opens when
+                # a file is picked here, so tabs/preview logic isn't duplicated.
+                with ui.expansion("Explorer", value=True).classes("w-full tau-sidebar-explorer").props(
+                    'dense expand-icon="expand_more"'
+                ):
+                    with ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll"):
+                        self._explorer_container = ui.column().classes(
+                            "w-full min-w-0 items-stretch gap-0 p-1"
+                        )
+                self._refresh_explorer()
 
             with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
                 if self._on_open_settings is not None:
@@ -173,6 +192,24 @@ class SessionSidebar:
         self._filter_text = str(event.value or "").strip().lower()
         self._refresh()
 
+    def _refresh_explorer(self) -> None:
+        if self._explorer_container is None:
+            return
+        self._explorer_container.clear()
+        with self._explorer_container:
+            nodes = _build_tree(self._runtime.session_manager.cwd)
+            ui.tree(
+                nodes, node_key="id", label_key="label", on_select=self._on_explorer_select
+            ).classes("w-full text-xs")
+
+    def _on_explorer_select(self, event: Any) -> None:
+        node_id = getattr(event, "value", None)
+        if not node_id or self._on_open_file is None:
+            return
+        path = Path(node_id)
+        if path.is_file():
+            self._on_open_file(path)
+
     def _refresh(self) -> None:
         if self._list_container is None:
             return
@@ -188,11 +225,10 @@ class SessionSidebar:
                 self._render_session_row(session, active=session.path == current_file)
 
     def _render_session_row(self, session: SessionInfo, *, active: bool) -> None:
-        # `justify-center` only centers along a row's horizontal axis, not
-        # vertical, and with no py-* the content had no real top/bottom
-        # breathing room — `items-center` is the correct cross-axis (vertical)
-        # centering for a ui.row(), backed by explicit py-2 as a floor.
-        classes = "w-full flex-nowrap items-center min-h-[48px] px-2 py-2 tau-session-row" + (
+        # Matches pi-web's SessionSidebar.tsx session row exactly: fixed
+        # 54px height, flat full-bleed background (no border-radius), a 2px
+        # left accent border when selected, 14px/8px left/right padding.
+        classes = "w-full flex-nowrap items-center h-[54px] pl-[14px] pr-2 gap-1.5 tau-session-row" + (
             " tau-active" if active else ""
         )
 
@@ -244,26 +280,33 @@ class SessionSidebar:
             return
 
         with ui.row().classes(classes).on("click", switch):
-            with ui.column().classes("flex-1 min-w-0 items-stretch gap-0"):
+            with ui.column().classes("flex-1 min-w-0 gap-0"):
                 ui.label(_session_label(session)).classes(
-                    "w-full min-w-0 truncate text-xs font-medium text-[var(--text)]"
+                    "w-full min-w-0 truncate text-xs text-[var(--text)]"
+                    + (" font-medium" if active else "")
                 )
                 with ui.row().classes(
-                    "w-full flex-nowrap gap-2 text-[11px] text-[var(--text-dim)]"
+                    "w-full flex-nowrap gap-2 mt-0.5 text-[11px] text-[var(--text-dim)]"
                 ):
                     ui.label(_humanize_age(session.modified)).classes("flex-shrink-0")
                     ui.label(f"{session.message_count} msgs").classes("flex-shrink-0")
+            # Boxed, bordered 32x32 icon buttons matching pi-web's action
+            # buttons — not the plain borderless icon-only look used for the
+            # footer controls elsewhere in the app.
+            # color=None is the real fix for these rendering in Quasar's
+            # accent blue regardless of CSS — ui.button() defaults
+            # color='primary' as an actual Quasar prop, not just a class.
             rename_btn = (
-                ui.button(icon="edit")
-                .props("flat dense round size=sm")
-                .classes("tau-session-delete-btn")
+                ui.button(icon="edit", color=None)
+                .props("flat dense")
+                .classes("tau-session-action-btn")
             )
             rename_btn.on("click.stop", lambda: self._start_rename(session.path))
             if not active:
                 delete_btn = (
-                    ui.button(icon="delete_outline")
-                    .props("flat dense round size=sm")
-                    .classes("tau-session-delete-btn")
+                    ui.button(icon="delete_outline", color=None)
+                    .props("flat dense")
+                    .classes("tau-session-action-btn tau-session-delete-btn")
                 )
                 delete_btn.on("click.stop", lambda: self._start_delete(session.path))
 

@@ -64,8 +64,47 @@ pre, code {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
 }
 
+/* Matches pi-web's AppShell top bar: fixed 36px height, panel background,
+   full-bleed edge-to-edge (see chat.py — it's rendered outside the page's
+   padded column specifically so it can reach both edges). */
 .tau-topbar {
+    height: 36px;
+    min-height: 36px;
+    background: var(--bg-panel);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+/* Quasar's "text-primary" rule apparently matches a compound selector too
+   (invisible to introspection — it lives in a stylesheet the browser
+   treats as cross-origin) and ties or beats a 2-class scoped selector on
+   source order. Repeating the class (.tau-topbar-tab.tau-topbar-tab) is a
+   standard trick to add a full extra specificity point without resorting
+   to an ID or guessing at !important stacking. */
+.tau-topbar .tau-topbar-tab.tau-topbar-tab {
+    height: 36px !important;
+    min-height: 36px !important;
+    border-radius: 0 !important;
+    border-right: 1px solid var(--border) !important;
+    border-top: 2px solid transparent !important;
+    color: var(--text-muted) !important;
+    font-size: 11px !important;
+    padding: 0 12px !important;
+    transition: color 0.1s, background 0.1s;
+}
+.tau-topbar .tau-topbar-tab.tau-topbar-tab .q-icon {
+    font-size: 14px;
+    color: var(--text-muted) !important;
+}
+.tau-topbar .tau-topbar-tab.tau-topbar-tab:hover {
+    background: var(--bg-hover) !important;
+    color: var(--text) !important;
+}
+.tau-topbar .tau-topbar-tab.tau-topbar-tab:hover .q-icon {
+    color: var(--text) !important;
+}
+.tau-topbar-stats {
+    height: 100%;
+    font-variant-numeric: tabular-nums;
 }
 
 .nicegui-markdown pre {
@@ -218,6 +257,21 @@ pre, code {
     border-top: 1px solid var(--border);
     flex-shrink: 0;
 }
+.tau-sidebar-explorer {
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.tau-sidebar-explorer .q-item {
+    min-height: 32px;
+    padding: 4px 10px;
+}
+.tau-sidebar-explorer .q-item__section {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
 .tau-footer-tab {
     height: 32px !important;
     min-height: 32px !important;
@@ -298,14 +352,13 @@ pre, code {
     color: var(--text-muted) !important;
 }
 
+/* Matches pi-web's session row exactly (SessionSidebar.tsx): flat,
+   full-bleed, no border-radius — a 2px accent left border is the only
+   "selected" cue, not a card/tile treatment. */
 .tau-session-row {
-    border-left: 3px solid transparent;
-    /* Round only the right-side corners — rounding all four made the left
-       accent border curl at its ends like a floating focus ring instead of
-       a flush "this session is active" edge. */
-    border-radius: 0 9px 9px 0;
+    border-left: 2px solid transparent;
     cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
+    transition: background 0.1s;
 }
 .tau-session-row:hover {
     background: var(--bg-hover);
@@ -314,23 +367,42 @@ pre, code {
     background: var(--bg-selected);
     border-left-color: var(--accent);
 }
-/* Quasar auto-assigns a "text-primary" class to flat icon buttons with no
-   explicit color prop. That rule targets the nested .q-icon directly (not
-   just the button), so an explicit child-level color always wins over the
-   button's own color regardless of specificity — raising specificity on
-   .tau-session-delete-btn alone wasn't enough; the .q-icon child needs its
-   own override too (same fix as the composer's attach-file icon earlier). */
-.tau-session-row .tau-session-delete-btn {
+/* Boxed 32x32 bordered icon buttons (pi-web's rename/delete affordance),
+   not the borderless icon-only style used for the composer footer. Hidden
+   until the row is hovered, matching pi-web's hover-conditional render. */
+.tau-session-action-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    border-radius: 7px !important;
+    background: var(--bg-hover) !important;
+    border: 1px solid var(--border) !important;
     opacity: 0;
-    transition: opacity 0.1s, color 0.12s;
+    transition: opacity 0.1s, background 0.12s, border-color 0.12s;
 }
-.tau-session-row .tau-session-delete-btn .q-icon {
-    color: var(--text-dim) !important;
-}
-.tau-session-row:hover .tau-session-delete-btn {
+.tau-session-row:hover .tau-session-action-btn {
     opacity: 1;
 }
-.tau-session-row .tau-session-delete-btn:hover .q-icon {
+/* Quasar auto-assigns a "text-primary" class to flat icon buttons with no
+   explicit color prop, and that rule targets the nested .q-icon directly —
+   an explicit child-level color always wins over the button's own color
+   regardless of specificity, so the icon needs its own override too (same
+   fix as the composer's attach-file icon). */
+.tau-session-action-btn .q-icon {
+    color: var(--text-muted) !important;
+}
+.tau-session-action-btn:hover {
+    background: var(--bg-selected) !important;
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent) !important;
+}
+.tau-session-action-btn:hover .q-icon {
+    color: var(--accent) !important;
+}
+.tau-session-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.08) !important;
+    border-color: rgba(239, 68, 68, 0.35) !important;
+}
+.tau-session-delete-btn:hover .q-icon {
     color: #ef4444 !important;
 }
 .tau-bubble-user {
@@ -462,24 +534,30 @@ pre, code {
     background: #b91c1c !important;
 }
 
-.tau-thinking-block, .tau-tool-block {
+.tau-thinking-block {
     border-radius: 6px;
     font-size: 13px;
-}
-.tau-thinking-block {
     border: 1px solid var(--border);
     background: var(--bg-panel);
 }
-.tau-thinking-block .q-item, .tau-tool-block .q-item {
+.tau-thinking-block .q-item {
     padding: 6px 10px;
     min-height: 0;
 }
-.tau-thinking-block .q-item__section, .tau-tool-block .q-item__section {
+.tau-thinking-block .q-item__section {
     color: var(--text-muted);
     font-size: 12px;
 }
+
+/* Matches pi-web's ToolCallBlock: collapsed-by-default header with a bold
+   colored verb + gray monospace preview, args/result only rendered once
+   expanded (see message_view.py::render_tool_call_block — a hand-rolled
+   toggle since ui.expansion() only supports a plain-string header, and
+   this needs two independently-colored spans in the same line). */
 .tau-tool-block {
     border-radius: 7px;
+    overflow: hidden;
+    font-size: 12px;
 }
 .tau-tool-ok {
     border: 1px solid rgba(34, 197, 94, 0.25);
@@ -489,20 +567,34 @@ pre, code {
     border: 1px solid rgba(248, 113, 113, 0.45);
     background: rgba(248, 113, 113, 0.05);
 }
-.tau-tool-block .q-item__section {
+.tau-tool-header {
+    color: var(--text-muted);
+}
+.tau-tool-name {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
-}
-.tau-tool-args-block {
-    margin-top: 6px;
-    opacity: 0.7;
-}
-.tau-tool-args-block .q-item {
-    padding: 2px 0;
-    min-height: 0;
-}
-.tau-tool-args-block .q-item__section {
-    color: var(--text-dim);
+    font-weight: 600;
     font-size: 11px;
+    flex-shrink: 0;
+}
+.tau-tool-preview {
+    font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.tau-tool-chevron {
+    font-size: 16px !important;
+    color: var(--text-dim) !important;
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+.tau-tool-chevron-open {
+    transform: rotate(180deg);
+}
+.tau-tool-details {
+    border-top: 1px solid rgba(34, 197, 94, 0.2);
+}
+.tau-tool-error .tau-tool-details {
+    border-top-color: rgba(248, 113, 113, 0.25);
 }
 
 .tau-msg-meta {

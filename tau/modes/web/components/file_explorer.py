@@ -187,6 +187,17 @@ class FileExplorerPanel:
         if self._panel is not None:
             self._panel.style(f"width: {'340px' if self._visible else '0px'}")
 
+    def open_file(self, path: Path) -> None:
+        """Open `path` as a tab and ensure the panel is visible.
+
+        Lets an external tree (e.g. the always-visible Explorer section in
+        the left sidebar, matching pi-web's layout) drive this panel's
+        viewer without duplicating the tab/preview logic.
+        """
+        if not self._visible:
+            self.toggle()
+        self._open_tab(path)
+
     def _refresh_tree(self) -> None:
         if self._tree_container is None:
             return

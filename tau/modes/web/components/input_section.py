@@ -284,14 +284,16 @@ class InputSection:
             return
 
         self._send_button.props("icon=arrow_upward")
+        self._send_button.classes(remove="tau-send-button-running")
+        # classes(add=...) never removed the *other* state's class, so once
+        # both idle and disabled had occurred at least once, both classes
+        # stuck around simultaneously — always remove the opposite one.
         if self._has_prompt_text():
             self._send_button.enable()
+            self._send_button.classes(remove="tau-send-button-disabled", add="tau-send-button-idle")
         else:
             self._send_button.disable()
-        self._send_button.classes(remove="tau-send-button-running")
-        self._send_button.classes(
-            add="tau-send-button-idle" if self._has_prompt_text() else "tau-send-button-disabled"
-        )
+            self._send_button.classes(remove="tau-send-button-idle", add="tau-send-button-disabled")
 
     def _current_model(self) -> Any | None:
         agent = self._runtime.agent

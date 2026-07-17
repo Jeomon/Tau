@@ -43,18 +43,31 @@ class ChatPage:
                 on_open_settings=settings_dialog.open,
                 on_open_skills=skills_dialog.open,
                 on_open_plugins=plugins_dialog.open,
+                on_open_file=file_panel.open_file,
             ).render()
-            with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-4 px-6 pt-4 pb-2"):
+            with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-0"):
+                # Full-bleed, edge-to-edge like pi-web's top bar — everything
+                # else stays inset in its own padded column below it.
                 SessionTopBar(
                     self._runtime,
                     on_toggle_files=file_panel.toggle,
                     on_open_branches=branch_dialog.open,
                 ).render()
-                with ui.row().classes("w-full flex-1 min-h-0 gap-1"):
-                    with ui.column().classes("flex-1 min-w-0 h-full min-h-0"):
-                        message_list.render()
-                    ChatMinimap(self._runtime, message_list).render()
-                InputSection(self._runtime).render()
+                # w-full is required here, not just flex-1 — this column now
+                # sits inside a *column*-direction wrapper (added for the
+                # full-bleed top bar above), so flex-1/flex-grow governs its
+                # height, not its width. Without an explicit width it falls
+                # back to shrink-to-fit content instead of filling available
+                # horizontal space, which is why the whole chat column (and
+                # everything in it, including tool-call blocks) rendered far
+                # narrower than the viewport with a large empty gap on the
+                # right.
+                with ui.column().classes("w-full flex-1 min-w-0 min-h-0 gap-4 px-6 pt-4 pb-2"):
+                    with ui.row().classes("w-full flex-1 min-h-0 gap-1"):
+                        with ui.column().classes("flex-1 min-w-0 h-full min-h-0"):
+                            message_list.render()
+                        ChatMinimap(self._runtime, message_list).render()
+                    InputSection(self._runtime).render()
             file_panel.render()
             settings_dialog.render()
             skills_dialog.render()

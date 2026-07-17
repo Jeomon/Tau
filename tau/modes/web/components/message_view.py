@@ -82,11 +82,6 @@ class MessageView:
         return "w-full px-0 py-0 tau-bubble-assistant"
 
 
-def _display_name(tool_name: str) -> str:
-    """Convert a snake_case tool name to Title Case, matching the TUI's naming."""
-    return " ".join(w.capitalize() for w in tool_name.split("_"))
-
-
 def _call_summary(tool_name: str, args: dict[str, Any]) -> str:
     """Pick the 1-2 most meaningful args for a one-line call summary.
 
@@ -123,20 +118,43 @@ def render_thinking_block(block: ThinkingContent) -> None:
 
 
 def render_tool_call_block(block: ToolCallContent, result: ToolResultContent | None) -> None:
-    """Render a collapsed tool-call panel with args and paired result."""
+    """Render a tool-call block matching pi-web's ToolCallBlock: a bold
+    colored verb (green/red) + gray monospace arg preview in the header,
+    collapsed by default, with raw args and the result only shown once
+    expanded. ui.expansion() only supports a plain-string header, so this
+    is a hand-rolled toggle to get independently-colored header spans.
+    """
     is_error = bool(result and result.is_error)
     status_classes = "tau-tool-error" if is_error else "tau-tool-ok"
+    preview = _call_summary(block.name, block.args)
+    name_color = "#f87171" if is_error else "#16a34a"
 
-    name = _display_name(block.name)
-    summary = _call_summary(block.name, block.args)
-    header = f"{name}({summary})" if summary else name
-    with (
-        ui.expansion(header)
-        .classes(f"w-full tau-tool-block {status_classes}")
-        .props('dense expand-icon="expand_more"')
-    ):
-        if result is not None and result.content:
-            result_color = "text-[#f87171]" if is_error else "text-[var(--text-muted)]"
-            ui.markdown(result.content).classes(f"text-xs whitespace-pre-wrap {result_color}")
-        with ui.expansion("Arguments").classes("tau-tool-args-block").props('dense expand-icon="expand_more"'):
-            ui.markdown(f"```json\n{json.dumps(block.args, indent=2)}\n```").classes("text-xs")
+    expanded = [False]
+    details_container: dict[str, Any] = {}
+    chevron_ref: dict[str, Any] = {}
+
+    def toggle() -> None:
+        expanded[0] = not expanded[0]
+        details_container["el"].set_visibility(expanded[0])
+        chevron_ref["el"].classes(toggle="tau-tool-chevron-open")
+
+    with ui.column().classes(f"w-full gap-0 tau-tool-block {status_classes}"):
+        with ui.row().classes(
+            "w-full items-center gap-2 px-2.5 py-1.5 cursor-pointer tau-tool-header"
+        ).on("click", toggle):
+            ui.label(block.name).classes("tau-tool-name").style(f"color: {name_color} !important;")
+            ui.label(preview).classes("flex-1 min-w-0 truncate tau-tool-preview")
+            chevron_ref["el"] = ui.icon("expand_more").classes("tau-tool-chevron")
+
+        details = ui.column().classes("w-full gap-0 tau-tool-details")
+        details.set_visibility(False)
+        details_container["el"] = details
+        with details:
+            ui.markdown(f"```json\n{json.dumps(block.args, indent=2)}\n```").classes(
+                "text-xs px-2.5 py-2 tau-tool-args"
+            )
+            if result is not None and result.content:
+                result_color = "text-[#f87171]" if is_error else "text-[var(--text-muted)]"
+                ui.markdown(result.content).classes(
+                    f"text-xs whitespace-pre-wrap px-2.5 py-2 {result_color} tau-tool-result"
+                )
