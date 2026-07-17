@@ -156,9 +156,41 @@ class FileExplorerPanel:
 
     def render(self) -> None:
         """Render the (initially collapsed) panel."""
-        with ui.column().classes("h-full min-h-0 gap-0 tau-file-panel").style(
+        with ui.column().classes("h-full min-h-0 gap-0 tau-file-panel relative").style(
             "width: 0px; min-width: 0px; border-left: none;"
         ) as panel:
+            # Drag-to-resize handle on the left edge — pure client-side JS
+            # (mousedown here, mousemove/mouseup on document) so dragging
+            # tracks the cursor at full frame rate instead of round-tripping
+            # every pixel through the server over the websocket.
+            resize_handle = ui.element("div").classes("tau-file-resize-handle")
+            resize_handle.on(
+                "mousedown",
+                js_handler="""
+                (event) => {
+                    const panel = event.target.parentElement;
+                    const startX = event.clientX;
+                    const startWidth = panel.getBoundingClientRect().width;
+                    panel.classList.add('tau-file-panel-resizing');
+                    document.body.style.userSelect = 'none';
+                    const onMove = (e) => {
+                        const delta = startX - e.clientX;
+                        const maxWidth = window.innerWidth * 0.75;
+                        const newWidth = Math.max(300, Math.min(startWidth + delta, maxWidth));
+                        panel.style.width = newWidth + 'px';
+                        panel.style.minWidth = newWidth + 'px';
+                    };
+                    const onUp = () => {
+                        panel.classList.remove('tau-file-panel-resizing');
+                        document.body.style.userSelect = '';
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                }
+                """,
+            )
             self._tab_bar_container = ui.row().classes(
                 "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
             )
@@ -254,12 +286,12 @@ class FileExplorerPanel:
             for path in self._open_tabs:
                 is_active = path == self._active_tab
                 classes = (
-                    "items-center flex-nowrap flex-shrink-0 gap-1 px-2 py-1 cursor-pointer tau-file-tab"
+                    "items-center flex-nowrap flex-shrink-0 gap-2 px-3 py-2.5 cursor-pointer tau-file-tab"
                     + (" tau-active" if is_active else "")
                 )
                 with ui.row().classes(classes).on("click", lambda p=path: self._open_tab(p)):
-                    ui.label(path.name).classes("text-xs truncate max-w-[110px] text-[var(--text)]")
-                    close_btn = ui.icon("close").classes("text-xs tau-file-tab-close")
+                    ui.label(path.name).classes("text-sm truncate max-w-[180px] text-[var(--text)]")
+                    close_btn = ui.icon("close").classes("text-base tau-file-tab-close")
                     close_btn.on("click.stop", lambda p=path: self._close_tab(p))
 
     def _clear_viewer(self) -> None:

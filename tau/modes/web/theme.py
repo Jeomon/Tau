@@ -251,6 +251,31 @@ pre, code {
     flex-shrink: 0;
     transition: width 0.2s ease;
 }
+/* Drag-to-resize handle, a thin strip inside the panel's own left edge
+   (not straddling it) so overflow:hidden above doesn't clip it. */
+.tau-file-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 5px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+    transition: background 0.15s;
+}
+.tau-file-resize-handle:hover {
+    background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+/* JS sets width on every mousemove for a 1:1 cursor tracking feel — the
+   panel's own width transition (above) would otherwise animate toward each
+   intermediate value and lag visibly behind the cursor while dragging. */
+.tau-file-panel-resizing {
+    transition: none !important;
+}
+.tau-file-panel-resizing .tau-file-resize-handle {
+    background: var(--accent);
+}
 .tau-file-viewer {
     border-top: 1px solid var(--border);
 }
@@ -272,6 +297,7 @@ pre, code {
 .tau-file-tab-close {
     color: var(--text-dim);
     border-radius: 4px;
+    padding: 2px;
 }
 .tau-file-tab-close:hover {
     color: var(--text);
