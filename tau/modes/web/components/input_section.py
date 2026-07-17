@@ -112,10 +112,12 @@ class InputSection:
             attachments_row = ui.row().classes("w-full items-center gap-1 px-2 flex-wrap")
             attachments_row.set_visibility(False)
             self._attachments_row = attachments_row
-            # pi-web's own composer row uses alignItems: "center" (ChatInput.tsx),
-            # not bottom-aligned — the attach icon, textarea, and send button
-            # all stay vertically centered on the line, even as the textarea
-            # grows for multi-line input.
+            # pi-web's composer row itself is alignItems: "center" (ChatInput.tsx),
+            # but its send button explicitly overrides that with
+            # alignSelf: "flex-end" — pinned to the row's bottom edge so it
+            # doesn't drift upward toward vertical-center as the textarea
+            # grows for multi-line input. Applying the same to the attach
+            # icon keeps both anchored at the bottom in lockstep.
             with ui.row().classes("w-full items-center gap-2 p-2 tau-composer"):
                 attach_upload = (
                     ui.upload(
@@ -128,7 +130,7 @@ class InputSection:
                         'flat dense hide-upload-btn accept="image/*,audio/*,video/*,'
                         '.pdf,.txt,.md,.json,.py,.js,.ts,.csv,.log"'
                     )
-                    .classes("tau-attach-upload")
+                    .classes("tau-attach-upload self-end")
                 )
                 attach_upload.props(
                     'title="Attach an image, audio, video, or file (drag onto this to drop)"'
@@ -151,7 +153,9 @@ class InputSection:
                     self._suggestion_results = ui.column().classes("gap-0 min-w-[280px]")
                 self._suggestion_menu = suggestion_menu
                 self._send_button = (
-                    ui.button(on_click=send).props("unelevated round").classes("tau-send-button")
+                    ui.button(on_click=send)
+                    .props("unelevated round")
+                    .classes("tau-send-button self-end")
                 )
                 self._refresh_send_button()
 
