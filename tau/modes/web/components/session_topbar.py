@@ -72,12 +72,20 @@ class SessionTopBar:
         *,
         dark_mode: ui.dark_mode,
         on_open_branches: Callable[[], None] | None = None,
+        on_toggle_sidebar: Callable[[], bool] | None = None,
+        on_toggle_file_panel: Callable[[], bool] | None = None,
     ) -> None:
         self._runtime = runtime
         self._dark_mode = dark_mode
         self._on_open_branches = on_open_branches
+        self._on_toggle_sidebar = on_toggle_sidebar
+        self._on_toggle_file_panel = on_toggle_file_panel
+        self._sidebar_open = True
+        self._file_panel_open = False
         self._stats_row: Any | None = None
         self._theme_button: Any | None = None
+        self._sidebar_button: Any | None = None
+        self._file_panel_button: Any | None = None
 
     def _theme_icon(self) -> str:
         return "dark_mode" if self._dark_mode.value else "light_mode"
@@ -87,12 +95,52 @@ class SessionTopBar:
         if self._theme_button is not None:
             self._theme_button.props(f"icon={self._theme_icon()}")
 
+    def _sidebar_icon(self) -> str:
+        # "view_sidebar" (pi-web's own glyph concept) renders as a chunky,
+        # hard-to-read block at 16px in Quasar's bundled classic Material
+        # Icons font — menu_open/menu is the cleaner, more legible pairing
+        # at this size and still reads clearly as an open/closed toggle.
+        return "menu_open" if self._sidebar_open else "menu"
+
+    def _toggle_sidebar(self) -> None:
+        if self._on_toggle_sidebar is None:
+            return
+        self._sidebar_open = self._on_toggle_sidebar()
+        if self._sidebar_button is not None:
+            self._sidebar_button.props(f"icon={self._sidebar_icon()}")
+
+    def _file_panel_icon(self) -> str:
+        # menu_open mirrored horizontally reads naturally as "panel on the
+        # right, opening/closing" — consistent with the sidebar's own icon
+        # language instead of introducing a third icon family.
+        return "menu_open" if self._file_panel_open else "menu"
+
+    def _toggle_file_panel(self) -> None:
+        if self._on_toggle_file_panel is not None:
+            # Icon state is driven by sync_file_panel_open below, not this
+            # return value — the panel can also open/close from outside this
+            # button (picking a file in the sidebar), so there must be a
+            # single source of truth that both paths feed into.
+            self._on_toggle_file_panel()
+
+    def sync_file_panel_open(self, open_: bool) -> None:
+        """Mirror the file panel's actual visibility, however it changed."""
+        self._file_panel_open = open_
+        if self._file_panel_button is not None:
+            self._file_panel_button.props(f"icon={self._file_panel_icon()}")
+
     def render(self) -> None:
         """Render the top bar and subscribe it to session-lifecycle events."""
         with ui.row().classes("w-full items-stretch gap-0 tau-topbar"):
-            # Leftmost, matching pi-web's AppShell exactly — a flat 36px
-            # icon button bordered on the right, first thing in the bar
-            # (right where a sidebar-toggle button would sit if we had one).
+            # Leftmost, matching pi-web's AppShell exactly — sidebar-toggle
+            # first, theme-toggle second, both flat 36px icon buttons
+            # bordered on the right.
+            if self._on_toggle_sidebar is not None:
+                self._sidebar_button = (
+                    ui.button(icon=self._sidebar_icon(), color=None, on_click=self._toggle_sidebar)
+                    .props("flat dense")
+                    .classes("tau-topbar-icon-btn")
+                )
             self._theme_button = (
                 ui.button(icon=self._theme_icon(), color=None, on_click=self._toggle_theme)
                 .props("flat dense")
@@ -110,6 +158,18 @@ class SessionTopBar:
             self._stats_row = ui.row().classes(
                 "items-center gap-3 px-3 ml-auto text-[11px] text-[var(--text-muted)] tau-topbar-stats"
             )
+            if self._on_toggle_file_panel is not None:
+                # Rightmost, mirroring the sidebar toggle's placement on the
+                # far left — pi-web pins its own file-panel toggle at the
+                # top-right corner (AppShell.tsx) for the same reason: always
+                # reachable regardless of which tabs/panels are open.
+                self._file_panel_button = (
+                    ui.button(
+                        icon=self._file_panel_icon(), color=None, on_click=self._toggle_file_panel
+                    )
+                    .props("flat dense")
+                    .classes("tau-topbar-icon-btn tau-topbar-icon-btn-end")
+                )
 
         self._refresh()
 

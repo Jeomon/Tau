@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -137,9 +138,12 @@ class FileExplorerPanel:
     ever takes up space when there's something to preview.
     """
 
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(
+        self, runtime: Runtime, *, on_visibility_change: Callable[[bool], None] | None = None
+    ) -> None:
         self._runtime = runtime
         self._root = runtime.session_manager.cwd
+        self._on_visibility_change = on_visibility_change
         self._panel: Any | None = None
         self._tab_bar_container: Any | None = None
         self._viewer_container: Any | None = None
@@ -152,7 +156,9 @@ class FileExplorerPanel:
 
     def render(self) -> None:
         """Render the (initially collapsed) panel."""
-        with ui.column().classes("h-full min-h-0 gap-0 tau-file-panel").style("width: 0px") as panel:
+        with ui.column().classes("h-full min-h-0 gap-0 tau-file-panel").style(
+            "width: 0px; min-width: 0px; border-left: none;"
+        ) as panel:
             self._tab_bar_container = ui.row().classes(
                 "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
             )
@@ -169,17 +175,38 @@ class FileExplorerPanel:
         self._panel = panel
         ui.context.client.on_disconnect(self._stop_watch)
 
-    def toggle(self) -> None:
-        """Show or hide the panel, sliding its width in/out."""
+    def set_visibility_listener(self, callback: Callable[[bool], None]) -> None:
+        """Register `callback` to fire on every visibility change, from
+        whichever caller triggered it (the top bar's own button, or
+        open_file() opening the panel on demand). Set post-construction
+        since the listener (the top bar) is typically constructed with a
+        reference to this panel's `toggle`, creating a circular dependency
+        if this had to be threaded through __init__ instead."""
+        self._on_visibility_change = callback
+
+    def toggle(self) -> bool:
+        """Show or hide the panel, sliding its width in/out. Returns the new
+        visibility so callers (the top bar's toggle icon) can mirror it."""
         self._visible = not self._visible
         if self._panel is not None:
             # 42vw / min 300px matches pi-web's right-panel-container spec
             # (globals.css) — previously a fixed 340px, which cramped long
             # lines into constant horizontal scrolling.
-            self._panel.style(
-                f"width: {'max(42vw, 300px)' if self._visible else '0px'};"
-                f" min-width: {'300px' if self._visible else '0px'};"
-            )
+            width = "max(42vw, 300px)" if self._visible else "0px"
+            min_width = "300px" if self._visible else "0px"
+            # A border can't shrink below its own thickness even under
+            # box-sizing:border-box, so a bare "width: 0" still renders a
+            # 1px sliver unless the border itself is toggled off too (same
+            # fix as the sidebar's toggle).
+            border = "1px solid var(--border)" if self._visible else "none"
+            self._panel.style(f"width: {width}; min-width: {min_width}; border-left: {border};")
+        if self._on_visibility_change is not None:
+            # Fires for every toggle, not just clicks on the top bar's own
+            # button — e.g. open_file() below also calls toggle() when the
+            # panel was hidden, and the top bar's icon needs to follow that
+            # too or it desyncs from the panel's actual state.
+            self._on_visibility_change(self._visible)
+        return self._visible
 
     def open_file(self, path: Path) -> None:
         """Open `path` as a tab and ensure the panel is visible.

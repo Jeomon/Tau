@@ -35,7 +35,7 @@ class ChatPage:
             plugins_dialog = PluginsDialog(self._runtime)
             branch_dialog = BranchNavigatorDialog(self._runtime)
             message_list = MessageList(self._runtime)
-            SessionSidebar(
+            session_sidebar = SessionSidebar(
                 self._runtime,
                 on_session_loading=message_list.show_loading,
                 on_preview_session=message_list.preview_session,
@@ -43,15 +43,23 @@ class ChatPage:
                 on_open_skills=skills_dialog.open,
                 on_open_plugins=plugins_dialog.open,
                 on_open_file=file_panel.open_file,
-            ).render()
+            )
+            session_sidebar.render()
             with ui.column().classes("flex-1 min-w-0 h-full min-h-0 gap-0"):
                 # Full-bleed, edge-to-edge like pi-web's top bar — everything
                 # else stays inset in its own padded column below it.
-                SessionTopBar(
+                session_topbar = SessionTopBar(
                     self._runtime,
                     dark_mode=self._dark_mode,
                     on_open_branches=branch_dialog.open,
-                ).render()
+                    on_toggle_sidebar=session_sidebar.toggle,
+                    on_toggle_file_panel=file_panel.toggle,
+                )
+                # Keep the top bar's toggle icon in sync even when the panel
+                # opens from the sidebar's Explorer tree instead of this
+                # button (see FileExplorerPanel.set_visibility_listener).
+                file_panel.set_visibility_listener(session_topbar.sync_file_panel_open)
+                session_topbar.render()
                 # w-full is required here, not just flex-1 — this column now
                 # sits inside a *column*-direction wrapper (added for the
                 # full-bleed top bar above), so flex-1/flex-grow governs its

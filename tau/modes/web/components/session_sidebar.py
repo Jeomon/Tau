@@ -84,95 +84,33 @@ class SessionSidebar:
         self._on_open_file = on_open_file
         self._list_container: Any | None = None
         self._explorer_container: Any | None = None
+        self._outer: Any | None = None
+        self._visible = True
         self._filter_text = ""
         self._confirming_delete: Path | None = None
         self._renaming_path: Path | None = None
         self._pending_session_path: Path | None = None
 
+    def toggle(self) -> bool:
+        """Show or hide the sidebar, sliding its width in/out (pi-web's
+        sidebar-container spec: 260px <-> 0, inner content held at a fixed
+        260px so it doesn't reflow/wrap mid-animation). Returns the new
+        visibility so callers (the top bar's toggle icon) can mirror it."""
+        self._visible = not self._visible
+        if self._outer is not None:
+            width = "260px" if self._visible else "0px"
+            border = "1px solid var(--border)" if self._visible else "none"
+            self._outer.style(f"width: {width}; min-width: {width}; border-right: {border};")
+        return self._visible
+
     def render(self) -> None:
         """Render the sidebar and subscribe it to session-lifecycle events."""
-        with ui.column().classes("w-[260px] h-full min-h-0 gap-0 tau-sidebar"):
-            with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    ui.label("Tau").classes("text-sm font-semibold text-[var(--text)]")
-                    ui.button(on_click=self._new_session).props(
-                        "unelevated icon=add round dense"
-                    ).classes("tau-icon-btn-32").style(
-                        "background: var(--bg-hover) !important;"
-                        " color: var(--text-muted) !important;"
-                        " box-shadow: none !important;"
-                    )
-                WorktreeMenu(self._runtime).render()
-
-            with ui.column().classes("w-full gap-1 px-3 py-2 tau-session-search-wrap"):
-                search_box = (
-                    ui.input(placeholder="Search sessions")
-                    .props("borderless dense clearable append-icon=search")
-                    .classes("w-full tau-session-search text-[var(--text)]")
-                )
-                search_box.on_value_change(self._on_filter_change)
-
-            with (
-                ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
-                ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
-            ):
-                self._list_container = ui.column().classes("w-full min-w-0 gap-0")
-
-            if self._on_open_file is not None:
-                # Always-visible collapsible file tree docked in the sidebar,
-                # matching pi-web's layout (an "EXPLORER" section under the
-                # session list) instead of tau's original slide-out right
-                # panel — the panel itself still exists and still opens when
-                # a file is picked here, so tabs/preview logic isn't duplicated.
-                # Hand-rolled header (not ui.expansion's built-in label) since
-                # pi-web's header also carries a refresh icon button next to
-                # the title, and ui.expansion only supports a plain string.
-                expanded = [True]
-                body_container: dict[str, Any] = {}
-                chevron_ref: dict[str, Any] = {}
-
-                def toggle_explorer() -> None:
-                    expanded[0] = not expanded[0]
-                    body_container["el"].set_visibility(expanded[0])
-                    chevron_ref["el"].classes(toggle="tau-explorer-chevron-open")
-
-                with ui.column().classes("w-full gap-0 tau-sidebar-explorer"):
-                    with ui.row().classes(
-                        "w-full items-center gap-1 px-3 py-1.5 cursor-pointer tau-explorer-header"
-                    ).on("click", toggle_explorer):
-                        chevron_ref["el"] = ui.icon("expand_more").classes(
-                            "tau-explorer-chevron tau-explorer-chevron-open"
-                        )
-                        ui.label("EXPLORER").classes("flex-1 text-[11px] font-medium tau-explorer-title")
-                        refresh_btn = ui.icon("refresh").classes("tau-explorer-refresh")
-                        refresh_btn.on("click.stop", self._refresh_explorer)
-                    body = ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll")
-                    with body:
-                        self._explorer_container = ui.column().classes(
-                            "w-full min-w-0 items-stretch gap-0 p-1"
-                        )
-                    body_container["el"] = body
-                self._refresh_explorer()
-
-            with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
-                if self._on_open_settings is not None:
-                    ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
-                        "flat no-caps dense"
-                    ).classes("flex-1 tau-sidebar-footer-tab").style(
-                        "color: var(--text-muted) !important;"
-                    )
-                if self._on_open_skills is not None:
-                    ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
-                        "flat no-caps dense"
-                    ).classes("flex-1 tau-sidebar-footer-tab").style(
-                        "color: var(--text-muted) !important;"
-                    )
-                if self._on_open_plugins is not None:
-                    ui.button("Plugins", icon="extension", on_click=self._on_open_plugins).props(
-                        "flat no-caps dense"
-                    ).classes("flex-1 tau-sidebar-footer-tab").style(
-                        "color: var(--text-muted) !important;"
-                    )
+        with ui.column().classes("h-full min-h-0 gap-0 overflow-hidden tau-sidebar-outer").style(
+            "width: 260px; min-width: 260px; border-right: 1px solid var(--border);"
+        ) as outer:
+            self._outer = outer
+            with ui.column().classes("w-[260px] min-w-[260px] h-full min-h-0 gap-0 tau-sidebar"):
+                self._render_content()
 
         self._refresh()
 
@@ -183,6 +121,89 @@ class SessionSidebar:
 
         unsub = self._runtime.hooks.register("session_start", on_session_start)
         ui.context.client.on_disconnect(unsub)
+
+    def _render_content(self) -> None:
+        with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
+            with ui.row().classes("w-full items-center justify-between"):
+                ui.label("Tau").classes("text-sm font-semibold text-[var(--text)]")
+                ui.button(on_click=self._new_session).props(
+                    "unelevated icon=add round dense"
+                ).classes("tau-icon-btn-32").style(
+                    "background: var(--bg-hover) !important;"
+                    " color: var(--text-muted) !important;"
+                    " box-shadow: none !important;"
+                )
+            WorktreeMenu(self._runtime).render()
+
+        with ui.column().classes("w-full gap-1 px-3 py-2 tau-session-search-wrap"):
+            search_box = (
+                ui.input(placeholder="Search sessions")
+                .props("borderless dense clearable append-icon=search")
+                .classes("w-full tau-session-search text-[var(--text)]")
+            )
+            search_box.on_value_change(self._on_filter_change)
+
+        with (
+            ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
+            ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
+        ):
+            self._list_container = ui.column().classes("w-full min-w-0 gap-0")
+
+        if self._on_open_file is not None:
+            # Always-visible collapsible file tree docked in the sidebar,
+            # matching pi-web's layout (an "EXPLORER" section under the
+            # session list) instead of tau's original slide-out right
+            # panel — the panel itself still exists and still opens when
+            # a file is picked here, so tabs/preview logic isn't duplicated.
+            # Hand-rolled header (not ui.expansion's built-in label) since
+            # pi-web's header also carries a refresh icon button next to
+            # the title, and ui.expansion only supports a plain string.
+            expanded = [True]
+            body_container: dict[str, Any] = {}
+            chevron_ref: dict[str, Any] = {}
+
+            def toggle_explorer() -> None:
+                expanded[0] = not expanded[0]
+                body_container["el"].set_visibility(expanded[0])
+                chevron_ref["el"].classes(toggle="tau-explorer-chevron-open")
+
+            with ui.column().classes("w-full gap-0 tau-sidebar-explorer"):
+                with ui.row().classes(
+                    "w-full items-center gap-1 px-3 py-1.5 cursor-pointer tau-explorer-header"
+                ).on("click", toggle_explorer):
+                    chevron_ref["el"] = ui.icon("expand_more").classes(
+                        "tau-explorer-chevron tau-explorer-chevron-open"
+                    )
+                    ui.label("EXPLORER").classes("flex-1 text-[11px] font-medium tau-explorer-title")
+                    refresh_btn = ui.icon("refresh").classes("tau-explorer-refresh")
+                    refresh_btn.on("click.stop", self._refresh_explorer)
+                body = ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll")
+                with body:
+                    self._explorer_container = ui.column().classes(
+                        "w-full min-w-0 items-stretch gap-0 p-1"
+                    )
+                body_container["el"] = body
+            self._refresh_explorer()
+
+        with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
+            if self._on_open_settings is not None:
+                ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
+                    "flat no-caps dense"
+                ).classes("flex-1 tau-sidebar-footer-tab").style(
+                    "color: var(--text-muted) !important;"
+                )
+            if self._on_open_skills is not None:
+                ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
+                    "flat no-caps dense"
+                ).classes("flex-1 tau-sidebar-footer-tab").style(
+                    "color: var(--text-muted) !important;"
+                )
+            if self._on_open_plugins is not None:
+                ui.button("Plugins", icon="extension", on_click=self._on_open_plugins).props(
+                    "flat no-caps dense"
+                ).classes("flex-1 tau-sidebar-footer-tab").style(
+                    "color: var(--text-muted) !important;"
+                )
 
     async def _new_session(self) -> None:
         await self._runtime.new_session()

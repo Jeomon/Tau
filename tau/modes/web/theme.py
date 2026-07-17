@@ -157,6 +157,16 @@ pre, code {
 .tau-topbar .tau-topbar-icon-btn:hover .q-icon {
     color: var(--text) !important;
 }
+/* Rightmost variant (file-panel toggle): border divides on the left instead
+   of the right, and the icon is mirrored so its "collapse" arrow points
+   toward the panel it controls (right) instead of left like the sidebar's. */
+.tau-topbar .tau-topbar-icon-btn-end {
+    border-right: none !important;
+    border-left: 1px solid var(--border) !important;
+}
+.tau-topbar .tau-topbar-icon-btn-end .q-icon {
+    transform: scaleX(-1);
+}
 .tau-topbar-stats {
     height: 100%;
     font-variant-numeric: tabular-nums;
@@ -220,14 +230,23 @@ pre, code {
     border-bottom-right-radius: 5px;
 }
 
+/* border-right is toggled inline alongside width (see SessionSidebar.toggle)
+   rather than left always-on here — a border can't shrink below its own
+   thickness even under box-sizing:border-box, so a bare "width: 0" still
+   renders a 1px sliver unless the border itself is removed too (matches
+   pi-web's .sidebar-container.sidebar-closed { border-right: none }). */
+.tau-sidebar-outer {
+    flex-shrink: 0;
+    transition: width 0.2s ease, min-width 0.2s ease;
+}
 .tau-sidebar {
     background: var(--bg-panel);
-    border-right: 1px solid var(--border);
 }
 
+/* border-left is toggled inline alongside width (see FileExplorerPanel.toggle)
+   rather than left always-on here — same reasoning as .tau-sidebar-outer. */
 .tau-file-panel {
     background: var(--bg-panel);
-    border-left: 1px solid var(--border);
     overflow: hidden;
     flex-shrink: 0;
     transition: width 0.2s ease;
