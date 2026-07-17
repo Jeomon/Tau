@@ -71,17 +71,11 @@ class SessionSidebar:
         *,
         on_session_loading: Callable[[], None] | None = None,
         on_preview_session: Callable[[Path], None] | None = None,
-        on_open_settings: Callable[[], None] | None = None,
-        on_open_skills: Callable[[], None] | None = None,
-        on_open_plugins: Callable[[], None] | None = None,
         on_open_file: Callable[[Path], None] | None = None,
     ) -> None:
         self._runtime = runtime
         self._on_session_loading = on_session_loading
         self._on_preview_session = on_preview_session
-        self._on_open_settings = on_open_settings
-        self._on_open_skills = on_open_skills
-        self._on_open_plugins = on_open_plugins
         self._on_open_file = on_open_file
         self._list_container: Any | None = None
         self._explorer_container: Any | None = None
@@ -161,7 +155,7 @@ class SessionSidebar:
             # Hand-rolled header (not ui.expansion's built-in label) since
             # pi-web's header also carries a refresh icon button next to
             # the title, and ui.expansion only supports a plain string.
-            expanded = [True]
+            expanded = [False]
             body_container: dict[str, Any] = {}
             chevron_ref: dict[str, Any] = {}
 
@@ -174,39 +168,18 @@ class SessionSidebar:
                 with ui.row().classes(
                     "w-full items-center gap-1 px-3 py-1.5 cursor-pointer tau-explorer-header"
                 ).on("click", toggle_explorer):
-                    chevron_ref["el"] = ui.icon("expand_more").classes(
-                        "tau-explorer-chevron tau-explorer-chevron-open"
-                    )
+                    chevron_ref["el"] = ui.icon("expand_more").classes("tau-explorer-chevron")
                     ui.label("EXPLORER").classes("flex-1 text-[11px] font-medium tau-explorer-title")
                     refresh_btn = ui.icon("refresh").classes("tau-explorer-refresh")
                     refresh_btn.on("click.stop", self._refresh_explorer)
                 body = ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll")
+                body.set_visibility(False)
                 with body:
                     self._explorer_container = ui.column().classes(
                         "w-full min-w-0 items-stretch gap-0 p-1"
                     )
                 body_container["el"] = body
             self._refresh_explorer()
-
-        with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
-            if self._on_open_settings is not None:
-                ui.button("Models", icon="settings", on_click=self._on_open_settings).props(
-                    "flat no-caps dense"
-                ).classes("flex-1 tau-sidebar-footer-tab").style(
-                    "color: var(--text-muted) !important;"
-                )
-            if self._on_open_skills is not None:
-                ui.button("Skills", icon="auto_awesome", on_click=self._on_open_skills).props(
-                    "flat no-caps dense"
-                ).classes("flex-1 tau-sidebar-footer-tab").style(
-                    "color: var(--text-muted) !important;"
-                )
-            if self._on_open_plugins is not None:
-                ui.button("Plugins", icon="extension", on_click=self._on_open_plugins).props(
-                    "flat no-caps dense"
-                ).classes("flex-1 tau-sidebar-footer-tab").style(
-                    "color: var(--text-muted) !important;"
-                )
 
     async def _new_session(self) -> None:
         await self._runtime.new_session()

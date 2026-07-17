@@ -438,6 +438,52 @@ pre, code {
     white-space: nowrap;
     display: inline-block;
 }
+.tau-model-menu {
+    border-radius: 10px !important;
+    box-shadow:
+        0 2px 6px rgba(15, 23, 42, 0.06),
+        0 12px 32px -8px rgba(15, 23, 42, 0.16) !important;
+    border: 1px solid var(--border);
+    background: var(--bg) !important;
+}
+/* Sticky so the search box stays reachable while a long, filtered model
+   list scrolls underneath it instead of scrolling away with the rest. */
+.tau-model-search-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+}
+.tau-model-search-icon {
+    font-size: 16px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+.tau-model-search .q-field__control,
+.tau-model-search .q-field__native {
+    font-size: 14px !important;
+    color: var(--text) !important;
+}
+.tau-model-item {
+    min-height: 38px;
+    padding: 6px 12px;
+    border-radius: 7px;
+    margin: 1px 6px;
+    width: calc(100% - 12px);
+    transition: background 0.12s;
+}
+.tau-model-item:hover {
+    background: var(--bg-hover) !important;
+}
+.tau-model-item-active {
+    color: var(--accent) !important;
+    font-weight: 500;
+}
+.tau-model-item-check {
+    font-size: 15px !important;
+    color: var(--accent) !important;
+}
 .tau-sidebar-footer-tab {
     height: 46px !important;
     min-height: 46px !important;
@@ -477,7 +523,7 @@ pre, code {
     border-bottom: 1px solid var(--border);
 }
 .tau-session-search {
-    min-height: 34px !important;
+    min-height: 20px !important;
     padding: 0 10px !important;
     color: var(--text);
     background: var(--bg-hover);
@@ -486,7 +532,7 @@ pre, code {
     font-size: 13px !important;
 }
 .tau-session-search .q-field__control {
-    min-height: 32px !important;
+    min-height: 20px !important;
 }
 .tau-session-search .q-field__native,
 .tau-session-search .q-field__append {
@@ -552,7 +598,7 @@ pre, code {
 }
 .tau-bubble-user {
     background: var(--user-bg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--user-bg);
     border-radius: 12px;
 }
 .tau-bubble-assistant {

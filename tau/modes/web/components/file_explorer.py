@@ -221,10 +221,10 @@ class FileExplorerPanel:
         visibility so callers (the top bar's toggle icon) can mirror it."""
         self._visible = not self._visible
         if self._panel is not None:
-            # 42vw / min 300px matches pi-web's right-panel-container spec
-            # (globals.css) — previously a fixed 340px, which cramped long
-            # lines into constant horizontal scrolling.
-            width = "max(42vw, 300px)" if self._visible else "0px"
+            # Default width — narrower than pi-web's 42vw spec (globals.css),
+            # which felt oversized as a starting point now that the panel is
+            # user-resizable via the drag handle on its left edge.
+            width = "max(32vw, 300px)" if self._visible else "0px"
             min_width = "300px" if self._visible else "0px"
             # A border can't shrink below its own thickness even under
             # box-sizing:border-box, so a bare "width: 0" still renders a

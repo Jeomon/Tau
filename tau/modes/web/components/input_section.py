@@ -170,18 +170,25 @@ class InputSection:
                     .style("color: var(--text-muted) !important;")
                 )
                 model_button.props(f'title="{self._model_label()}"')
-                with model_button, ui.menu().props("max-height=340px") as model_menu:
+                with (
+                    model_button,
+                    ui.menu().props("max-height=340px").classes("tau-model-menu") as model_menu,
+                ):
                     self._model_menu = model_menu
-                    with ui.column().classes("gap-0 min-w-[260px]"):
-                        model_search = (
-                            ui.input(placeholder="Search models...")
-                            .props("dense borderless")
-                            .classes("px-3 pt-2 pb-1 text-xs")
-                        )
+                    with ui.column().classes("gap-0 min-w-[280px]"):
+                        with ui.row().classes(
+                            "w-full items-center gap-1.5 px-3 py-2 tau-model-search-wrap"
+                        ):
+                            ui.icon("search").classes("tau-model-search-icon")
+                            model_search = (
+                                ui.input(placeholder="Search models...")
+                                .props("dense borderless autofocus")
+                                .classes("flex-1 text-sm tau-model-search")
+                            )
                         model_search.on_value_change(
                             lambda e: self._render_model_results(e.value or "")
                         )
-                        self._model_results = ui.column().classes("gap-0 w-full")
+                        self._model_results = ui.column().classes("gap-0 w-full py-1")
                     self._render_model_results("")
                 self._model_button = model_button
 
@@ -192,7 +199,7 @@ class InputSection:
                         .classes("tau-footer-tab")
                         .style("color: var(--text-muted) !important;")
                     )
-                    with effort_button, ui.menu() as effort_menu:
+                    with effort_button, ui.menu().classes("tau-model-menu") as effort_menu:
                         self._effort_menu = effort_menu
                         self._render_effort_menu()
                     self._effort_button = effort_button
@@ -361,14 +368,23 @@ class InputSection:
             for model in models:
                 if model.provider != last_provider:
                     if last_provider is not None:
-                        ui.separator()
+                        ui.separator().classes("my-1")
                     ui.label(model.provider).classes(
-                        "px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--text-dim)]"
+                        "px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide"
+                        " text-[var(--text-dim)]"
                     )
                     last_provider = model.provider
                 is_current = f"{model.provider}/{model.id}" == current_key
-                label = f"{'✓ ' if is_current else ''}{model.name}"
-                ui.menu_item(label, on_click=lambda _event, m=model: self._set_model(m))
+                item = (
+                    ui.menu_item(on_click=lambda _event, m=model: self._set_model(m))
+                    .props("clickable")
+                    .classes("tau-model-item" + (" tau-model-item-active" if is_current else ""))
+                )
+                with item:
+                    with ui.row().classes("w-full items-center gap-2"):
+                        ui.label(model.name).classes("flex-1 text-sm")
+                        if is_current:
+                            ui.icon("check").classes("tau-model-item-check")
 
     def _refresh_model_control(self) -> None:
         self._render_model_results(self._model_query)
@@ -403,9 +419,19 @@ class InputSection:
         if self._effort_menu is None:
             return
         self._effort_menu.clear()
+        current = self._effort_label()
         with self._effort_menu:
-            for level in self._available_effort_levels():
-                ui.menu_item(level.value, on_click=lambda _event, lv=level: self._set_effort(lv))
+            with ui.column().classes("gap-0 min-w-[160px] py-1"):
+                for level in self._available_effort_levels():
+                    is_current = level.value == current
+                    item = (
+                        ui.menu_item(on_click=lambda _event, lv=level: self._set_effort(lv))
+                        .classes("tau-model-item" + (" tau-model-item-active" if is_current else ""))
+                    )
+                    with item, ui.row().classes("w-full items-center gap-2"):
+                        ui.label(level.value).classes("flex-1 text-sm")
+                        if is_current:
+                            ui.icon("check").classes("tau-model-item-check")
 
     def _refresh_effort_control(self) -> None:
         self._render_effort_menu()
