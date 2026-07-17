@@ -159,7 +159,10 @@ class InputSection:
                 )
                 self._refresh_send_button()
 
-            with ui.row().classes("items-center gap-1 px-1"):
+            # Matches pi-web's own bottom-bar split (ChatInput.tsx): "LEFT:
+            # attach + model selector" vs. "RIGHT: thinking + tools preset +
+            # compact + sound", not one flat left-bunched row.
+            with ui.row().classes("w-full items-center gap-1 px-1"):
                 model_button = (
                     ui.button(self._model_label(), icon="memory")
                     .props("flat no-caps dense")
@@ -182,44 +185,47 @@ class InputSection:
                     self._render_model_results("")
                 self._model_button = model_button
 
-                effort_button = (
-                    ui.button(self._effort_label(), icon="o_lightbulb")
-                    .props("flat no-caps dense")
-                    .classes("tau-footer-tab")
-                    .style("color: var(--text-muted) !important;")
-                )
-                with effort_button, ui.menu() as effort_menu:
-                    self._effort_menu = effort_menu
-                    self._render_effort_menu()
-                self._effort_button = effort_button
+                with ui.row().classes("items-center gap-1 ml-auto"):
+                    effort_button = (
+                        ui.button(self._effort_label(), icon="o_lightbulb")
+                        .props("flat no-caps dense")
+                        .classes("tau-footer-tab")
+                        .style("color: var(--text-muted) !important;")
+                    )
+                    with effort_button, ui.menu() as effort_menu:
+                        self._effort_menu = effort_menu
+                        self._render_effort_menu()
+                    self._effort_button = effort_button
 
-                tools_button = (
-                    ui.button(self._tools_label(), icon="build")
-                    .props("flat no-caps dense")
-                    .classes("tau-footer-tab")
-                    .style("color: var(--text-muted) !important;")
-                )
-                tools_button.on("click", lambda _e: self._toggle_tools())
-                tools_button.props(f'title="{self._tools_tooltip()}"')
-                self._tools_button = tools_button
+                    tools_button = (
+                        ui.button(self._tools_label(), icon="build")
+                        .props("flat no-caps dense")
+                        .classes("tau-footer-tab")
+                        .style("color: var(--text-muted) !important;")
+                    )
+                    tools_button.on("click", lambda _e: self._toggle_tools())
+                    tools_button.props(f'title="{self._tools_tooltip()}"')
+                    self._tools_button = tools_button
 
-                compaction_button = (
-                    ui.button(self._compaction_label(), icon="compress")
-                    .props("flat no-caps dense")
-                    .classes("tau-footer-tab")
-                    .style("color: var(--text-muted) !important;")
-                )
-                compaction_button.on("click", lambda _e: self._toggle_compaction())
-                compaction_button.props('title="Summarize the conversation so far to free up context"')
-                self._compaction_button = compaction_button
+                    compaction_button = (
+                        ui.button(self._compaction_label(), icon="compress")
+                        .props("flat no-caps dense")
+                        .classes("tau-footer-tab")
+                        .style("color: var(--text-muted) !important;")
+                    )
+                    compaction_button.on("click", lambda _e: self._toggle_compaction())
+                    compaction_button.props(
+                        'title="Summarize the conversation so far to free up context"'
+                    )
+                    self._compaction_button = compaction_button
 
-                sound_button = (
-                    ui.button(icon=self._sound_icon(), on_click=self._toggle_sound)
-                    .props("flat dense round size=sm")
-                    .style("color: var(--text-muted) !important;")
-                )
-                sound_button.props(f'title="{self._sound_tooltip()}"')
-                self._sound_button = sound_button
+                    sound_button = (
+                        ui.button(icon=self._sound_icon(), on_click=self._toggle_sound)
+                        .props("flat dense round size=sm")
+                        .style("color: var(--text-muted) !important;")
+                    )
+                    sound_button.props(f'title="{self._sound_tooltip()}"')
+                    self._sound_button = sound_button
 
         async def on_model_select(_event: object) -> None:
             self._refresh_model_control()
