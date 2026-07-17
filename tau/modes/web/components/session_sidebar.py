@@ -12,6 +12,7 @@ from tau.modes.interactive.components.session_selector import _cleanup_session_m
 from tau.modes.web.components.file_explorer import _build_tree
 from tau.modes.web.components.worktree_menu import WorktreeMenu
 from tau.session.manager import SessionManager
+from tau.settings.paths import get_app_version
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -125,7 +126,9 @@ class SessionSidebar:
     def _render_content(self) -> None:
         with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Tau").classes("text-sm font-semibold text-[var(--text)]")
+                with ui.row().classes("items-baseline gap-1.5"):
+                    ui.label("Tau").classes("text-lg font-semibold text-[var(--text)]")
+                    ui.label(f"v{get_app_version()}").classes("text-xs text-[var(--text-dim)]")
                 ui.button(on_click=self._new_session).props(
                     "unelevated icon=add round dense"
                 ).classes("tau-icon-btn-32").style(

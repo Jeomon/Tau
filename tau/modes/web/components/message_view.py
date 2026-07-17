@@ -107,6 +107,11 @@ def _call_summary(tool_name: str, args: dict[str, Any]) -> str:
     return joined[:79] + "…" if len(joined) > 80 else joined
 
 
+def _format_tool_name(tool_name: str) -> str:
+    """"web_search" -> "Web Search", "ls" -> "Ls" — split on underscore, title-case each word."""
+    return " ".join(word.capitalize() for word in tool_name.split("_"))
+
+
 def render_thinking_block(block: ThinkingContent) -> None:
     """Render a collapsed 'Thinking' panel, matching pi-web's ThinkingBlock."""
     with (
@@ -142,7 +147,9 @@ def render_tool_call_block(block: ToolCallContent, result: ToolResultContent | N
         with ui.row().classes(
             "w-full items-center gap-2 px-2.5 py-1.5 cursor-pointer tau-tool-header"
         ).on("click", toggle):
-            ui.label(block.name).classes("tau-tool-name").style(f"color: {name_color} !important;")
+            ui.label(_format_tool_name(block.name)).classes("tau-tool-name").style(
+                f"color: {name_color} !important;"
+            )
             ui.label(preview).classes("flex-1 min-w-0 truncate tau-tool-preview")
             chevron_ref["el"] = ui.icon("expand_more").classes("tau-tool-chevron")
 

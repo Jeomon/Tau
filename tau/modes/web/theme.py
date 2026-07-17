@@ -418,10 +418,14 @@ pre, code {
     font-size: 12px !important;
 }
 .tau-footer-tab .q-icon {
-    font-size: 14px;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 .tau-footer-tab .q-btn__content {
     gap: 6px;
+    align-items: center;
 }
 .tau-footer-tab:hover {
     background: var(--bg-hover) !important;
