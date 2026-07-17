@@ -39,8 +39,12 @@ class _Model:
     name = "fake-model"
 
 
+class _Options:
+    headers: dict = {}
+
+
 class _Api:
-    options: dict = {}
+    options = _Options()
 
 
 class ScriptedLLM:
@@ -58,6 +62,7 @@ class ScriptedLLM:
         self.ephemeral_counts: list[int] = []
         self.model = _Model()
         self.api = _Api()
+        self.provider_id = "fake-provider"
         # Optional per-turn async hooks, invoked just before that turn streams.
         # Used to simulate a user steering *during* a specific turn.
         self.on_turn: list = []

@@ -211,10 +211,16 @@ class TextLLM:
         # Resolve any "$ENV_VAR" / "!command" references in custom headers to
         # their values. Done once here (per provider/model selection); the
         # resolver memoizes, so a !command runs only the first time it's seen.
-        if merged.headers:
-            from tau.utils.secrets import resolve_secrets
+        #
+        # Always leave this as a real dict (never None): providers that pass
+        # it straight through as `default_headers=` share this exact object
+        # with their HTTP client, which re-reads it on every request rather
+        # than snapshotting at construction — so extensions listening on
+        # `before_provider_headers` can mutate it in place and have that
+        # take effect on the next outgoing request.
+        from tau.utils.secrets import resolve_secrets
 
-            merged.headers = resolve_secrets(merged.headers)
+        merged.headers = resolve_secrets(merged.headers) if merged.headers else {}
 
         # Lazy adapter: exposes `.options` immediately but only imports the
         # provider SDK and builds its client on first `.stream()`/`.invoke()`.

@@ -30,8 +30,12 @@ class _Model:
     name = "fake-model"
 
 
+class _Options:
+    headers: dict = {}
+
+
 class _Api:
-    options: dict = {}
+    options = _Options()
 
 
 class ScriptedLLM:
@@ -43,6 +47,7 @@ class ScriptedLLM:
         self.tools_seen: list[list] = []
         self.model = _Model()
         self.api = _Api()
+        self.provider_id = "fake-provider"
 
     def stream(self, ctx):
         return self._gen(ctx)

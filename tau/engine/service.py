@@ -668,7 +668,9 @@ class Engine:
                     await self.hooks.emit(
                         BeforeProviderRequestEvent(
                             model=self.llm.model,
+                            provider_id=self.llm.provider_id,
                             messages=ctx_messages,
+                            headers=self.llm.api.options.headers,
                             options=self.llm.api.options,
                         )
                     )

@@ -154,6 +154,11 @@ class OpenAICompletionsAPI(BaseAPI):
 
         yield StartEvent()
 
+        # Read live, not at client-construction time: a `before_provider_headers`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call.
+        extra_headers = self.options.headers or None
+
         # async with closes the SDK stream (and its httpx response) on every
         # exit path — cancellation return or an upstream GeneratorExit — instead
         # of leaving it to the GC asyncgen finalizer.
@@ -162,6 +167,7 @@ class OpenAICompletionsAPI(BaseAPI):
             stream=True,
             stream_options={"include_usage": True},
             extra_body=extra_body,
+            extra_headers=extra_headers,
         ) as sdk_stream:
             async for chunk in sdk_stream:
                 if self._cancelled():

@@ -358,7 +358,14 @@ class OpenAIResponsesAPI(BaseAPI):
 
         yield StartEvent()
 
-        async with self._client.responses.stream(**params, extra_body=extra_body or None) as stream:
+        # Read live, not at client-construction time: a `before_provider_headers`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call.
+        extra_headers = self.options.headers or None
+
+        async with self._client.responses.stream(
+            **params, extra_body=extra_body or None, extra_headers=extra_headers
+        ) as stream:
             async for event in stream:
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")

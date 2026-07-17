@@ -150,6 +150,12 @@ class AnthropicMessagesAPI(BaseAPI):
 
         yield StartEvent()
 
+        # Read live, not at client-construction time: a `before_provider_headers`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call.
+        if self.options.headers:
+            params["extra_headers"] = self.options.headers
+
         async with self._client.messages.stream(**params) as stream:
             async for event in stream:
                 if self._cancelled():
