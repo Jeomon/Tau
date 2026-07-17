@@ -519,7 +519,15 @@ pre, code {
     border: 1px solid var(--border);
     border-radius: 7px;
 }
+/* Sticky so it stays reachable at the top of the scrolling session list
+   instead of scrolling away with the rest (see SessionSidebar._render_content
+   — it now lives inside the same ui.scroll_area as the rows, not a separate
+   section above them). */
 .tau-session-search-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-panel);
     border-bottom: 1px solid var(--border);
 }
 .tau-session-search {
@@ -532,7 +540,27 @@ pre, code {
     font-size: 13px !important;
 }
 .tau-session-search .q-field__control {
-    min-height: 20px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    /* The native input (22px) sits shorter than this control (30px) — by
+       default Quasar's own layout leaves the gap entirely below it (top-
+       aligned), not split evenly, so the placeholder/typed text reads as
+       hugging the top edge instead of sitting centered on the line. Quasar
+       nests an extra .q-field__control-container flex row between this and
+       the native input, so centering has to apply to both levels. */
+    align-items: center !important;
+}
+.tau-session-search .q-field__control-container {
+    align-items: center !important;
+}
+/* Quasar's dense text field sets a hardcoded height (not just min-height)
+   on the native input — 40px regardless of our min-height override above,
+   which was the real floor on how short this box could get, not padding. */
+.tau-session-search .q-field__native {
+    padding: 0 !important;
+    height: 22px !important;
+    min-height: 22px !important;
+    line-height: 22px !important;
 }
 .tau-session-search .q-field__native,
 .tau-session-search .q-field__append {

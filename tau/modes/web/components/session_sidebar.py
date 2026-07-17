@@ -154,18 +154,21 @@ class SessionSidebar:
                 )
             WorktreeMenu(self._runtime).render()
 
-        with ui.column().classes("w-full gap-1 px-3 py-2 tau-session-search-wrap"):
-            search_box = (
-                ui.input(placeholder="Search sessions")
-                .props("borderless dense clearable append-icon=search")
-                .classes("w-full tau-session-search text-[var(--text)]")
-            )
-            search_box.on_value_change(self._on_filter_change)
-
         with (
             ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
             ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
         ):
+            # Lives inside the scrolling list itself (not a separate section
+            # above it) and sticks to the top of that scroll as it moves —
+            # stays reachable next to what it filters even deep in a long
+            # session list, instead of scrolling out of view.
+            with ui.column().classes("w-full gap-1 px-1 py-1.5 tau-session-search-wrap"):
+                search_box = (
+                    ui.input(placeholder="Search sessions")
+                    .props("borderless dense clearable append-icon=search")
+                    .classes("w-full tau-session-search text-[var(--text)]")
+                )
+                search_box.on_value_change(self._on_filter_change)
             self._list_container = ui.column().classes("w-full min-w-0 gap-0")
 
         if self._on_open_file is not None:
