@@ -146,9 +146,6 @@ class FileExplorerPanel:
         self._visible = False
         self._open_tabs: list[Path] = []
         self._active_tab: Path | None = None
-        self._live_row: Any | None = None
-        self._live_dot: Any | None = None
-        self._live_label: Any | None = None
         self._watch_timer: Any | None = None
         self._watch_path: Path | None = None
         self._watch_mtime: float | None = None
@@ -159,13 +156,6 @@ class FileExplorerPanel:
             self._tab_bar_container = ui.row().classes(
                 "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
             )
-            with ui.row().classes(
-                "w-full items-center gap-1 px-2 py-1 tau-file-live-row"
-            ) as live_row:
-                self._live_dot = ui.element("span").classes("tau-live-dot")
-                self._live_label = ui.label("").classes("text-[10px] text-[var(--text-dim)]")
-            live_row.set_visibility(False)
-            self._live_row = live_row
             with (
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                 ui.scroll_area().classes("w-full h-full"),
@@ -183,7 +173,13 @@ class FileExplorerPanel:
         """Show or hide the panel, sliding its width in/out."""
         self._visible = not self._visible
         if self._panel is not None:
-            self._panel.style(f"width: {'340px' if self._visible else '0px'}")
+            # 42vw / min 300px matches pi-web's right-panel-container spec
+            # (globals.css) — previously a fixed 340px, which cramped long
+            # lines into constant horizontal scrolling.
+            self._panel.style(
+                f"width: {'max(42vw, 300px)' if self._visible else '0px'};"
+                f" min-width: {'300px' if self._visible else '0px'};"
+            )
 
     def open_file(self, path: Path) -> None:
         """Open `path` as a tab and ensure the panel is visible.
@@ -254,32 +250,15 @@ class FileExplorerPanel:
             self._watch_timer = None
         self._watch_path = None
         self._watch_mtime = None
-        if self._live_row is not None:
-            self._live_row.set_visibility(False)
-
-    def _set_live_indicator(self, *, live: bool) -> None:
-        if self._live_dot is not None:
-            self._live_dot.classes(
-                remove="tau-live-dot-on tau-live-dot-off",
-                add="tau-live-dot-on" if live else "tau-live-dot-off",
-            )
-        if self._live_label is not None:
-            self._live_label.text = "live" if live else "static"
 
     def _start_watch(self, path: Path) -> None:
         """Poll `path`'s mtime so an on-disk change (e.g. the agent editing it)
-        refreshes the open preview automatically, mirroring pi-web's file
-        watch indicator."""
+        refreshes the open preview automatically."""
         self._watch_path = path
         try:
             self._watch_mtime = path.stat().st_mtime
-            live = True
         except OSError:
             self._watch_mtime = None
-            live = False
-        if self._live_row is not None:
-            self._live_row.set_visibility(True)
-        self._set_live_indicator(live=live)
         self._watch_timer = ui.timer(_WATCH_INTERVAL_S, lambda: self._check_watch(path))
 
     def _check_watch(self, path: Path) -> None:
@@ -289,9 +268,7 @@ class FileExplorerPanel:
         try:
             mtime = path.stat().st_mtime
         except OSError:
-            self._set_live_indicator(live=False)
             return
-        self._set_live_indicator(live=True)
         if self._watch_mtime is not None and mtime != self._watch_mtime:
             self._preview_file(path)
 

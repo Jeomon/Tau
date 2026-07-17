@@ -60,6 +60,38 @@ html, body {
     gap: 0 !important;
 }
 
+/* pi-web's slim 4px scrollbar (globals.css), applied to every native scroll
+   surface. Quasar's own q-scrollarea component draws its own thumb/track
+   instead of a native scrollbar (styled separately below), so this alone
+   doesn't cover ui.scroll_area() — it covers ui.code()'s internal <pre>
+   overflow and any other plain-CSS-overflow surface. */
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-dim);
+}
+/* Quasar's q-scrollarea thumb defaults to a squat, solid-gray block that
+   reads as a stray square floating at the top of the track — slim it down
+   to match the native scrollbar above. */
+.q-scrollarea__thumb {
+    width: 4px !important;
+    background: var(--border) !important;
+    opacity: 1 !important;
+    border-radius: 2px;
+}
+.q-scrollarea__thumb:hover {
+    background: var(--text-dim) !important;
+}
+
 pre, code {
     font-family: "JetBrains Mono", "Fira Code", Consolas, ui-monospace, monospace;
 }
@@ -85,7 +117,6 @@ pre, code {
     min-height: 36px !important;
     border-radius: 0 !important;
     border-right: 1px solid var(--border) !important;
-    border-top: 2px solid transparent !important;
     color: var(--text-muted) !important;
     font-size: 11px !important;
     padding: 0 12px !important;
@@ -203,23 +234,19 @@ pre, code {
     color: var(--text);
     background: var(--bg-selected);
 }
-.tau-file-live-row {
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
+/* ui.code() defaults to a card look (tinted background, rounded corners,
+   drop shadow) borrowed from its markdown wrapper — inside the file
+   preview panel that reads as a second nested box around the content, so
+   strip it back to flush plaintext that just sits on the panel background. */
+.tau-file-panel .nicegui-code {
+    background: transparent !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
 }
-.tau-live-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    display: inline-block;
-}
-.tau-live-dot-on {
-    background: #4ade80;
-    box-shadow: 0 0 4px #4ade80;
-}
-.tau-live-dot-off {
-    background: var(--border);
-    box-shadow: none;
+.tau-file-panel .nicegui-code .nicegui-markdown pre {
+    background: transparent !important;
+    margin: 0 !important;
 }
 
 .tau-minimap {
@@ -302,6 +329,13 @@ pre, code {
 }
 .tau-sidebar-explorer .q-tree__arrow {
     color: var(--text-dim) !important;
+}
+/* Quasar's q-scrollarea__content carries a default 14px padding on every
+   side — fine for the session list (rows already have their own edge
+   padding baked in), but on the Explorer tree it stacked with the tree's
+   own node spacing into a visibly oversized gap above the first row. */
+.tau-sidebar-explorer .q-scrollarea__content {
+    padding: 2px 4px !important;
 }
 .tau-footer-tab {
     height: 32px !important;
