@@ -455,9 +455,13 @@ pre, code {
    explicit color prop, and that rule targets the nested .q-icon directly —
    an explicit child-level color always wins over the button's own color
    regardless of specificity, so the icon needs its own override too (same
-   fix as the composer's attach-file icon). */
+   fix as the composer's attach-file icon). pi-web's own pencil/trash glyphs
+   are drawn at 14px inside the same 32px box (SessionSidebar.tsx) — Quasar's
+   default icon font-size is 24px, which all but fills the box and leaves no
+   padding, so it needs sizing down to match. */
 .tau-session-action-btn .q-icon {
     color: var(--text-muted) !important;
+    font-size: 14px !important;
 }
 .tau-session-action-btn:hover {
     background: var(--bg-selected) !important;
@@ -509,12 +513,13 @@ pre, code {
     scrollbar-width: thin;
 }
 .tau-send-button {
-    width: 42px !important;
-    height: 42px !important;
-    min-height: 42px !important;
+    width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
     color: #fff !important;
     box-shadow: 0 1px 3px rgba(37, 99, 235, 0.22) !important;
     transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
+    margin-right: 3px;
 }
 .tau-attach-upload {
     width: 36px !important;
