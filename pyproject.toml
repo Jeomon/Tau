@@ -38,7 +38,7 @@ dependencies = [
     "rapidfuzz==3.14.3",
     "pyxclip==0.2.3",
     "ddgs>=9.14.4",
-    "nicegui==3.14.0",
+    "reflex==0.9.7",
     "fastapi==0.139.0",
     "uvicorn==0.51.0",
 ]
