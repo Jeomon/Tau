@@ -484,19 +484,40 @@ pre, code {
     font-size: 15px !important;
     color: var(--accent) !important;
 }
-/* Slash-command / @-mention autocomplete: highlights whichever row Up/Down
-   is currently pointing at (Tab inserts it) — a plain background swap, not
-   the accent-color treatment used for "currently selected" states elsewhere,
-   since this is transient keyboard focus, not a persisted selection. */
+/* Slash-command / @-mention autocomplete. Same elevated-card treatment as
+   .tau-model-menu (was a bare, flat, full-bleed list with no visual
+   separation between the command/path and its description). */
+.tau-suggestion-menu {
+    border-radius: 10px !important;
+    box-shadow:
+        0 2px 6px rgba(15, 23, 42, 0.06),
+        0 12px 32px -8px rgba(15, 23, 42, 0.16) !important;
+    border: 1px solid var(--border);
+    background: var(--bg) !important;
+}
+/* Highlights whichever row Up/Down is currently pointing at (Tab inserts
+   it) — a plain background swap, not the accent-color treatment used for
+   "currently selected" states elsewhere, since this is transient keyboard
+   focus, not a persisted selection. */
 .tau-suggestion-item {
     min-height: 32px;
-    padding: 4px 10px;
-    border-radius: 6px;
+    padding: 6px 12px;
+    border-radius: 7px;
     margin: 1px 6px;
     width: calc(100% - 12px);
+    transition: background 0.12s;
+}
+.tau-suggestion-item:hover {
+    background: var(--bg-hover) !important;
 }
 .tau-suggestion-active {
     background: var(--bg-hover) !important;
+}
+.tau-suggestion-value {
+    color: var(--text) !important;
+}
+.tau-suggestion-description {
+    color: var(--text-dim) !important;
 }
 .tau-sidebar-footer-tab {
     height: 46px !important;

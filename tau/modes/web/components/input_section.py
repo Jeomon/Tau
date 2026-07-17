@@ -809,17 +809,23 @@ class InputSection:
         self._suggestion_results.clear()
         with self._suggestion_results:
             if not self._suggestion_items:
-                ui.menu_item("No matches").props("disable")
+                ui.menu_item("No matches").props("disable").classes("text-xs")
                 return
             for i, (value, description) in enumerate(self._suggestion_items):
-                label = f"{value}  {description}" if description else value
-                classes = "text-xs tau-suggestion-item"
+                classes = "tau-suggestion-item"
                 if i == self._suggestion_index:
                     classes += " tau-suggestion-active"
-                ui.menu_item(
-                    label,
-                    on_click=lambda v=value: self._select_suggestion(v),
-                ).classes(classes)
+                item = (
+                    ui.menu_item(on_click=lambda v=value: self._select_suggestion(v))
+                    .props("clickable")
+                    .classes(classes)
+                )
+                with item, ui.column().classes("w-full gap-0 min-w-0"):
+                    ui.label(value).classes("text-xs font-mono tau-suggestion-value")
+                    if description:
+                        ui.label(description).classes(
+                            "text-[11px] truncate tau-suggestion-description"
+                        )
 
     def _move_suggestion(self, delta: int) -> None:
         """Up/Down: move the highlight, wrapping around at either end."""
