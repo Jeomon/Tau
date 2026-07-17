@@ -101,6 +101,10 @@ class MessageList:
         self._live_streaming = False
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
+        self._waiting_row: Any | None = None
+        self._waiting_label: Any | None = None
+        self._waiting_timer: Any | None = None
+        self._waiting_started_at = 0.0
 
     def render(self) -> None:
         """Render the message list and subscribe it to runtime message events."""
@@ -120,6 +124,7 @@ class MessageList:
                     str(getattr(event, "text", "")), role="user", timestamp=time.time()
                 )
                 self._client_scroll_to_bottom(smooth=True)
+                self._start_waiting_indicator()
                 return
             if event_type == "message_rollback":
                 self._rollback_messages(int(getattr(event, "count", 0)))
@@ -128,6 +133,7 @@ class MessageList:
                 self._replay_history()
                 return
             if event_type == "agent_end":
+                self._clear_waiting_indicator()
                 self._live_streaming = False
                 self._rerender_live_turn()
                 return
@@ -137,6 +143,7 @@ class MessageList:
                 # case message_start never fires, so without this the
                 # transcript just silently stops with no explanation and
                 # looks hung. Mirrors the TUI surfacing this via its spinner.
+                self._clear_waiting_indicator()
                 self._live_streaming = False
                 error_text = str(getattr(event, "error", "") or "Unknown error")
                 self._append_error(error_text)
@@ -149,6 +156,7 @@ class MessageList:
                 return
 
             if event_type == "message_start":
+                self._clear_waiting_indicator()
                 self._live_message = getattr(event, "message", None)
                 self._live_streaming = True
                 self._start_live_turn()
@@ -163,7 +171,13 @@ class MessageList:
                 self._rerender_live_turn()
 
         unsubs = [self._runtime.hooks.register(name, on_event) for name in _HOOK_NAMES]
-        ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
+
+        def on_disconnect() -> None:
+            self._clear_waiting_indicator()
+            for unsub in unsubs:
+                unsub()
+
+        ui.context.client.on_disconnect(on_disconnect)
 
         self._replay_history()
 
@@ -236,6 +250,7 @@ class MessageList:
         """Show immediate feedback while another session is being loaded."""
         if self._container is None:
             return
+        self._clear_waiting_indicator()
         self._container.clear()
         self._messages = []
         self._live_container = None
@@ -270,6 +285,51 @@ class MessageList:
 
         self._messages.append(rendered)
         return rendered
+
+    def _start_waiting_indicator(self) -> None:
+        """Show a "waiting for the model" row while nothing has streamed yet.
+
+        A turn can go quiet for a while before any content arrives — most
+        commonly TextLLM's own transient-error retry loop (exponential
+        backoff across a few attempts), which currently only logs server-side
+        with no hook event a UI can subscribe to. Rather than plumb attempt
+        counts through the shared inference layer, this just surfaces elapsed
+        wait time so the transcript never looks silently hung. Cleared by
+        `_clear_waiting_indicator` as soon as message_start/agent_end/agent_error
+        fires.
+        """
+        if self._container is None:
+            return
+        self._clear_waiting_indicator()
+        self._waiting_started_at = time.time()
+        with self._container:
+            row = ui.row().classes("w-full items-center gap-2 px-1")
+            with row:
+                ui.spinner(size="sm").classes("text-[var(--text-dim)]")
+                label = ui.label("Waiting for response…").classes(
+                    "text-xs text-[var(--text-dim)]"
+                )
+        self._waiting_row = row
+        self._waiting_label = label
+
+        def tick() -> None:
+            if self._waiting_label is None:
+                return
+            elapsed = int(time.time() - self._waiting_started_at)
+            suffix = " — the provider may be retrying a transient error" if elapsed >= 6 else ""
+            self._waiting_label.text = f"Waiting for response… ({elapsed}s){suffix}"
+
+        self._waiting_timer = ui.timer(1.0, tick)
+        self._client_scroll_to_bottom(smooth=True)
+
+    def _clear_waiting_indicator(self) -> None:
+        if self._waiting_timer is not None:
+            self._waiting_timer.cancel()
+            self._waiting_timer = None
+        if self._waiting_row is not None:
+            self._waiting_row.delete()
+            self._waiting_row = None
+        self._waiting_label = None
 
     def _append_error(self, text: str) -> None:
         """Append a visible error notice, distinct from a normal chat bubble."""
@@ -331,6 +391,7 @@ class MessageList:
         if self._container is None:
             return
 
+        self._clear_waiting_indicator()
         self._container.clear()
         self._messages = []
         self._live_container = None

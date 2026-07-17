@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
@@ -11,6 +13,31 @@ if TYPE_CHECKING:
 
 
 _SUBMIT_ON_ENTER_JS = "(event) => { if (!event.shiftKey) { event.preventDefault(); emit(); } }"
+
+# Slash commands only trigger when the *entire* message is the command so far
+# (matches the TUI's own condition in Layout._sync_pickers: startswith("/")
+# and no space yet) — not a "/" appearing mid-sentence.
+_SLASH_TRIGGER_RE = re.compile(r"^/(\S*)$")
+# @-mentions trigger on an unterminated "@word" at the very end of the text.
+# A plain textarea value-change event doesn't expose caret position, so this
+# (like pi-web's own trailing-word matching) only completes a mention you're
+# actively typing at the end — not one inserted earlier in the message.
+_MENTION_TRIGGER_RE = re.compile(r"(?:^|\s)@([^\s@]*)$")
+
+_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+    ".next",
+}
+_MAX_FILE_INDEX = 5000
 
 
 class InputSection:
@@ -28,27 +55,46 @@ class InputSection:
         self._tools_all_enabled = True
         self._compaction_button: Any | None = None
         self._is_compacting = False
+        self._sound_button: Any | None = None
+        self._sound_enabled = True
         self._send_button: Any | None = None
         self._input_box: Any | None = None
         self._is_running = False
+        self._suggestion_menu: Any | None = None
+        self._suggestion_results: Any | None = None
+        self._suggestion_mode: str | None = None
+        self._suggestion_prefix = ""
+        self._suggestion_top: tuple[str, str] | None = None
+        self._file_index: list[str] | None = None
+        self._attach_upload: Any | None = None
+        self._attachments_row: Any | None = None
+        self._pending_attachments: list[dict[str, Any]] = []
 
     def render(self) -> None:
         """Render the prompt input, send button, and a footer of quick controls."""
 
         async def send() -> None:
+            if self._suggestion_mode is not None:
+                # Enter while a suggestion dropdown is open accepts the top
+                # match instead of submitting the raw "/comp" text as-is.
+                self._accept_top_suggestion()
+                return
             if self._is_running:
                 agent = self._runtime.agent
                 if agent is not None:
                     agent.abort()
                 self._refresh_send_button()
                 return
-            value = input_box.value
-            if not value or not value.strip():
+            value = input_box.value or ""
+            if not value.strip() and not self._pending_attachments:
                 return
             input_box.value = ""
+            options = self._build_prompt_options()
+            self._pending_attachments = []
+            self._render_attachments()
             self._refresh_send_button()
             try:
-                await self._runtime.invoke(value)
+                await self._runtime.invoke(value, options)
             except Exception as exc:
                 # Runtime.invoke() re-raises when the turn fails outright (e.g.
                 # every transient-error retry inside TextLLM is exhausted). If
@@ -63,7 +109,28 @@ class InputSection:
             ui.notify(f"Error: {getattr(event, 'error', event)}", type="negative")
 
         with ui.column().classes("w-full gap-2"):
+            attachments_row = ui.row().classes("w-full items-center gap-1 px-2 flex-wrap")
+            attachments_row.set_visibility(False)
+            self._attachments_row = attachments_row
             with ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"):
+                attach_upload = (
+                    ui.upload(
+                        multiple=True,
+                        auto_upload=True,
+                        on_upload=self._on_file_uploaded,
+                        max_file_size=25 * 1024 * 1024,
+                    )
+                    .props(
+                        'flat dense hide-upload-btn accept="image/*,audio/*,video/*,'
+                        '.pdf,.txt,.md,.json,.py,.js,.ts,.csv,.log"'
+                    )
+                    .classes("tau-attach-upload")
+                )
+                attach_upload.props(
+                    'title="Attach an image, audio, video, or file (drag onto this to drop)"'
+                )
+                self._attach_upload = attach_upload
+
                 input_box = (
                     ui.textarea(placeholder="Message Tau...")
                     .props("borderless dense autogrow input-class=py-1")
@@ -74,8 +141,11 @@ class InputSection:
                     send,
                     js_handler=_SUBMIT_ON_ENTER_JS,
                 )
-                input_box.on_value_change(lambda _event: self._refresh_send_button())
+                input_box.on_value_change(lambda e: self._on_input_change(e.value or ""))
                 self._input_box = input_box
+                with input_box, ui.menu().props("no-parent-event max-height=280px") as suggestion_menu:
+                    self._suggestion_results = ui.column().classes("gap-0 min-w-[280px]")
+                self._suggestion_menu = suggestion_menu
                 self._send_button = (
                     ui.button(on_click=send).props("unelevated round").classes("tau-send-button")
                 )
@@ -135,6 +205,14 @@ class InputSection:
                 compaction_button.props('title="Summarize the conversation so far to free up context"')
                 self._compaction_button = compaction_button
 
+                sound_button = (
+                    ui.button(icon=self._sound_icon(), on_click=self._toggle_sound)
+                    .props("flat dense round size=sm")
+                    .style("color: var(--text-muted) !important;")
+                )
+                sound_button.props(f'title="{self._sound_tooltip()}"')
+                self._sound_button = sound_button
+
         async def on_model_select(_event: object) -> None:
             self._refresh_model_control()
             self._refresh_effort_control()
@@ -148,6 +226,8 @@ class InputSection:
         async def on_agent_end(_event: object) -> None:
             self._is_running = False
             self._refresh_send_button()
+            if self._sound_enabled:
+                self._play_done_sound()
 
         agent_start_unsub = self._runtime.hooks.register("agent_start", on_agent_start)
         agent_end_unsub = self._runtime.hooks.register("agent_end", on_agent_end)
@@ -377,6 +457,228 @@ class InputSection:
             return
         if not did_compact:
             ui.notify("Nothing to compact — conversation is too short to summarize.", type="warning")
+
+    def _sound_icon(self) -> str:
+        return "volume_up" if self._sound_enabled else "volume_off"
+
+    def _sound_tooltip(self) -> str:
+        return "Disable completion sound" if self._sound_enabled else "Enable completion sound"
+
+    def _toggle_sound(self) -> None:
+        self._sound_enabled = not self._sound_enabled
+        if self._sound_button is not None:
+            self._sound_button.props["icon"] = self._sound_icon()
+            self._sound_button.props["title"] = self._sound_tooltip()
+        if self._sound_enabled:
+            self._play_done_sound()
+
+    def _play_done_sound(self) -> None:
+        """Two-tone completion chime via WebAudio — no audio file needed.
+
+        Ported from pi-web's useAudio.ts (same two notes, same envelope).
+        Uses an element's bound client rather than the top-level
+        ui.run_javascript(), which needs page context this hook callback
+        doesn't reliably have.
+        """
+        if self._send_button is None:
+            return
+        self._send_button.client.run_javascript(
+            """
+            (function() {
+                try {
+                    window.__tauAudioCtx = window.__tauAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+                    var ctx = window.__tauAudioCtx;
+                    var play = function() {
+                        var now = ctx.currentTime;
+                        [523.25, 659.25].forEach(function(freq, i) {
+                            var osc = ctx.createOscillator();
+                            var gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.type = 'sine';
+                            osc.frequency.value = freq;
+                            var t = now + i * 0.18;
+                            gain.gain.setValueAtTime(0, t);
+                            gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+                            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+                            osc.start(t);
+                            osc.stop(t + 0.45);
+                        });
+                    };
+                    if (ctx.state === 'suspended') { ctx.resume().then(play).catch(function() {}); }
+                    else { play(); }
+                } catch (e) { /* AudioContext unavailable */ }
+            })();
+            """
+        )
+
+    # -- Slash-command / @-mention autocomplete ------------------------------
+
+    def _on_input_change(self, text: str) -> None:
+        self._refresh_send_button()
+        slash_match = _SLASH_TRIGGER_RE.match(text)
+        if slash_match:
+            self._show_command_suggestions(slash_match.group(1))
+            return
+        mention_match = _MENTION_TRIGGER_RE.search(text)
+        if mention_match:
+            self._show_mention_suggestions(text, mention_match)
+            return
+        self._close_suggestions()
+
+    def _close_suggestions(self) -> None:
+        self._suggestion_mode = None
+        if self._suggestion_menu is not None:
+            self._suggestion_menu.close()
+
+    def _show_command_suggestions(self, query: str) -> None:
+        from tau.prompts.registry import prompt_registry
+        from tau.tui.utils import fuzzy_filter
+
+        self._suggestion_mode = "command"
+        self._suggestion_prefix = ""
+        entries: list[tuple[str, str]] = [
+            (c.name, c.description) for c in self._runtime.commands.list()
+        ]
+        entries += [(p.name, p.description or "") for p in prompt_registry.list()]
+        entries.sort(key=lambda e: e[0])
+        filtered = fuzzy_filter(entries, query, lambda e: f"{e[0]} {e[1]}") if query else entries
+        self._render_suggestions(
+            [(f"/{name}", description) for name, description in filtered[:20]],
+            insert_suffix=" ",
+        )
+
+    def _show_mention_suggestions(self, text: str, match: re.Match[str]) -> None:
+        from tau.tui.utils import fuzzy_filter
+
+        self._suggestion_mode = "mention"
+        self._suggestion_prefix = text[: match.start(1)]
+        query = match.group(1)
+        candidates = self._search_files()
+        filtered = fuzzy_filter(candidates, query, lambda p: p) if query else candidates
+        # `_suggestion_prefix` already ends right after the "@" (see
+        # match.start(1) above), so the inserted value must NOT repeat it.
+        self._render_suggestions(
+            [(path, "") for path in filtered[:20]],
+            insert_suffix=" ",
+        )
+
+    def _search_files(self) -> list[str]:
+        """Lazily build (and cache for the session) a flat relative-path index
+        under the session's cwd, mirroring file_explorer.py's tree walk but
+        flattened for fuzzy filename matching instead of a tree widget."""
+        if self._file_index is not None:
+            return self._file_index
+        sm = self._runtime.session_manager
+        root = sm.cwd if sm is not None else None
+        if root is None:
+            self._file_index = []
+            return self._file_index
+        paths: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+            for name in filenames:
+                if len(paths) >= _MAX_FILE_INDEX:
+                    break
+                full = os.path.join(dirpath, name)
+                paths.append(os.path.relpath(full, root))
+            if len(paths) >= _MAX_FILE_INDEX:
+                break
+        paths.sort()
+        self._file_index = paths
+        return paths
+
+    def _render_suggestions(self, items: list[tuple[str, str]], *, insert_suffix: str) -> None:
+        if self._suggestion_results is None or self._suggestion_menu is None:
+            return
+        self._suggestion_results.clear()
+        self._suggestion_top = (items[0][0], insert_suffix) if items else None
+        with self._suggestion_results:
+            if not items:
+                ui.menu_item("No matches").props("disable")
+            else:
+                for value, description in items:
+                    label = f"{value}  {description}" if description else value
+                    ui.menu_item(
+                        label,
+                        on_click=lambda v=value: self._select_suggestion(v, insert_suffix),
+                    ).classes("text-xs")
+        self._suggestion_menu.open()
+
+    def _select_suggestion(self, value: str, insert_suffix: str) -> None:
+        if self._input_box is not None:
+            self._input_box.value = self._suggestion_prefix + value + insert_suffix
+            self._input_box.run_method("focus")
+        self._close_suggestions()
+        self._refresh_send_button()
+
+    def _accept_top_suggestion(self) -> None:
+        top = self._suggestion_top
+        if top is None:
+            self._close_suggestions()
+            return
+        self._select_suggestion(*top)
+
+    # -- Attachments -----------------------------------------------------------
+
+    @staticmethod
+    def _classify_attachment(content_type: str) -> str:
+        if content_type.startswith("image/"):
+            return "image"
+        if content_type.startswith("audio/"):
+            return "audio"
+        if content_type.startswith("video/"):
+            return "video"
+        return "file"
+
+    async def _on_file_uploaded(self, event: Any) -> None:
+        file = event.file
+        data = await file.read()
+        kind = self._classify_attachment(file.content_type or "")
+        self._pending_attachments.append({"kind": kind, "name": file.name, "data": data})
+        self._render_attachments()
+        if self._attach_upload is not None:
+            self._attach_upload.reset()
+
+    def _remove_attachment(self, index: int) -> None:
+        if 0 <= index < len(self._pending_attachments):
+            self._pending_attachments.pop(index)
+        self._render_attachments()
+
+    def _render_attachments(self) -> None:
+        if self._attachments_row is None:
+            return
+        self._attachments_row.clear()
+        self._attachments_row.set_visibility(bool(self._pending_attachments))
+        icons = {"image": "image", "audio": "audiotrack", "video": "videocam", "file": "description"}
+        with self._attachments_row:
+            for index, attachment in enumerate(self._pending_attachments):
+                with ui.row().classes("items-center gap-1 px-2 py-1 tau-attachment-chip"):
+                    ui.icon(icons[attachment["kind"]]).classes("text-[var(--text-dim)]").style(
+                        "font-size: 14px;"
+                    )
+                    ui.label(attachment["name"]).classes(
+                        "text-xs text-[var(--text)] truncate max-w-[140px]"
+                    )
+                    close_icon = ui.icon("close").classes(
+                        "text-xs cursor-pointer text-[var(--text-dim)]"
+                    )
+                    close_icon.on("click", lambda _e, i=index: self._remove_attachment(i))
+
+    def _build_prompt_options(self) -> Any | None:
+        if not self._pending_attachments:
+            return None
+        from tau.agent.types import PromptOptions
+
+        by_kind: dict[str, list[bytes]] = {"image": [], "audio": [], "video": [], "file": []}
+        for attachment in self._pending_attachments:
+            by_kind[attachment["kind"]].append(attachment["data"])
+        return PromptOptions(
+            images=by_kind["image"],
+            audio=by_kind["audio"],
+            video=by_kind["video"],
+            file=by_kind["file"],
+        )
 
     async def _set_effort(self, level: ThinkingLevel) -> None:
         from tau.hooks.tui import ThinkingLevelSelectEvent

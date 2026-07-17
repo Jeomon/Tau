@@ -360,6 +360,75 @@ pre, code {
     box-shadow: 0 1px 3px rgba(37, 99, 235, 0.22) !important;
     transition: background 0.12s, box-shadow 0.12s, opacity 0.12s;
 }
+.tau-attach-upload {
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+    flex-shrink: 0;
+    margin-bottom: 2px;
+}
+.tau-attach-upload .q-uploader__header {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    min-height: 36px !important;
+}
+.tau-attach-upload .q-uploader__header-content {
+    padding: 0 !important;
+}
+.tau-attach-upload .q-uploader__title,
+.tau-attach-upload .q-uploader__subtitle,
+.tau-attach-upload .q-uploader__list {
+    display: none !important;
+}
+.tau-attach-upload .q-btn {
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    color: var(--text-muted) !important;
+    background: transparent !important;
+    border-radius: 8px !important;
+}
+.tau-attach-upload .q-btn:hover {
+    background: var(--bg-hover) !important;
+}
+/* Quasar's default uploader icon (add_box) is a bold filled glyph that reads
+   heavier than the thin outlined icons used everywhere else in the footer.
+   Swap it for a lighter paperclip via the Material Icons ligature trick
+   instead of reaching into QUploader's header slot (which would mean
+   reimplementing its file-picker wiring by hand). */
+.tau-attach-upload .q-btn .q-icon {
+    font-size: 0 !important;
+    color: transparent !important;
+    position: relative;
+    width: 20px;
+    height: 20px;
+}
+.tau-attach-upload .q-btn .q-icon::before {
+    content: "attach_file";
+    font-family: "Material Icons";
+    font-size: 19px;
+    line-height: 1;
+    color: var(--text-muted);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tau-attach-upload .q-btn:hover .q-icon::before {
+    color: var(--text);
+}
+.tau-attachment-chip {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+}
 .tau-send-button-idle {
     background: var(--accent-solid) !important;
 }
