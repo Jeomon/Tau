@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nicegui import ui
 
+from tau.tui.markdown import render_latex_math
+
 if TYPE_CHECKING:
     from tau.message.types import ThinkingContent, ToolCallContent, ToolResultContent
 
@@ -32,7 +34,7 @@ class RenderedMessage:
 
     def update_content(self, text: str) -> None:
         """Update the rendered message body."""
-        self.content.content = text
+        self.content.content = render_latex_math(text)
         self.content.update()
 
 
@@ -60,7 +62,9 @@ class MessageView:
         )
         with root:
             with ui.element("div").classes(self._bubble_classes()):
-                content = ui.markdown(self._text).classes("max-w-none text-sm text-[var(--text)]")
+                content = ui.markdown(render_latex_math(self._text)).classes(
+                    "max-w-none text-sm text-[var(--text)]"
+                )
             if not self._streaming:
                 with ui.row().classes("items-center gap-1 px-1 tau-msg-meta"):
                     if self._role == "assistant":
@@ -119,7 +123,9 @@ def render_thinking_block(block: ThinkingContent) -> None:
         .classes("w-full tau-thinking-block")
         .props('dense expand-icon="expand_more"')
     ):
-        ui.markdown(block.content).classes("text-xs text-[var(--text-muted)] whitespace-pre-wrap")
+        ui.markdown(render_latex_math(block.content)).classes(
+            "text-xs text-[var(--text-muted)] whitespace-pre-wrap"
+        )
 
 
 def render_tool_call_block(block: ToolCallContent, result: ToolResultContent | None) -> None:

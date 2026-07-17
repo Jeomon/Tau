@@ -103,6 +103,14 @@ def _render_latex_math(text: str) -> str:
     return _INLINE_MATH_RE.sub(inline, _DISPLAY_MATH_RE.sub(display, text))
 
 
+# Public alias — the web UI (tau/modes/web/components/message_view.py) reuses
+# this same LaTeX-to-Unicode conversion since NiceGUI's ui.markdown() has no
+# math extension of its own and no math typesetting engine (e.g. KaTeX) is
+# bundled standalone. Not real typeset math, but far better than showing raw
+# `$...$` markup untouched.
+render_latex_math = _render_latex_math
+
+
 # ── Syntax highlighting (pygments) ──────────────────────────────────────────────
 
 
