@@ -299,9 +299,13 @@ pre, code {
 }
 
 .tau-session-row {
-    border-left: 2px solid transparent;
+    border-left: 3px solid transparent;
+    /* Round only the right-side corners — rounding all four made the left
+       accent border curl at its ends like a floating focus ring instead of
+       a flush "this session is active" edge. */
+    border-radius: 0 9px 9px 0;
     cursor: pointer;
-    transition: background 0.1s;
+    transition: background 0.12s, border-color 0.12s;
 }
 .tau-session-row:hover {
     background: var(--bg-hover);
@@ -310,15 +314,23 @@ pre, code {
     background: var(--bg-selected);
     border-left-color: var(--accent);
 }
-.tau-session-delete-btn {
-    color: var(--text-dim) !important;
+/* Quasar auto-assigns a "text-primary" class to flat icon buttons with no
+   explicit color prop. That rule targets the nested .q-icon directly (not
+   just the button), so an explicit child-level color always wins over the
+   button's own color regardless of specificity — raising specificity on
+   .tau-session-delete-btn alone wasn't enough; the .q-icon child needs its
+   own override too (same fix as the composer's attach-file icon earlier). */
+.tau-session-row .tau-session-delete-btn {
     opacity: 0;
     transition: opacity 0.1s, color 0.12s;
+}
+.tau-session-row .tau-session-delete-btn .q-icon {
+    color: var(--text-dim) !important;
 }
 .tau-session-row:hover .tau-session-delete-btn {
     opacity: 1;
 }
-.tau-session-delete-btn:hover {
+.tau-session-row .tau-session-delete-btn:hover .q-icon {
     color: #ef4444 !important;
 }
 .tau-bubble-user {

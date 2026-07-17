@@ -126,7 +126,7 @@ class SessionSidebar:
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                 ui.scroll_area().classes("w-full h-full tau-sidebar-scroll"),
             ):
-                self._list_container = ui.column().classes("w-full min-w-0 gap-0")
+                self._list_container = ui.column().classes("w-full min-w-0 gap-1 px-1 py-1")
 
             with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):
                 if self._on_open_settings is not None:
@@ -188,7 +188,11 @@ class SessionSidebar:
                 self._render_session_row(session, active=session.path == current_file)
 
     def _render_session_row(self, session: SessionInfo, *, active: bool) -> None:
-        classes = "w-full min-h-[54px] justify-center px-3 tau-session-row" + (
+        # `justify-center` only centers along a row's horizontal axis, not
+        # vertical, and with no py-* the content had no real top/bottom
+        # breathing room — `items-center` is the correct cross-axis (vertical)
+        # centering for a ui.row(), backed by explicit py-2 as a floor.
+        classes = "w-full flex-nowrap items-center min-h-[48px] px-2 py-2 tau-session-row" + (
             " tau-active" if active else ""
         )
 
@@ -244,9 +248,11 @@ class SessionSidebar:
                 ui.label(_session_label(session)).classes(
                     "w-full min-w-0 truncate text-xs font-medium text-[var(--text)]"
                 )
-                with ui.row().classes("w-full gap-2 text-[11px] text-[var(--text-dim)]"):
-                    ui.label(_humanize_age(session.modified))
-                    ui.label(f"{session.message_count} msgs")
+                with ui.row().classes(
+                    "w-full flex-nowrap gap-2 text-[11px] text-[var(--text-dim)]"
+                ):
+                    ui.label(_humanize_age(session.modified)).classes("flex-shrink-0")
+                    ui.label(f"{session.message_count} msgs").classes("flex-shrink-0")
             rename_btn = (
                 ui.button(icon="edit")
                 .props("flat dense round size=sm")
