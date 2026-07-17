@@ -50,7 +50,6 @@ class ChatPage:
                 # else stays inset in its own padded column below it.
                 SessionTopBar(
                     self._runtime,
-                    on_toggle_files=file_panel.toggle,
                     on_open_branches=branch_dialog.open,
                 ).render()
                 # w-full is required here, not just flex-1 — this column now

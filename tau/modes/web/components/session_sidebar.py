@@ -134,17 +134,38 @@ class SessionSidebar:
 
             if self._on_open_file is not None:
                 # Always-visible collapsible file tree docked in the sidebar,
-                # matching pi-web's layout (an "Explorer" section under the
+                # matching pi-web's layout (an "EXPLORER" section under the
                 # session list) instead of tau's original slide-out right
                 # panel — the panel itself still exists and still opens when
                 # a file is picked here, so tabs/preview logic isn't duplicated.
-                with ui.expansion("Explorer", value=True).classes("w-full tau-sidebar-explorer").props(
-                    'dense expand-icon="expand_more"'
-                ):
-                    with ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll"):
+                # Hand-rolled header (not ui.expansion's built-in label) since
+                # pi-web's header also carries a refresh icon button next to
+                # the title, and ui.expansion only supports a plain string.
+                expanded = [True]
+                body_container: dict[str, Any] = {}
+                chevron_ref: dict[str, Any] = {}
+
+                def toggle_explorer() -> None:
+                    expanded[0] = not expanded[0]
+                    body_container["el"].set_visibility(expanded[0])
+                    chevron_ref["el"].classes(toggle="tau-explorer-chevron-open")
+
+                with ui.column().classes("w-full gap-0 tau-sidebar-explorer"):
+                    with ui.row().classes(
+                        "w-full items-center gap-1 px-3 py-1.5 cursor-pointer tau-explorer-header"
+                    ).on("click", toggle_explorer):
+                        chevron_ref["el"] = ui.icon("expand_more").classes(
+                            "tau-explorer-chevron tau-explorer-chevron-open"
+                        )
+                        ui.label("EXPLORER").classes("flex-1 text-[11px] font-medium tau-explorer-title")
+                        refresh_btn = ui.icon("refresh").classes("tau-explorer-refresh")
+                        refresh_btn.on("click.stop", self._refresh_explorer)
+                    body = ui.scroll_area().classes("w-full h-[220px] tau-sidebar-scroll")
+                    with body:
                         self._explorer_container = ui.column().classes(
                             "w-full min-w-0 items-stretch gap-0 p-1"
                         )
+                    body_container["el"] = body
                 self._refresh_explorer()
 
             with ui.row().classes("w-full gap-1 p-2 tau-sidebar-footer"):

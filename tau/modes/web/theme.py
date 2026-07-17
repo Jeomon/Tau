@@ -261,16 +261,47 @@ pre, code {
     border-top: 1px solid var(--border);
     flex-shrink: 0;
 }
-.tau-sidebar-explorer .q-item {
-    min-height: 32px;
-    padding: 4px 10px;
-}
-.tau-sidebar-explorer .q-item__section {
+.tau-explorer-header {
     color: var(--text-dim);
-    font-size: 10px;
-    font-weight: 600;
+}
+.tau-explorer-title {
     text-transform: uppercase;
     letter-spacing: 0.06em;
+}
+.tau-explorer-chevron {
+    font-size: 16px !important;
+    transition: transform 0.15s ease;
+    transform: rotate(-90deg);
+}
+.tau-explorer-chevron-open {
+    transform: rotate(0deg);
+}
+.tau-explorer-refresh {
+    font-size: 15px !important;
+    color: var(--text-dim);
+    opacity: 0.75;
+}
+.tau-explorer-refresh:hover {
+    opacity: 1;
+    color: var(--text) !important;
+}
+/* pi-web's Explorer tree uses thin outlined, gray file/folder icons — match
+   via the o_-prefixed Quasar icon variant plus this color override, since
+   ui.tree() nodes don't expose a per-icon color prop. */
+.tau-sidebar-explorer .q-tree__node-header {
+    min-height: 26px;
+    padding: 1px 4px;
+}
+.tau-sidebar-explorer .q-tree__node-header-content {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.tau-sidebar-explorer .q-tree__icon {
+    color: var(--text-dim) !important;
+    font-size: 16px !important;
+}
+.tau-sidebar-explorer .q-tree__arrow {
+    color: var(--text-dim) !important;
 }
 .tau-footer-tab {
     height: 32px !important;
@@ -427,11 +458,15 @@ pre, code {
     font-size: 14px !important;
     line-height: 1.6 !important;
 }
+/* Matches pi-web's <textarea> exactly: minHeight 24, maxHeight 200,
+   lineHeight 1.6, fontSize 14 (see ChatInput.tsx) — tau's previous 36px/168px
+   values came from an earlier pass and never lined up with the reference. */
 .tau-composer-input .q-field__control {
-    min-height: 36px !important;
+    min-height: 20px !important;
 }
 .tau-composer-input .q-field__native {
-    max-height: 168px !important;
+    min-height: 20px !important;
+    max-height: 200px !important;
     overflow-y: auto !important;
     resize: none !important;
     scrollbar-width: thin;

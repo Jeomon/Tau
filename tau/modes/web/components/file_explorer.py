@@ -56,38 +56,42 @@ def _guess_language(suffix: str) -> str:
     return _LANGUAGE_BY_SUFFIX.get(suffix.lower(), "plaintext")
 
 
+
+# `o_` is Quasar's prefix for the "Outlined" Material icon variant (maps to
+# the bundled material-icons-outlined font) — matches pi-web's thin, flat,
+# monochrome file icons much more closely than the default filled glyphs.
 _ICON_BY_SUFFIX = {
-    ".py": "code",
-    ".js": "code",
-    ".jsx": "code",
-    ".ts": "code",
-    ".tsx": "code",
-    ".go": "code",
-    ".rs": "code",
-    ".rb": "code",
-    ".java": "code",
-    ".c": "code",
-    ".cpp": "code",
-    ".sh": "terminal",
-    ".json": "data_object",
-    ".yml": "settings",
-    ".yaml": "settings",
-    ".toml": "settings",
-    ".md": "article",
-    ".txt": "article",
-    ".html": "html",
-    ".css": "css",
-    ".sql": "storage",
-    ".png": "image",
-    ".jpg": "image",
-    ".jpeg": "image",
-    ".gif": "image",
-    ".webp": "image",
-    ".svg": "image",
-    ".pdf": "picture_as_pdf",
+    ".py": "o_code",
+    ".js": "o_code",
+    ".jsx": "o_code",
+    ".ts": "o_code",
+    ".tsx": "o_code",
+    ".go": "o_code",
+    ".rs": "o_code",
+    ".rb": "o_code",
+    ".java": "o_code",
+    ".c": "o_code",
+    ".cpp": "o_code",
+    ".sh": "o_terminal",
+    ".json": "o_data_object",
+    ".yml": "o_settings",
+    ".yaml": "o_settings",
+    ".toml": "o_settings",
+    ".md": "o_article",
+    ".txt": "o_article",
+    ".html": "o_html",
+    ".css": "o_css",
+    ".sql": "o_storage",
+    ".png": "o_image",
+    ".jpg": "o_image",
+    ".jpeg": "o_image",
+    ".gif": "o_image",
+    ".webp": "o_image",
+    ".svg": "o_image",
+    ".pdf": "o_picture_as_pdf",
 }
-_DEFAULT_FILE_ICON = "insert_drive_file"
-_FOLDER_ICON = "folder"
+_DEFAULT_FILE_ICON = "o_insert_drive_file"
+_FOLDER_ICON = "o_folder"
 
 
 def _file_icon(suffix: str) -> str:
@@ -123,13 +127,20 @@ def _build_tree(root: Path) -> list[dict]:
 
 
 class FileExplorerPanel:
-    """Toggleable file tree + preview panel, scoped to the session's cwd."""
+    """Preview-only file panel (tabs + viewer), scoped to the session's cwd.
+
+    Browsing lives entirely in the always-visible Explorer tree in the left
+    sidebar now (SessionSidebar, reusing `_build_tree` from this module) —
+    this panel used to have its own duplicate tree plus a "Files" top-bar
+    toggle, both removed. It now just opens on demand when a file is picked
+    from the sidebar and auto-hides once every tab is closed, so it only
+    ever takes up space when there's something to preview.
+    """
 
     def __init__(self, runtime: Runtime) -> None:
         self._runtime = runtime
         self._root = runtime.session_manager.cwd
         self._panel: Any | None = None
-        self._tree_container: Any | None = None
         self._tab_bar_container: Any | None = None
         self._viewer_container: Any | None = None
         self._visible = False
@@ -145,40 +156,27 @@ class FileExplorerPanel:
     def render(self) -> None:
         """Render the (initially collapsed) panel."""
         with ui.column().classes("h-full min-h-0 gap-0 tau-file-panel").style("width: 0px") as panel:
-            with ui.row().classes("w-full items-center justify-between p-2 tau-sidebar-header"):
-                ui.label("Files").classes("text-sm font-semibold text-[var(--text)]")
-                refresh_btn = ui.button(icon="refresh", on_click=self._refresh_tree).props(
-                    "flat dense round size=sm"
-                )
-                refresh_btn.style("color: var(--text-muted) !important;")
+            self._tab_bar_container = ui.row().classes(
+                "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
+            )
+            with ui.row().classes(
+                "w-full items-center gap-1 px-2 py-1 tau-file-live-row"
+            ) as live_row:
+                self._live_dot = ui.element("span").classes("tau-live-dot")
+                self._live_label = ui.label("").classes("text-[10px] text-[var(--text-dim)]")
+            live_row.set_visibility(False)
+            self._live_row = live_row
             with (
                 ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
                 ui.scroll_area().classes("w-full h-full"),
             ):
-                self._tree_container = ui.column().classes("w-full min-w-0 items-stretch gap-0 p-1")
-            with ui.column().classes("w-full h-1/2 min-h-0 overflow-hidden tau-file-viewer"):
-                self._tab_bar_container = ui.row().classes(
-                    "w-full gap-0 overflow-x-auto flex-nowrap tau-tab-bar"
-                )
-                with ui.row().classes(
-                    "w-full items-center gap-1 px-2 py-1 tau-file-live-row"
-                ) as live_row:
-                    self._live_dot = ui.element("span").classes("tau-live-dot")
-                    self._live_label = ui.label("").classes("text-[10px] text-[var(--text-dim)]")
-                live_row.set_visibility(False)
-                self._live_row = live_row
-                with (
-                    ui.column().classes("w-full flex-1 min-h-0 overflow-hidden"),
-                    ui.scroll_area().classes("w-full h-full"),
-                ):
-                    viewer = ui.column().classes("w-full gap-1 p-2")
-                    with viewer:
-                        ui.label("Select a file to preview").classes(
-                            "text-xs text-[var(--text-dim)] px-1"
-                        )
-                    self._viewer_container = viewer
+                viewer = ui.column().classes("w-full gap-1 p-2")
+                with viewer:
+                    ui.label("Select a file to preview").classes(
+                        "text-xs text-[var(--text-dim)] px-1"
+                    )
+                self._viewer_container = viewer
         self._panel = panel
-        self._refresh_tree()
         ui.context.client.on_disconnect(self._stop_watch)
 
     def toggle(self) -> None:
@@ -190,31 +188,12 @@ class FileExplorerPanel:
     def open_file(self, path: Path) -> None:
         """Open `path` as a tab and ensure the panel is visible.
 
-        Lets an external tree (e.g. the always-visible Explorer section in
-        the left sidebar, matching pi-web's layout) drive this panel's
-        viewer without duplicating the tab/preview logic.
+        Driven by the sidebar's Explorer tree, which owns browsing —
+        this class only owns the tab bar and the preview.
         """
         if not self._visible:
             self.toggle()
         self._open_tab(path)
-
-    def _refresh_tree(self) -> None:
-        if self._tree_container is None:
-            return
-        self._tree_container.clear()
-        with self._tree_container:
-            nodes = _build_tree(self._root)
-            ui.tree(nodes, node_key="id", label_key="label", on_select=self._on_select).classes(
-                "w-full text-xs"
-            )
-
-    def _on_select(self, event: Any) -> None:
-        node_id = getattr(event, "value", None)
-        if not node_id:
-            return
-        path = Path(node_id)
-        if path.is_file():
-            self._open_tab(path)
 
     def _open_tab(self, path: Path) -> None:
         """Open `path` as a tab (or switch to it if already open)."""
@@ -239,6 +218,10 @@ class FileExplorerPanel:
             self._preview_file(self._active_tab)
         else:
             self._clear_viewer()
+            # Nothing left to preview — collapse back out of the way instead
+            # of leaving an empty panel taking up space.
+            if self._visible:
+                self.toggle()
 
     def _render_tabs(self) -> None:
         if self._tab_bar_container is None:

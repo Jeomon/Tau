@@ -112,7 +112,11 @@ class InputSection:
             attachments_row = ui.row().classes("w-full items-center gap-1 px-2 flex-wrap")
             attachments_row.set_visibility(False)
             self._attachments_row = attachments_row
-            with ui.row().classes("w-full items-end gap-2 p-2.5 pl-4 tau-composer"):
+            # pi-web's own composer row uses alignItems: "center" (ChatInput.tsx),
+            # not bottom-aligned — the attach icon, textarea, and send button
+            # all stay vertically centered on the line, even as the textarea
+            # grows for multi-line input.
+            with ui.row().classes("w-full items-center gap-2 p-2 tau-composer"):
                 attach_upload = (
                     ui.upload(
                         multiple=True,
@@ -175,7 +179,7 @@ class InputSection:
                 self._model_button = model_button
 
                 effort_button = (
-                    ui.button(self._effort_label(), icon="lightbulb")
+                    ui.button(self._effort_label(), icon="o_lightbulb")
                     .props("flat no-caps dense")
                     .classes("tau-footer-tab")
                     .style("color: var(--text-muted) !important;")

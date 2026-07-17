@@ -59,20 +59,20 @@ def _collect_session_stats(runtime: Runtime) -> _SessionStats:
 class SessionTopBar:
     """Slim header above the transcript: model, context usage, and running cost.
 
-    Styled after pi-web's AppShell top bar (tab-style Branches/Files buttons
-    on the left, a compact token/cost/context stats cluster on the right)
-    rather than the plain text labels this used to be.
+    Styled after pi-web's AppShell top bar (a tab-style Branches button on
+    the left, a compact token/cost/context stats cluster on the right)
+    rather than the plain text labels this used to be. There's no "Files"
+    toggle here — browsing lives in the sidebar's always-visible Explorer
+    tree, and the preview panel opens itself on demand from there.
     """
 
     def __init__(
         self,
         runtime: Runtime,
         *,
-        on_toggle_files: Callable[[], None] | None = None,
         on_open_branches: Callable[[], None] | None = None,
     ) -> None:
         self._runtime = runtime
-        self._on_toggle_files = on_toggle_files
         self._on_open_branches = on_open_branches
         self._model_label: Any | None = None
         self._stats_row: Any | None = None
@@ -91,10 +91,6 @@ class SessionTopBar:
                 # reliably out-cascade that without fighting it forever.
                 ui.button(
                     "Branches", icon="account_tree", color=None, on_click=self._on_open_branches
-                ).props("flat no-caps dense").classes("tau-topbar-tab")
-            if self._on_toggle_files is not None:
-                ui.button(
-                    "Files", icon="folder_open", color=None, on_click=self._on_toggle_files
                 ).props("flat no-caps dense").classes("tau-topbar-tab")
             self._stats_row = ui.row().classes(
                 "items-center gap-3 px-3 ml-auto text-[11px] text-[var(--text-muted)] tau-topbar-stats"
