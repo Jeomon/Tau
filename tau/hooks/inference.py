@@ -24,8 +24,17 @@ class BeforeProviderRequestEvent:
 
 @dataclass
 class AfterProviderResponseEvent:
-    """Fired immediately after the LLM streaming response is fully collected."""
+    """Fired immediately after the LLM streaming response is fully collected.
+
+    ``status_code``/``response_headers`` carry the raw HTTP response info
+    (captured as soon as headers arrived, before the stream body was
+    consumed) for providers that report it — currently Anthropic Messages
+    and the OpenAI Completions/Responses APIs. ``None`` for providers that
+    don't yet report it.
+    """
 
     type: Literal["after_provider_response"] = field(default="after_provider_response", init=False)
     model: Any = None
     response: Any = None
+    status_code: int | None = None
+    response_headers: dict[str, str] | None = None

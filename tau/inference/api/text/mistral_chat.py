@@ -9,6 +9,7 @@ from mistralai.client.models import TextChunk, ThinkChunk
 from mistralai.client.types import UNSET
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     openai_response_format,
     openai_user_content,
@@ -232,7 +233,16 @@ class MistralChatAPI(BaseAPI):
                 if modified is not None:
                     kwargs = modified
 
+            # Read live, not at client-construction time: a `before_provider_request`
+            # extension hook may have mutated `self.options.headers` in place just
+            # before this call.
+            kwargs["http_headers"] = self.options.headers or None
+
             async with await self._client.chat.stream_async(**kwargs) as stream:
+                if self.options.on_response:
+                    self.options.on_response(
+                        APIResponse(stream.response.status_code, dict(stream.response.headers))
+                    )
                 async for event in stream:
                     if self._cancelled():
                         yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")

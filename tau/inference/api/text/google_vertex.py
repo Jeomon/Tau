@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     gemini_function_response_parts,
     gemini_tool_schema,
@@ -359,6 +360,13 @@ class GoogleVertexAPI(BaseAPI):
                 config = modified.get("config", config)
                 contents = modified.get("contents", contents)
 
+        # Read live, not at client-construction time: a `before_provider_request`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call. Merges with (doesn't replace) the client-level
+        # headers set in __init__ — see patch_http_options in the SDK.
+        if self.options.headers:
+            config.http_options = genai_types.HttpOptions(headers=self.options.headers)
+
         thinking_index = 0
         tool_index = 0
         text_started = False
@@ -370,6 +378,7 @@ class GoogleVertexAPI(BaseAPI):
         _output_tokens = 0
         _cache_read_tokens = 0
         seen_tool_ids: set[str] = set()
+        response_reported = False
 
         yield StartEvent()
 
@@ -382,6 +391,15 @@ class GoogleVertexAPI(BaseAPI):
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
                     return
+
+                # Any chunk reaching here implies HTTP 200 — the SDK raises
+                # APIError immediately on a non-2xx response instead of
+                # yielding it, so there's no separate status to read.
+                if not response_reported and self.options.on_response:
+                    response_reported = True
+                    http_response = getattr(chunk, "sdk_http_response", None)
+                    headers = dict(getattr(http_response, "headers", None) or {})
+                    self.options.on_response(APIResponse(200, headers))
 
                 um = getattr(chunk, "usage_metadata", None)
                 if um:

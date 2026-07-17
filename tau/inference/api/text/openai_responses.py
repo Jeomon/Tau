@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncOpenAI
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     openai_gpt56_prompt_cache_options,
     openai_responses_function_call_output,
@@ -358,14 +359,22 @@ class OpenAIResponsesAPI(BaseAPI):
 
         yield StartEvent()
 
-        # Read live, not at client-construction time: a `before_provider_headers`
+        # Read live, not at client-construction time: a `before_provider_request`
         # extension hook may have mutated `self.options.headers` in place just
         # before this call.
         extra_headers = self.options.headers or None
 
-        async with self._client.responses.stream(
-            **params, extra_body=extra_body or None, extra_headers=extra_headers
-        ) as stream:
+        async with self._client.responses.with_streaming_response.create(
+            **params, stream=True, extra_body=extra_body or None, extra_headers=extra_headers
+        ) as raw_response:
+            if self.options.on_response:
+                self.options.on_response(
+                    APIResponse(
+                        raw_response.http_response.status_code,
+                        dict(raw_response.http_response.headers),
+                    )
+                )
+            stream = await raw_response.parse()
             async for event in stream:
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")

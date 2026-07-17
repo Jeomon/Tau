@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from ollama import AsyncClient
+from ollama import AsyncClient, ChatResponse
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     parse_tool_args,
     tool_result_text,
@@ -50,6 +52,14 @@ _STOP_REASON: dict[str, StopReason] = {
     "stop": StopReason.Stop,
     "length": StopReason.Length,
 }
+
+
+class _HTTPError(Exception):
+    """Thin wrapper so classify_error can read the HTTP status code."""
+
+    def __init__(self, status_code: int, body: str) -> None:
+        super().__init__(body)
+        self.status_code = status_code
 
 
 def _messages_to_ollama(
@@ -135,6 +145,35 @@ class OllamaChatAPI(BaseAPI):
             timeout=options.timeout.total_seconds(),
         )
 
+    async def _stream_chat(self, payload: dict[str, Any]):
+        """Stream ChatResponse objects from Ollama's raw HTTP layer.
+
+        Bypasses AsyncClient.chat(): the ollama SDK exposes no per-call
+        extra-headers param and no raw-response hook, so this reaches into
+        its underlying httpx.AsyncClient directly (`self._client._client`)
+        to merge live headers and capture status/headers before the body is
+        consumed — mirroring what `AsyncClient._request` does internally.
+        """
+        raw_client = self._client._client
+        # Read live, not at client-construction time: a `before_provider_request`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call.
+        if self.options.headers:
+            raw_client.headers.update(self.options.headers)
+
+        async with raw_client.stream("POST", "/api/chat", json=payload) as response:
+            if self.options.on_response:
+                self.options.on_response(
+                    APIResponse(response.status_code, dict(response.headers))
+                )
+            if response.is_error:
+                body = (await response.aread()).decode(errors="replace")
+                raise _HTTPError(response.status_code, body)
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                yield ChatResponse(**json.loads(line))
+
     def _inference_options(self) -> dict[str, Any]:
         """Build Ollama model-level options dict (temperature, token limit)."""
         opts: dict[str, Any] = {"temperature": self.options.temperature}
@@ -197,7 +236,7 @@ class OllamaChatAPI(BaseAPI):
                 if modified is not None:
                     payload = modified
 
-            async for chunk in await self._client.chat(**payload):
+            async for chunk in self._stream_chat(payload):
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
                     return

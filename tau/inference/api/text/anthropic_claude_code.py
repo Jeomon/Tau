@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from anthropic import AsyncAnthropic
 
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
+from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
     anthropic_messages_to_list,
@@ -291,8 +292,24 @@ class AnthropicClaudeCodeAPI(BaseAPI):
 
         yield StartEvent()
 
-        extra_headers = {"anthropic-beta": ",".join(_model_betas(model.id))}
-        async with self._client.messages.stream(**params, extra_headers=extra_headers) as stream:
+        # Read live, not at client-construction time: a `before_provider_request`
+        # extension hook may have mutated `self.options.headers` in place just
+        # before this call.
+        extra_headers = {
+            "anthropic-beta": ",".join(_model_betas(model.id)),
+            **(self.options.headers or {}),
+        }
+        async with self._client.messages.with_streaming_response.create(
+            **params, stream=True, extra_headers=extra_headers
+        ) as raw_response:
+            if self.options.on_response:
+                self.options.on_response(
+                    APIResponse(
+                        raw_response.http_response.status_code,
+                        dict(raw_response.http_response.headers),
+                    )
+                )
+            stream = await raw_response.parse()
             async for event in stream:
                 if self._cancelled():
                     yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")

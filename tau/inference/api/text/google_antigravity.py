@@ -517,6 +517,9 @@ class GoogleAntigravityAPI(BaseAPI):
             # Antigravity's Claude backend disables interleaved thinking (thinking
             # between tool calls) unless this beta flag is explicitly present.
             headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
+        # Read live, not cached: a `before_provider_request` extension hook may
+        # have mutated `self.options.headers` in place just before this call.
+        headers.update(self.options.headers or {})
 
         if self.options.on_payload:
             modified = self.options.on_payload(body)

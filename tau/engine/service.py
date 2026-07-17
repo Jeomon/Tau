@@ -675,6 +675,18 @@ class Engine:
                         )
                     )
 
+                    # Providers that report raw HTTP status/headers (currently
+                    # Anthropic Messages, OpenAI Completions/Responses, and
+                    # others) call this synchronously via LLMOptions.on_response
+                    # partway through the stream below; read after the loop to
+                    # enrich AfterProviderResponseEvent.
+                    raw_response: Any = None
+
+                    def _on_response(response: Any) -> None:
+                        nonlocal raw_response
+                        raw_response = response
+
+                    self.llm.api.options.on_response = _on_response
                     stream = self.llm.stream(ctx)
                     _streaming_text: Any = None
                     _streaming_thinking: Any = None
@@ -740,7 +752,16 @@ class Engine:
                         message.stop_reason = StopReason.Abort
 
                     await self.hooks.emit(
-                        AfterProviderResponseEvent(model=self.llm.model, response=message)
+                        AfterProviderResponseEvent(
+                            model=self.llm.model,
+                            response=message,
+                            status_code=(
+                                raw_response.status_code if raw_response is not None else None
+                            ),
+                            response_headers=(
+                                raw_response.headers if raw_response is not None else None
+                            ),
+                        )
                     )
 
                     # ── Terminal stop reasons end the run outright ─────────────
