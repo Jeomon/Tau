@@ -484,6 +484,20 @@ pre, code {
     font-size: 15px !important;
     color: var(--accent) !important;
 }
+/* Slash-command / @-mention autocomplete: highlights whichever row Up/Down
+   is currently pointing at (Tab inserts it) — a plain background swap, not
+   the accent-color treatment used for "currently selected" states elsewhere,
+   since this is transient keyboard focus, not a persisted selection. */
+.tau-suggestion-item {
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin: 1px 6px;
+    width: calc(100% - 12px);
+}
+.tau-suggestion-active {
+    background: var(--bg-hover) !important;
+}
 .tau-sidebar-footer-tab {
     height: 46px !important;
     min-height: 46px !important;

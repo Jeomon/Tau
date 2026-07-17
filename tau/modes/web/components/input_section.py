@@ -6,13 +6,27 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import ui
 
+from tau.hooks.runtime import InputEventResult
 from tau.inference.types import ThinkingLevel
+from tau.modes.interactive.input_handler import expand_at_mentions
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
 
 
 _SUBMIT_ON_ENTER_JS = "(event) => { if (!event.shiftKey) { event.preventDefault(); emit(); } }"
+
+# Up/Down/Tab only ever intercept the keystroke while the autocomplete
+# dropdown is actually open (tracked via a data attribute the Python side
+# toggles alongside _suggestion_mode — see _render_suggestions/_close_suggestions)
+# — otherwise the event passes through untouched, so normal cursor movement
+# and tabbing away from the composer are never affected. This is the crux of
+# "should not hinder typing": nothing about the autocomplete runs at all
+# unless a dropdown is genuinely visible.
+_SUGGEST_NAV_JS = (
+    "(event) => { if (event.target.dataset.suggestOpen === '1')"
+    " { event.preventDefault(); emit(); } }"
+)
 
 # Slash commands only trigger when the *entire* message is the command so far
 # (matches the TUI's own condition in Layout._sync_pickers: startswith("/")
@@ -64,7 +78,9 @@ class InputSection:
         self._suggestion_results: Any | None = None
         self._suggestion_mode: str | None = None
         self._suggestion_prefix = ""
-        self._suggestion_top: tuple[str, str] | None = None
+        self._suggestion_items: list[tuple[str, str]] = []
+        self._suggestion_insert_suffix = " "
+        self._suggestion_index = 0
         self._file_index: list[str] | None = None
         self._attach_upload: Any | None = None
         self._attachments_row: Any | None = None
@@ -74,11 +90,11 @@ class InputSection:
         """Render the prompt input, send button, and a footer of quick controls."""
 
         async def send() -> None:
-            if self._suggestion_mode is not None:
-                # Enter while a suggestion dropdown is open accepts the top
-                # match instead of submitting the raw "/comp" text as-is.
-                self._accept_top_suggestion()
-                return
+            # Autocomplete is navigate-with-arrows / accept-with-Tab now (see
+            # _move_suggestion / _accept_highlighted_suggestion below) — Enter
+            # always submits normally and never gets hijacked into accepting
+            # a suggestion, so an open dropdown can't block normal typing or
+            # sending.
             if self._is_running:
                 agent = self._runtime.agent
                 if agent is not None:
@@ -150,10 +166,61 @@ class InputSection:
                     send,
                     js_handler=_SUBMIT_ON_ENTER_JS,
                 )
+                input_box.on(
+                    "keydown.up",
+                    lambda: self._move_suggestion(-1),
+                    js_handler=_SUGGEST_NAV_JS,
+                )
+                input_box.on(
+                    "keydown.down",
+                    lambda: self._move_suggestion(1),
+                    js_handler=_SUGGEST_NAV_JS,
+                )
+                input_box.on(
+                    "keydown.tab",
+                    self._accept_highlighted_suggestion,
+                    js_handler=_SUGGEST_NAV_JS,
+                )
                 input_box.on_value_change(lambda e: self._on_input_change(e.value or ""))
+                # Zero-size floating anchor the suggestion menu targets (see
+                # the ui.menu() below) — positioned at the caret's actual
+                # pixel location by _position_caret_anchor() each time a
+                # suggestion list is shown.
+                ui.element("div").props('id="tau-caret-anchor"').style(
+                    "position: fixed; width: 0; height: 0; pointer-events: none;"
+                )
                 self._input_box = input_box
-                with input_box, ui.menu().props("no-parent-event max-height=280px") as suggestion_menu:
-                    self._suggestion_results = ui.column().classes("gap-0 min-w-[280px]")
+                with (
+                    input_box,
+                    # no-focus: Quasar's QMenu grabs focus on open by default
+                    # (confirmed live — document.activeElement moved to the
+                    # menu the instant it opened), which silently swallowed
+                    # every Up/Down/Tab keystroke meant for the textarea's
+                    # own keydown listeners. Keeping focus on the textarea is
+                    # the whole point — the user should never have to click
+                    # back into it just to keep typing while a suggestion
+                    # list happens to be open.
+                    # target="#tau-caret-anchor": anchoring to the textarea
+                    # itself (tried first) only ever reaches the input box's
+                    # own corner, not the actual "@"/"/" text — confirmed
+                    # live, still visibly detached from the cursor whenever
+                    # there was other content above or beside it. A plain
+                    # <textarea> has no API for caret pixel position, so
+                    # _position_caret_anchor() below measures it with the
+                    # standard mirror-div technique and moves a floating 0x0
+                    # anchor element there each time a suggestion list is
+                    # (re)shown; the menu then targets *that* instead of the
+                    # textarea, with anchor="top left" self="bottom left" so
+                    # it opens directly above the caret and grows upward.
+                    ui.menu()
+                    .props(
+                        'no-parent-event no-focus max-height=280px'
+                        ' target="#tau-caret-anchor"'
+                        ' anchor="top left" self="bottom left"'
+                    )
+                    .classes("tau-suggestion-menu") as suggestion_menu,
+                ):
+                    self._suggestion_results = ui.column().classes("gap-0 py-1.5 min-w-[280px]")
                 self._suggestion_menu = suggestion_menu
                 self._send_button = (
                     ui.button(on_click=send)
@@ -243,6 +310,21 @@ class InputSection:
 
         unsub = self._runtime.hooks.register("model_select", on_model_select)
 
+        async def on_input(event: object) -> InputEventResult | None:
+            # Matches the TUI's own @-mention behavior (InputHandler._on_submit):
+            # the model receives each mentioned file's content, but the
+            # displayed chat bubble keeps the short "@path" text as typed —
+            # "transform" only replaces what Runtime.invoke() forwards to the
+            # agent afterward, not the event object message_list.py already
+            # read event.text from to render the bubble.
+            text = str(getattr(event, "text", ""))
+            expanded = expand_at_mentions(text, self._runtime.session_manager.cwd)
+            if expanded == text:
+                return None
+            return InputEventResult(action="transform", text=expanded)
+
+        input_unsub = self._runtime.hooks.register("input", on_input)
+
         async def on_agent_start(_event: object) -> None:
             self._is_running = True
             self._refresh_send_button()
@@ -286,6 +368,7 @@ class InputSection:
         ui.context.client.on_disconnect(
             lambda: [
                 unsub(),
+                input_unsub(),
                 agent_start_unsub(),
                 agent_end_unsub(),
                 agent_error_unsub(),
@@ -573,8 +656,33 @@ class InputSection:
 
     def _close_suggestions(self) -> None:
         self._suggestion_mode = None
+        self._suggestion_items = []
+        self._suggestion_index = 0
         if self._suggestion_menu is not None:
             self._suggestion_menu.close()
+        self._set_suggest_open_flag(False)
+
+    def _set_suggest_open_flag(self, open_: bool) -> None:
+        """Toggle the data attribute _SUGGEST_NAV_JS checks — the single
+        source of truth for whether Up/Down/Tab should intercept the
+        keystroke at all, kept in sync with _suggestion_mode.
+
+        getHtmlElement(id) resolves directly to ui.textarea's own <textarea>
+        node (confirmed live — unlike ui.button, where the id lands on an
+        outer wrapper), which is also what event.target is on keydown, so
+        no extra traversal is needed to reach the element the JS-side check
+        in _SUGGEST_NAV_JS reads from.
+        """
+        if self._input_box is None:
+            return
+        self._input_box.client.run_javascript(
+            f"""
+            (function() {{
+                var el = getHtmlElement({self._input_box.id});
+                if (el) {{ el.dataset.suggestOpen = '{"1" if open_ else "0"}'; }}
+            }})();
+            """
+        )
 
     def _show_command_suggestions(self, query: str) -> None:
         from tau.prompts.registry import prompt_registry
@@ -636,33 +744,105 @@ class InputSection:
     def _render_suggestions(self, items: list[tuple[str, str]], *, insert_suffix: str) -> None:
         if self._suggestion_results is None or self._suggestion_menu is None:
             return
-        self._suggestion_results.clear()
-        self._suggestion_top = (items[0][0], insert_suffix) if items else None
-        with self._suggestion_results:
-            if not items:
-                ui.menu_item("No matches").props("disable")
-            else:
-                for value, description in items:
-                    label = f"{value}  {description}" if description else value
-                    ui.menu_item(
-                        label,
-                        on_click=lambda v=value: self._select_suggestion(v, insert_suffix),
-                    ).classes("text-xs")
+        self._suggestion_items = items
+        self._suggestion_insert_suffix = insert_suffix
+        self._suggestion_index = 0
+        self._set_suggest_open_flag(bool(items))
+        self._render_suggestion_rows()
+        self._position_caret_anchor()
         self._suggestion_menu.open()
 
-    def _select_suggestion(self, value: str, insert_suffix: str) -> None:
+    def _position_caret_anchor(self) -> None:
+        """Move #tau-caret-anchor to the textarea's actual caret position
+        (mirror-div technique — a plain <textarea> has no native API for
+        this) so the menu, targeting that anchor, tracks where the "@"/"/"
+        text really is instead of just some corner of the whole input box.
+        Called every time the suggestion list is (re)filtered, since typing
+        more characters keeps moving the caret while the dropdown is open.
+        """
+        if self._input_box is None:
+            return
+        self._input_box.client.run_javascript(
+            f"""
+            (function() {{
+                var ta = getHtmlElement({self._input_box.id});
+                var anchor = document.getElementById('tau-caret-anchor');
+                if (!ta || !anchor) return;
+                var style = getComputedStyle(ta);
+                var mirror = document.createElement('div');
+                var props = ['boxSizing', 'width', 'paddingTop', 'paddingRight',
+                    'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth',
+                    'borderBottomWidth', 'borderLeftWidth', 'fontStyle', 'fontVariant',
+                    'fontWeight', 'fontSize', 'lineHeight', 'fontFamily', 'letterSpacing',
+                    'wordSpacing', 'tabSize'];
+                props.forEach(function(p) {{ mirror.style[p] = style[p]; }});
+                mirror.style.position = 'absolute';
+                mirror.style.visibility = 'hidden';
+                mirror.style.whiteSpace = 'pre-wrap';
+                mirror.style.wordWrap = 'break-word';
+                mirror.style.top = '0';
+                mirror.style.left = '-9999px';
+                document.body.appendChild(mirror);
+                var caret = ta.selectionEnd;
+                mirror.textContent = ta.value.substring(0, caret);
+                var marker = document.createElement('span');
+                marker.textContent = '\\u200b';
+                mirror.appendChild(marker);
+                var taRect = ta.getBoundingClientRect();
+                var lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+                var top = taRect.top + (marker.offsetTop - ta.scrollTop);
+                var left = taRect.left + (marker.offsetLeft - ta.scrollLeft);
+                document.body.removeChild(mirror);
+                anchor.style.top = top + 'px';
+                anchor.style.left = left + 'px';
+                anchor.style.height = lineHeight + 'px';
+            }})();
+            """
+        )
+
+    def _render_suggestion_rows(self) -> None:
+        """(Re)draw the dropdown's rows, highlighting whichever one
+        _suggestion_index currently points at — called both on a fresh
+        filter result and after Up/Down moves the highlight."""
+        if self._suggestion_results is None:
+            return
+        self._suggestion_results.clear()
+        with self._suggestion_results:
+            if not self._suggestion_items:
+                ui.menu_item("No matches").props("disable")
+                return
+            for i, (value, description) in enumerate(self._suggestion_items):
+                label = f"{value}  {description}" if description else value
+                classes = "text-xs tau-suggestion-item"
+                if i == self._suggestion_index:
+                    classes += " tau-suggestion-active"
+                ui.menu_item(
+                    label,
+                    on_click=lambda v=value: self._select_suggestion(v),
+                ).classes(classes)
+
+    def _move_suggestion(self, delta: int) -> None:
+        """Up/Down: move the highlight, wrapping around at either end."""
+        if self._suggestion_mode is None or not self._suggestion_items:
+            return
+        count = len(self._suggestion_items)
+        self._suggestion_index = (self._suggestion_index + delta) % count
+        self._render_suggestion_rows()
+
+    def _accept_highlighted_suggestion(self) -> None:
+        """Tab: insert whichever row is currently highlighted."""
+        if self._suggestion_mode is None or not self._suggestion_items:
+            self._close_suggestions()
+            return
+        value, _description = self._suggestion_items[self._suggestion_index]
+        self._select_suggestion(value)
+
+    def _select_suggestion(self, value: str) -> None:
         if self._input_box is not None:
-            self._input_box.value = self._suggestion_prefix + value + insert_suffix
+            self._input_box.value = self._suggestion_prefix + value + self._suggestion_insert_suffix
             self._input_box.run_method("focus")
         self._close_suggestions()
         self._refresh_send_button()
-
-    def _accept_top_suggestion(self) -> None:
-        top = self._suggestion_top
-        if top is None:
-            self._close_suggestions()
-            return
-        self._select_suggestion(*top)
 
     # -- Attachments -----------------------------------------------------------
 

@@ -15,6 +15,32 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
+_AT_MENTION_RE = re.compile(r"@([^\s@]+)")
+
+
+def expand_at_mentions(text: str, cwd: Path) -> str:
+    """Prepend `<file path="...">...</file>` blocks for every `@path` token
+    in `text` that resolves to a real file under `cwd`, leaving the original
+    "@path" occurrences in place — matches the terminal's own behavior
+    (this used to be `InputHandler._expand_at_mentions`, extracted so the
+    web UI's composer can share the exact same expansion instead of just
+    sending the literal "@path" text to the model).
+    """
+    attachments: list[str] = []
+    for m in _AT_MENTION_RE.finditer(text):
+        raw_path = m.group(1)
+        path = Path(raw_path) if Path(raw_path).is_absolute() else cwd / raw_path
+        if path.is_file():
+            try:
+                content = path.read_text(errors="replace")
+                attachments.append(f'<file path="{raw_path}">\n{content}\n</file>')
+            except OSError:
+                _log.debug("failed to read @mention file %s", path, exc_info=True)
+    if not attachments:
+        return text
+    return "\n".join(attachments) + "\n\n" + text
+
+
 # ── InputHandler ──────────────────────────────────────────────────────────────
 
 
@@ -1048,20 +1074,7 @@ class InputHandler:
     def _expand_at_mentions(self, text: str) -> str:
         sm = self._runtime.session_manager
         cwd = sm.cwd if sm is not None else Path.cwd()
-        pattern = re.compile(r"@([^\s@]+)")
-        attachments: list[str] = []
-        for m in pattern.finditer(text):
-            raw_path = m.group(1)
-            path = Path(raw_path) if Path(raw_path).is_absolute() else cwd / raw_path
-            if path.is_file():
-                try:
-                    content = path.read_text(errors="replace")
-                    attachments.append(f'<file path="{raw_path}">\n{content}\n</file>')
-                except OSError:
-                    _log.debug("failed to read @mention file %s", path, exc_info=True)
-        if not attachments:
-            return text
-        return "\n".join(attachments) + "\n\n" + text
+        return expand_at_mentions(text, cwd)
 
     # ── Slash message factory ─────────────────────────────────────────────────
 
