@@ -70,18 +70,33 @@ class SessionTopBar:
         self,
         runtime: Runtime,
         *,
+        dark_mode: ui.dark_mode,
         on_open_branches: Callable[[], None] | None = None,
     ) -> None:
         self._runtime = runtime
+        self._dark_mode = dark_mode
         self._on_open_branches = on_open_branches
-        self._model_label: Any | None = None
         self._stats_row: Any | None = None
+        self._theme_button: Any | None = None
+
+    def _theme_icon(self) -> str:
+        return "dark_mode" if self._dark_mode.value else "light_mode"
+
+    def _toggle_theme(self) -> None:
+        self._dark_mode.value = not self._dark_mode.value
+        if self._theme_button is not None:
+            self._theme_button.props(f"icon={self._theme_icon()}")
 
     def render(self) -> None:
         """Render the top bar and subscribe it to session-lifecycle events."""
         with ui.row().classes("w-full items-stretch gap-0 tau-topbar"):
-            self._model_label = ui.label().classes(
-                "flex items-center px-3 text-xs font-medium text-[var(--text-muted)]"
+            # Leftmost, matching pi-web's AppShell exactly — a flat 36px
+            # icon button bordered on the right, first thing in the bar
+            # (right where a sidebar-toggle button would sit if we had one).
+            self._theme_button = (
+                ui.button(icon=self._theme_icon(), color=None, on_click=self._toggle_theme)
+                .props("flat dense")
+                .classes("tau-topbar-icon-btn")
             )
             if self._on_open_branches is not None:
                 # color=None is the real fix for the "icon/label render in
@@ -109,15 +124,8 @@ class SessionTopBar:
         ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
 
     def _refresh(self) -> None:
-        if self._model_label is None or self._stats_row is None:
+        if self._stats_row is None:
             return
-
-        llm = self._runtime.agent._engine.llm if self._runtime.agent is not None else None
-        if llm is not None:
-            model_name = getattr(llm.model, "name", None) or getattr(llm.model, "id", "unknown")
-            self._model_label.text = f"({llm.provider_id}) {model_name}"
-        else:
-            self._model_label.text = ""
 
         stats = _collect_session_stats(self._runtime)
         usage = self._runtime.agent.get_context_usage() if self._runtime.agent is not None else None

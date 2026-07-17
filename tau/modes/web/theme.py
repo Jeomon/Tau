@@ -133,6 +133,30 @@ pre, code {
 .tau-topbar .tau-topbar-tab.tau-topbar-tab:hover .q-icon {
     color: var(--text) !important;
 }
+/* pi-web's leftmost top-bar icon buttons (sidebar-toggle, theme toggle):
+   flat 36px square, right border as the only divider, icon-only — distinct
+   from .tau-topbar-tab which also carries a text label. */
+.tau-topbar .tau-topbar-icon-btn {
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    min-width: 36px !important;
+    border-radius: 0 !important;
+    border-right: 1px solid var(--border) !important;
+    color: var(--text-muted) !important;
+    padding: 0 !important;
+    transition: color 0.12s;
+}
+.tau-topbar .tau-topbar-icon-btn .q-icon {
+    font-size: 16px;
+    color: var(--text-muted) !important;
+}
+.tau-topbar .tau-topbar-icon-btn:hover {
+    color: var(--text) !important;
+}
+.tau-topbar .tau-topbar-icon-btn:hover .q-icon {
+    color: var(--text) !important;
+}
 .tau-topbar-stats {
     height: 100%;
     font-variant-numeric: tabular-nums;

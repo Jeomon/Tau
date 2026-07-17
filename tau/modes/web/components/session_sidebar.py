@@ -68,7 +68,6 @@ class SessionSidebar:
         self,
         runtime: Runtime,
         *,
-        dark_mode: ui.dark_mode,
         on_session_loading: Callable[[], None] | None = None,
         on_preview_session: Callable[[Path], None] | None = None,
         on_open_settings: Callable[[], None] | None = None,
@@ -77,7 +76,6 @@ class SessionSidebar:
         on_open_file: Callable[[Path], None] | None = None,
     ) -> None:
         self._runtime = runtime
-        self._dark_mode = dark_mode
         self._on_session_loading = on_session_loading
         self._on_preview_session = on_preview_session
         self._on_open_settings = on_open_settings
@@ -86,7 +84,6 @@ class SessionSidebar:
         self._on_open_file = on_open_file
         self._list_container: Any | None = None
         self._explorer_container: Any | None = None
-        self._theme_button: Any | None = None
         self._filter_text = ""
         self._confirming_delete: Path | None = None
         self._renaming_path: Path | None = None
@@ -98,24 +95,13 @@ class SessionSidebar:
             with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
                 with ui.row().classes("w-full items-center justify-between"):
                     ui.label("Tau").classes("text-sm font-semibold text-[var(--text)]")
-                    with ui.row().classes("items-center gap-1"):
-                        self._theme_button = (
-                            ui.button(on_click=self._toggle_theme)
-                            .props(f"unelevated round dense icon={self._theme_icon()}")
-                            .classes("tau-icon-btn-32")
-                            .style(
-                                "background: var(--bg-hover) !important;"
-                                " color: var(--text-muted) !important;"
-                                " box-shadow: none !important;"
-                            )
-                        )
-                        ui.button(on_click=self._new_session).props(
-                            "unelevated icon=add round dense"
-                        ).classes("tau-icon-btn-32").style(
-                            "background: var(--bg-hover) !important;"
-                            " color: var(--text-muted) !important;"
-                            " box-shadow: none !important;"
-                        )
+                    ui.button(on_click=self._new_session).props(
+                        "unelevated icon=add round dense"
+                    ).classes("tau-icon-btn-32").style(
+                        "background: var(--bg-hover) !important;"
+                        " color: var(--text-muted) !important;"
+                        " box-shadow: none !important;"
+                    )
                 WorktreeMenu(self._runtime).render()
 
             with ui.column().classes("w-full gap-1 px-3 py-2 tau-session-search-wrap"):
@@ -200,14 +186,6 @@ class SessionSidebar:
 
     async def _new_session(self) -> None:
         await self._runtime.new_session()
-
-    def _theme_icon(self) -> str:
-        return "dark_mode" if self._dark_mode.value else "light_mode"
-
-    def _toggle_theme(self) -> None:
-        self._dark_mode.value = not self._dark_mode.value
-        if self._theme_button is not None:
-            self._theme_button.props(f"icon={self._theme_icon()}")
 
     def _on_filter_change(self, event: Any) -> None:
         self._filter_text = str(event.value or "").strip().lower()

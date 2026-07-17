@@ -37,7 +37,6 @@ class ChatPage:
             message_list = MessageList(self._runtime)
             SessionSidebar(
                 self._runtime,
-                dark_mode=self._dark_mode,
                 on_session_loading=message_list.show_loading,
                 on_preview_session=message_list.preview_session,
                 on_open_settings=settings_dialog.open,
@@ -50,6 +49,7 @@ class ChatPage:
                 # else stays inset in its own padded column below it.
                 SessionTopBar(
                     self._runtime,
+                    dark_mode=self._dark_mode,
                     on_open_branches=branch_dialog.open,
                 ).render()
                 # w-full is required here, not just flex-1 — this column now
