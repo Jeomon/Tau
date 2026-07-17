@@ -192,6 +192,12 @@ class SessionTopBar:
 
         self._stats_row.clear()
         with self._stats_row:
+            llm = self._runtime.agent._engine.llm if self._runtime.agent is not None else None
+            if llm is not None:
+                model_name = getattr(llm.model, "name", None) or getattr(llm.model, "id", "unknown")
+                ui.label(f"({llm.provider_id}) {model_name}").classes(
+                    "font-medium text-[var(--text)]"
+                )
             if stats.input_tokens > 0:
                 with ui.row().classes("items-center gap-1"):
                     ui.icon("arrow_upward").style("font-size: 12px;")

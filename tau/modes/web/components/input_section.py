@@ -108,7 +108,10 @@ class InputSection:
         async def on_agent_error(event: object) -> None:
             ui.notify(f"Error: {getattr(event, 'error', event)}", type="negative")
 
-        with ui.column().classes("w-full gap-2"):
+        # Matches pi-web's own composer wrapper (ChatInput.tsx): capped at
+        # 820px and centered, so it doesn't stretch edge-to-edge on wide
+        # screens the way the message list above it does.
+        with ui.column().classes("w-full max-w-[820px] mx-auto gap-2"):
             attachments_row = ui.row().classes("w-full items-center gap-1 px-2 flex-wrap")
             attachments_row.set_visibility(False)
             self._attachments_row = attachments_row
