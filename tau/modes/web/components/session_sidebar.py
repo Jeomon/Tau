@@ -85,6 +85,7 @@ class SessionSidebar:
         self._confirming_delete: Path | None = None
         self._renaming_path: Path | None = None
         self._pending_session_path: Path | None = None
+        self._agent_running = False
 
     def toggle(self) -> bool:
         """Show or hide the sidebar, sliding its width in/out (pi-web's
@@ -114,8 +115,29 @@ class SessionSidebar:
             self._pending_session_path = None
             self._refresh()
 
-        unsub = self._runtime.hooks.register("session_start", on_session_start)
-        ui.context.client.on_disconnect(unsub)
+        async def on_agent_start(event: object) -> None:
+            del event
+            self._agent_running = True
+            self._refresh()
+
+        async def on_agent_end(event: object) -> None:
+            del event
+            self._agent_running = False
+            self._refresh()
+
+        unsubs = [
+            self._runtime.hooks.register("session_start", on_session_start),
+            # Only the active session can ever be "running" in tau's web
+            # mode (switching sessions shuts the previous one down rather
+            # than leaving it running in the background, unlike pi-web's
+            # multi-session backend) — so this only ever marks the current
+            # row, but it's still useful: a persistent glance-able cue while
+            # scrolled down in a long conversation or with focus elsewhere.
+            self._runtime.hooks.register("agent_start", on_agent_start),
+            self._runtime.hooks.register("agent_end", on_agent_end),
+            self._runtime.hooks.register("agent_error", on_agent_end),
+        ]
+        ui.context.client.on_disconnect(lambda: [unsub() for unsub in unsubs])
 
     def _render_content(self) -> None:
         with ui.column().classes("w-full gap-2 p-3 tau-sidebar-header"):
@@ -277,10 +299,15 @@ class SessionSidebar:
 
         with ui.row().classes(classes).on("click", switch):
             with ui.column().classes("flex-1 min-w-0 gap-0"):
-                ui.label(_session_label(session)).classes(
-                    "w-full min-w-0 truncate text-xs text-[var(--text)]"
-                    + (" font-medium" if active else "")
-                )
+                with ui.row().classes("w-full items-center gap-1.5 min-w-0"):
+                    if active and self._agent_running:
+                        ui.spinner(size="0.7em", color=None).props('title="Agent running…"').style(
+                            "color: var(--accent) !important; flex-shrink: 0;"
+                        )
+                    ui.label(_session_label(session)).classes(
+                        "flex-1 min-w-0 truncate text-xs text-[var(--text)]"
+                        + (" font-medium" if active else "")
+                    )
                 with ui.row().classes(
                     "w-full flex-nowrap gap-2 mt-0.5 text-[11px] text-[var(--text-dim)]"
                 ):

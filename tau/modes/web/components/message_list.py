@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
@@ -63,6 +64,33 @@ def _collect_tool_results(messages: Sequence[object]) -> dict[str, ToolResultCon
     return results
 
 
+def _estimate_streamed_tokens(message: AssistantMessage) -> int:
+    """Rough token estimate (chars / 4) across a still-streaming turn's
+    blocks — mirrors pi-web's MessageView.tsx live token-count badge, which
+    uses the same char-count heuristic rather than an actual tokenizer since
+    it only needs to be "close enough to feel alive" while streaming."""
+    chars = 0
+    for block in message.contents:
+        if isinstance(block, TextContent):
+            chars += len(block.content or "")
+        elif isinstance(block, ThinkingContent):
+            chars += len(block.content or "")
+        elif isinstance(block, ToolCallContent):
+            chars += len(json.dumps(block.args or {}))
+    return round(chars / 4)
+
+
+def _tps_color(tps: float) -> str:
+    """Matches pi-web's exact throughput color thresholds (MessageView.tsx)."""
+    if tps >= 50:
+        return "#53b3cb"
+    if tps >= 30:
+        return "#9bc53d"
+    if tps >= 15:
+        return "#f9c22e"
+    return "#e01a4f"
+
+
 def _render_assistant_blocks(
     message: AssistantMessage,
     tool_results: dict[str, ToolResultContent],
@@ -99,6 +127,7 @@ class MessageList:
         self._live_container: Any | None = None
         self._live_message: object | None = None
         self._live_streaming = False
+        self._live_started_at = 0.0
         self._live_tool_results: dict[str, ToolResultContent] = {}
         self.scroll_area: Any | None = None
         self._waiting_row: Any | None = None
@@ -159,6 +188,7 @@ class MessageList:
                 self._clear_waiting_indicator()
                 self._live_message = getattr(event, "message", None)
                 self._live_streaming = True
+                self._live_started_at = time.time()
                 self._start_live_turn()
                 return
             if event_type == "message_update":
@@ -366,11 +396,33 @@ class MessageList:
             return
         self._live_container.clear()
         with self._live_container:
+            if self._live_streaming:
+                self._render_streaming_stats()
             _render_assistant_blocks(
                 self._live_message,  # type: ignore[arg-type]
                 self._live_tool_results,
                 streaming=self._live_streaming,
             )
+
+    def _render_streaming_stats(self) -> None:
+        """Live token-count-estimate + tokens/sec badge, shown only while
+        streaming (matches pi-web's MessageView.tsx) — the numbers updating
+        each chunk double as an "it's working" signal, no spinner needed."""
+        if self._live_message is None:
+            return
+        est_tokens = _estimate_streamed_tokens(self._live_message)  # type: ignore[arg-type]
+        if est_tokens <= 0:
+            return
+        elapsed = time.time() - self._live_started_at
+        tps = est_tokens / elapsed if elapsed > 0 else 0.0
+        with ui.row().classes("items-center gap-1 px-1 text-[11px] text-[var(--text)]"):
+            ui.icon("arrow_upward").style("font-size: 10px;")
+            ui.label(str(est_tokens))
+            if tps > 0:
+                ui.label(f"{tps:.1f} t/s").classes("text-white").style(
+                    f"background: {_tps_color(tps)}; padding: 1px 6px;"
+                    " border-radius: 4px; font-size: 11px; margin-left: 4px;"
+                )
 
     def preview_session(self, session_file: Any) -> None:
         """Render a session file immediately without waiting for Runtime to switch."""
