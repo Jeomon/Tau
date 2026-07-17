@@ -240,12 +240,15 @@ pre, code {
    strip it back to flush plaintext that just sits on the panel background. */
 .tau-file-panel .nicegui-code {
     background: transparent !important;
+    border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
     padding: 0 !important;
 }
 .tau-file-panel .nicegui-code .nicegui-markdown pre {
     background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
     margin: 0 !important;
 }
 
