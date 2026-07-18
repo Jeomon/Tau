@@ -10,7 +10,6 @@ from typing import Any
 from filelock import FileLock
 
 from tau.inference.types import ThinkingLevel
-from tau.utils import profiling
 from tau.message.types import (
     AgentMessage,
     AssistantMessage,
@@ -38,6 +37,7 @@ from tau.session.types import (
     ThinkingLevelChangeEntry,
 )
 from tau.session.utils import (
+    SessionPager,
     create_session_id,
     find_most_recent_session,
     generate_id,
@@ -47,6 +47,7 @@ from tau.session.utils import (
     read_session_file,
 )
 from tau.settings.paths import get_sessions_dir
+from tau.utils import profiling
 from tau.utils.fs import atomic_write_text
 
 _log = logging.getLogger(__name__)
@@ -263,9 +264,12 @@ class SessionManager:
         appending through a stale/unlinked inode.
         """
         assert self.session_file is not None
-        with profiling.span("session.append_entry"), self._session_lock():
-            with self.session_file.open("a", encoding="utf-8") as f:
-                f.write(entry.model_dump_json(exclude_none=True) + "\n")
+        with (
+            profiling.span("session.append_entry"),
+            self._session_lock(),
+            self.session_file.open("a", encoding="utf-8") as f,
+        ):
+            f.write(entry.model_dump_json(exclude_none=True) + "\n")
 
     def _persist(self, entry: SessionEntry):
         """Commit an entry, appending when possible and merging when not.
@@ -794,6 +798,23 @@ class SessionManager:
         sessions = list_sessions_from_dir(session_dir, on_progress=on_progress)
         sessions.sort(key=lambda s: s.modified.timestamp(), reverse=True)
         return sessions
+
+    @staticmethod
+    def pager(
+        cwd: Path | str,
+        session_dir: Path | str | None = None,
+    ) -> SessionPager:
+        """Return a newest-first incremental pager for one project's sessions."""
+        cwd = Path(cwd).resolve()
+        directory = (
+            Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
+        )
+        return SessionPager.from_directory(directory)
+
+    @staticmethod
+    def all_pager() -> SessionPager:
+        """Return a newest-first incremental pager across all project session directories."""
+        return SessionPager.from_all_directories()
 
     @staticmethod
     def list_all(

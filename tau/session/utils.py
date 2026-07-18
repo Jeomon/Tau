@@ -3,6 +3,7 @@ import logging
 import re
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -302,6 +303,58 @@ def list_sessions_from_dir(
         _log.warning("failed to list sessions from %s", dir_path, exc_info=True)
 
     return sessions
+
+
+@dataclass
+class SessionPager:
+    """Incrementally parse session files in newest-first filesystem order."""
+
+    _files: list[Path]
+    _cursor: int = 0
+
+    @property
+    def total_count(self) -> int:
+        """Return the cheap filesystem-discovery count before JSONL parsing."""
+        return len(self._files)
+
+    @classmethod
+    def from_directory(cls, directory: Path | str) -> "SessionPager":
+        return cls(_session_files_from_dirs([Path(directory)]))
+
+    @classmethod
+    def from_all_directories(cls) -> "SessionPager":
+        sessions_dir = get_sessions_dir()
+        try:
+            directories = [path for path in sessions_dir.iterdir() if path.is_dir()]
+        except OSError:
+            directories = []
+        return cls(_session_files_from_dirs(directories))
+
+    def next_page(self, page_size: int) -> tuple[list[SessionInfo], bool]:
+        """Parse up to ``page_size`` valid sessions and report whether more remain."""
+        sessions: list[SessionInfo] = []
+        while self._cursor < len(self._files) and len(sessions) < page_size:
+            file = self._files[self._cursor]
+            self._cursor += 1
+            if info := build_session_info(file):
+                sessions.append(info)
+        return sessions, self._cursor < len(self._files)
+
+
+def _session_files_from_dirs(directories: list[Path]) -> list[Path]:
+    """Discover session files cheaply, ordered by filesystem modification time."""
+    files: list[tuple[float, Path]] = []
+    for directory in directories:
+        try:
+            for file in directory.glob("*.jsonl"):
+                try:
+                    files.append((file.stat().st_mtime, file))
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    files.sort(key=lambda item: item[0], reverse=True)
+    return [file for _mtime, file in files]
 
 
 def to_llm_messages(messages: list[AgentMessage]) -> list[LLMMessage]:

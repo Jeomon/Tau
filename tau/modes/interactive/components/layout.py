@@ -1200,6 +1200,9 @@ class Layout(Component):
         on_cancel: Callable[[], None],
         all_sessions_loader: Callable[[], list] | None = None,
         current_session_path: Path | None = None,
+        loading: bool = False,
+        on_load_all: Callable[[], None] | None = None,
+        on_load_more: Callable[[str], None] | None = None,
     ) -> None:
         """Open the session resume selector with search, scope toggle, and delete."""
         from tau.modes.interactive.components.session_selector import ResumeSelector
@@ -1210,6 +1213,9 @@ class Layout(Component):
             current_session_path=current_session_path,
             max_visible=self._picker_max_visible,
             theme=self._theme,
+            loading=loading,
+            on_load_all=on_load_all,
+            on_load_more=on_load_more,
         )
         self._active_selector = InlineSelector(
             kind="resume",
@@ -1218,6 +1224,38 @@ class Layout(Component):
             on_cancel=on_cancel,
         )
         self._tui.request_render()
+
+    def set_resume_sessions(self, sessions: list) -> None:
+        """Populate the visible resume selector after its background scan."""
+        active = self._active_selector
+        if active is None or active.kind != "resume":
+            return
+        setter = getattr(active.selector, "set_current_sessions", None)
+        if callable(setter):
+            setter(sessions)
+            self._tui.request_render()
+
+    def append_resume_sessions(
+        self, scope: str, sessions: list, has_more: bool, total_count: int
+    ) -> None:
+        """Append one asynchronously loaded page to the active resume selector."""
+        active = self._active_selector
+        if active is None or active.kind != "resume":
+            return
+        setter = getattr(active.selector, "append_sessions", None)
+        if callable(setter):
+            setter(scope, sessions, has_more, total_count)
+            self._tui.request_render()
+
+    def set_resume_all_sessions(self, sessions: list) -> None:
+        """Populate the visible resume selector's asynchronously loaded All scope."""
+        active = self._active_selector
+        if active is None or active.kind != "resume":
+            return
+        setter = getattr(active.selector, "set_all_sessions", None)
+        if callable(setter):
+            setter(sessions)
+            self._tui.request_render()
 
     def open_tree_selector(
         self,

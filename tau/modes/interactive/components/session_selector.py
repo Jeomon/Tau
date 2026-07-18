@@ -109,10 +109,22 @@ class ResumeSelector:
         current_session_path: Path | None = None,
         max_visible: int = 10,
         theme: LayoutTheme | None = None,
+        loading: bool = False,
+        on_load_all: Callable[[], None] | None = None,
+        on_load_more: Callable[[str], None] | None = None,
     ) -> None:
         self._current = list(current_sessions)
+        self._loading_current = loading
         self._all_loader = all_sessions_loader
+        self._on_load_all = on_load_all
+        self._on_load_more = on_load_more
         self._all: list | None = None
+        self._loading_all = False
+        self._current_has_more = False
+        self._all_has_more = False
+        self._current_total_count = 0
+        self._all_total_count = 0
+        self._loading_all = False
         self._cur_path = current_session_path
         self._max_visible = max_visible
 
@@ -146,6 +158,35 @@ class ResumeSelector:
         s = self._filtered[self._selected]
         return Path(s.path) if not isinstance(s.path, Path) else s.path
 
+    def append_sessions(self, scope: str, sessions: list, has_more: bool, total_count: int) -> None:
+        """Append one background-loaded session page for ``scope``."""
+        if scope == "current":
+            self._current.extend(sessions)
+            self._loading_current = False
+            self._current_has_more = has_more
+            self._current_total_count = total_count
+        else:
+            if self._all is None:
+                self._all = []
+            self._all.extend(sessions)
+            self._loading_all = False
+            self._all_has_more = has_more
+            self._all_total_count = total_count
+        if self._scope == scope:
+            self._refilter()
+
+    def _maybe_load_more(self) -> None:
+        sessions = self._active_sessions()
+        has_more = self._current_has_more if self._scope == "current" else self._all_has_more
+        loading = self._loading_current if self._scope == "current" else self._loading_all
+        if has_more and not loading and self._selected >= max(0, len(sessions) - 10):
+            if self._scope == "current":
+                self._loading_current = True
+            else:
+                self._loading_all = True
+            if self._on_load_more is not None:
+                self._on_load_more(self._scope)
+
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def move_up(self) -> None:
@@ -157,17 +198,23 @@ class ResumeSelector:
         if self._confirming_delete is None and self._filtered:
             self._selected = min(len(self._filtered) - 1, self._selected + 1)
             self._status_msg = ""
+            self._maybe_load_more()
 
     def toggle_scope(self) -> None:
         if self._confirming_delete is not None:
             return
         if self._scope == "current":
             self._scope = "all"
-            if self._all is None:
-                try:
-                    self._all = list(self._all_loader())
-                except Exception:
-                    self._all = []
+            if self._all is None and not self._loading_all:
+                self._loading_all = True
+                if self._on_load_all is not None:
+                    self._on_load_all()
+                else:
+                    try:
+                        self._all = list(self._all_loader())
+                    except Exception:
+                        self._all = []
+                    self._loading_all = False
         else:
             self._scope = "current"
         self._selected = 0
@@ -291,7 +338,11 @@ class ResumeSelector:
         show_project = self._scope == "all"
 
         if not self._filtered:
-            if self._search:
+            if self._loading_current and self._scope == "current":
+                text("Loading sessions…", t.muted, "  ")
+            elif self._loading_all and self._scope == "all":
+                text("Loading all sessions…", t.muted, "  ")
+            elif self._search:
                 text(f"No sessions match '{self._search}'", t.muted, "  ")
             elif self._scope == "current":
                 text("No sessions in current folder — Tab for all", t.muted, "  ")
@@ -377,7 +428,10 @@ class ResumeSelector:
             )
             row += len(list_items)
 
-            remaining = count - (start + visible)
+            total_count = (
+                self._current_total_count if self._scope == "current" else self._all_total_count
+            )
+            remaining = max(0, total_count - (start + visible))
             if remaining > 0:
                 text(f"↓ {remaining} more below", t.muted, "  ")
 
@@ -397,8 +451,8 @@ class ResumeSelector:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _active_sessions(self) -> list:
-        if self._scope == "all" and self._all is not None:
-            return self._all
+        if self._scope == "all":
+            return self._all or []
         return self._current
 
     def _refilter(self) -> None:

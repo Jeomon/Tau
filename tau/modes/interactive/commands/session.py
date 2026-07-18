@@ -6,6 +6,8 @@ from tau.modes.interactive.commands.context import CommandContext
 from tau.tui.utils import strip_control_chars
 from tau.utils.format import format_number
 
+_SESSION_PAGE_SIZE = 20
+
 
 async def open_resume_selector(ctx: CommandContext) -> None:
     from tau.session.manager import SessionManager
@@ -13,19 +15,34 @@ async def open_resume_selector(ctx: CommandContext) -> None:
     sm = ctx.runtime.session_manager
     cwd = sm.cwd if sm is not None else None
     current_path = sm.session_file if sm is not None else None
+    current_pager = None
+    all_pager = None
 
-    # SessionManager.list() reads and fully JSON-parses every session file in
-    # the directory (message counts need an exact tally, so it can't stop
-    # early — see build_session_info() in session/utils.py). Run off the
-    # event loop thread: this fires on every /resume, not just once, and a
-    # project accumulates session files forever with nothing to prune them,
-    # so the cost only grows the longer a project's been in use.
-    current_sessions = (
-        await asyncio.to_thread(SessionManager.list, cwd) if cwd is not None else []
-    )
+    async def load_page(scope: str) -> None:
+        nonlocal current_pager, all_pager
+        try:
+            if scope == "current":
+                if current_pager is None:
+                    current_pager = (
+                        await asyncio.to_thread(SessionManager.pager, cwd) if cwd else None
+                    )
+                pager = current_pager
+            else:
+                if all_pager is None:
+                    all_pager = await asyncio.to_thread(SessionManager.all_pager)
+                pager = all_pager
+            sessions, has_more = (
+                await asyncio.to_thread(pager.next_page, _SESSION_PAGE_SIZE)
+                if pager
+                else ([], False)
+            )
+            total_count = pager.total_count if pager is not None else 0
+        except Exception:
+            sessions, has_more, total_count = [], False, 0
+        ctx.layout.append_resume_sessions(scope, sessions, has_more, total_count)
 
-    def all_loader() -> list:
-        return SessionManager.list_all()
+    def load_more(scope: str) -> None:
+        asyncio.create_task(load_page(scope))
 
     def commit(path: object) -> None:
         from pathlib import Path
@@ -33,12 +50,16 @@ async def open_resume_selector(ctx: CommandContext) -> None:
         asyncio.ensure_future(_apply_resume(ctx, Path(str(path))))
 
     ctx.layout.open_resume_selector(
-        sessions=current_sessions,
+        sessions=[],
+        loading=True,
         on_commit=commit,
         on_cancel=lambda: ctx.notify("Resume cancelled."),
-        all_sessions_loader=all_loader,
+        all_sessions_loader=lambda: [],
+        on_load_all=lambda: load_more("all"),
+        on_load_more=load_more,
         current_session_path=current_path,
     )
+    load_more("current")
 
 
 async def _apply_resume(ctx: CommandContext, path: object) -> None:
