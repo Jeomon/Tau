@@ -537,7 +537,17 @@ class ExtensionLoader:
 
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
-            spec.loader.exec_module(module)  # type: ignore[union-attr]
+            # exec_module() runs the extension file's top-level code — which,
+            # the first time any given third-party dependency is imported in
+            # this process, pays that library's full import cost synchronously
+            # (measured: ~200ms for a builtin extension pulling in an HTTP
+            # client + search libs). Running this on the event loop thread
+            # freezes the whole TUI for that span on every fresh process start.
+            # Scoped to just this call (not register_fn below, which runs on
+            # the main thread as normal) — top-level module code is expected
+            # to be a set of def/class statements, not something that touches
+            # the event loop, so this is safe for well-behaved extensions.
+            await asyncio.to_thread(spec.loader.exec_module, module)  # type: ignore[union-attr]
 
             register_fn = getattr(module, _ENTRY_POINT, None)
             if register_fn is None or not callable(register_fn):

@@ -232,3 +232,38 @@ def test_shutdown_invalidates_context_and_unsubscribes_extensions(tmp_path: Path
             _ = context.model_id
 
     asyncio.run(run())
+
+
+def test_load_one_execs_extension_module_off_the_main_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """exec_module() runs an extension's top-level code — the first time any
+    given third-party dependency is imported in this process, that pays the
+    full import cost synchronously (measured: ~200ms for a builtin extension
+    pulling in an HTTP client + search libs). Must run off the event loop
+    thread so a fresh process start doesn't freeze the whole TUI for that span.
+    """
+    import threading
+
+    extension = tmp_path / "thread_probe_extension.py"
+    extension.write_text(
+        "import builtins\n"
+        "import threading\n"
+        "builtins._tau_load_thread_name = threading.current_thread().name\n"
+        "def register(tau):\n"
+        "    pass\n"
+    )
+    monkeypatch.setattr(builtins, "_tau_load_thread_name", None, raising=False)
+
+    loader = ExtensionLoader(
+        extra_entries=[ExtensionEntry(path=str(extension))],
+        llm=SimpleNamespace(),  # type: ignore[arg-type]
+        settings=SimpleNamespace(),  # type: ignore[arg-type]
+        cwd=tmp_path,
+        runtime_ref=_RuntimeRef(),
+    )
+    result = asyncio.run(loader.load())
+
+    assert not result.errors
+    assert builtins._tau_load_thread_name != threading.main_thread().name  # type: ignore[attr-defined]
