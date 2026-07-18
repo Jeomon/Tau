@@ -285,8 +285,20 @@ async def run_bounded_lines(
     *,
     max_lines: int,
     signal: AbortSignal | None = None,
-) -> tuple[int, list[str], bool]:
-    """Run a subprocess, retaining at most max_lines plus one truncation sentinel."""
+    timeout: float | None = None,
+) -> tuple[int, list[str], bool, bool]:
+    """Run a subprocess, retaining at most max_lines plus one truncation sentinel.
+
+    ``max_lines`` only bounds output *size* — without ``timeout``, a subprocess
+    that hangs (a pathologically slow search over a huge/network-mounted tree,
+    a search tool stuck reading a special file) blocks forever with no
+    automatic cutoff, unlike builtins/tools/terminal.py's bash tool, which has
+    always had one. ``signal`` remains the *user*-triggered abort path (Escape/
+    Ctrl+C); ``timeout`` is the automatic one, matching terminal.py's
+    ``timed_out``/``cancelled`` split so callers can tell the two apart.
+
+    Returns ``(returncode, lines, cancelled, timed_out)``.
+    """
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.DEVNULL,
@@ -296,7 +308,11 @@ async def run_bounded_lines(
     assert process.stdout is not None
     lines: list[str] = []
     cancelled = False
-    try:
+    timed_out = False
+
+    async def _read_loop() -> None:
+        nonlocal cancelled
+        assert process.stdout is not None
         while True:
             if signal is not None and signal.is_set():
                 cancelled = True
@@ -331,8 +347,17 @@ async def run_bounded_lines(
             lines.append(data.decode("utf-8", errors="replace").rstrip("\r\n"))
             if len(lines) > max_lines:
                 break
+
+    try:
+        try:
+            if timeout is not None:
+                await asyncio.wait_for(_read_loop(), timeout=timeout)
+            else:
+                await _read_loop()
+        except TimeoutError:
+            timed_out = True
     finally:
-        if process.returncode is None and (cancelled or len(lines) > max_lines):
+        if process.returncode is None and (cancelled or timed_out or len(lines) > max_lines):
             process.kill()
         await process.wait()
-    return process.returncode or 0, lines, cancelled
+    return process.returncode or 0, lines, cancelled, timed_out

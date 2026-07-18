@@ -48,7 +48,7 @@ async def test_signal_win_awaits_every_waiter_via_gather() -> None:
 
     tripper = asyncio.ensure_future(_trip_signal_soon())
     with mock.patch("asyncio.gather", side_effect=_tracking_gather):
-        _exit_code, lines, cancelled = await run_bounded_lines(
+        _exit_code, lines, cancelled, _timed_out = await run_bounded_lines(
             command, max_lines=1000, signal=signal
         )
     await tripper
@@ -67,3 +67,30 @@ async def test_signal_win_awaits_every_waiter_via_gather() -> None:
     assert any(len(call) >= 2 for call in gather_calls), (
         f"expected a gather() call covering both waiters from the race, got: {gather_calls}"
     )
+
+
+@pytest.mark.asyncio
+async def test_timeout_kills_a_hung_process_and_returns_promptly() -> None:
+    """run_bounded_lines() must not hang forever on a subprocess that never
+    exits and never signals — max_lines only bounds output size, not time,
+    and signal is a user-triggered abort, not an automatic one. Without an
+    independent timeout, a slow/hung search (huge or network-mounted tree,
+    the process stuck reading a special file) blocks the tool call
+    indefinitely — this is what grep.py/glob.py rely on to avoid that.
+    """
+    # Never writes to stdout and never exits on its own.
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+
+    start = asyncio.get_running_loop().time()
+    exit_code, lines, cancelled, timed_out = await run_bounded_lines(
+        command, max_lines=1000, timeout=0.2
+    )
+    elapsed = asyncio.get_running_loop().time() - start
+
+    assert timed_out is True
+    assert cancelled is False
+    assert lines == []
+    assert exit_code != 0
+    # Generous margin over the 0.2s timeout — this is the whole point: it
+    # must return promptly, nowhere near the process's real 30s sleep.
+    assert elapsed < 5.0

@@ -19,6 +19,11 @@ from tau.tool.types import (
 )
 
 _MAX_MATCHES = 500
+# ripgrep is expected to be fast; unlike the terminal tool (which runs
+# arbitrary, legitimately long-running commands and lets the agent set its
+# own timeout), a search taking this long means something's wrong — a huge
+# or network-mounted tree, rg stuck on a special file — not intentional work.
+_TIMEOUT_SECONDS = 30.0
 
 
 def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
@@ -147,8 +152,8 @@ class GrepTool(Tool):
             cmd += ["--glob", params.include]
         cmd += [params.pattern, str(target)]
         try:
-            returncode, lines, cancelled = await run_bounded_lines(
-                cmd, max_lines=_MAX_MATCHES, signal=signal
+            returncode, lines, cancelled, timed_out = await run_bounded_lines(
+                cmd, max_lines=_MAX_MATCHES, signal=signal, timeout=_TIMEOUT_SECONDS
             )
         except FileNotFoundError:
             return {
@@ -159,6 +164,13 @@ class GrepTool(Tool):
             }
         if cancelled:
             return {"matches": [], "output": "Search cancelled.", "metadata": {}, "error": True}
+        if timed_out:
+            return {
+                "matches": [],
+                "output": f"Search timed out after {_TIMEOUT_SECONDS:.0f}s.",
+                "metadata": {},
+                "error": True,
+            }
         if returncode not in (0, 1) and len(lines) <= _MAX_MATCHES:
             error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             return {

@@ -24,6 +24,10 @@ def _render_glob_call(args: dict, _streaming: bool) -> list[str]:
 
 
 _MAX_RESULTS = 1000
+# See grep.py's _TIMEOUT_SECONDS: ripgrep is expected to be fast, so this is a
+# safety net against a hung/pathologically slow search (huge or network-mounted
+# tree), not a normal operating bound.
+_TIMEOUT_SECONDS = 30.0
 
 
 def _render_glob_result(content: str, opts: Any) -> list[str]:
@@ -142,11 +146,13 @@ class GlobTool(Tool):
 
     async def _rg_files(self, pattern: str, base: Path, signal: AbortSignal | None) -> list[str]:
         cmd = ["rg", "--files", "--glob", pattern, str(base)]
-        returncode, lines, cancelled = await run_bounded_lines(
-            cmd, max_lines=_MAX_RESULTS, signal=signal
+        returncode, lines, cancelled, timed_out = await run_bounded_lines(
+            cmd, max_lines=_MAX_RESULTS, signal=signal, timeout=_TIMEOUT_SECONDS
         )
         if cancelled:
             raise RuntimeError("File search cancelled.")
+        if timed_out:
+            raise RuntimeError(f"File search timed out after {_TIMEOUT_SECONDS:.0f}s.")
         if returncode not in (0, 1) and len(lines) <= _MAX_RESULTS:
             error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             raise RuntimeError(error)
