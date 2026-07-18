@@ -290,12 +290,25 @@ class RuntimeContext:
             persist=_persist,
             resume=config.resume,
         )
+        # Loading an existing session (resume, /session switch, branch/tree
+        # navigation across sessions) reads and JSON-parses the whole session
+        # file synchronously — for a long session with sizable tool-call
+        # results (file reads, web fetches) this is real, measured cost
+        # (~150ms for a 5000-turn/~16MB session), not the sub-millisecond
+        # in-memory work most of this constructor otherwise does. Run it in a
+        # thread so it doesn't freeze the render loop for that whole span —
+        # same reasoning as git_task above.
         if config.dependencies.session_manager is not None:
-            session_manager = config.dependencies.session_manager(session_context)
+            session_manager = await asyncio.to_thread(
+                config.dependencies.session_manager, session_context
+            )
         elif config.resume and not config.session_file and _persist:
-            session_manager = SessionManager.continue_recent(cwd, session_dir=session_dir)
+            session_manager = await asyncio.to_thread(
+                SessionManager.continue_recent, cwd, session_dir=session_dir
+            )
         else:
-            session_manager = SessionManager(
+            session_manager = await asyncio.to_thread(
+                SessionManager,
                 cwd=cwd,
                 session_dir=session_dir,
                 session_file=config.session_file,
