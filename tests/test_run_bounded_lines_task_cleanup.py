@@ -94,3 +94,30 @@ async def test_timeout_kills_a_hung_process_and_returns_promptly() -> None:
     # Generous margin over the 0.2s timeout — this is the whole point: it
     # must return promptly, nowhere near the process's real 30s sleep.
     assert elapsed < 5.0
+
+
+@pytest.mark.asyncio
+async def test_timeout_covers_process_wait_after_stdout_closes() -> None:
+    """A child that closes stdout must not bypass the search timeout.
+
+    This is the failure mode that left concurrent grep calls in the TUI at
+    ``Tool Calling`` indefinitely: readline() sees EOF, then the old helper
+    awaited the still-running child without a deadline.
+    """
+    command = [
+        sys.executable,
+        "-c",
+        "import os, time; os.close(1); time.sleep(30)",
+    ]
+
+    start = asyncio.get_running_loop().time()
+    exit_code, lines, cancelled, timed_out = await run_bounded_lines(
+        command, max_lines=1000, timeout=0.2
+    )
+    elapsed = asyncio.get_running_loop().time() - start
+
+    assert timed_out is True
+    assert cancelled is False
+    assert lines == []
+    assert exit_code != 0
+    assert elapsed < 5.0

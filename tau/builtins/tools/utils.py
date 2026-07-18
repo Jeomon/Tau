@@ -14,7 +14,7 @@ import hashlib
 import os
 import tempfile
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -339,8 +339,32 @@ async def run_bounded_lines(
                 await _read_loop()
         except TimeoutError:
             timed_out = True
+        except asyncio.CancelledError:
+            # Task cancellation is distinct from the cooperative AbortSignal.
+            # Mark it before cleanup so the child cannot outlive its caller.
+            cancelled = True
+            raise
     finally:
+        # EOF on stdout does not guarantee that the child exited: a process can
+        # close or redirect its output and keep running. Bound that final wait
+        # too; otherwise this helper (and every parallel grep/glob batch using
+        # it) can remain pending forever despite its advertised timeout.
+        if process.returncode is None and not (cancelled or timed_out or len(lines) > max_lines):
+            try:
+                if timeout is None:
+                    await process.wait()
+                else:
+                    await asyncio.wait_for(process.wait(), timeout=timeout)
+            except TimeoutError:
+                timed_out = True
+
         if process.returncode is None and (cancelled or timed_out or len(lines) > max_lines):
-            process.kill()
-        await process.wait()
-    return process.returncode or 0, lines, cancelled, timed_out
+            with suppress(ProcessLookupError):
+                process.kill()
+
+        # Killing normally reaps immediately, but cleanup itself must never
+        # turn a bounded search into an unbounded await.
+        if process.returncode is None:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(process.wait(), timeout=1.0)
+    return process.returncode if process.returncode is not None else -1, lines, cancelled, timed_out
