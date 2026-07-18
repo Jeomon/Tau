@@ -733,6 +733,24 @@ class Layout(Component):
     # Extension customization
     # -------------------------------------------------------------------------
 
+    def _reclaim_focus_from(self, component: Component) -> None:
+        """Move TUI focus back to the editor if ``component`` currently holds it.
+
+        ``self.footer``/``widgets_above``/``widgets_below`` are plain
+        ``Container``s (component.py) — their ``clear()``/``remove_child()``
+        have no notion of TUI focus, since only ``TUI._focused`` tracks that.
+        Extension footer factories are handed the live ``tui`` object (see
+        ``set_footer``'s ``factory(tui, theme)`` signature) precisely so they
+        can build interactive footers that call ``tui.set_focus(self)`` on
+        themselves. Without this, replacing or removing such a footer/widget
+        would leave ``TUI._focused`` pointing at a detached component
+        forever — silently swallowing all keyboard input into a widget
+        that's no longer on screen, since dispatch tries the focused
+        component before falling through to global handlers.
+        """
+        if self._tui._focused is component:
+            self._tui.set_focus(self)
+
     def set_widget(self, id: str, widget: Any, placement: str = "above_editor") -> None:
         """Add or replace a keyed widget in the layout.
 
@@ -751,12 +769,14 @@ class Layout(Component):
         if placement == "below_editor":
             old = self._widgets_below_map.pop(id, None)
             if old is not None:
+                self._reclaim_focus_from(old)
                 self.widgets_below.remove_child(old)
             self._widgets_below_map[id] = component
             self.widgets_below.add_child(component)
         else:
             old = self._widgets_above_map.pop(id, None)
             if old is not None:
+                self._reclaim_focus_from(old)
                 self.widgets_above.remove_child(old)
             self._widgets_above_map[id] = component
             self.widgets_above.add_child(component)
@@ -766,9 +786,11 @@ class Layout(Component):
         """Remove a keyed widget from the layout."""
         above = self._widgets_above_map.pop(id, None)
         if above is not None:
+            self._reclaim_focus_from(above)
             self.widgets_above.remove_child(above)
         below = self._widgets_below_map.pop(id, None)
         if below is not None:
+            self._reclaim_focus_from(below)
             self.widgets_below.remove_child(below)
         self._tui.request_render()
 
@@ -783,6 +805,9 @@ class Layout(Component):
             layout.set_footer(lambda: MyFooter())  # factory
             layout.set_footer(None)                # clear footer
         """
+        for old in self.footer.children:
+            self._reclaim_focus_from(old)
+
         if component_or_factory is None:
             self.footer.clear()
             self._tui.request_render()
