@@ -11,7 +11,7 @@ from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import fuzzy_filter
+from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
 from tau.tui.widgets.list import List, ListItem, ListState
 
 if TYPE_CHECKING:
@@ -193,7 +193,7 @@ class SelectList[T](Component):
         label_w = max(
             8,
             min(
-                max(len(it.label) for it in items[start : start + visible]),
+                max(visible_width(it.label) for it in items[start : start + visible]),
                 area.width // 2,
             ),
         )
@@ -211,8 +211,8 @@ class SelectList[T](Component):
         list_items: list[ListItem] = []
         for i, item in enumerate(items):
             is_sel = i == selected
-            label = item.label[:label_w].ljust(label_w)
-            desc = item.description[:desc_w] if desc_w > 0 else ""
+            label = pad(clip_to_width(item.label, label_w), label_w)
+            desc = clip_to_width(item.description, desc_w) if desc_w > 0 else ""
             label_style = t.selected_label if is_sel else t.normal_label
             desc_style = t.selected_desc if is_sel else t.normal_desc
             line = Line([Span(label, label_style), Span(" ", Style()), Span(desc, desc_style)])

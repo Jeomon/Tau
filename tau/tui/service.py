@@ -494,7 +494,7 @@ class Renderer:
             with _span("tui.overlay_render"):
                 natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
             _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
-            ov_h = min(ov_h, natural_h)
+            ov_h = min(ov_h, natural_h, ov_buf.area.height)
 
             buf.grow_to(viewport_start + ov_row + ov_h)
             with _span("tui.overlay_blit"):
@@ -502,12 +502,22 @@ class Renderer:
                     target_y = viewport_start + ov_row + y
                     if target_y < 0:
                         continue
+                    src_base = y * ov_w
+                    dst_base = target_y * buf.area.width
                     for x in range(ov_w):
                         target_x = _LEFT_PAD + ov_col + x
                         if target_x < 0 or target_x >= buf.area.width:
                             continue
-                        cell = ov_buf.get(x, y)
-                        buf.set(target_x, target_y, cell.symbol, cell.style)
+                        # Replace the cell reference rather than mutating in
+                        # place via Buffer.set: frozen-history rows in ``buf``
+                        # hold the *same* Cell objects as MessageList's frozen
+                        # buffer and the widened-row cache (spliced by
+                        # reference — see TUI._splice_frozen_rows), so an
+                        # in-place write would permanently bake overlay pixels
+                        # into that cache and ghost after the overlay closes.
+                        # ``ov_buf`` is private to this composite, so sharing
+                        # its cells (or blank sentinels) into ``buf`` is safe.
+                        buf.content[dst_base + target_x] = ov_buf.content[src_base + x]
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
@@ -1280,8 +1290,20 @@ class TUI(Container):
 
         events = self._parser.feed(data)
 
-        if self._parser._buf == "\x1b":
+        # Any incomplete escape-prefixed buffer — a bare ESC, Alt+[ (a dangling
+        # CSI introducer whose "final byte" would otherwise eat the next
+        # keypress), or Alt+] / Alt+Shift+P (OSC/DCS introducers that only
+        # terminate on BEL/ST) — must be flushed after a short timeout, or
+        # every subsequent keystroke is appended to the pending sequence and
+        # swallowed forever. An in-progress bracketed paste is exempt: its
+        # terminator legitimately arrives in a later chunk for a large paste,
+        # so any pending flush timer is cancelled instead.
+        pending = self._parser._buf
+        if pending and not pending.startswith("\x1b[200~"):
             self._schedule_esc_flush()
+        elif self._esc_timer is not None:
+            self._esc_timer.cancel()
+            self._esc_timer = None
 
         for event in events:
             self._dispatch(event)
@@ -1402,7 +1424,14 @@ class TUI(Container):
         # 1. Intercept handlers — run before the release drop so handlers registered
         #    via on_input_intercept() can observe key-up events (Kitty protocol).
         for handler in self._intercept_handlers:
-            result = handler(event)
+            try:
+                result = handler(event)
+            except Exception:
+                # A throwing handler (e.g. from an extension) must not abort
+                # the rest of the dispatch chain or the remaining event batch
+                # — log and keep routing (mirrors _do_render's policy).
+                _log.exception("input intercept handler failed")
+                continue
             if asyncio.iscoroutine(result):
                 asyncio.ensure_future(result).add_done_callback(_log_task_exception)
             elif result is True:
@@ -1444,7 +1473,13 @@ class TUI(Container):
 
         # 4. Global handlers
         for handler in self._input_handlers:
-            result = handler(event)
+            try:
+                result = handler(event)
+            except Exception:
+                # See the intercept loop above — never let one bad handler
+                # starve the rest of the chain or the event batch.
+                _log.exception("input handler failed")
+                continue
             if asyncio.iscoroutine(result):
                 asyncio.ensure_future(result).add_done_callback(_log_task_exception)
             elif result is True:

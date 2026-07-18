@@ -595,6 +595,11 @@ class OpenAICodexResponsesAPI(BaseAPI):
     ) -> AsyncGenerator[LLMEvent, None]:
         body_bytes = json.dumps(body).encode()
         last_error: Exception | None = None
+        # Once any event has been yielded to the consumer, a retry would replay
+        # the response from the start and duplicate already-streamed content —
+        # so mid-stream transport errors must propagate instead (the service
+        # layer's received_any guard handles them).
+        yielded_any = False
 
         from tau.utils.ssl_context import get_shared_ssl_context
 
@@ -636,12 +641,15 @@ class OpenAICodexResponsesAPI(BaseAPI):
                             raise RuntimeError(f"HTTP {response.status_code}: {text}")
 
                         async for event in _process_events(_map_codex_events(_parse_sse(response))):
+                            yielded_any = True
                             yield event
                         return
 
                 except RuntimeError:
                     raise
                 except Exception as exc:
+                    if yielded_any:
+                        raise
                     last_error = exc
                     if attempt < _MAX_RETRIES:
                         continue

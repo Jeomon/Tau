@@ -368,3 +368,66 @@ class TestScrollbackTerminalDifferentialUpdate:
 
         assert term.resize_callbacks == []
         assert renderer._prev is None
+
+
+class TestTrailingShrink:
+    """Content shrink where the identical prefix leaves the repaint loop empty.
+
+    Regression: the trailing-clear arithmetic assumed the cursor sat at
+    ``render_end`` (the last repainted row), but when the only changed rows
+    are the removed trailing ones nothing is repainted and the cursor still
+    sits on the first removed row — the old code then cleared rows one past
+    the removed span (leaving the first removed row's content on screen) and
+    recorded ``_hw_cursor_row`` one row above the physical cursor, so every
+    later relative-move paint landed one row off.
+    """
+
+    def test_shrink_with_identical_prefix_clears_exactly_the_removed_rows(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c", "d", "e"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "b", "c"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        # Cursor starts at row 4 (bottom of the 5-row frame): up 1 to row 3
+        # (the first removed row), clear it in place, then row 4 below it,
+        # then back up — exactly the two removed rows erased, none repainted.
+        assert content[0] == "\x1b[1A\r\r\x1b[2K\r\n\x1b[2K\x1b[1A"
+        # Bookkeeping must match the physical cursor (row 3), not render_end.
+        assert renderer._hw_cursor_row == 3
+
+    def test_paint_after_shrink_lands_on_correct_row(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c", "d", "e"], term.width))
+        renderer.render(_buf(["a", "b", "c"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "b", "X"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        # The physical cursor sits on row 3 after the shrink, so repainting
+        # row 2 must move exactly one row up first.
+        assert content[0].startswith("\x1b[1A\r")
+        assert "X" in content[0]
+
+    def test_shrink_with_mid_content_change_keeps_original_clear_sequence(self):
+        term = FakeTerminal()
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        renderer.render(_buf(["a", "b", "c", "d", "e"], term.width))
+        term.writes.clear()
+
+        renderer.render(_buf(["a", "Z", "c"], term.width))
+
+        content = _content_writes(term)
+        assert len(content) == 1
+        # Repaint spans rows 1-2, then the two removed rows are cleared below
+        # the cursor (row 2) and the cursor returns to row 2.
+        assert "Z" in content[0]
+        assert content[0].count("\x1b[2K") >= 2
+        assert content[0].endswith("\x1b[2A")
+        assert renderer._hw_cursor_row == 2

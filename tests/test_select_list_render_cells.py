@@ -66,3 +66,27 @@ def test_selected_bg_fills_full_row_width() -> None:
     select = SelectList([SelectItem("alpha", "desc")], theme=theme)
     lines = _lines(select, 30)
     assert "\x1b[48;2;10;20;30m" in lines[0]
+
+
+def test_wide_labels_do_not_shift_the_description_column() -> None:
+    """CJK/emoji labels are measured and clipped in columns, not code points.
+
+    Regression: len()/slicing on labels let a wide label overflow its column,
+    pushing (or clipping) the description differently per row.
+    """
+    from tau.tui.utils import strip_ansi, visible_width
+
+    select = SelectList(
+        [
+            SelectItem("日本語のラベルとても長い", "desc-a"),
+            SelectItem("short", "desc-b"),
+        ],
+        max_visible=5,
+    )
+    lines = _lines(select, 30)
+
+    def desc_col(line: str, desc: str) -> int:
+        stripped = strip_ansi(line)
+        return visible_width(stripped[: stripped.index(desc)])
+
+    assert desc_col(lines[0], "desc-a") == desc_col(lines[1], "desc-b")

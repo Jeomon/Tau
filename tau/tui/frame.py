@@ -476,17 +476,28 @@ class ScrollbackTerminal:
                 continue
             out += _diff_row_cells(prev, buf, y, width)
 
-        final_cursor_row = render_end
+        # The physical cursor sits at ``hw_cursor``: ``render_end`` when the
+        # repaint loop ran, but still ``first_changed`` when the only changed
+        # rows were removed trailing ones (``render_end < first_changed``
+        # leaves the loop empty), so ``render_end`` must not be assumed.
+        final_cursor_row = hw_cursor
 
         if prev_rows > new_rows:
-            if render_end < new_rows - 1:
-                move_down = new_rows - 1 - render_end
+            if final_cursor_row < new_rows - 1:
+                move_down = new_rows - 1 - final_cursor_row
                 out += f"\x1b[{move_down}B"
                 final_cursor_row = new_rows - 1
-            extra = prev_rows - new_rows
+            if final_cursor_row >= new_rows:
+                # Empty repaint loop: the cursor already sits on the first
+                # *changed* removed row (any removed rows above it were blank
+                # in ``prev``, or the scan would have flagged them) — clear it
+                # in place before clearing the rows below it.
+                out += "\r\x1b[2K"
+            extra = prev_rows - 1 - final_cursor_row
             for _ in range(extra):
                 out += "\r\n\x1b[2K"
-            out += f"\x1b[{extra}A"
+            if extra > 0:
+                out += f"\x1b[{extra}A"
 
         self._hw_cursor_row = final_cursor_row
         self._max_lines = max(self._max_lines, new_rows)

@@ -16,13 +16,15 @@ from tau.session.manager import SessionManager
 class _FakeLayout:
     def __init__(self) -> None:
         self.open_resume_selector_calls: list[dict] = []
-        self.append_resume_sessions_calls: list[tuple[str, list, bool]] = []
+        self.append_resume_sessions_calls: list[tuple[str, list, bool, int]] = []
 
     def open_resume_selector(self, **kwargs: Any) -> None:
         self.open_resume_selector_calls.append(kwargs)
 
-    def append_resume_sessions(self, scope: str, sessions: list, has_more: bool) -> None:
-        self.append_resume_sessions_calls.append((scope, sessions, has_more))
+    def append_resume_sessions(
+        self, scope: str, sessions: list, has_more: bool, total_count: int
+    ) -> None:
+        self.append_resume_sessions_calls.append((scope, sessions, has_more, total_count))
 
 
 def _ctx(tmp_path) -> tuple[CommandContext, _FakeLayout]:
@@ -46,6 +48,8 @@ def test_open_resume_selector_loads_first_page_off_the_main_thread(tmp_path, mon
     allow_page_to_finish = threading.Event()
 
     class _Pager:
+        total_count = 0
+
         def next_page(self, _page_size: int) -> tuple[list, bool]:
             nonlocal page_thread_name
             page_thread_name = threading.current_thread().name
@@ -78,4 +82,4 @@ def test_open_resume_selector_loads_first_page_off_the_main_thread(tmp_path, mon
     asyncio.run(run())
 
     assert page_thread_name != threading.main_thread().name
-    assert layout.append_resume_sessions_calls == [("current", [], False)]
+    assert layout.append_resume_sessions_calls == [("current", [], False, 0)]

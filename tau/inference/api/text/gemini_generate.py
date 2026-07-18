@@ -459,12 +459,12 @@ class GeminiGenerateAPI(BaseAPI):
                     )
                     return
 
-        except Exception as exc:
-            from tau.inference.utils import classify_error
-
-            classified = classify_error(exc)
-            yield ErrorEvent(reason=StopReason.Error, error=str(exc), kind=classified.kind)
-            return
+        except Exception:
+            # Propagate so TextLLM.stream can classify the error and drive its
+            # retry/backoff and OAuth-recovery logic; yielding an ErrorEvent
+            # here would swallow the classification (service.py handles both
+            # pre-stream failures and mid-stream errors).
+            raise
 
         if thinking_started:
             yield ThinkingEndEvent(

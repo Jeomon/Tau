@@ -38,6 +38,7 @@ from tau.session.types import (
 )
 from tau.session.utils import (
     SessionPager,
+    count_session_data_lines,
     create_session_id,
     find_most_recent_session,
     generate_id,
@@ -201,6 +202,34 @@ class SessionManager:
             merged.append(entry)
         return merged
 
+    def _preserve_unparseable_lines(self) -> None:
+        """Back up the durable file once if it contains lines that don't parse.
+
+        ``_rewrite_file()`` replaces the file with only the entries that parsed,
+        which would otherwise permanently destroy any corrupt/unknown lines
+        ``read_session_file()`` skipped. Keeping a one-time ``.bak`` copy of the
+        original alongside it makes the raw data recoverable.
+        """
+        assert self.session_file is not None
+        if not self.session_file.exists():
+            return
+        parsed_count = len(read_session_file(self.session_file))
+        raw_count = count_session_data_lines(self.session_file)
+        if raw_count <= parsed_count:
+            return
+        backup = self.session_file.with_name(self.session_file.name + ".bak")
+        if not backup.exists():
+            import shutil
+
+            shutil.copy2(self.session_file, backup)
+        _log.warning(
+            "session file %s has %d unparseable line(s); rewriting keeps only parsed "
+            "entries, original preserved at %s",
+            self.session_file,
+            raw_count - parsed_count,
+            backup,
+        )
+
     def _rewrite_file(self):
         """Transactionally merge and atomically rewrite the session history.
 
@@ -211,6 +240,7 @@ class SessionManager:
         if not self.persist or not self.session_file:
             return None
         with profiling.span("session.rewrite_file"), self._session_lock():
+            self._preserve_unparseable_lines()
             self.entries = self._merged_durable_entries()
             self._build_index()
             lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
@@ -730,7 +760,7 @@ class SessionManager:
         session_dir = (
             Path(session_dir).resolve() if session_dir else get_default_project_session_dir(cwd)
         )
-        most_recent = find_most_recent_session(session_dir)
+        most_recent = find_most_recent_session(session_dir, cwd=cwd)
         if most_recent:
             return SessionManager(cwd, session_dir, most_recent)
         return SessionManager(cwd, session_dir)

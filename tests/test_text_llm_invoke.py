@@ -357,3 +357,60 @@ class TestStreamRetryOnEmptyResponse:
             assert any(isinstance(e, TextEndEvent) for e in events)
 
         asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# terminal empty responses must surface an error, not a silent blank result
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalEmptyResponse:
+    def test_stream_yields_error_event_after_exhausting_empty_retries(self):
+        async def _run():
+            empty = [StartEvent(), EndEvent()]
+            llm, call_count = _make_stream_llm([empty, empty, empty], max_retries=2)
+            events = await _collect_stream(llm, _context())
+            assert call_count["n"] == 3
+            error = next(e for e in events if isinstance(e, ErrorEvent))
+            assert "Empty response" in error.error
+
+        asyncio.run(_run())
+
+    def test_stream_no_error_event_when_content_present(self):
+        async def _run():
+            llm, _ = _make_stream_llm([[StartEvent(), _text_end("content"), EndEvent()]])
+            events = await _collect_stream(llm, _context())
+            assert not any(isinstance(e, ErrorEvent) for e in events)
+
+        asyncio.run(_run())
+
+    def test_stream_no_extra_error_when_stream_already_errored(self):
+        async def _run():
+            from tau.inference.types import StopReason
+
+            errored = [StartEvent(), ErrorEvent(reason=StopReason.Abort, error="Cancelled")]
+            llm, _ = _make_stream_llm([errored], max_retries=0)
+            events = await _collect_stream(llm, _context())
+            errors = [e for e in events if isinstance(e, ErrorEvent)]
+            assert len(errors) == 1
+            assert errors[0].error == "Cancelled"
+
+        asyncio.run(_run())
+
+    def test_invoke_appends_error_event_after_exhausting_empty_retries(self):
+        async def _run():
+            llm = _make_llm([[_text_end("")]] * 3, max_retries=2)
+            result = await llm.invoke(_context())
+            assert llm.api.invoke.call_count == 3
+            error = next(e for e in result if isinstance(e, ErrorEvent))
+            assert "Empty response" in error.error
+
+        asyncio.run(_run())
+
+    def test_invoke_no_error_event_when_content_present(self):
+        async def _run():
+            llm = _make_llm([[_text_end("hello")]])
+            result = await llm.invoke(_context())
+            assert not any(isinstance(e, ErrorEvent) for e in result)
+
+        asyncio.run(_run())

@@ -321,6 +321,7 @@ def test_ephemeral_injection_reuses_transform_context_session_ctx() -> None:
             return SimpleNamespace(messages=[])
 
         agent: Any = Agent.__new__(Agent)
+        agent._abort_requested = False
         agent._compaction_failures = 3  # short-circuits _check_compaction before it
         # would otherwise call build_session_context() too (see _check_compaction —
         # that call is *not* redundant with transform_context's, since compaction

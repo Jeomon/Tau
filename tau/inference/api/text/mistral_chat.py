@@ -380,8 +380,9 @@ class MistralChatAPI(BaseAPI):
                             input_tokens_include_cache_read=True,
                         )
 
-        except Exception as e:
-            from tau.inference.utils import classify_error
-
-            classified = classify_error(e)
-            yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+        except Exception:
+            # Propagate so TextLLM.stream can classify the error and drive its
+            # retry/backoff and OAuth-recovery logic; yielding an ErrorEvent
+            # here would swallow the classification (service.py handles both
+            # pre-stream failures and mid-stream errors).
+            raise

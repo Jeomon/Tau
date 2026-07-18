@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -191,12 +192,13 @@ class TodoState:
         self._next_id = 1
         self._global_completions = 0
 
-    def list(self, status_filter: str | None) -> list[TodoItem]:
+    # builtins.list: the method name shadows the builtin inside this class scope
+    def list(self, status_filter: str | None) -> builtins.list[TodoItem]:
         if status_filter in TODO_STATUSES:
             return [i for i in self.items if i.status == status_filter]
         return list(self.items)
 
-    def remaining(self) -> list[TodoItem]:
+    def remaining(self) -> builtins.list[TodoItem]:
         """Tasks still needing action: not yet done or failed."""
         return [i for i in self.items if i.status in ("pending", "in_progress")]
 
@@ -391,19 +393,19 @@ class TodoTool(Tool):
                     "update requires at least one of 'subject', 'description', "
                     "'append_note', 'status', or 'after_id'",
                 )
-            item = state.update(
+            updated = state.update(
                 params.id,
                 subject=params.subject,
                 description=params.description,
                 append_note=params.append_note,
                 status=params.status,
             )
-            if item is None:
+            if updated is None:
                 return _error(f"#{params.id} not found")
             if params.after_id is not None:
                 state.move(params.id, after_id=params.after_id)
             self._after_mutation()
-            return _ok(f"Updated #{item.id}")
+            return _ok(f"Updated #{updated.id}")
 
         if params.action == "list":
             items = state.list(params.filter)
@@ -413,19 +415,19 @@ class TodoTool(Tool):
         if params.action == "get":
             if params.id is None:
                 return _error("get requires 'id'")
-            item = state.find(params.id)
-            if item is None:
+            found = state.find(params.id)
+            if found is None:
                 return _error(f"#{params.id} not found")
-            return _ok(item.detail())
+            return _ok(found.detail())
 
         if params.action == "delete":
             if params.id is None:
                 return _error("delete requires 'id'")
-            item = state.delete(params.id)
-            if item is None:
+            deleted = state.delete(params.id)
+            if deleted is None:
                 return _error(f"#{params.id} not found")
             self._after_mutation()
-            return _ok(f"Deleted #{item.id}: {item.subject}")
+            return _ok(f"Deleted #{deleted.id}: {deleted.subject}")
 
         if params.action == "clear":
             count = len(state.items)

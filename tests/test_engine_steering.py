@@ -317,3 +317,112 @@ class TestNoQueuedMessages:
 
         assert llm.calls == 1
         assert not _queue_updates(events, "steering")
+
+
+# ── run_continue must carry the engine's tools into the new run ────────────────
+
+
+class _EchoTool:
+    """Minimal real tool: enough surface for Engine._execute to run it."""
+
+    name = "echo"
+    kind = None
+    execution_mode = None
+    prepare_arguments = None
+
+    def validate(self, params):
+        return True, []
+
+    async def execute(self, invocation, tool_execution_update_callback, signal, context):
+        from tau.tool.types import ToolResult
+
+        return ToolResult(id=invocation.id, content="echoed")
+
+
+def _make_engine_with_tool(turns: list[list]) -> tuple[Engine, ScriptedLLM, list]:
+    llm = ScriptedLLM(turns)
+    engine = Engine(cwd=Path("."), llm=llm, tools=[_EchoTool()], system_prompt="")  # type: ignore[arg-type]
+    events: list = []
+    engine.hooks.subscribe(lambda e: events.append(e))
+    return engine, llm, events
+
+
+class TestRunContinuePreservesTools:
+    """run_continue's queued-message branches restart via run(); the rebuilt
+    EngineContext must carry the engine's current tools, or every tool call in
+    the continuation fails with "Tool not found"."""
+
+    def test_followup_continuation_can_still_execute_tools(self):
+        from tau.message.types import AssistantMessage
+
+        # Continuation turn 1 calls the echo tool; turn 2 stops.
+        engine, llm, events = _make_engine_with_tool([_tool_turn("echo"), _text_turn("done")])
+        engine.state.messages = [
+            UserMessage.from_text("hi"),
+            AssistantMessage.from_text("done with the first task"),
+        ]
+
+        async def _test():
+            await engine.follow_up(UserMessage.from_text("now use the tool"))
+            await engine.run_continue()
+
+        run(_test())
+
+        assert engine._tools.get("echo") is not None
+        ends = [e for e in events if getattr(e, "type", None) == "tool_execution_end"]
+        assert ends, "expected the continuation's tool call to execute"
+        assert ends[0].tool_result.is_error is False
+        assert ends[0].tool_result.content == "echoed"
+
+    def test_steering_continuation_can_still_execute_tools(self):
+        from tau.message.types import AssistantMessage
+
+        engine, llm, events = _make_engine_with_tool([_tool_turn("echo"), _text_turn("done")])
+        engine.state.messages = [
+            UserMessage.from_text("hi"),
+            AssistantMessage.from_text("done with the first task"),
+        ]
+
+        async def _test():
+            await engine.steer(UserMessage.from_text("wait, use the tool"))
+            await engine.run_continue()
+
+        run(_test())
+
+        ends = [e for e in events if getattr(e, "type", None) == "tool_execution_end"]
+        assert ends, "expected the continuation's tool call to execute"
+        assert ends[0].tool_result.is_error is False
+
+
+class TestResetSessionFollowupPath:
+    """The reset-session edge path (no messages yet, follow-up already queued)
+    must surface the dequeued messages as message_start/message_end events so a
+    session listener persists them, and must keep the engine's tools."""
+
+    def test_queued_followup_is_emitted_and_tools_survive(self):
+        engine, llm, events = _make_engine_with_tool([_text_turn("hello")])
+        assert engine.state.messages == []
+
+        async def _test():
+            await engine.follow_up(UserMessage.from_text("queued before any turn"))
+            await engine.run_continue()
+
+        run(_test())
+
+        # The queued message reached the model and engine history...
+        assert llm.calls == 1
+        assert any(_texts(m) == "queued before any turn" for m in llm.contexts[0])
+        assert any(_texts(m) == "queued before any turn" for m in engine.state.messages)
+        # ...was emitted as real message events so hooks can persist it...
+        for event_type in ("message_start", "message_end"):
+            emitted = [
+                e
+                for e in events
+                if getattr(e, "type", None) == event_type
+                and _texts(getattr(e, "message", None)) == "queued before any turn"
+            ]
+            assert emitted, f"expected the queued follow-up as a {event_type}"
+        # ...and the engine kept its tools for the run.
+        assert engine._tools.get("echo") is not None
+        drains = [e for e in _queue_updates(events, "followup") if not e.messages]
+        assert drains, "expected a followup queue_update with empty snapshot after dequeue"

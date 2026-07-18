@@ -461,5 +461,55 @@ def test_api_set_model_schedules_runtime_call():
     assert calls == [("gpt-x", "openai")]
 
 
+def test_set_active_tools_keeps_engine_lookup_in_sync():
+    """set_active_tools must update both engine.tools (what the model sees) and
+    engine._tools (what execution resolves against) — see ToolRegistry.sync_to_engine."""
+    tool_a = SimpleNamespace(name="a")
+    tool_b = SimpleNamespace(name="b")
+    engine = SimpleNamespace(tools=[tool_a, tool_b], _tools={"a": tool_a, "b": tool_b})
+    runtime = SimpleNamespace(
+        agent=SimpleNamespace(_engine=engine),
+        _context=SimpleNamespace(tool_registry=SimpleNamespace(list=lambda: [tool_a, tool_b])),
+    )
+    ref = _RuntimeRef()
+    ref.runtime = runtime
+    api = _make_api(ref)
+
+    api.set_active_tools(["a"])
+    assert engine.tools == [tool_a]
+    assert engine._tools == {"a": tool_a}
+
+    api.set_active_tools([])
+    assert engine.tools == [tool_a, tool_b]
+    assert engine._tools == {"a": tool_a, "b": tool_b}
+
+
+def test_thinking_level_reads_and_writes_llm_request_options():
+    """The live thinking-level knob is engine.llm.api.options.thinking_level
+    (Off stored as None), not a dead attribute on the engine itself."""
+    from tau.inference.types import ThinkingLevel
+
+    options = SimpleNamespace(thinking_level=None)
+    engine = SimpleNamespace(llm=SimpleNamespace(api=SimpleNamespace(options=options)))
+    runtime = SimpleNamespace(agent=SimpleNamespace(_engine=engine))
+    ref = _RuntimeRef()
+    ref.runtime = runtime
+    api = _make_api(ref)
+
+    assert api.get_thinking_level() == "off"
+
+    api.set_thinking_level("high")
+    assert options.thinking_level is ThinkingLevel.High
+    assert api.get_thinking_level() == "high"
+
+    api.set_thinking_level("off")
+    assert options.thinking_level is None
+    assert api.get_thinking_level() == "off"
+
+    # Unknown levels are ignored, leaving the option untouched.
+    api.set_thinking_level("bogus")
+    assert options.thinking_level is None
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

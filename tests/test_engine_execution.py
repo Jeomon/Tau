@@ -184,6 +184,82 @@ def test_parallel_tool_execution_creates_only_bounded_workers() -> None:
     assert [item.id for item in result] == [call.id for call in calls]
 
 
+class _ScriptedTool:
+    """Minimal tool double for exercising Engine._execute directly."""
+
+    kind = None
+    execution_mode = ToolExecutionMode.Parallel
+    prepare_arguments = None
+
+    def __init__(self, name: str, execute=None, validate_error: Exception | None = None):
+        self.name = name
+        self._execute = execute
+        self._validate_error = validate_error
+
+    def validate(self, params):
+        if self._validate_error is not None:
+            raise self._validate_error
+        return True, []
+
+    async def execute(self, invocation, tool_execution_update_callback, signal, context):
+        return await self._execute(invocation)
+
+
+def test_none_tool_content_is_normalized_before_after_tool_call_hook() -> None:
+    """A tool returning content=None must not make the after hook (which, like
+    Agent's, assumes a string) blow up and report the execution as failed."""
+    from tau.tool.types import ToolResult
+
+    async def execute(invocation):
+        return ToolResult(id=invocation.id, content=None)  # type: ignore[arg-type]
+
+    engine = _engine()
+    engine._tools = {"nuller": _ScriptedTool("nuller", execute=execute)}
+    seen: list[Any] = []
+
+    async def after_tool_call(invocation, result, signal):
+        seen.append(result.content)
+        result.content.encode("utf-8")  # what Agent's installed hook does, unguarded
+        return result
+
+    engine.options.after_tool_call = after_tool_call
+    call = ToolCallContent(id="tc1", name="nuller", args={})
+
+    result = asyncio.run(engine._execute(call, AsyncMock(), None))
+
+    assert seen == [""]
+    assert result.is_error is False
+    assert result.content == ""
+
+
+def test_parallel_batch_converts_pre_execute_exception_into_error_result() -> None:
+    """An exception raised outside _execute's try block (e.g. tool.validate)
+    must fail only that call, not abandon sibling workers mid-batch."""
+    from tau.tool.types import ToolResult
+
+    async def execute(invocation):
+        await asyncio.sleep(0.01)
+        return ToolResult(id=invocation.id, content="ok")
+
+    engine = _engine()
+    engine._tools = {
+        "bad": _ScriptedTool("bad", validate_error=RuntimeError("validator blew up")),
+        "good": _ScriptedTool("good", execute=execute),
+    }
+    calls = [
+        ToolCallContent(id="one", name="bad", args={}),
+        ToolCallContent(id="two", name="good", args={}),
+    ]
+
+    results = asyncio.run(engine._parallel_execute(calls, AsyncMock(), None))
+
+    assert [r.id for r in results] == ["one", "two"]
+    assert results[0].is_error is True
+    assert "validator blew up" in results[0].content
+    assert results[1].is_error is False
+    assert results[1].content == "ok"
+
+
 def test_continue_preserves_the_supplied_abort_signal() -> None:
     engine = _engine()
     supplied_signal = asyncio.Event()

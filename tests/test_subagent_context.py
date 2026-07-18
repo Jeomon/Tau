@@ -8,16 +8,20 @@ forked session file and never writing back. See subagent_tool._parent_session
 any real subagent process (run_embedded_agent itself is monkeypatched out).
 """
 
-# ruff: noqa: I001 — import order below is load-bearing: tau.builtins.extensions.subagent
-# must be imported (for its sys.path.insert side effect) before subagent_tool.
+# ruff: noqa: I001 — import order below is load-bearing: the bundled subagent
+# extension directory must be on sys.path before subagent_tool is imported.
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-import tau.builtins.extensions.subagent  # noqa: F401  side effect: sys.path.insert for local imports
+sys.path.insert(
+    0,
+    str(Path(__file__).parent.parent / ".tau" / "extensions" / "subagent"),
+)
 
 import subagent_tool  # type: ignore[import-not-found]
 from agents import AgentConfig  # type: ignore[import-not-found]

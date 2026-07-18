@@ -100,13 +100,14 @@ class TestFileSettingsStorage:
         FileSettingsStorage(cwd=tmp_path, config_dir=nested)
         assert (nested / "settings.json").parent.exists()
 
-    def test_global_lock_reads_empty_json_when_missing(self, tmp_path):
+    def test_global_lock_reads_none_when_missing(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
 
         storage = FileSettingsStorage(cwd=tmp_path, config_dir=tmp_path)
         result = storage.with_lock(SCOPE.GLOBAL, lambda v: LockResult(result=v))
-        raw: str = result.result  # type: ignore[assignment]
-        assert json.loads(raw) == {}
+        # A missing file reads as None — it must not be materialised on load.
+        assert result.result is None
+        assert not (tmp_path / "settings.json").exists()
 
     def test_global_lock_writes_value(self, tmp_path):
         from tau.settings.storage import FileSettingsStorage
@@ -137,3 +138,40 @@ class TestFileSettingsStorage:
         result = storage.with_lock(SCOPE.GLOBAL, lambda v: LockResult(result=v))
         raw: str = result.result  # type: ignore[assignment]
         assert json.loads(raw)["initial"] == 1
+
+
+class TestFileSettingsStorageNoStateOnRead:
+    """Pure loads must not plant .tau/ (or settings.json) in the project dir —
+    tau's own artifact would otherwise flip the trust detector."""
+
+    def test_project_load_does_not_create_state(self, tmp_path):
+        from tau.settings.storage import FileSettingsStorage
+
+        project = tmp_path / "project"
+        project.mkdir()
+        storage = FileSettingsStorage(cwd=project, config_dir=tmp_path / "global")
+        result = storage.with_lock(SCOPE.PROJECT, lambda v: LockResult(result=v))
+        assert result.result is None
+        assert not (project / ".tau").exists()
+
+    def test_repeated_loads_never_create_state(self, tmp_path):
+        from tau.settings.storage import FileSettingsStorage
+
+        project = tmp_path / "project"
+        project.mkdir()
+        storage = FileSettingsStorage(cwd=project, config_dir=tmp_path / "global")
+        for _ in range(3):
+            storage.with_lock(SCOPE.PROJECT, lambda v: LockResult(result=v))
+        assert not (project / ".tau").exists()
+
+    def test_project_write_creates_dir_and_file(self, tmp_path):
+        from tau.settings.storage import FileSettingsStorage
+
+        project = tmp_path / "project"
+        project.mkdir()
+        storage = FileSettingsStorage(cwd=project, config_dir=tmp_path / "global")
+        storage.with_lock(
+            SCOPE.PROJECT, lambda _: LockResult(result=None, next='{"theme": "dark"}')
+        )
+        settings_file = project / ".tau" / "settings.json"
+        assert json.loads(settings_file.read_text(encoding="utf-8")) == {"theme": "dark"}

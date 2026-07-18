@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -73,11 +74,14 @@ _FALLBACK_PROJECT_ID = "rising-fact-p41fc"
 
 
 class _HTTPError(Exception):
-    """Thin wrapper so classify_error can read the HTTP status code."""
+    """Thin wrapper so classify_error can read the HTTP status code and
+    get_retry_after_delay the response headers (via ``.response.headers``).
+    """
 
-    def __init__(self, status_code: int, body: str) -> None:
+    def __init__(self, status_code: int, body: str, headers: dict[str, str] | None = None) -> None:
         super().__init__(body)
         self.status_code = status_code
+        self.response = SimpleNamespace(headers=headers or {})
 
 
 _STOP_REASON: dict[str, StopReason] = {
@@ -569,18 +573,15 @@ class GoogleAntigravityAPI(BaseAPI):
                         if remaining <= 0:
                             break
                     error_body = b"".join(chunks).decode(errors="replace")
-                    from tau.inference.utils import classify_error
-
-                    _err = _HTTPError(
-                        response.status_code, f"HTTP {response.status_code}: {error_body}"
+                    # Raise (with status code and headers attached) so
+                    # TextLLM.stream can classify the error and honour
+                    # Retry-After; yielding an ErrorEvent here would defeat
+                    # its retry/backoff and OAuth-recovery logic.
+                    raise _HTTPError(
+                        response.status_code,
+                        f"HTTP {response.status_code}: {error_body}",
+                        headers=dict(response.headers),
                     )
-                    classified = classify_error(_err)
-                    yield ErrorEvent(
-                        reason=StopReason.Error,
-                        error=f"HTTP {response.status_code}: {error_body}",
-                        kind=classified.kind,
-                    )
-                    return
 
                 # Use aiter_bytes() directly rather than the aiter_lines →
                 # aiter_text → aiter_bytes wrapper chain: one iterator with
@@ -740,12 +741,12 @@ class GoogleAntigravityAPI(BaseAPI):
                 finally:
                     await _bytes.aclose()  # type: ignore[attr-defined]
 
-        except Exception as exc:
-            from tau.inference.utils import classify_error
-
-            classified = classify_error(exc)
-            yield ErrorEvent(reason=StopReason.Error, error=str(exc), kind=classified.kind)
-            return
+        except Exception:
+            # Propagate so TextLLM.stream can classify the error (including the
+            # _HTTPError raised above, which carries status code and headers)
+            # and drive its retry/backoff and OAuth-recovery logic; yielding an
+            # ErrorEvent here would swallow the classification.
+            raise
 
         if not done:
             if thinking_started:

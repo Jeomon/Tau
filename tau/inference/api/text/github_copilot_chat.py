@@ -102,6 +102,12 @@ class GitHubCopilotChatAPI(BaseAPI):
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         """Stream LLMEvents from the GitHub Copilot Chat API."""
+        # Copilot tokens expire (~30 min) and TextLLM.stream refreshes them by
+        # assigning self.options.api_key — re-sync the client's bearer before
+        # each request so it never keeps sending a stale token (same pattern
+        # as openai_completions.py).
+        if self.options.api_key:
+            self._client.api_key = self.options.api_key
         chat_messages = openai_messages_to_chat(context.messages, model)
         if context.system_prompt:
             chat_messages = [{"role": "system", "content": context.system_prompt}] + chat_messages

@@ -164,8 +164,9 @@ class AnthropicMessagesAPI(BaseAPI):
             **params, stream=True
         ) as raw_response:
             if self.options.on_response:
+                http_response = raw_response.http_response
                 self.options.on_response(
-                    APIResponse(raw_response.http_response.status_code, dict(raw_response.http_response.headers))
+                    APIResponse(http_response.status_code, dict(http_response.headers))
                 )
             stream = await raw_response.parse()
             async for event in stream:

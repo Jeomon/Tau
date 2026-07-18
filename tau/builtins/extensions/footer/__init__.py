@@ -76,7 +76,9 @@ def register(tau: ExtensionAPI) -> None:
             return
         contents = getattr(msg, "contents", [])
         char_count = sum(
-            len(item.content) for item in contents if isinstance(item, (TextContent, ThinkingContent))
+            len(item.content)
+            for item in contents
+            if isinstance(item, (TextContent, ThinkingContent))
         )
         model_badge.set_live_estimate(char_count // 4)
         _request_render(ctx)

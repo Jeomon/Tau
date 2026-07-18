@@ -70,6 +70,10 @@ class Agent:
         self._idle_event: asyncio.Event = asyncio.Event()
         self._idle_event.set()
         self._signal: asyncio.Event = asyncio.Event()
+        # invoke() swaps in a fresh _signal for each retry/continuation, so an
+        # abort issued between swaps (e.g. during compaction or save-point
+        # hooks) would be silently dropped without this persistent flag.
+        self._abort_requested: bool = False
         self._compaction_failures: int = 0
         self._compaction_circuit_notified: bool = False
         self._overflow_recovery_attempted: bool = False
@@ -142,10 +146,12 @@ class Agent:
 
     def abort(self) -> None:
         """Request abort of current operation."""
+        self._abort_requested = True
         self._signal.set()
 
     def shutdown(self) -> None:
         """Shutdown the agent."""
+        self._abort_requested = True
         self._signal.set()
 
     def update_context_tokens(self) -> None:
@@ -489,6 +495,9 @@ class Agent:
             should_compact,
         )
 
+        if self._abort_requested:
+            return False
+
         if self._compaction_failures >= 3:
             return False
 
@@ -713,6 +722,17 @@ class Agent:
     # Core turn entry point
     # -------------------------------------------------------------------------
 
+    def _replace_signal(self) -> None:
+        """Install a fresh abort signal for the next engine run/continuation.
+
+        Carries a pending abort into the new event so an abort issued while no
+        run was in flight (compaction, save-point hooks) is not lost.
+        """
+        self._signal = asyncio.Event()
+        if self._abort_requested:
+            self._signal.set()
+        self._engine.llm.api.options.signal = self._signal
+
     async def invoke(self, text: str, options: PromptOptions | None = None) -> None:
         """Run one user turn."""
         if self._phase != AgentPhase.IDLE:
@@ -735,13 +755,13 @@ class Agent:
         await asyncio.to_thread(self._session_manager.append_message, user_message, meta=opts.meta)
 
         self._overflow_recovery_attempted = False
+        self._abort_requested = False
         try:
             self._phase = AgentPhase.TURN
             try:
                 while True:
                     ctx = self._build_turn_context()
-                    self._signal = asyncio.Event()
-                    self._engine.llm.api.options.signal = self._signal
+                    self._replace_signal()
                     try:
                         await self._run(ctx)
                         break
@@ -755,11 +775,14 @@ class Agent:
                     # Messages may arrive after the engine's last queue poll, or
                     # from save-point/compaction handlers. Keep processing until
                     # the complete post-run lifecycle leaves both queues empty.
-                    while self._engine.has_pending_messages():
-                        self._signal = asyncio.Event()
-                        self._engine.llm.api.options.signal = self._signal
+                    # An abort issued at any point (even between signal swaps)
+                    # stops the lifecycle instead of running queued follow-ups.
+                    while not self._abort_requested and self._engine.has_pending_messages():
+                        self._replace_signal()
                         await self._run_continue()
 
+                    if self._abort_requested:
+                        break
                     await self.hooks.emit(SavePointEvent())
                     await self._check_compaction()
                     if not self._engine.has_pending_messages():

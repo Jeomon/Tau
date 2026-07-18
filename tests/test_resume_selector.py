@@ -50,6 +50,7 @@ def test_toggle_to_all_scope_starts_async_load_without_showing_folder_sessions()
     selector.toggle_scope()
     assert load_requests == [None]
 
-    selector.append_sessions("all", [_session("other-project")], has_more=False)
+    selector.append_sessions("all", [_session("other-project")], has_more=False, total_count=1)
     assert selector._loading_all is False
+    assert selector._all_total_count == 1
     assert selector.selected_path() == Path("/other-project.jsonl")

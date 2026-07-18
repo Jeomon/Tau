@@ -8,10 +8,10 @@ from types import SimpleNamespace
 from tau.extensions.loader import _RuntimeRef
 from tau.tool.types import ToolInvocation
 
-# Add the builtin ask_user extension directory to sys.path to allow imports under test.
+# Add the bundled ask_user extension directory to sys.path to allow imports under test.
 sys.path.insert(
     0,
-    str(Path(__file__).parent.parent / "tau" / "builtins" / "extensions" / "ask_user"),
+    str(Path(__file__).parent.parent / ".tau" / "extensions" / "ask_user"),
 )
 
 from schema import AskUserParams

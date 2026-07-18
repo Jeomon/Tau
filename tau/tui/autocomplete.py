@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 from tau.tui.component import Component
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.text import Line, Span
-from tau.tui.utils import fuzzy_filter
+from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
@@ -164,7 +164,7 @@ class AutocompletePicker(Component):
         label_w = max(
             8,
             min(
-                max(len(item.label) for item in self._items[start : start + visible]),
+                max(visible_width(item.label) for item in self._items[start : start + visible]),
                 24,
             ),
         )
@@ -185,8 +185,8 @@ class AutocompletePicker(Component):
         for i in range(start, start + visible):
             item = self._items[i]
             is_sel = i == self._selected
-            label = item.label[:label_w].ljust(label_w)
-            desc = item.description[:desc_w] if desc_w > 0 else ""
+            label = pad(clip_to_width(item.label, label_w), label_w)
+            desc = clip_to_width(item.description, desc_w) if desc_w > 0 else ""
 
             if is_sel:
                 write(

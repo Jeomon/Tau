@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import logging
 import re
 import uuid
@@ -76,12 +77,17 @@ def get_default_project_session_dir(cwd: str | Path, sessions_dir: Path | None =
     base = sessions_dir if sessions_dir is not None else get_sessions_dir()
     resolved = str(Path(cwd).resolve())
     # Encode the absolute path into a safe directory name: --home-user-project--
-    safe = (
-        "--"
-        + re.sub(r"^[/\\]", "", resolved).replace("/", "-").replace("\\", "-").replace(":", "-")
-        + "--"
+    stem = "--" + re.sub(r"^[/\\]", "", resolved).replace("/", "-").replace("\\", "-").replace(
+        ":", "-"
     )
-    session_dir = base / safe
+    # The separator-flattening encoding is not injective (/x/my-app and /x/my/app
+    # collide), so new directories append a short hash of the raw path. Legacy
+    # directories (no hash) stay findable so existing sessions keep working.
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:8]
+    session_dir = base / f"{stem}-{digest}--"
+    legacy_dir = base / f"{stem}--"
+    if not session_dir.exists() and legacy_dir.exists():
+        return legacy_dir
     session_dir.mkdir(parents=True, exist_ok=True)
     return session_dir
 
@@ -98,13 +104,14 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
     content = session_file.read_text(encoding="utf-8")
     entries: list[SessionFileEntry] = []
 
-    for line in content.splitlines():
+    for lineno, line in enumerate(content.splitlines(), start=1):
         if not line.strip():
             continue
         try:
             entry = _SESSION_FILE_ENTRY_ADAPTER.validate_json(line)
             entries.append(entry)
         except Exception:
+            _log.warning("skipping unparseable line %d in session file %s", lineno, session_file)
             continue
 
     if len(entries) == 0:
@@ -118,26 +125,43 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
     return entries
 
 
-def is_valid_session_file(session_file: Path | str) -> bool:
-    """Check if a file is a valid session file by validating its header."""
+def count_session_data_lines(session_file: Path) -> int:
+    """Count non-blank lines in a session file, parseable or not.
+
+    Used to detect unparseable lines (compare against ``len(read_session_file())``)
+    so a rewrite can preserve the original file instead of silently dropping them.
+    """
+    try:
+        content = session_file.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    return sum(1 for line in content.splitlines() if line.strip())
+
+
+def read_session_header(session_file: Path | str) -> SessionHeader | None:
+    """Read and validate only the first line (header) of a session file."""
     try:
         path = Path(session_file)
         if not path.exists():
-            return False
+            return None
 
         with path.open("r", encoding="utf-8") as file:
             first_line = file.readline().strip()
 
         if not first_line:
-            return False
+            return None
 
-        SessionHeader.model_validate_json(first_line)
-        return True
+        return SessionHeader.model_validate_json(first_line)
     except (OSError, ValidationError, ValueError):
-        return False
+        return None
 
 
-def find_most_recent_session(session_dir: Path | str) -> Path | None:
+def is_valid_session_file(session_file: Path | str) -> bool:
+    """Check if a file is a valid session file by validating its header."""
+    return read_session_header(session_file) is not None
+
+
+def find_most_recent_session(session_dir: Path | str, cwd: Path | str | None = None) -> Path | None:
     """Find the most recently modified session file in a directory.
 
     Ranks files by mtime first (a cheap ``stat()``, no file open) and only
@@ -145,10 +169,16 @@ def find_most_recent_session(session_dir: Path | str) -> Path | None:
     session files forever with nothing to prune them, so validating every
     file up front (opening and parsing each one) scaled with total lifetime
     session count instead of stopping at the first valid candidate.
+
+    When *cwd* is given, sessions whose header records a different working
+    directory are skipped — the legacy directory-name encoding is not
+    injective (``/x/my-app`` vs ``/x/my/app``), so a directory can contain
+    another project's sessions.
     """
     session_dir = Path(session_dir)
     if not session_dir.is_dir():
         return None
+    expected_cwd = Path(cwd).resolve() if cwd is not None else None
 
     def _mtime_or_min(path: Path) -> float:
         try:
@@ -159,8 +189,12 @@ def find_most_recent_session(session_dir: Path | str) -> Path | None:
     by_mtime = sorted(session_dir.glob("*.jsonl"), key=_mtime_or_min, reverse=True)
 
     for candidate in by_mtime:
-        if is_valid_session_file(candidate):
-            return candidate
+        header = read_session_header(candidate)
+        if header is None:
+            continue
+        if expected_cwd is not None and Path(header.cwd).resolve() != expected_cwd:
+            continue
+        return candidate
     return None
 
 

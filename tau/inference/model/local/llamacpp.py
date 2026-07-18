@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from tau.inference.model.types import Cost, Model, Modality
+from tau.inference.model.types import Cost, Modality, Model
 
 _log = logging.getLogger(__name__)
 

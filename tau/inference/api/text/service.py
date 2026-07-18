@@ -236,11 +236,18 @@ class TextLLM:
         )
 
     def _merge_options(self, base: LLMOptions, override: LLMOptions | None) -> LLMOptions:
-        """Merge base options with override options, preferring non-None override values.
+        """Merge base options with override options, preferring explicitly-set,
+        non-None override values.
+
+        Fields with non-None dataclass defaults (temperature, max_retries,
+        timeout, ...) only override when the caller actually set them
+        (LLMOptions.explicitly_set) — otherwise passing any options object
+        would silently clobber the provider's base options with defaults.
 
         Args:
             base: The base LLMOptions configuration.
-            override: Optional override LLMOptions; fields override base when non-None.
+            override: Optional override LLMOptions; explicitly-set fields
+                override base when non-None.
 
         Returns:
             A new LLMOptions with merged values.
@@ -250,7 +257,7 @@ class TextLLM:
         merged = LLMOptions(**{f.name: getattr(base, f.name) for f in fields(base)})
         for f in fields(override):
             value = getattr(override, f.name)
-            if value is not None:
+            if value is not None and override.explicitly_set(f.name):
                 setattr(merged, f.name, value)
         return merged
 
@@ -324,6 +331,7 @@ class TextLLM:
         while True:
             received_any = False
             received_content = False
+            received_error = False
             try:
                 async with aclosing(self.api.stream(api_context, model=self.model)) as stream:
                     async for event in stream:
@@ -333,6 +341,8 @@ class TextLLM:
                             received_any = True
                         if isinstance(event, (TextEndEvent, TextDeltaEvent, ToolCallEndEvent)):
                             received_content = True
+                        if isinstance(event, ErrorEvent):
+                            received_error = True
                         yield event
                 if not received_content and attempt < max_retries:
                     _log.warning(
@@ -348,6 +358,24 @@ class TextLLM:
                     await asyncio.sleep(base_delay_s * (2**attempt))
                     attempt += 1
                     continue
+                if not received_content and not received_error:
+                    # The final allowed attempt was still empty: surface it as an
+                    # error instead of returning silently, which would let the
+                    # engine commit an empty AssistantMessage with stop_reason
+                    # Stop as if the model had genuinely said nothing.
+                    _log.error(
+                        "empty response from %s/%s after %d attempts",
+                        self.provider_id,
+                        getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                        attempt + 1,
+                    )
+                    yield ErrorEvent(
+                        reason=StopReason.Error,
+                        error=(
+                            f"Empty response from {self.provider_id} after"
+                            f" {attempt + 1} attempt(s)."
+                        ),
+                    )
                 return
             except Exception as e:
                 classified = classify_error(e)
@@ -469,6 +497,26 @@ class TextLLM:
                         attempt += 1
                         continue
 
+                    if not has_content and not any(isinstance(e, ErrorEvent) for e in events):
+                        # The final allowed attempt was still empty: surface it
+                        # as an error instead of returning a silently blank
+                        # result (mirrors the terminal empty case in stream()).
+                        _log.error(
+                            "empty response from %s/%s after %d attempts",
+                            self.provider_id,
+                            getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                            attempt + 1,
+                        )
+                        events = [
+                            *events,
+                            ErrorEvent(
+                                reason=StopReason.Error,
+                                error=(
+                                    f"Empty response from {self.provider_id} after"
+                                    f" {attempt + 1} attempt(s)."
+                                ),
+                            ),
+                        ]
                     return events
                 except Exception as e:
                     classified = classify_error(e)

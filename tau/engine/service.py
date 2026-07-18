@@ -427,14 +427,18 @@ class Engine:
                 )
             else:
                 assert raw is not None
-                if self.options.after_tool_call is not None:
-                    raw = await self.options.after_tool_call(invocation, raw, signal) or raw
                 # raw.content is typed str but not runtime-enforced (plain dataclass), so a
                 # careless custom/extension tool can hand back None or a non-string value.
+                # Normalize before the after hook so hooks can rely on a string.
+                if not isinstance(raw.content, str):
+                    raw.content = "" if raw.content is None else str(raw.content)
+                if self.options.after_tool_call is not None:
+                    raw = await self.options.after_tool_call(invocation, raw, signal) or raw
+                # The hook may itself return a result with a non-string content.
                 content = (
                     raw.content
-                    if isinstance(raw.content, str) or not raw.content
-                    else str(raw.content)
+                    if isinstance(raw.content, str)
+                    else ("" if raw.content is None else str(raw.content))
                 )
                 tool_result = ToolResultContent(
                     id=tool_call.id,
@@ -569,10 +573,35 @@ class Engine:
                         tool_name=tool_call.name,
                     )
                 else:
-                    results[index] = await self._execute(tool_call, emit, signal)
+                    try:
+                        results[index] = await self._execute(tool_call, emit, signal)
+                    except Exception as e:
+                        # _execute can raise outside its own try block (validate /
+                        # prepare_arguments / before_tool_call). Fail just this call
+                        # — matching how in-try exceptions are handled — instead of
+                        # blowing up the whole batch while sibling workers run on.
+                        _log.error("tool %s raised: %s", tool_call.name, e, exc_info=True)
+                        results[index] = ToolResultContent(
+                            id=tool_call.id,
+                            is_error=True,
+                            content=(
+                                f"Tool '{tool_call.name}' execution failed: {e}\n\n"
+                                f"{traceback.format_exc()}"
+                            ),
+                            metadata={"_unhandled_exception": True},
+                            tool_name=tool_call.name,
+                        )
 
         workers = [asyncio.create_task(run_one()) for _ in range(min(limit, len(tool_calls)))]
-        await asyncio.gather(*workers)
+        try:
+            await asyncio.gather(*workers)
+        except BaseException:
+            # e.g. an external cancellation: stop the remaining workers instead
+            # of leaving them running detached with their side effects live.
+            for worker in workers:
+                worker.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+            raise
         assert all(result is not None for result in results)
         return [result for result in results if result is not None]
 
@@ -1061,16 +1090,14 @@ class Engine:
             # Edge case: session was reset but follow-up messages were enqueued before any LLM turn.
             if self.state.follow_up_queue and not self.state.follow_up_queue.is_empty():
                 follow_up_messages = await self.state.follow_up_queue.dequeue()
-                await self.hooks.emit(
-                    QueueUpdateEvent(
-                        queue="followup",
-                        messages=self.state.follow_up_queue.snapshot(),
-                    )
-                )
+                # Surface the dequeued messages as real conversation entries
+                # (start/end events) so hooks persist them like any user message.
+                await self._inject_queued("followup", follow_up_messages)
                 await self.run(
                     EngineContext(
                         system_prompt=self.state.system_prompt or "",
-                        messages=follow_up_messages,
+                        messages=list(self.state.messages),
+                        tools=self.tools,
                     ),
                     signal=signal,
                 )
@@ -1087,6 +1114,7 @@ class Engine:
                         EngineContext(
                             system_prompt=self.state.system_prompt or "",
                             messages=list(self.state.messages),
+                            tools=self.tools,
                         ),
                         signal=signal,
                     )
@@ -1099,6 +1127,7 @@ class Engine:
                         EngineContext(
                             system_prompt=self.state.system_prompt or "",
                             messages=list(self.state.messages),
+                            tools=self.tools,
                         ),
                         signal=signal,
                     )

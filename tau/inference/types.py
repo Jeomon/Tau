@@ -4,7 +4,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -123,6 +123,23 @@ PayloadCallback = Callable[[dict[str, Any]], dict[str, Any] | None]
 ResponseCallback = Callable[[Any], None]
 
 
+# Sentinel default for LLMOptions fields whose real default is not None, so
+# TextLLM._merge_options can tell "left at the default" apart from "explicitly
+# set to the default value" and only explicitly-set override fields clobber a
+# provider's base options. __post_init__ swaps sentinels for the real defaults,
+# so constructed instances always expose the documented values.
+_UNSET: Any = object()
+
+_LLM_OPTION_DEFAULTS: dict[str, Any] = {
+    "max_retries": 3,
+    "retry_base_delay_ms": 1000,
+    "timeout": timedelta(seconds=60),  # timedelta is immutable; safe to share
+    "temperature": 1.0,
+    "transport": Transport.HTTP,
+    "distrust_thought_signatures": False,
+}
+
+
 @dataclass
 class LLMOptions:
     """Runtime configuration passed to every BaseLLMAPI constructor and stream() call."""
@@ -130,12 +147,12 @@ class LLMOptions:
     api_key: str | None = None
     base_url: str | None = None
     headers: dict[str, str] | None = None
-    max_retries: int = 3
-    retry_base_delay_ms: int = 1000
-    timeout: timedelta = field(default_factory=lambda: timedelta(seconds=60))
-    temperature: float = 1.0
+    max_retries: int = _UNSET
+    retry_base_delay_ms: int = _UNSET
+    timeout: timedelta = _UNSET
+    temperature: float = _UNSET
     max_tokens: int | None = None
-    transport: Transport = Transport.HTTP
+    transport: Transport = _UNSET
     thinking_level: ThinkingLevel | None = None
     thinking_budgets: ThinkingBudgets | None = None
     signal: AbortSignal | None = None
@@ -147,7 +164,29 @@ class LLMOptions:
     # the outgoing request body, so it can't hold anything provider-internal).
     # Set after an explicit model switch so a thoughtSignature minted by a
     # different backend never gets replayed to whichever provider is now active.
-    distrust_thought_signatures: bool = False
+    distrust_thought_signatures: bool = _UNSET
+
+    def __post_init__(self) -> None:
+        explicit = {f.name for f in fields(self) if getattr(self, f.name) is not _UNSET}
+        for name, default in _LLM_OPTION_DEFAULTS.items():
+            if getattr(self, name) is _UNSET:
+                object.__setattr__(self, name, default)
+        object.__setattr__(self, "_explicit_fields", explicit)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+        # Track post-construction assignments too (dataclass __init__ runs
+        # before __post_init__ creates _explicit_fields, so field defaults
+        # assigned during construction are not recorded here).
+        explicit = self.__dict__.get("_explicit_fields")
+        if explicit is not None:
+            explicit.add(name)
+
+    def explicitly_set(self, name: str) -> bool:
+        """Return True if the field was set by the caller (at construction or
+        by later assignment) rather than left at its dataclass default.
+        """
+        return name in self.__dict__.get("_explicit_fields", ())
 
 
 @dataclass

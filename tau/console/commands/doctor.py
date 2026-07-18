@@ -98,7 +98,9 @@ async def _run_checks(fix: bool = False) -> list[Section]:
 def _check_settings_scope(sm, scope, label: str, fix: bool) -> list[CheckResult]:
     from tau.settings.types import SCOPE
 
-    error = sm.global_settings_load_error if scope == SCOPE.GLOBAL else sm.project_settings_load_error
+    error = (
+        sm.global_settings_load_error if scope == SCOPE.GLOBAL else sm.project_settings_load_error
+    )
     issues = (
         sm.global_settings_recovered_issues
         if scope == SCOPE.GLOBAL
@@ -127,7 +129,11 @@ def _check_settings_scope(sm, scope, label: str, fix: bool) -> list[CheckResult]
         )
     for issue in issues:
         results.append(
-            CheckResult(f"{label}: {issue}", "warn", "run 'tau doctor --fix' to write the recovered value back")
+            CheckResult(
+                f"{label}: {issue}",
+                "warn",
+                "run 'tau doctor --fix' to write the recovered value back",
+            )
         )
     return results
 
@@ -136,8 +142,12 @@ def _check_settings(sm, fix: bool = False) -> Section:
     from tau.settings.types import SCOPE
 
     results: list[CheckResult] = []
-    results.extend(_check_settings_scope(sm, SCOPE.GLOBAL, "Global settings (~/.tau/settings.json)", fix))
-    results.extend(_check_settings_scope(sm, SCOPE.PROJECT, "Project settings (.tau/settings.json)", fix))
+    results.extend(
+        _check_settings_scope(sm, SCOPE.GLOBAL, "Global settings (~/.tau/settings.json)", fix)
+    )
+    results.extend(
+        _check_settings_scope(sm, SCOPE.PROJECT, "Project settings (.tau/settings.json)", fix)
+    )
 
     return Section("Settings", results)
 
@@ -362,13 +372,17 @@ def _check_dangling_entries(sm, cwd: Path, fix: bool) -> list[CheckResult]:
                 continue
             results.append(
                 CheckResult(
-                    entry.name or entry.path, "fail", f"path not found: {_resolve_entry_path(entry, cwd)}"
+                    entry.name or entry.path,
+                    "fail",
+                    f"path not found: {_resolve_entry_path(entry, cwd)}",
                 )
             )
     return results
 
 
-def _check_manifest_declarations(manifest: Path, subdir: Path, cwd: Path, source: str) -> list[CheckResult]:
+def _check_manifest_declarations(
+    manifest: Path, subdir: Path, cwd: Path, source: str
+) -> list[CheckResult]:
     """Check one extension's manifest-declared entry files, skill dirs, and
     dependency install state. Static only — mirrors the resolution rules
     ExtensionLoader itself uses (see tau/extensions/loader.py) without
@@ -439,7 +453,10 @@ def _check_extensions(sm, cwd: Path, fix: bool = False) -> Section:
 
     results.extend(_check_dangling_entries(sm, cwd, fix))
 
-    for source, extensions_dir in (("project", get_extensions_dir(cwd)), ("global", get_extensions_dir())):
+    for source, extensions_dir in (
+        ("project", get_extensions_dir(cwd)),
+        ("global", get_extensions_dir()),
+    ):
         if not extensions_dir.is_dir():
             continue
         for subdir in sorted(extensions_dir.iterdir(), key=lambda e: e.name):
@@ -623,7 +640,9 @@ def _check_version_consistency() -> CheckResult | None:
     if not pyproject_path.is_file():
         return None
     try:
-        match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject_path.read_text(encoding="utf-8"))
+        match = re.search(
+            r'(?m)^version\s*=\s*"([^"]+)"', pyproject_path.read_text(encoding="utf-8")
+        )
     except OSError:
         return None
     if not match:
@@ -669,7 +688,9 @@ def _check_command_installation() -> CheckResult:
         found.append(candidate)
 
     if not found:
-        return CheckResult("Command installation", "warn", f"no '{exe_name}' executable found on PATH")
+        return CheckResult(
+            "Command installation", "warn", f"no '{exe_name}' executable found on PATH"
+        )
 
     if len(found) == 1:
         return CheckResult("Command installation", "pass", str(found[0]))

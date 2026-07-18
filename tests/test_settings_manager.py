@@ -286,3 +286,87 @@ def test_engine_execution_settings_load_from_json() -> None:
     assert mgr.settings.tool_timeout_seconds == 45.0
     assert mgr.settings.max_parallel_tool_calls == 3
     assert mgr.settings.event_handler_timeout_seconds == 4.0
+
+
+class TestRetryProviderParsing:
+    def test_retry_provider_parses_into_dataclass(self):
+        from tau.settings.types import ProviderRetrySettings, RetrySettings
+
+        mgr = _manager(
+            {
+                "retry": {
+                    "enabled": True,
+                    "max_retries": 3,
+                    "provider": {"timeout_ms": 1000, "max_retries": 7},
+                }
+            }
+        )
+        retry = mgr.settings.retry
+        assert isinstance(retry, RetrySettings)
+        assert retry.enabled is True
+        assert retry.max_retries == 3
+        assert isinstance(retry.provider, ProviderRetrySettings)
+        assert retry.provider.timeout_ms == 1000
+        assert retry.provider.max_retries == 7
+
+    def test_retry_without_provider_still_parses(self):
+        from tau.settings.types import RetrySettings
+
+        mgr = _manager({"retry": {"enabled": False}})
+        retry = mgr.settings.retry
+        assert isinstance(retry, RetrySettings)
+        assert retry.enabled is False
+        assert retry.provider is None
+
+
+class TestAsyncWriteMarkClearing:
+    """A completing async write must only clear the modified-field marks it
+    actually captured in its snapshot — not marks accumulated afterwards
+    (e.g. in batch mode), which would then never be persisted."""
+
+    def test_pre_batch_completion_preserves_batch_marks(self):
+        import json
+
+        mgr = _manager()
+
+        async def _run() -> None:
+            mgr.set_theme("dark")  # enqueues an async write
+            mgr.begin_batch()
+            mgr.set_quiet_startup(True)  # batched: mark accumulates, no write
+            await mgr.flush()  # pre-batch write completes
+            assert "quiet_startup" in mgr.modified_fields
+            mgr.save_batch()
+            await mgr.flush()
+
+        asyncio.run(_run())
+        data = json.loads(mgr.storage.global_data)  # type: ignore[attr-defined]
+        assert data.get("theme") == "dark"
+        assert data.get("quiet_startup") is True
+
+    def test_pre_batch_completion_preserves_overlapping_field_mark(self):
+        import json
+
+        mgr = _manager()
+
+        async def _run() -> None:
+            mgr.set_theme("dark")
+            mgr.begin_batch()
+            mgr.set_theme("light")  # same field re-modified while write in flight
+            await mgr.flush()
+            assert "theme" in mgr.modified_fields
+            mgr.save_batch()
+            await mgr.flush()
+
+        asyncio.run(_run())
+        data = json.loads(mgr.storage.global_data)  # type: ignore[attr-defined]
+        assert data.get("theme") == "light"
+
+    def test_marks_cleared_after_write_outside_batch(self):
+        mgr = _manager()
+
+        async def _run() -> None:
+            mgr.set_theme("dark")
+            await mgr.flush()
+
+        asyncio.run(_run())
+        assert "theme" not in mgr.modified_fields

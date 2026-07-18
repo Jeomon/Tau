@@ -310,8 +310,9 @@ class OllamaChatAPI(BaseAPI):
                         reason=stop_reason, input_tokens=_input_tokens, output_tokens=_output_tokens
                     )
 
-        except Exception as e:
-            from tau.inference.utils import classify_error
-
-            classified = classify_error(e)
-            yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+        except Exception:
+            # Propagate so TextLLM.stream can classify the error (including the
+            # _HTTPError raised above, which carries the status code) and drive
+            # its retry/backoff logic; yielding an ErrorEvent here would swallow
+            # the classification.
+            raise

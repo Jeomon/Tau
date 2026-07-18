@@ -906,7 +906,10 @@ class ExtensionAPI:
             return
         all_tools = registry.list()
         filtered = [t for t in all_tools if not tool_names or t.name in tool_names]
+        # Keep the advertised list and the execution lookup in sync, mirroring
+        # ToolRegistry.sync_to_engine.
         engine.tools = filtered
+        engine._tools = {t.name: t for t in filtered}
 
     # ── Model / thinking ──────────────────────────────────────────────────────
 
@@ -921,9 +924,11 @@ class ExtensionAPI:
         engine = getattr(agent, "_engine", None)
         if engine is None:
             return "none"
-        level = getattr(engine, "thinking_level", None)
+        # The live knob is the LLM request options; ``None`` there means "off"
+        # (see the /model command's thinking-level handling).
+        level = engine.llm.api.options.thinking_level
         if level is None:
-            return "none"
+            return "off"
         return level.value if hasattr(level, "value") else str(level)
 
     def set_thinking_level(self, level: str) -> None:
@@ -945,7 +950,9 @@ class ExtensionAPI:
             tl = ThinkingLevel(level)
         except ValueError:
             return
-        engine.thinking_level = tl
+        # The live knob is the LLM request options; ``Off`` is stored as None
+        # (see the /model command's thinking-level handling).
+        engine.llm.api.options.thinking_level = None if tl == ThinkingLevel.Off else tl
         from tau.hooks.types import ThinkingLevelSelectEvent
 
         hooks = getattr(runtime, "hooks", None)

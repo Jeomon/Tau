@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from tau.builtins.extensions.watch import _build_context, _parse_vtt, register
+_WATCH_INIT = Path(__file__).parent.parent / ".tau" / "extensions" / "watch" / "__init__.py"
+_spec = importlib.util.spec_from_file_location("watch_extension", _WATCH_INIT)
+assert _spec is not None and _spec.loader is not None
+_watch = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_watch)
+
+_build_context = _watch._build_context
+_parse_vtt = _watch._parse_vtt
+register = _watch.register
 
 
 def test_parse_vtt_returns_timestamped_deduplicated_text() -> None:

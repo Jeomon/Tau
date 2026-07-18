@@ -160,11 +160,25 @@ def grapheme_width(cluster: str) -> int:
 
     A cluster may be several codepoints (base + combining accent, or a ZWJ
     emoji sequence like the family emoji); combining marks/ZWJ/variation
-    selectors are zero-width, so the cluster's width is its first codepoint's
-    width. Splitting a string into clusters is the caller's job (e.g. via
+    selectors are zero-width, so the cluster's width is usually its first
+    codepoint's width. A few multi-codepoint sequences render wider than
+    their first codepoint measures alone and are special-cased below.
+    Splitting a string into clusters is the caller's job (e.g. via
     ``grapheme.graphemes()``) — this only measures one.
     """
-    return _char_width(cluster[0]) if cluster else 0
+    if not cluster:
+        return 0
+    if len(cluster) == 1:
+        return _char_width(cluster)
+    # Multi-codepoint cluster (rare — keep the single-codepoint fast path
+    # above): flag emoji (a regional-indicator pair), emoji-presentation
+    # sequences (U+FE0F), keycaps (U+20E3), and ZWJ emoji sequences all
+    # render 2 columns wide regardless of the first codepoint's EAW.
+    if "\u200d" in cluster or "\ufe0f" in cluster or "\u20e3" in cluster:
+        return 2
+    if "\U0001f1e6" <= cluster[0] <= "\U0001f1ff":
+        return 2
+    return _char_width(cluster[0])
 
 
 def visible_width(text: str) -> int:
@@ -214,6 +228,20 @@ def truncate(text: str, max_width: int, ellipsis: str = "…") -> str:
     target = max_width - ellipsis_w
     result, _ = _take_columns(text, target)
     return result + RESET + ellipsis + RESET
+
+
+def clip_to_width(text: str, max_width: int) -> str:
+    """Truncate ``text`` to at most ``max_width`` terminal columns (no ellipsis).
+
+    Width-aware counterpart of ``text[:max_width]`` — code-point slicing lets
+    CJK/emoji text overflow a fixed column. Preserves ANSI codes.
+    """
+    if max_width <= 0:
+        return ""
+    if visible_width(text) <= max_width:
+        return text
+    result, _ = _take_columns(text, max_width)
+    return result
 
 
 def pad(text: str, width: int, char: str = " ", align: str = "left") -> str:

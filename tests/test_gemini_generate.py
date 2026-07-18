@@ -1,10 +1,11 @@
 """Tests for the Google AI Studio Gemini API adapter."""
 
 import base64
+import importlib.util
+from pathlib import Path
 
 from google.genai import types as genai_types
 
-from tau.builtins.extensions.ask_user.schema import AskUserParams
 from tau.inference.api.text.gemini_generate import _messages_to_gemini
 from tau.inference.api.text.utils import gemini_tool_schema
 from tau.inference.model.registry import ModelRegistry
@@ -14,6 +15,17 @@ from tau.message.types import (
     ToolMessage,
     ToolResultContent,
 )
+
+# AskUserParams lives in the bundled ask_user extension (.tau/extensions), which is
+# not an importable package — load its schema module directly from the file.
+_ASK_USER_SCHEMA = (
+    Path(__file__).parent.parent / ".tau" / "extensions" / "ask_user" / "schema.py"
+)
+_spec = importlib.util.spec_from_file_location("ask_user_schema", _ASK_USER_SCHEMA)
+assert _spec is not None and _spec.loader is not None
+_ask_user_schema = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_ask_user_schema)
+AskUserParams = _ask_user_schema.AskUserParams
 
 
 def test_gemini_tool_schema_removes_unsupported_examples() -> None:
@@ -196,11 +208,11 @@ def test_gemini3_uses_thinking_level_not_budget():
 
     api = GeminiGenerateAPI(LLMOptions(api_key="fake", thinking_level=ThinkingLevel.High))
 
-    gemini3_config = api._build_config("gemini-3-pro-preview")
+    gemini3_config = api._build_config(uses_thinking_level=True)
     assert gemini3_config.thinking_config.thinking_level == genai_types.ThinkingLevel.HIGH
     assert gemini3_config.thinking_config.thinking_budget is None
 
-    other_config = api._build_config("gemini-2.5-pro")
+    other_config = api._build_config(uses_thinking_level=False)
     assert other_config.thinking_config.thinking_level is None
     assert other_config.thinking_config.thinking_budget is not None
 

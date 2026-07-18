@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import time
 from pathlib import Path
+
+from filelock import FileLock
 
 from tau.settings.paths import get_config_dir
 from tau.trust.types import TrustOption
 from tau.trust.utils import find_nearest, get_trust_options, has_project_trust_inputs, normalize
+from tau.utils.fs import atomic_write_text
 
 _log = logging.getLogger(__name__)
 
@@ -30,7 +35,19 @@ class TrustStore:
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError:
-            _log.warning("trust store corrupted at %s, resetting", self._path)
+            # Preserve the corrupt file before any later _write() replaces it,
+            # so the raw decisions stay recoverable instead of being lost.
+            backup = self._path.with_name(f"{self._path.name}.corrupt-{int(time.time())}")
+            try:
+                if not backup.exists():
+                    shutil.copy2(self._path, backup)
+                _log.warning(
+                    "trust store corrupted at %s, resetting (original preserved at %s)",
+                    self._path,
+                    backup,
+                )
+            except OSError:
+                _log.warning("trust store corrupted at %s, resetting", self._path)
             return {}
 
     def get(self, cwd: str | Path) -> bool | None:
@@ -49,20 +66,25 @@ class TrustStore:
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
-    def _write(self, data: dict[str, bool | None]) -> None:
+    def _lock(self) -> FileLock:
+        """Return the lock serialising read-modify-write mutations of the store."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        return FileLock(str(self._path) + ".lock")
+
+    def _write(self, data: dict[str, bool | None]) -> None:
         clean = {k: v for k, v in data.items() if v is not None}
-        self._path.write_text(json.dumps(clean, indent=2, sort_keys=True), encoding="utf-8")
+        atomic_write_text(self._path, json.dumps(clean, indent=2, sort_keys=True))
 
     def set(self, cwd: str | Path, decision: bool | None) -> None:
         """Store a trust decision for *cwd*. Pass ``None`` to remove the entry."""
-        data = self._read()
-        key = normalize(cwd)
-        if decision is None:
-            data.pop(key, None)
-        else:
-            data[key] = decision
-        self._write(data)
+        with self._lock():
+            data = self._read()
+            key = normalize(cwd)
+            if decision is None:
+                data.pop(key, None)
+            else:
+                data[key] = decision
+            self._write(data)
 
     def apply_option(self, option: TrustOption) -> None:
         """Persist a :class:`TrustOption`. ``save_path=None`` means session-only —
@@ -70,11 +92,12 @@ class TrustStore:
         """
         if option.save_path is None:
             return
-        data = self._read()
-        data[normalize(option.save_path)] = option.trusted
-        if option.clear_child_path is not None:
-            data.pop(normalize(option.clear_child_path), None)
-        self._write(data)
+        with self._lock():
+            data = self._read()
+            data[normalize(option.save_path)] = option.trusted
+            if option.clear_child_path is not None:
+                data.pop(normalize(option.clear_child_path), None)
+            self._write(data)
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────

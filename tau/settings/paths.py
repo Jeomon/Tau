@@ -67,17 +67,21 @@ def get_app_version() -> str:
 def get_config_dir(cwd: Path | None = None) -> Path:
     """Get the configuration directory path for Tau.
 
-    Returns the project-specific .tau/ directory if cwd exists and is valid,
+    Returns the project-specific .tau/ directory if cwd is provided,
     otherwise returns the global ~/.tau/ directory.
 
+    A cwd that does not exist still maps to its own (absent) project config
+    dir — never to the global one. Aliasing the two would let project-scope
+    writes silently corrupt the global settings file.
+
     Args:
-        cwd: Optional current working directory. If provided and exists,
-            returns project-level config dir. Otherwise returns global config dir.
+        cwd: Optional current working directory. If provided, returns the
+            project-level config dir. Otherwise returns global config dir.
 
     Returns:
         Path: Path to the configuration directory
     """
-    if cwd is not None and cwd.exists():
+    if cwd is not None:
         return cwd / CONFIG_DIR_NAME
     return CONFIG_DIR_PATH
 

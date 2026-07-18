@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tau.settings.paths import CONFIG_DIR_NAME
+from tau.settings.paths import CONFIG_DIR_NAME, CONFIG_DIR_PATH
 from tau.trust.types import TrustOption
 
 
@@ -30,13 +30,30 @@ def has_project_trust_inputs(cwd: str | Path) -> bool:
     """Return ``True`` if *cwd* (or any ancestor) contains files that require a trust decision.
 
     Specifically looks for:
-    - A ``.tau/`` local config directory
+    - A ``.tau/`` local config directory (the global ``~/.tau`` config dir is
+      the user's own and never counts as a *project* trust input)
     - An ``.agents/skills/`` directory containing project-provided instructions
+    - Context files (AGENTS.md / CLAUDE.md) in any directory the runtime would
+      inject them from — git root down to cwd (see ``load_project_context_files``)
     """
+    # Imported lazily: trust must not depend on the agent package at import time.
+    from tau.agent.prompt.builder import _context_file_paths, _find_git_root
+
+    global_config_dir = CONFIG_DIR_PATH.resolve()
     current = Path(normalize(cwd))
+    git_root = _find_git_root(current)
+    context_stop = git_root if git_root is not None else current
+    in_context_range = True
     while True:
-        if (current / CONFIG_DIR_NAME).exists() or (current / ".agents" / "skills").exists():
+        config_dir = current / CONFIG_DIR_NAME
+        if config_dir.exists() and config_dir.resolve() != global_config_dir:
             return True
+        if (current / ".agents" / "skills").exists():
+            return True
+        if in_context_range and _context_file_paths(current):
+            return True
+        if current == context_stop:
+            in_context_range = False
         parent = current.parent
         if parent == current:
             return False

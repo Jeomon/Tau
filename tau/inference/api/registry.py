@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import threading
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -62,19 +63,32 @@ class LazyAPI:
         object.__setattr__(self, "_registry", registry)
         object.__setattr__(self, "_api_ref", api_ref)
         object.__setattr__(self, "_real", None)
+        # Serialises first-use construction: resolve_async offloads _resolve to
+        # worker threads (and __getattr__ can run it on any thread), so two
+        # concurrent first calls could otherwise both build SDK clients — the
+        # loser's httpx pool would be overwritten and never closed. A threading
+        # lock (not asyncio) covers both paths without blocking the event loop,
+        # since resolve_async only takes it inside asyncio.to_thread.
+        object.__setattr__(self, "_resolve_lock", threading.Lock())
 
     def _resolve(self):
         real = object.__getattribute__(self, "_real")
-        if real is None:
-            ref = object.__getattribute__(self, "_api_ref")
-            if isinstance(ref, str):
-                api_class = object.__getattribute__(self, "_registry").get(ref)
-                if api_class is None:
-                    raise ValueError(f"API '{ref}' not found in registry.")
-            else:
-                api_class = ref
-            real = api_class(object.__getattribute__(self, "options"))
-            object.__setattr__(self, "_real", real)
+        if real is not None:
+            return real
+        with object.__getattribute__(self, "_resolve_lock"):
+            # Double-check: another thread may have finished constructing
+            # while this one waited on the lock.
+            real = object.__getattribute__(self, "_real")
+            if real is None:
+                ref = object.__getattribute__(self, "_api_ref")
+                if isinstance(ref, str):
+                    api_class = object.__getattribute__(self, "_registry").get(ref)
+                    if api_class is None:
+                        raise ValueError(f"API '{ref}' not found in registry.")
+                else:
+                    api_class = ref
+                real = api_class(object.__getattribute__(self, "options"))
+                object.__setattr__(self, "_real", real)
         return real
 
     async def resolve_async(self) -> None:

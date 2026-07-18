@@ -49,7 +49,9 @@ _MATH_RES = (
 )
 
 _MATH_PLACEHOLDER = ""  # private-use codepoint, never appears in real text
-_MATH_PLACEHOLDER_RE = re.compile(re.escape(_MATH_PLACEHOLDER) + r"(\d+)" + re.escape(_MATH_PLACEHOLDER))
+_MATH_PLACEHOLDER_RE = re.compile(
+    re.escape(_MATH_PLACEHOLDER) + r"(\d+)" + re.escape(_MATH_PLACEHOLDER)
+)
 
 # Fenced/inline code is left untouched by extraction below: a LaTeX example
 # shown inside a ```tex block or `$...$` code span is text to display

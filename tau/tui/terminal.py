@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
 import signal
 import sys
@@ -200,6 +201,10 @@ class Terminal:
         self._win_resize_thread: threading.Thread | None = None
         self._win_resize_stop: threading.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Stateful UTF-8 decoder for read_raw(): a multibyte sequence can
+        # straddle a read-chunk boundary, and a per-chunk bytes.decode() would
+        # mangle the split character into U+FFFD replacement characters.
+        self._stdin_decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.width, self.height = self._get_size()
 
     # -------------------------------------------------------------------------
@@ -806,7 +811,7 @@ class Terminal:
     # Input
     # -------------------------------------------------------------------------
 
-    def read_raw(self, n: int = 64) -> str:
+    def read_raw(self, n: int = 4096) -> str:
         """
         Read keyboard input from stdin without waiting for Enter.
 
@@ -814,11 +819,13 @@ class Terminal:
         This is how the TUI gets instant keyboard input.
 
         Args:
-            n: Maximum number of bytes to read (default 64)
+            n: Maximum number of bytes to read (default 4096)
 
         Returns:
             The input as a string. Invalid UTF-8 is replaced with replacement character.
+            Decoding is incremental across calls, so a multibyte character split
+            over two reads (e.g. mid-paste) is reassembled instead of mangled.
             Example: User presses 'h' -> returns "h"
                      User presses left arrow -> returns "\x1b[D" (ANSI code)
         """
-        return os.read(sys.stdin.fileno(), n).decode("utf-8", errors="replace")
+        return self._stdin_decoder.decode(os.read(sys.stdin.fileno(), n))

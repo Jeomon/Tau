@@ -66,6 +66,12 @@ _STOP_REASON: dict[str, StopReason] = {
     "content_filter": StopReason.ContentFilter,
 }
 
+# The installed openai SDK (2.x) emits "response.completed" (and
+# "response.incomplete" for truncated responses) as the terminal stream event;
+# "response.done" is kept for Responses-API-compatible proxies that still send
+# the legacy name (mirrors _COMPLETION_TYPES in openai_codex_responses.py).
+_COMPLETION_TYPES = {"response.done", "response.completed", "response.incomplete"}
+
 
 def _extra_body_for(model: Model) -> dict[str, Any]:
     """Build the extra_body payload for fields not in the installed SDK's typed
@@ -88,14 +94,21 @@ def _extra_body_for(model: Model) -> dict[str, Any]:
     return extra_body
 
 
-def _content_to_openai(content_items: list, supports_thinking: bool = True) -> list[dict[str, Any]]:
+def _content_to_openai(
+    content_items: list, supports_thinking: bool = True, role: str = "user"
+) -> list[dict[str, Any]]:
     """Convert typed message content items to OpenAI Responses API content parts.
+
+    The Responses API requires assistant text parts to be "output_text"
+    ("input_text" is only valid for user/system content), so text parts are
+    typed by role.
 
     When supports_thinking is False, ThinkingContent is merged into the text
     content (thinking first, then text) so non-reasoning models receive full
     context without structured reasoning blocks they cannot accept.
     This merge is in-memory only; the session file is not affected.
     """
+    text_type = "output_text" if role == "assistant" else "input_text"
     if not supports_thinking:
         thinking_parts: list[str] = []
         text_parts: list[str] = []
@@ -120,7 +133,7 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
         parts: list[dict[str, Any]] = []
         if thinking_parts or text_parts:
             merged = "\n".join(thinking_parts + text_parts)
-            parts.append({"type": "input_text", "text": merged})
+            parts.append({"type": text_type, "text": merged})
         parts.extend(other_parts)
         return parts
 
@@ -133,7 +146,7 @@ def _content_to_openai(content_items: list, supports_thinking: bool = True) -> l
     for item in content_items:
         match item:
             case TextContent():
-                parts.append({"type": "input_text", "text": item.content})
+                parts.append({"type": text_type, "text": item.content})
             case ImageContent():
                 for b64, mime in item.to_base64():
                     url = (
@@ -175,7 +188,7 @@ def _messages_to_input(
                 if parts:
                     input_items.append({"role": "user", "content": parts})
             case AssistantMessage() if not supports_thinking:
-                parts = _content_to_openai(msg.contents, supports_thinking=False)
+                parts = _content_to_openai(msg.contents, supports_thinking=False, role="assistant")
                 if parts:
                     input_items.append({"role": "assistant", "content": parts})
                 for content in msg.contents:
@@ -217,7 +230,7 @@ def _messages_to_input(
                                 if isinstance(reasoning_item, dict):
                                     input_items.append(reasoning_item)
                         case TextContent():
-                            text_parts.append({"type": "input_text", "text": content.content})
+                            text_parts.append({"type": "output_text", "text": content.content})
                         case ImageContent():
                             for b64, mime in content.to_base64():
                                 url = (
@@ -355,6 +368,7 @@ class OpenAIResponsesAPI(BaseAPI):
         # encrypted_content when requested via include=["reasoning.encrypted_content"])
         # so ThinkingEndEvent can carry both the text and the replay signature at once.
         reasoning_text_by_item: dict[str, str] = {}
+        saw_tool_call = False
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
@@ -391,6 +405,7 @@ class OpenAIResponsesAPI(BaseAPI):
                     elif item.type == "reasoning":
                         yield ThinkingStartEvent(thinking=None)
                     elif item.type == "function_call":
+                        saw_tool_call = True
                         tool_calls[item.id] = (item.call_id, item.name)  # type: ignore[union-attr,index]
                         yield ToolCallStartEvent(
                             tool_call=ToolCallContent(id=item.call_id, name=item.name)  # type: ignore[union-attr,arg-type]
@@ -438,7 +453,7 @@ class OpenAIResponsesAPI(BaseAPI):
                         tool_call=ToolCallContent(id=call_id, name=name, args=args)
                     )
 
-                elif etype == "response.done":
+                elif etype in _COMPLETION_TYPES:
                     resp = event.response  # type: ignore[union-attr]
                     u = getattr(resp, "usage", None)
                     if u:
@@ -447,10 +462,20 @@ class OpenAIResponsesAPI(BaseAPI):
                         _details = getattr(u, "input_tokens_details", None)
                         _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
                         _cache_write_tokens = getattr(_details, "cache_write_tokens", 0) or 0
-                    stop_reason = _STOP_REASON.get(
-                        getattr(resp, "stop_reason", None) or "",
-                        StopReason.Stop,
+                    # The SDK's Response object has no stop_reason field — the
+                    # stop reason lives in status ("completed"/"incomplete") and
+                    # incomplete_details.reason ("max_output_tokens"/
+                    # "content_filter"). getattr(resp, "stop_reason", ...) is
+                    # kept as a fallback for compatible proxies that send one.
+                    _incomplete = getattr(resp, "incomplete_details", None)
+                    raw_reason = (
+                        (getattr(_incomplete, "reason", None) if _incomplete else None)
+                        or getattr(resp, "stop_reason", None)
+                        or ""
                     )
+                    stop_reason = _STOP_REASON.get(raw_reason, StopReason.Stop)
+                    if saw_tool_call and stop_reason == StopReason.Stop:
+                        stop_reason = StopReason.ToolCalls
                     yield EndEvent(
                         reason=stop_reason,
                         input_tokens=_input_tokens,

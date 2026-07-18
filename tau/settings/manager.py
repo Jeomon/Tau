@@ -42,8 +42,10 @@ from tau.settings.utils import coerce_enum, set_nested
 
 _log = logging.getLogger(__name__)
 
+# "retry" is intentionally absent: it needs dedicated parsing (its nested
+# ``provider`` object must itself become a ProviderRetrySettings) — see the
+# ``key == "retry"`` branch in ``_settings_from_dict``.
 _NESTED_FIELD_TYPES: dict[str, type] = {
-    "retry": RetrySettings,
     "thinking_budgets": ThinkingBudgetsSettings,
     "image": ImageSettings,
     "compaction": CompactionSettings,
@@ -186,7 +188,9 @@ class SettingsManager:
 
         def _issue(key: str, expected: str, value: Any) -> None:
             if issues is not None:
-                issues.append(f"{key}: expected {expected}, got {type(value).__name__} — reset to default")
+                issues.append(
+                    f"{key}: expected {expected}, got {type(value).__name__} — reset to default"
+                )
 
         valid_settings = {f.name for f in dc.fields(Settings)}
         kwargs: dict[str, Any] = {}
@@ -231,17 +235,22 @@ class SettingsManager:
                         if modality not in valid_modalities:
                             continue
                         if ref is None:
-                            continue  # no model configured for this modality — expected, not an error
+                            # no model configured for this modality — expected, not an error
+                            continue
                         if not isinstance(ref, dict):
                             _issue(f"model.{modality}", "object", ref)
                             continue
-                        ms_kwargs[modality] = ModelRef(**{k: v for k, v in ref.items() if k in valid_ref})
+                        ms_kwargs[modality] = ModelRef(
+                            **{k: v for k, v in ref.items() if k in valid_ref}
+                        )
                     kwargs[key] = ModelSettings(**ms_kwargs)
                 elif isinstance(value, str):
                     # Legacy flat "model": "<id>" (+ sibling "provider"): fold into
                     # model.text so old config files load instead of crashing. The
                     # nested object is written back on the next save.
-                    kwargs[key] = ModelSettings(text=ModelRef(id=value, provider=data.get("provider")))
+                    kwargs[key] = ModelSettings(
+                        text=ModelRef(id=value, provider=data.get("provider"))
+                    )
                 elif value is not None:
                     _issue(key, "object or string", value)
             elif key == "extensions":
@@ -376,17 +385,40 @@ class SettingsManager:
         """Append a scoped error to the error queue for later retrieval via drain_errors()."""
         self.errors.append(SettingsError(scope=scope, error=error))
 
-    def _clear_modified_scope(self, scope: SCOPE):
-        """Reset modification tracking for a scope after a successful write."""
+    def _clear_modified_scope(
+        self,
+        scope: SCOPE,
+        written_fields: set[str],
+        written_nested_fields: dict[str, set[str]],
+    ):
+        """Reset modification tracking for the fields captured in a completed
+        write's snapshot.
+
+        Only the snapshot's fields are cleared — never the whole live set,
+        which may have accumulated new marks since the write was enqueued
+        (e.g. batch-mode changes made while a pre-batch write was in flight).
+        """
         match scope:
             case SCOPE.GLOBAL:
-                self.modified_fields.clear()
-                self.modified_nested_fields.clear()
+                fields, nested = self.modified_fields, self.modified_nested_fields
             case SCOPE.PROJECT:
-                self.modified_project_fields.clear()
-                self.modified_project_nested_fields.clear()
+                fields, nested = self.modified_project_fields, self.modified_project_nested_fields
+        fields -= written_fields
+        for field_name, keys in written_nested_fields.items():
+            remaining = nested.get(field_name)
+            if remaining is None:
+                continue
+            remaining -= keys
+            if not remaining:
+                del nested[field_name]
 
-    def _enqueue_write(self, scope: SCOPE, task: Callable[..., None]):
+    def _enqueue_write(
+        self,
+        scope: SCOPE,
+        task: Callable[..., None],
+        written_fields: set[str],
+        written_nested_fields: dict[str, set[str]],
+    ):
         """Chain an async write task so concurrent saves are serialised and never interleave."""
         import asyncio
 
@@ -398,7 +430,10 @@ class SettingsManager:
                     await prev
             try:
                 task()
-                self._clear_modified_scope(scope)
+                # In batch mode marks must survive until save_batch() writes
+                # them, even for fields this pre-batch write also touched.
+                if not self._batch_mode:
+                    self._clear_modified_scope(scope, written_fields, written_nested_fields)
             except Exception as e:
                 _log.error("failed to persist %s settings: %s", scope, e, exc_info=True)
                 self._record_error(scope, e)
@@ -477,7 +512,7 @@ class SettingsManager:
                 SCOPE.GLOBAL, snapshot_global, modified_fields, modified_nested_fields
             )
 
-        self._enqueue_write(SCOPE.GLOBAL, write_task)
+        self._enqueue_write(SCOPE.GLOBAL, write_task, modified_fields, modified_nested_fields)
 
     def _save_project_settings(self, settings: Settings):
         """Update the merged view and enqueue an async write of modified project settings."""
@@ -496,7 +531,7 @@ class SettingsManager:
                 SCOPE.PROJECT, snapshot_project, modified_fields, modified_nested_fields
             )
 
-        self._enqueue_write(SCOPE.PROJECT, write_task)
+        self._enqueue_write(SCOPE.PROJECT, write_task, modified_fields, modified_nested_fields)
 
     async def flush(self) -> None:
         """Wait for any pending async writes to complete."""
@@ -1401,8 +1436,8 @@ class SettingsManager:
         self._project_trusted = trusted
         if trusted:
             # Re-load project settings now that trust is granted
-            project_settings, project_error, project_issues = SettingsManager._try_load_from_storage(
-                self.storage, SCOPE.PROJECT
+            project_settings, project_error, project_issues = (
+                SettingsManager._try_load_from_storage(self.storage, SCOPE.PROJECT)
             )
             self.project_settings = project_settings
             self.project_settings_recovered_issues = project_issues

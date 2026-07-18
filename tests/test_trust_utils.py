@@ -128,3 +128,65 @@ class TestHasProjectTrustInputs:
         from tau.trust.utils import has_project_trust_inputs
 
         assert has_project_trust_inputs(str(tmp_path)) is False
+
+    def test_true_when_agents_md_in_cwd(self, tmp_path):
+        from tau.trust.utils import has_project_trust_inputs
+
+        (tmp_path / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        assert has_project_trust_inputs(tmp_path) is True
+
+    def test_true_when_claude_md_in_cwd(self, tmp_path):
+        from tau.trust.utils import has_project_trust_inputs
+
+        (tmp_path / "CLAUDE.md").write_text("instructions", encoding="utf-8")
+        assert has_project_trust_inputs(tmp_path) is True
+
+    def test_context_file_match_is_case_insensitive(self, tmp_path):
+        from tau.trust.utils import has_project_trust_inputs
+
+        (tmp_path / "agents.md").write_text("instructions", encoding="utf-8")
+        assert has_project_trust_inputs(tmp_path) is True
+
+    def test_true_when_context_file_at_git_root(self, tmp_path):
+        from tau.trust.utils import has_project_trust_inputs
+
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        nested = repo / "a" / "b"
+        nested.mkdir(parents=True)
+        assert has_project_trust_inputs(nested) is True
+
+    def test_context_file_above_git_root_ignored(self, tmp_path):
+        from tau.trust.utils import has_project_trust_inputs
+
+        # The loader only injects context files from the git root down, so a
+        # file above the repo is not a trust input.
+        (tmp_path / "AGENTS.md").write_text("instructions", encoding="utf-8")
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        assert has_project_trust_inputs(repo) is False
+
+    def test_global_config_dir_is_not_a_project_trust_input(self, tmp_path, monkeypatch):
+        import tau.trust.utils as trust_utils
+
+        fake_home = tmp_path / "home"
+        global_config = fake_home / ".tau"
+        global_config.mkdir(parents=True)
+        monkeypatch.setattr(trust_utils, "CONFIG_DIR_PATH", global_config)
+        project = fake_home / "project"
+        project.mkdir()
+        # Walking up from a cwd under $HOME finds ~/.tau, but the user's own
+        # global config dir must not trigger the project trust prompt.
+        assert trust_utils.has_project_trust_inputs(project) is False
+
+    def test_project_local_tau_dir_still_counts_under_home(self, tmp_path, monkeypatch):
+        import tau.trust.utils as trust_utils
+
+        fake_home = tmp_path / "home"
+        global_config = fake_home / ".tau"
+        global_config.mkdir(parents=True)
+        monkeypatch.setattr(trust_utils, "CONFIG_DIR_PATH", global_config)
+        project = fake_home / "project"
+        (project / ".tau").mkdir(parents=True)
+        assert trust_utils.has_project_trust_inputs(project) is True

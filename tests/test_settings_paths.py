@@ -55,10 +55,12 @@ class TestConfigDir:
         result = get_config_dir(cwd=tmp_path)
         assert result == tmp_path / CONFIG_DIR_NAME
 
-    def test_nonexistent_cwd_uses_global(self, tmp_path):
+    def test_nonexistent_cwd_stays_project_scoped(self, tmp_path):
+        # A missing cwd must never alias to the global config dir — project
+        # scope writes would silently corrupt the global settings file.
         fake = tmp_path / "nonexistent"
         result = get_config_dir(cwd=fake)
-        assert result == Path.home() / CONFIG_DIR_NAME
+        assert result == fake / CONFIG_DIR_NAME
 
 
 class TestSettingsPath:

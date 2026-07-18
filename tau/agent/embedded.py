@@ -316,6 +316,16 @@ async def run_embedded_agent(
 
     try:
         await asyncio.wait_for(asyncio.shield(run_task), timeout=timeout_s)
+    except asyncio.CancelledError:
+        # External cancellation (e.g. the parent engine's tool timeout hit
+        # before TASK_TIMEOUT_S). shield() keeps run_task alive, so cancel it
+        # explicitly and wait for it to unwind — otherwise the orphaned engine
+        # keeps streaming and executing tools with its results discarded.
+        signal.set()
+        run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await run_task
+        raise
     except TimeoutError:
         signal.set()
         try:
