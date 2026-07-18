@@ -172,7 +172,7 @@ class InputHandler:
             if text.startswith("/"):
                 self._layout.add_message(self._make_slash_message(text))
                 self._tui.request_render()
-            asyncio.ensure_future(self._invoke(text))
+            self._track_task(asyncio.ensure_future(self._invoke(text)))
             return
 
         images, missing_images = self._extract_clipboard_images(text)

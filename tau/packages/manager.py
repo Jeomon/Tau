@@ -346,7 +346,7 @@ class PackageManager:
                     parsed = json.loads(result.stdout)
                     if isinstance(parsed, list):
                         imports = [item for item in parsed if isinstance(item, str)]
-            except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
                 pass
 
         normalized = name.replace("-", "_")

@@ -123,7 +123,6 @@ def list_packages(local: bool, show_all: bool) -> None:
         click.echo("No packages installed.")
         return
 
-    click.echo(f"{header}:\n")
     from tau.packages.utils import redact_source
 
     click.echo(f"{header}:\n")

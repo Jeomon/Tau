@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from filelock import FileLock
+
 from tau.inference.types import ThinkingLevel
 from tau.message.types import (
     AgentMessage,
@@ -71,7 +73,9 @@ class SessionManager:
         self.label_timestamps_by_id: dict[str, float] = {}
         self.leaf_id: str | None = None
         self.entries: list[SessionFileEntry] = []
-        self.flushed: bool = False
+        # IDs explicitly removed by this manager. Durable entries absent from a
+        # stale in-memory view are otherwise retained during a transaction.
+        self._deleted_entry_ids: set[str] = set()
 
         if self.persist and not self.session_dir.exists():
             self.session_dir.mkdir(parents=True, exist_ok=True)
@@ -169,21 +173,47 @@ class SessionManager:
 
         return self.session_file
 
-    def _rewrite_file(self):
-        """Write all session entries to the session file.
+    def _session_lock(self) -> FileLock:
+        """Return the lock protecting this session's durable history."""
+        assert self.session_file is not None
+        self.session_file.parent.mkdir(parents=True, exist_ok=True)
+        return FileLock(str(self.session_file) + ".lock")
 
-        Atomic (temp file + os.replace), not Path.write_text() — this
-        rewrites the *entire* history, not an append. write_text() truncates
-        the target immediately and writes into it directly; a crash or kill
-        mid-write (this can run on every undo/steering-retry, not just once
-        per session) would leave the file corrupted, losing the whole
-        session rather than just the pending change.
+    def _merged_durable_entries(self) -> list[SessionFileEntry]:
+        """Merge the latest durable history with this manager's local changes.
+
+        A manager can be holding an old view while another process appends or
+        rewrites. Entries have globally unique IDs, so retain durable entries
+        unless this manager explicitly removed one, then append local entries
+        not already present. This preserves independent branches while making
+        an undo authoritative only for the entry it actually removed.
+        """
+        assert self.session_file is not None
+        durable = read_session_file(self.session_file) if self.session_file.exists() else []
+        seen: set[str] = set()
+        merged: list[SessionFileEntry] = []
+        for entry in [*durable, *self.entries]:
+            if entry.id in seen or entry.id in self._deleted_entry_ids:
+                continue
+            seen.add(entry.id)
+            merged.append(entry)
+        return merged
+
+    def _rewrite_file(self):
+        """Transactionally merge and atomically rewrite the session history.
+
+        The lock covers reloading, merging, and replacement. In particular it
+        prevents an append opened on a replaced inode, and prevents a stale
+        rewrite from discarding an entry committed by another SessionManager.
         """
         if not self.persist or not self.session_file:
             return None
-        lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
-        content = "\n".join(lines)
-        atomic_write_text(self.session_file, f"{content}\n" if content else "")
+        with self._session_lock():
+            self.entries = self._merged_durable_entries()
+            self._build_index()
+            lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
+            content = "\n".join(lines)
+            atomic_write_text(self.session_file, f"{content}\n" if content else "")
 
     def _clear_index(self):
         """Clear the session indices."""
@@ -218,8 +248,34 @@ class SessionManager:
                     self.labels_by_id.pop(entry.target_id, None)
                     self.label_timestamps_by_id.pop(entry.target_id, None)
 
+    def _append_locked_entry(self, entry: SessionEntry) -> None:
+        """Append one entry under the per-session lock.
+
+        A pure append never overwrites or drops content already on disk, no
+        matter how stale this manager's in-memory view is, so it doesn't need
+        _rewrite_file()'s full read-merge-rewrite — that cost is O(session
+        size) per call, which made every append O(n) and session construction
+        O(n^2) overall (confirmed: building a 5000-turn fixture went from
+        milliseconds to minutes). Re-opens the path fresh under the lock
+        rather than reusing a handle, so a prior external os.replace() (e.g.
+        another manager's _rewrite_file()) is picked up correctly instead of
+        appending through a stale/unlinked inode.
+        """
+        assert self.session_file is not None
+        with self._session_lock():
+            with self.session_file.open("a", encoding="utf-8") as f:
+                f.write(entry.model_dump_json(exclude_none=True) + "\n")
+
     def _persist(self, entry: SessionEntry):
-        """Append an entry to the session file."""
+        """Commit an entry, appending when possible and merging when not.
+
+        The first flush may need to overwrite a header set_session() already
+        wrote eagerly, so it goes through the full merge/rewrite; every
+        append after that is safe as a lock-protected raw append (see
+        _append_locked_entry). Removal/branch-creation still call
+        _rewrite_file() directly since those mutate or drop existing entries,
+        which a pure append cannot express.
+        """
         if not self.persist or not self.session_file:
             return None
 
@@ -227,20 +283,15 @@ class SessionManager:
             isinstance(e, MessageEntry) and isinstance(e.message, AssistantMessage)
             for e in self.entries
         )
-
         if not has_assistant_message:
             self.flushed = False
             return
 
         if not self.flushed:
-            # Full rewrite (not append): the file may already hold a header
-            # written eagerly by set_session(), so overwrite rather than
-            # append to avoid duplicating it.
             self._rewrite_file()
-            self.flushed = True
         else:
-            with self.session_file.open("a", encoding="utf-8") as f:
-                f.write(entry.model_dump_json(exclude_none=True) + "\n")
+            self._append_locked_entry(entry)
+        self.flushed = True
 
     def _append_entry(self, entry: SessionEntry) -> str:
         """Add an entry to the session and persist it."""
@@ -268,7 +319,7 @@ class SessionManager:
         if role is not None and getattr(entry.message, "role", None) != role:
             return False
         self.entries.remove(entry)
-        self.by_id.pop(entry.id, None)
+        self._deleted_entry_ids.add(entry.id)
         self.leaf_id = entry.parent_id
         if self.flushed:
             self._rewrite_file()
@@ -721,7 +772,9 @@ class SessionManager:
 
         lines = [new_header.model_dump_json()]
         lines.extend(
-            entry.model_dump_json() for entry in source_entries if not isinstance(entry, SessionHeader)
+            entry.model_dump_json()
+            for entry in source_entries
+            if not isinstance(entry, SessionHeader)
         )
         atomic_write_text(new_session_file, "\n".join(lines) + "\n")
 

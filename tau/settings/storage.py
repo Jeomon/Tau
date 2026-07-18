@@ -8,6 +8,7 @@ from filelock import FileLock
 
 from tau.settings.paths import get_settings_path
 from tau.settings.types import SCOPE, LockResult
+from tau.utils.fs import atomic_write_text
 
 
 class SettingsStorage(ABC):
@@ -41,12 +42,16 @@ class FileSettingsStorage(SettingsStorage):
         path = self.global_settings_path if scope == SCOPE.GLOBAL else self.project_settings_path
         lock_path = path.with_suffix(".lock")
 
+        # Project scopes may not have a .tau directory yet; create it before
+        # FileLock attempts to create its sibling lock file.
+        self._ensure_parent_dir(path)
         with FileLock(lock_path):
             self._ensure_file_exists(path)
             current = path.read_text(encoding="utf-8") if path.exists() else "{}"
             result = fn(current)
             if result.next is not None:
-                path.write_text(result.next, encoding="utf-8")
+                atomic_write_text(path, result.next)
+                path.chmod(0o600)
             return result
 
 

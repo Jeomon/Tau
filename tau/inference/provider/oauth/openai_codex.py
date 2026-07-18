@@ -44,8 +44,9 @@ USERINFO_URL = "https://auth.openai.com/oauth/userinfo"
 REDIRECT_URI = "http://localhost:1455/auth/callback"
 SCOPES = "openid profile email offline_access"
 JWT_CLAIM_PATH = "https://api.openai.com/auth"
-CALLBACK_HOST = None  # binds to all interfaces (IPv4 + IPv6)
+CALLBACK_HOST = "127.0.0.1"  # Match the loopback-only redirect URI.
 CALLBACK_PORT = 1455
+_HTTP_TIMEOUT_SECONDS = 30
 
 
 def _create_state() -> str:
@@ -109,7 +110,9 @@ def _post_token(body: dict[str, str]) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=get_oauth_ssl_context()) as resp:
+        with urllib.request.urlopen(
+            req, context=get_oauth_ssl_context(), timeout=_HTTP_TIMEOUT_SECONDS
+        ) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
@@ -155,7 +158,9 @@ def _revoke_token_sync(token: str) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, context=get_oauth_ssl_context()):
+        with urllib.request.urlopen(
+            req, context=get_oauth_ssl_context(), timeout=_HTTP_TIMEOUT_SECONDS
+        ):
             pass
     except urllib.error.HTTPError:
         # best-effort; treat any error as revocation attempt done
@@ -170,7 +175,9 @@ def _validate_token_sync(access_token: str) -> bool:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(req, context=get_oauth_ssl_context()) as resp:
+        with urllib.request.urlopen(
+            req, context=get_oauth_ssl_context(), timeout=_HTTP_TIMEOUT_SECONDS
+        ) as resp:
             return resp.status == 200
     except urllib.error.HTTPError:
         return False

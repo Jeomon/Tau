@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from tau.tui.component import Component, Container, Focusable
 from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent, MouseEvent
@@ -578,6 +578,10 @@ class TUI(Container):
         self._render_requested = False
         self._esc_timer: asyncio.TimerHandle | None = None
         self._stdin_thread: threading.Thread | None = None
+        # threading.Event is safe for the Windows reader to inspect while the
+        # asyncio stop event remains owned by the loop thread.
+        self._stdin_shutdown = threading.Event()
+        self._stdin_generation = 0
 
         self._input_handlers: list[EventHandler] = []
         self._intercept_handlers: list[EventHandler] = []
@@ -899,6 +903,8 @@ class TUI(Container):
         loop = asyncio.get_event_loop()
         self._running = True
         self._stop_event.clear()
+        self._stdin_shutdown.clear()
+        self._stdin_generation += 1
 
         with self._terminal:
             if self._title is not None:
@@ -919,7 +925,7 @@ class TUI(Container):
                 # to the loop thread.
                 self._stdin_thread = threading.Thread(
                     target=self._win_stdin_loop,
-                    args=(loop,),
+                    args=(loop, self._stdin_generation),
                     name="tau-tui-stdin",
                     daemon=True,
                 )
@@ -939,10 +945,7 @@ class TUI(Container):
                 await self._stop_event.wait()
             finally:
                 if _IS_WINDOWS:
-                    # The daemon reader observes _stop_event and exits after its
-                    # next read returns (or dies with the process); nothing to
-                    # unregister from the loop.
-                    self._stdin_thread = None
+                    await self._stop_windows_stdin_reader()
                 else:
                     loop.remove_reader(sys.stdin.fileno())
                 self._cancel_timers()
@@ -1257,26 +1260,67 @@ class TUI(Container):
         if events:
             self._request_render()
 
-    def _win_stdin_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Windows stdin pump: blocking-read on a daemon thread.
+    async def _stop_windows_stdin_reader(self) -> None:
+        """Interrupt and bounded-join the Windows console reader.
 
-        Reads keystrokes with the console in raw/VT mode (set by Terminal) and
-        marshals each chunk onto the event loop via call_soon_threadsafe, since
-        Windows event loops cannot watch a console handle with add_reader.
+        Console reads cannot be selected by asyncio. CancelSynchronousIo wakes a
+        pending ReadFile where supported; the event/generation guard makes a
+        late wakeup harmless on consoles where cancellation is unavailable.
         """
-        while not self._stop_event.is_set():
+        self._stdin_shutdown.set()
+        thread = self._stdin_thread
+        if thread is None:
+            return
+        self._cancel_windows_thread_io(thread)
+        await asyncio.to_thread(thread.join, 0.5)
+        if thread.is_alive():
+            _log.warning("Windows stdin reader did not stop within 0.5 seconds")
+        self._stdin_thread = None
+
+    @staticmethod
+    def _cancel_windows_thread_io(thread: threading.Thread) -> None:
+        """Best-effort CancelSynchronousIo without importing Windows APIs elsewhere."""
+        if not _IS_WINDOWS or thread.native_id is None:
+            return
+        try:
+            import ctypes
+
+            thread_terminate = 0x0001
+            kernel32 = cast(Any, ctypes).windll.kernel32
+            handle = kernel32.OpenThread(thread_terminate, False, thread.native_id)
+            if handle:
+                try:
+                    kernel32.CancelSynchronousIo(handle)
+                finally:
+                    kernel32.CloseHandle(handle)
+        except (AttributeError, OSError):
+            _log.debug("could not interrupt Windows stdin reader", exc_info=True)
+
+    def _win_stdin_loop(self, loop: asyncio.AbstractEventLoop, generation: int) -> None:
+        """Windows stdin pump with teardown-safe callback delivery."""
+        while not self._stdin_shutdown.is_set():
             try:
                 data = self._terminal.read_raw()
             except OSError:
                 break
             if not data:
                 continue
-            if self._stop_event.is_set():
+            if self._stdin_shutdown.is_set() or generation != self._stdin_generation:
                 break
             try:
-                loop.call_soon_threadsafe(self._process_input, data)
+                loop.call_soon_threadsafe(self._process_windows_input, data, generation)
             except RuntimeError:
                 break  # event loop already closed
+
+    def _process_windows_input(self, data: str, generation: int) -> None:
+        """Discard callbacks scheduled by a reader that has been torn down."""
+        if (
+            self._stdin_shutdown.is_set()
+            or generation != self._stdin_generation
+            or not self._running
+        ):
+            return
+        self._process_input(data)
 
     def _schedule_esc_flush(self) -> None:
         if self._esc_timer is not None:

@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from tau.auth.types import LockResult
+from tau.utils.fs import atomic_write_text
 
 
 class AuthStorage(ABC):
@@ -51,7 +52,7 @@ class FileAuthStorage(AuthStorage):
             )
             result = fn(current)
             if result.next is not None:
-                self.store_path.write_text(result.next, encoding="utf-8")
+                atomic_write_text(self.store_path, result.next)
                 self.store_path.chmod(0o600)
             return result
 
@@ -81,7 +82,7 @@ class FileAuthStorage(AuthStorage):
             )
             result = await fn(current)
             if result.next is not None:
-                self.store_path.write_text(result.next, encoding="utf-8")
+                atomic_write_text(self.store_path, result.next)
                 self.store_path.chmod(0o600)
             return result
 

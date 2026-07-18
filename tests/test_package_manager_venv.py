@@ -141,3 +141,40 @@ def test_get_installed_version_returns_none_on_timeout_rather_than_raising(
 
     manager = PackageManager(venv_dir)
     assert manager._get_installed_version("some-package") is None
+
+
+def test_find_package_dir_tolerates_metadata_query_failure(tmp_path: Path, monkeypatch) -> None:
+    """_find_package_dir() queries the venv interpreter for the distribution's
+    import name (beautifulsoup4 -> bs4) before falling back to guessing a
+    directory named after the distribution. Every other query helper in this
+    module (site_packages(), _get_installed_version()) has always tolerated
+    subprocess failure by returning None rather than raising, since install()
+    calls this right after a successful pip/uv install with no surrounding
+    try/except - a raise here would crash install() after the package is
+    already in the venv, losing the PackageEntry return. An unexecutable
+    interpreter (stripped permission bits, ETXTBSY, ...) raises OSError, not
+    TimeoutExpired, so it must be tolerated the same way.
+    """
+    venv_dir = tmp_path / "venv"
+    python_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+    python_dir.mkdir(parents=True)
+    (python_dir / ("python.exe" if sys.platform == "win32" else "python")).write_text("")
+
+    site_pkgs = tmp_path / "site-packages"
+    site_pkgs.mkdir()
+    (site_pkgs / "some_package").mkdir()
+
+    def fake_run(cmd, **kwargs):
+        if "packages_distributions" in " ".join(cmd):
+            raise OSError("interpreter is not executable")
+
+        class _Result:
+            returncode = 0
+            stdout = str(site_pkgs)
+
+        return _Result()
+
+    monkeypatch.setattr("tau.packages.manager.subprocess.run", fake_run)
+
+    manager = PackageManager(venv_dir)
+    assert manager._find_package_dir("some-package") == site_pkgs / "some_package"

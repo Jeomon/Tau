@@ -318,6 +318,12 @@ class Agent:
         message = event.message
         if message is None:
             return
+        # append_message() now always does a full merge-and-rewrite of the
+        # session file under a FileLock (not a cheap append) so two managers
+        # on the same session file don't clobber each other's entries. That
+        # must not run on the event loop thread — same reasoning as
+        # _on_message_rollback's to_thread use below, and this fires far more
+        # often (every assistant/tool/user message, not just on abort).
         match message:
             case AssistantMessage():
                 from tau.session.compaction import effective_usage_tokens
@@ -325,11 +331,11 @@ class Agent:
                 total = effective_usage_tokens(message.usage)
                 if total:
                     self._context_tokens = total
-                self._session_manager.append_message(message)
+                await asyncio.to_thread(self._session_manager.append_message, message)
             case ToolMessage():
-                self._session_manager.append_message(message)
+                await asyncio.to_thread(self._session_manager.append_message, message)
             case UserMessage():
-                self._session_manager.append_message(message)
+                await asyncio.to_thread(self._session_manager.append_message, message)
             case _:
                 pass
 
@@ -724,7 +730,9 @@ class Agent:
             list(opts.video) if opts.video else None,
             list(opts.file) if opts.file else None,
         )
-        self._session_manager.append_message(user_message, meta=opts.meta)
+        # See _on_message_end: append_message() does a full session-file
+        # merge-and-rewrite under a FileLock now, not a cheap append.
+        await asyncio.to_thread(self._session_manager.append_message, user_message, meta=opts.meta)
 
         self._overflow_recovery_attempted = False
         try:

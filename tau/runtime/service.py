@@ -450,7 +450,9 @@ class Runtime:
                 )
                 sm = self._context.session_manager
                 if sm is not None:
-                    sm.append_message(msg)
+                    # append_message() does a full session-file merge-and-rewrite
+                    # under a FileLock now; keep it off the event loop thread.
+                    await asyncio.to_thread(sm.append_message, msg)
                 await self._context.hooks.emit(TerminalExecutionEvent(message=msg, streaming=False))
                 return
 
@@ -489,7 +491,9 @@ class Runtime:
 
         sm = self._context.session_manager
         if sm is not None:
-            sm.append_message(msg)
+            # append_message() does a full session-file merge-and-rewrite
+            # under a FileLock now; keep it off the event loop thread.
+            await asyncio.to_thread(sm.append_message, msg)
 
         await self._context.hooks.emit(TerminalExecutionEvent(message=msg, streaming=False))
 

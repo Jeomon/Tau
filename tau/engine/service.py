@@ -608,25 +608,32 @@ class Engine:
         """
         stream_iter = stream.__aiter__()
         signal_task = asyncio.ensure_future(signal.wait())
+        event_task: asyncio.Task[Any] | None = None
         try:
             while not signal.is_set():
-                event_task = asyncio.ensure_future(stream_iter.__anext__())
+                read_task = asyncio.ensure_future(stream_iter.__anext__())
+                event_task = read_task
                 done, _ = await asyncio.wait(
-                    {event_task, signal_task},
+                    {read_task, signal_task},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if event_task not in done:
+                if read_task not in done:
                     # Abort won the race — cancel the pending read and stop.
-                    event_task.cancel()
+                    read_task.cancel()
                     with suppress(asyncio.CancelledError, StopAsyncIteration):
-                        await event_task
+                        await read_task
                     return
                 try:
-                    event = event_task.result()
+                    event = read_task.result()
                 except StopAsyncIteration:
                     return
+                event_task = None
                 yield event
         finally:
+            if event_task is not None and not event_task.done():
+                event_task.cancel()
+                with suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await event_task
             if not signal_task.done():
                 signal_task.cancel()
                 with suppress(asyncio.CancelledError):

@@ -24,7 +24,9 @@ _CONTEXT_FILE_NAMES = ("agents.md", "claude.md")
 def _context_file_paths(directory: Path) -> list[Path]:
     """Return supported context files in deterministic priority order."""
     try:
-        entries = [entry for entry in directory.iterdir() if entry.is_file()]
+        entries = [
+            entry for entry in directory.iterdir() if entry.is_file() and not entry.is_symlink()
+        ]
     except OSError:
         return []
 

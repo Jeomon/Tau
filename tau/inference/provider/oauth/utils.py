@@ -79,7 +79,7 @@ async def start_oauth_callback_server(
 
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            raw = await reader.read(4096)
+            raw = await asyncio.wait_for(reader.read(4096), timeout=10)
             line = raw.decode(errors="replace").split("\r\n")[0]
             parts = line.split(" ")
             if len(parts) < 2:

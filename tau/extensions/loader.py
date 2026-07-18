@@ -20,6 +20,7 @@ from tau.extensions.api import (
     _RuntimeRef,
 )
 from tau.packages.utils import add_site_packages_path
+from tau.utils.fs import atomic_write_text
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
@@ -424,6 +425,18 @@ class ExtensionLoader:
         return resolve_extension_venv_dir(self._cwd, source)
 
     def _ensure_dependencies(self, subdir: Path, deps: list[str], source: str) -> None:
+        """Serialize shared-venv dependency/cache mutations across processes."""
+        from filelock import FileLock
+
+        venv_dir = self._resolve_venv_dir(source)
+        lock_path = venv_dir / ".tau_ext_deps.lock"
+        # The venv root is a Tau-selected local path; create it before taking
+        # the lock so all cache/install state shares one lock namespace.
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(lock_path)):
+            self._ensure_dependencies_locked(subdir, deps, source)
+
+    def _ensure_dependencies_locked(self, subdir: Path, deps: list[str], source: str) -> None:
         """Install an extension's declared dependencies, once per dependency set.
 
         Runs synchronously (called via ``asyncio.to_thread``) so the blocking
@@ -473,11 +486,11 @@ class ExtensionLoader:
         except Exception as exc:
             cache[key] = {"digest": digest, "ok": False, "error": str(exc)}
             cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            atomic_write_text(cache_file, json.dumps(cache, indent=2) + "\n")
             raise
         cache[key] = {"digest": digest, "ok": True}
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        atomic_write_text(cache_file, json.dumps(cache, indent=2) + "\n")
 
         add_site_packages_path(pkg_mgr.site_packages())
 
@@ -492,10 +505,15 @@ class ExtensionLoader:
         discovered = self._discover()
         self._register_declared_skills()
 
+        # Loading may install dependencies into a shared venv; avoid an
+        # unbounded fan-out of import and installer work.
+        semaphore = asyncio.Semaphore(4)
+
         async def _load(path: Path, source: str) -> tuple[Extension | None, list[ExtensionError]]:
-            config_key = path.parent.name if path.name == "__init__.py" else path.stem
-            config = self._entry_configs.get(config_key, {})
-            ext, errs = await self._load_one(path, config, source=source)
+            async with semaphore:
+                config_key = path.parent.name if path.name == "__init__.py" else path.stem
+                config = self._entry_configs.get(config_key, {})
+                ext, errs = await self._load_one(path, config, source=source)
             if ext is not None:
                 _log.debug("Loaded extension: %s (%s)", path, source)
             return ext, errs

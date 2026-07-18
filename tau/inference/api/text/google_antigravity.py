@@ -561,7 +561,14 @@ class GoogleAntigravityAPI(BaseAPI):
                     )
 
                 if not response.is_success:
-                    error_body = (await response.aread()).decode(errors="replace")
+                    chunks: list[bytes] = []
+                    remaining = 65_536
+                    async for chunk in response.aiter_bytes():
+                        chunks.append(chunk[:remaining])
+                        remaining -= len(chunk)
+                        if remaining <= 0:
+                            break
+                    error_body = b"".join(chunks).decode(errors="replace")
                     from tau.inference.utils import classify_error
 
                     _err = _HTTPError(
@@ -587,6 +594,7 @@ class GoogleAntigravityAPI(BaseAPI):
                 # asyncgen finalizer ("Task was destroyed but it is pending!").
                 _bytes = response.aiter_bytes()
                 line_buf = ""
+                max_frame_bytes = 1_000_000
                 try:
                     async for chunk in _bytes:
                         if self._cancelled():
@@ -594,6 +602,13 @@ class GoogleAntigravityAPI(BaseAPI):
                             done = True
                             break
                         line_buf += chunk.decode("utf-8", errors="replace")
+                        if len(line_buf.encode("utf-8")) > max_frame_bytes:
+                            yield ErrorEvent(
+                                reason=StopReason.Error,
+                                error="Streaming frame exceeds the 1 MiB safety limit",
+                            )
+                            done = True
+                            break
                         while "\n" in line_buf:
                             line, line_buf = line_buf.split("\n", 1)
                             line = line.rstrip("\r")

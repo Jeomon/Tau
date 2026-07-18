@@ -399,10 +399,15 @@ async def _map_codex_events(
 # ── SSE parsing ───────────────────────────────────────────────────────────────
 
 
+_MAX_SSE_FRAME_BYTES = 1_000_000
+
+
 async def _parse_sse(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
     buffer = ""
     async for chunk in response.aiter_text():
         buffer += chunk
+        if len(buffer.encode("utf-8")) > _MAX_SSE_FRAME_BYTES:
+            raise ValueError("SSE frame exceeds the 1 MiB safety limit")
         while "\n\n" in buffer:
             block, buffer = buffer.split("\n\n", 1)
             data_lines = [
@@ -617,7 +622,14 @@ class OpenAICodexResponsesAPI(BaseAPI):
                             )
 
                         if not response.is_success:
-                            text = (await response.aread()).decode(errors="replace")
+                            chunks: list[bytes] = []
+                            remaining = 65_536
+                            async for chunk in response.aiter_bytes():
+                                chunks.append(chunk[:remaining])
+                                remaining -= len(chunk)
+                                if remaining <= 0:
+                                    break
+                            text = b"".join(chunks).decode(errors="replace")
                             if attempt < _MAX_RETRIES and _is_retryable(response.status_code, text):
                                 last_error = RuntimeError(f"HTTP {response.status_code}: {text}")
                                 continue

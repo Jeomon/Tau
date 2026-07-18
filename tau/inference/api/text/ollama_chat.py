@@ -170,12 +170,26 @@ class OllamaChatAPI(BaseAPI):
                     APIResponse(response.status_code, dict(response.headers))
                 )
             if response.is_error:
-                body = (await response.aread()).decode(errors="replace")
-                raise _HTTPError(response.status_code, body)
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
-                yield ChatResponse(**json.loads(line))
+                chunks: list[bytes] = []
+                remaining = 65_536
+                async for chunk in response.aiter_bytes():
+                    chunks.append(chunk[:remaining])
+                    remaining -= len(chunk)
+                    if remaining <= 0:
+                        break
+                raise _HTTPError(response.status_code, b"".join(chunks).decode(errors="replace"))
+            line_buffer = bytearray()
+            async for chunk in response.aiter_bytes():
+                line_buffer.extend(chunk)
+                if len(line_buffer) > 1_000_000:
+                    raise RuntimeError("Ollama stream line exceeds 1 MiB")
+                while (newline := line_buffer.find(b"\n")) >= 0:
+                    line = bytes(line_buffer[:newline]).strip()
+                    del line_buffer[: newline + 1]
+                    if line:
+                        yield ChatResponse(**json.loads(line))
+            if line_buffer.strip():
+                yield ChatResponse(**json.loads(line_buffer))
 
     def _inference_options(self) -> dict[str, Any]:
         """Build Ollama model-level options dict (temperature, token limit)."""
