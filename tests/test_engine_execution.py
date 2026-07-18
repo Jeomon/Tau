@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from tau.engine.service import Engine
 from tau.engine.types import EngineOptions
@@ -154,6 +154,33 @@ def test_parallel_tool_execution_is_bounded() -> None:
     result = asyncio.run(engine._parallel_execute(calls, AsyncMock(), None))
 
     assert maximum_active == 2
+    assert [item.id for item in result] == [call.id for call in calls]
+
+
+def test_parallel_tool_execution_creates_only_bounded_workers() -> None:
+    limit = 2
+    engine = _engine(EngineOptions(max_parallel_tool_calls=limit))
+    calls = [ToolCallContent(id=str(index), name="test", args={}) for index in range(50)]
+
+    async def execute(call, _emit, _signal):
+        return SimpleNamespace(id=call.id)
+
+    async def run() -> list[Any]:
+        created = []
+        real_create_task = asyncio.create_task
+
+        def count_create_task(coro, *args, **kwargs):
+            created.append(coro)
+            return real_create_task(coro, *args, **kwargs)
+
+        engine._execute = execute
+        with patch("tau.engine.service.asyncio.create_task", side_effect=count_create_task):
+            result = await engine._parallel_execute(calls, AsyncMock(), None)
+        assert len(created) == limit
+        return result
+
+    result = asyncio.run(run())
+
     assert [item.id for item in result] == [call.id for call in calls]
 
 

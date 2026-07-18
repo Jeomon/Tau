@@ -542,23 +542,39 @@ class Engine:
             limit = len(tool_calls) or 1
         if limit < 1:
             raise ValueError("max_parallel_tool_calls must be at least 1 or None")
-        semaphore = asyncio.Semaphore(limit)
+        if not tool_calls:
+            return []
 
-        async def run_one(tool_call: ToolCallContent) -> ToolResultContent:
-            async with semaphore:
+        # A semaphore around one task per call caps execution, but not task
+        # allocation: a large tool batch still creates O(n) suspended tasks.
+        # Keep only ``limit`` workers alive and assign the next source index
+        # synchronously between awaits. ``results`` itself must remain O(n)
+        # because callers receive input-ordered results.
+        results: list[ToolResultContent | None] = [None] * len(tool_calls)
+        next_index = 0
+
+        async def run_one() -> None:
+            nonlocal next_index
+            while next_index < len(tool_calls):
+                index = next_index
+                next_index += 1
+                tool_call = tool_calls[index]
                 # Do not start work that was queued when the user aborted.
                 if signal is not None and signal.is_set():
-                    return ToolResultContent(
+                    results[index] = ToolResultContent(
                         id=tool_call.id,
                         is_error=True,
                         content="Tool execution cancelled.",
                         metadata={"cancelled": True},
                         tool_name=tool_call.name,
                     )
-                return await self._execute(tool_call, emit, signal)
+                else:
+                    results[index] = await self._execute(tool_call, emit, signal)
 
-        tasks = [asyncio.create_task(run_one(tool_call)) for tool_call in tool_calls]
-        return list(await asyncio.gather(*tasks))
+        workers = [asyncio.create_task(run_one()) for _ in range(min(limit, len(tool_calls)))]
+        await asyncio.gather(*workers)
+        assert all(result is not None for result in results)
+        return [result for result in results if result is not None]
 
     async def _batch_execute(
         self,
