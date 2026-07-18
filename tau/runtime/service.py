@@ -1108,7 +1108,11 @@ class Runtime:
 
         await self._emit_session_shutdown(SessionShutdownReason.Clone)
         self._extension_generation += 1
-        sm.create_branched_session(leaf_id)
+        # create_branched_session() writes the whole cloned branch to a new
+        # session file synchronously (measured: ~50ms for a 2000-turn
+        # session) — off the event loop thread so /clone doesn't freeze the
+        # TUI for that span.
+        await asyncio.to_thread(sm.create_branched_session, leaf_id)
         self._reinit_after_context_create()
         await self._emit_session_start(SessionStartReason.Clone)
 

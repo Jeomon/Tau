@@ -340,9 +340,18 @@ class Agent:
         message and its tool-result message were already written, so remove them
         to keep the session consistent with what the engine replays.
         """
-        for _ in range(event.count):
-            if not self._session_manager.remove_last_message():
-                break
+
+        def _remove_up_to(count: int) -> None:
+            for _ in range(count):
+                if not self._session_manager.remove_last_message():
+                    break
+
+        # remove_last_message() rewrites the whole session file synchronously
+        # once it's already flushed (the normal case) — this fires on every
+        # abort of an in-flight tool call, a common interactive action, not a
+        # rare one, so it must not freeze the TUI for however long that
+        # rewrite takes on a long session.
+        await asyncio.to_thread(_remove_up_to, event.count)
 
     # -------------------------------------------------------------------------
     # Compaction
