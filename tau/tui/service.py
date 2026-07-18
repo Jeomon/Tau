@@ -5,7 +5,8 @@ import logging
 import sys
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -15,6 +16,28 @@ from tau.tui.terminal import Terminal
 from tau.tui.utils import set_window_focused
 
 _log = logging.getLogger(__name__)
+
+# tau.tui is a standalone package (see tests/test_tui_public_api.py) — it may
+# not import from any other tau.* module, so it can't call tau.utils.profiling
+# directly. set_span_hook() lets an outside caller (e.g. RuntimeContext.create)
+# inject a span factory (tau.utils.profiling.span works as-is) without
+# coupling this package to it; a no-op is used until one is set.
+_span_hook: Callable[[str], Any] | None = None
+
+
+def set_span_hook(hook: Callable[[str], Any] | None) -> None:
+    """Inject an optional profiling span context-manager factory."""
+    global _span_hook
+    _span_hook = hook
+
+
+@contextmanager
+def _span(name: str) -> Generator[None]:
+    if _span_hook is None:
+        yield
+        return
+    with _span_hook(name):
+        yield
 
 # The asyncio event loops on Windows can't watch a console handle with
 # add_reader, so stdin is pumped from a background thread there instead.
@@ -384,7 +407,8 @@ class Renderer:
         if hasattr(component, "_elide_stable_prefix_for_next_render"):
             component._elide_stable_prefix_for_next_render = can_elide_stable_prefix  # type: ignore[attr-defined]
         try:
-            rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
+            with _span("tui.render_cells"):
+                rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
         finally:
             if hasattr(component, "_elide_stable_prefix_for_next_render"):
                 component._elide_stable_prefix_for_next_render = False  # type: ignore[attr-defined]
@@ -408,7 +432,8 @@ class Renderer:
             elided_range = (elided_start, elided_end) if elided_end > elided_start else None
         self._had_overlays = has_overlays
 
-        self._engine.render(buf, stable_through=stable_through, elided_range=elided_range)
+        with _span("tui.engine_render"):
+            self._engine.render(buf, stable_through=stable_through, elided_range=elided_range)
 
     def clear(self) -> None:
         """Erase the entire screen and scrollback buffer."""

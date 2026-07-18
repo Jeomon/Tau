@@ -10,6 +10,7 @@ from typing import Any
 from filelock import FileLock
 
 from tau.inference.types import ThinkingLevel
+from tau.utils import profiling
 from tau.message.types import (
     AgentMessage,
     AssistantMessage,
@@ -208,7 +209,7 @@ class SessionManager:
         """
         if not self.persist or not self.session_file:
             return None
-        with self._session_lock():
+        with profiling.span("session.rewrite_file"), self._session_lock():
             self.entries = self._merged_durable_entries()
             self._build_index()
             lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
@@ -262,7 +263,7 @@ class SessionManager:
         appending through a stale/unlinked inode.
         """
         assert self.session_file is not None
-        with self._session_lock():
+        with profiling.span("session.append_entry"), self._session_lock():
             with self.session_file.open("a", encoding="utf-8") as f:
                 f.write(entry.model_dump_json(exclude_none=True) + "\n")
 

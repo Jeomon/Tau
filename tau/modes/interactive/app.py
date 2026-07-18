@@ -239,6 +239,14 @@ class App:
             show_hardware_cursor=show_hardware_cursor,
             title=f"τ - {project_name()}",
         )
+        # tau.tui is a standalone package with no tau.* imports of its own (see
+        # tests/test_tui_public_api.py), so profiling is injected from here
+        # rather than imported inside it. profiling.span is a no-op factory
+        # unless TAU_PROFILE=1, so this is always safe to set.
+        from tau.tui.service import set_span_hook
+        from tau.utils import profiling
+
+        set_span_hook(profiling.span)
         if resolved_theme.terminal_bg:
             tui.terminal_bg = resolved_theme.terminal_bg
         layout = Layout(

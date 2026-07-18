@@ -25,6 +25,13 @@ _INLINE_MATH_RE = re.compile(
     r"(?<![\\$])\$(?![\s$])(.+?)(?<![\s\\])\$(?![\d$])",
     re.DOTALL,
 )
+# Many models (notably ChatGPT-style/OpenAI-family output, which includes the
+# gpt-oss models) emit LaTeX math delimited with \( \) / \[ \] instead of
+# $ $ / $$ $$, since dollar signs collide with plain currency amounts in
+# prose. Unlike $, a literal "\(" or "\[" essentially never appears in
+# ordinary text, so no currency-style disambiguation is needed here.
+_DISPLAY_MATH_BRACKET_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
+_INLINE_MATH_PAREN_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
 _SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
 _TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\]\s+")
 _BARE_URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -100,6 +107,8 @@ def _render_latex_math(text: str) -> str:
     def inline(match: re.Match[str]) -> str:
         return _latex_math_to_text(match.group(1))
 
+    text = _DISPLAY_MATH_BRACKET_RE.sub(display, text)
+    text = _INLINE_MATH_PAREN_RE.sub(inline, text)
     return _INLINE_MATH_RE.sub(inline, _DISPLAY_MATH_RE.sub(display, text))
 
 

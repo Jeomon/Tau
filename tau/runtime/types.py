@@ -154,6 +154,15 @@ class RuntimeContext:
         ext_runtime: ExtensionRuntime | None = None,
     ) -> RuntimeContext:
         """Bootstrap every dependency from config and return a fully wired context."""
+        from tau.utils import profiling
+
+        # Piggyback on timing.py's existing marks (below) rather than adding a
+        # second set of instrumentation — if --startup already enabled it,
+        # leave it alone so we don't reset its clock mid-run.
+        _profile_startup = profiling.is_enabled() and not timing.is_enabled()
+        if _profile_startup:
+            timing.enable()
+
         cwd = config.cwd.resolve()
         config_dir = (config.config_dir or get_config_dir()).resolve()
 
@@ -486,6 +495,8 @@ class RuntimeContext:
             hooks=hooks,
         )
         timing.mark("agent")
+        if _profile_startup:
+            profiling.record_phases("startup", timing.report())
 
         return cls(
             agent=agent,

@@ -60,6 +60,7 @@ from tau.message.types import (
     Usage,
 )
 from tau.tool.types import ToolContext, ToolExecutionMode, ToolInvocation, ToolResult
+from tau.utils import profiling
 
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM as LLM
@@ -397,15 +398,16 @@ class Engine:
         tool_result: ToolResultContent
         try:
             await emit(ToolExecutionStartEvent(tool_call=tool_call))
-            raw, aborted, timed_out = await self._run_tool_with_controls(
-                tool.execute(
-                    invocation=invocation,
-                    tool_execution_update_callback=on_update,
-                    signal=signal,
-                    context=self.tool_context,
-                ),
-                signal,
-            )
+            async with profiling.aspan(f"tool.{tool_call.name}"):
+                raw, aborted, timed_out = await self._run_tool_with_controls(
+                    tool.execute(
+                        invocation=invocation,
+                        tool_execution_update_callback=on_update,
+                        signal=signal,
+                        context=self.tool_context,
+                    ),
+                    signal,
+                )
             if aborted:
                 tool_result = ToolResultContent(
                     id=tool_call.id,
