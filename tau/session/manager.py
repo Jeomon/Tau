@@ -44,6 +44,7 @@ from tau.session.utils import (
     read_session_file,
 )
 from tau.settings.paths import get_sessions_dir
+from tau.utils.fs import atomic_write_text
 
 _log = logging.getLogger(__name__)
 
@@ -169,12 +170,20 @@ class SessionManager:
         return self.session_file
 
     def _rewrite_file(self):
-        """Write all session entries to the session file."""
+        """Write all session entries to the session file.
+
+        Atomic (temp file + os.replace), not Path.write_text() — this
+        rewrites the *entire* history, not an append. write_text() truncates
+        the target immediately and writes into it directly; a crash or kill
+        mid-write (this can run on every undo/steering-retry, not just once
+        per session) would leave the file corrupted, losing the whole
+        session rather than just the pending change.
+        """
         if not self.persist or not self.session_file:
             return None
         lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
         content = "\n".join(lines)
-        self.session_file.write_text(f"{content}\n" if content else "", encoding="utf-8")
+        atomic_write_text(self.session_file, f"{content}\n" if content else "")
 
     def _clear_index(self):
         """Clear the session indices."""
@@ -710,12 +719,11 @@ class SessionManager:
             parent_session=source,
         )
 
-        with new_session_file.open("w", encoding="utf-8") as f:
-            f.write(new_header.model_dump_json() + "\n")
-            for entry in source_entries:
-                if isinstance(entry, SessionHeader):
-                    continue
-                f.write(entry.model_dump_json() + "\n")
+        lines = [new_header.model_dump_json()]
+        lines.extend(
+            entry.model_dump_json() for entry in source_entries if not isinstance(entry, SessionHeader)
+        )
+        atomic_write_text(new_session_file, "\n".join(lines) + "\n")
 
         return SessionManager(target_cwd, session_dir, new_session_file)
 

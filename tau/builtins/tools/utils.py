@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from tau.engine.types import AbortSignal
+from tau.utils.fs import atomic_write_text  # noqa: F401 — re-exported for write.py/edit.py
 
 HASH_LEN = 4
 # Astronomically unlikely to matter for any real file (65536 buckets per
@@ -260,24 +261,6 @@ async def serialize_file_mutation(path: Path) -> AsyncIterator[None]:
                 _locks.pop(key)
             else:
                 _locks[key] = (current_lock, users - 1)
-
-
-def atomic_write_text(path: Path, content: str) -> None:
-    """Replace a text file atomically using a temporary sibling."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mode = path.stat().st_mode if path.exists() else None
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if mode is not None:
-            os.chmod(temp_path, mode)
-        os.replace(temp_path, path)
-    finally:
-        temp_path.unlink(missing_ok=True)
 
 
 async def run_bounded_lines(

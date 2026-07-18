@@ -58,10 +58,24 @@ class FileAuthStorage(AuthStorage):
     async def with_lock_async(
         self, fn: Callable[[str | None], Awaitable[LockResult]]
     ) -> LockResult:
-        """Execute async fn with exclusive access to storage."""
-        from filelock import FileLock
+        """Execute async fn with exclusive access to storage.
 
-        with FileLock(self.lock_path):
+        Uses AsyncFileLock, not the plain FileLock used by with_lock() above —
+        fn is awaited *while the lock is held* (an OAuth refresh does a real
+        network call in there), so a second concurrent caller's lock
+        acquisition must not block the event loop thread. The sync FileLock's
+        wait loop uses time.sleep(), not asyncio.sleep(): if two coroutines on
+        this same event loop both call with_lock_async() around the same
+        credential-expiry moment (plausible under parallel tool execution
+        needing the same OAuth provider), the second would block-wait for a
+        lock that only releases once the first's network-bound refresh_fn
+        finishes — which itself needs the event loop free to resolve. Neither
+        can ever make progress: a single-threaded deadlock, not just added
+        latency.
+        """
+        from filelock import AsyncFileLock
+
+        async with AsyncFileLock(self.lock_path):
             current = (
                 self.store_path.read_text(encoding="utf-8") if self.store_path.exists() else None
             )
