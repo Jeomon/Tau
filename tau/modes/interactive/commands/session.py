@@ -7,14 +7,22 @@ from tau.tui.utils import strip_control_chars
 from tau.utils.format import format_number
 
 
-def open_resume_selector(ctx: CommandContext) -> None:
+async def open_resume_selector(ctx: CommandContext) -> None:
     from tau.session.manager import SessionManager
 
     sm = ctx.runtime.session_manager
     cwd = sm.cwd if sm is not None else None
     current_path = sm.session_file if sm is not None else None
 
-    current_sessions = SessionManager.list(cwd) if cwd is not None else []
+    # SessionManager.list() reads and fully JSON-parses every session file in
+    # the directory (message counts need an exact tally, so it can't stop
+    # early — see build_session_info() in session/utils.py). Run off the
+    # event loop thread: this fires on every /resume, not just once, and a
+    # project accumulates session files forever with nothing to prune them,
+    # so the cost only grows the longer a project's been in use.
+    current_sessions = (
+        await asyncio.to_thread(SessionManager.list, cwd) if cwd is not None else []
+    )
 
     def all_loader() -> list:
         return SessionManager.list_all()
