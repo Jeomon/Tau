@@ -400,11 +400,15 @@ class Renderer:
         # reach the real terminal if they land inside that "frozen" span.
         if has_overlays or self._had_overlays:
             stable_through = 0
+            elided_range = None
         else:
             stable_through = getattr(component, "_stable_rows", 0)
+            elided_start = getattr(component, "_elided_start", 0)
+            elided_end = getattr(component, "_elided_end", 0)
+            elided_range = (elided_start, elided_end) if elided_end > elided_start else None
         self._had_overlays = has_overlays
 
-        self._engine.render(buf, stable_through=stable_through)
+        self._engine.render(buf, stable_through=stable_through, elided_range=elided_range)
 
     def clear(self) -> None:
         """Erase the entire screen and scrollback buffer."""
@@ -592,6 +596,17 @@ class TUI(Container):
         # safe for ScrollbackTerminal to skip re-diffing.
         self._stable_rows: int = 0
         self._prev_stable_rows: int = 0
+        # Absolute [start, end) row span left as untouched blank sentinels this
+        # frame because it was elided (see can_elide below) — the *only* rows
+        # within [0, _stable_rows) that ScrollbackTerminal must copy back from
+        # its previous buffer before diffing. Everything else in that prefix
+        # (e.g. header/spacer rows, re-rendered fresh every frame) already
+        # holds real content and must not be overwritten. Tracking the exact
+        # span lets ScrollbackTerminal reinstate it with one slice copy
+        # instead of scanning every cell of every stable row to guess which
+        # ones are blank placeholders — see frame.py's ``elided_range``.
+        self._elided_start: int = 0
+        self._elided_end: int = 0
         # Last-seen child.frozen_generation, keyed by id(child) — lets
         # render_cells notice a child rebuilt its frozen cache (content changed
         # without necessarily changing row count) even between frames where
@@ -662,6 +677,8 @@ class TUI(Container):
         # skips re-diffing [0, _stable_rows); elision holes must also use this
         # absolute value so reinstatement lands on the right span.
         stable_rows_abs = 0
+        elided_start = 0
+        elided_end = 0
         for child in self.children:
             self._child_rows[id(child)] = y - area.y
             split = getattr(child, "render_split_cells", None)
@@ -697,6 +714,8 @@ class TUI(Container):
                         # its previous buffer before diffing/committing _prev —
                         # otherwise these holes would paint as blanks or poison
                         # the next frame's baseline.)
+                        elided_start = child_start
+                        elided_end = child_start + stable_prefix_rows
                         if frozen_rows > stable_prefix_rows:
                             self._splice_frozen_rows(
                                 child,
@@ -725,6 +744,12 @@ class TUI(Container):
         # that just became frozen this frame may still differ from whatever
         # (different) content occupied those rows in last frame's buffer.
         self._stable_rows = 0 if frozen_content_changed else stable_rows_abs
+        if frozen_content_changed:
+            self._elided_start = 0
+            self._elided_end = 0
+        else:
+            self._elided_start = elided_start
+            self._elided_end = elided_end
         self._prev_stable_rows = frozen_rows_this_frame
         return y - area.y
 
@@ -831,6 +856,7 @@ class TUI(Container):
     def remove_child(self, component: Component) -> None:
         """Remove a component from the layout."""
         super().remove_child(component)
+        self._forget_child_state(component)
         self._renderer.reset()
         self._request_render()
 
@@ -842,8 +868,27 @@ class TUI(Container):
         being diffed/appended against it.
         """
         super().clear()
+        self._child_rows = {}
+        self._child_frozen_gen = {}
+        self._child_row_cache = {}
         self._renderer.clear()
         self._request_render()
+
+    def _forget_child_state(self, component: Component) -> None:
+        """Drop id()-keyed render-cache state for a component leaving the tree.
+
+        Without this, ``_child_frozen_gen``/``_child_row_cache`` (see
+        render_cells) only ever grow — a long session that dynamically swaps
+        widgets (e.g. ``Layout.set_footer``) leaks one entry per removal.
+        Worse than the leak itself: once the removed component is garbage
+        collected, CPython can reuse its ``id()`` for an unrelated new
+        object, which would then spuriously hit this stale cache entry on
+        its very first render.
+        """
+        key = id(component)
+        self._child_rows.pop(key, None)
+        self._child_frozen_gen.pop(key, None)
+        self._child_row_cache.pop(key, None)
 
     # -------------------------------------------------------------------------
     # Public API

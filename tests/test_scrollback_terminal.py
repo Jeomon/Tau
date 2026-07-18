@@ -237,6 +237,56 @@ class TestScrollbackTerminalDifferentialUpdate:
         assert "offscreen" not in content[0]
         assert "\x1b[2J" not in content[0]
 
+    def test_elided_range_reinstates_only_the_given_span(self):
+        """``elided_range`` must behave exactly like the scanning fallback:
+        rows inside it (left as blank sentinels by the caller) are copied
+        back from the previous frame; rows in ``[0, stable_through)`` but
+        outside it (e.g. freshly re-rendered header/spacer rows) are left
+        untouched even though they also fall within the stable prefix.
+        """
+        term = FakeTerminal(width=20, height=10)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = ["header", "spacer", "frozen 0", "frozen 1", "frozen 2"]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        # Next frame: header/spacer re-rendered fresh (identical text), the
+        # "frozen" MessageList rows elided (left blank) since they're
+        # unchanged and already on screen.
+        buf2 = Buffer.empty(Rect(0, 0, term.width, 0))
+        StaticComponent(["header", "spacer"]).render_cells(Rect(0, 0, term.width, 0), buf2)
+        buf2.grow_to(5)
+
+        renderer.render(buf2, stable_through=5, elided_range=(2, 5))
+
+        assert _content_writes(term) == []
+        assert renderer._prev is not None
+        for y, expected in enumerate(lines):
+            row = renderer._prev.content[y * term.width : y * term.width + len(expected)]
+            assert "".join(c.symbol for c in row) == expected
+
+    def test_elided_range_reinstate_is_bounded_to_the_given_span(self):
+        """The reinstate copy must be confined to exactly ``elided_range``,
+        not the whole ``stable_through`` prefix — rows outside it (e.g. a
+        freshly re-rendered header) keep whatever ``buf`` already has, even
+        if they fall inside ``[0, stable_through)``.
+        """
+        term = FakeTerminal(width=20, height=10)
+        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
+        lines = ["header", "spacer", "frozen 0", "frozen 1", "frozen 2"]
+        renderer.render(_buf(lines, term.width))
+        term.writes.clear()
+
+        buf2 = Buffer.empty(Rect(0, 0, term.width, 0))
+        StaticComponent(["HEADER!", "spacer"]).render_cells(Rect(0, 0, term.width, 0), buf2)
+        buf2.grow_to(5)
+
+        renderer.render(buf2, stable_through=5, elided_range=(2, 5))
+
+        assert renderer._prev is not None
+        row0 = renderer._prev.content[0 : len("HEADER!")]
+        assert "".join(c.symbol for c in row0) == "HEADER!"
+
     def test_offscreen_insertion_shifts_bookkeeping_without_redraw(self):
         """Row-count change entirely above the viewport (e.g. expanding a
         scrolled-off tool-call detail block via ctrl+o) must not blow away

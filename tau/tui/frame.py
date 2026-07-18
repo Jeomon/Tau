@@ -268,7 +268,12 @@ class ScrollbackTerminal:
     # Public API
     # -------------------------------------------------------------------------
 
-    def render(self, buf: Buffer, stable_through: int = 0) -> None:
+    def render(
+        self,
+        buf: Buffer,
+        stable_through: int = 0,
+        elided_range: tuple[int, int] | None = None,
+    ) -> None:
         """Render ``buf`` differentially into the terminal scrollback buffer.
 
         ``stable_through``: the caller guarantees rows ``[0, stable_through)``
@@ -286,9 +291,18 @@ class ScrollbackTerminal:
         history.  This method reinstates them from the previous frame before
         diffing or committing ``_prev``, so blanks never paint or poison the
         next baseline.
+
+        ``elided_range``: the exact ``[start, end)`` row span the caller left
+        as untouched blank sentinels this frame (a subset of
+        ``[0, stable_through)`` — the rest of that prefix, e.g. header/spacer
+        rows, is re-rendered fresh every frame and must not be touched here).
+        When given, reinstatement is a single slice copy instead of scanning
+        every cell of every stable row to guess which ones are blank
+        placeholders — that scan is itself O(stable_through * width), which
+        defeats the whole point of eliding the prefix in the first place.
         """
         try:
-            self._render(buf, stable_through)
+            self._render(buf, stable_through, elided_range)
         finally:
             # Independent of whichever path above ran: a row that's entirely
             # skip=True cells (e.g. a brand-new image) never registers as
@@ -297,7 +311,12 @@ class ScrollbackTerminal:
             # than piggybacking on the text-cell diff outcome.
             self._flush_raw_writes(buf)
 
-    def _render(self, buf: Buffer, stable_through: int = 0) -> None:
+    def _render(
+        self,
+        buf: Buffer,
+        stable_through: int = 0,
+        elided_range: tuple[int, int] | None = None,
+    ) -> None:
         width = self._terminal.width
         height = self._terminal.height
         width_changed = self._resized or (self._prev_width != 0 and self._prev_width != width)
@@ -328,13 +347,27 @@ class ScrollbackTerminal:
         # must keep their fresh cells, even when they fall inside
         # ``stable_through`` for skip-diff purposes.
         if stable_through > 0 and prev.area.width == buf.area.width:
-            st = min(stable_through, prev.area.height, buf.area.height)
-            for y in range(st):
-                start = y * width
-                end = start + width
-                row = buf.content[start:end]
-                if row and all(c is _BLANK_CELL for c in row):
+            if elided_range is not None:
+                # Caller already knows the exact elided span — a single slice
+                # copy, no per-cell scanning needed.
+                est, eend = elided_range
+                eend = min(eend, stable_through, prev.area.height, buf.area.height)
+                if eend > est:
+                    start = est * width
+                    end = eend * width
                     buf.content[start:end] = prev.content[start:end]
+            else:
+                # Fallback for callers that only know the stable prefix, not
+                # which rows within it were actually left blank — must scan
+                # to tell re-rendered rows (e.g. header/spacer) apart from
+                # elided placeholders.
+                st = min(stable_through, prev.area.height, buf.area.height)
+                for y in range(st):
+                    start = y * width
+                    end = start + width
+                    row = buf.content[start:end]
+                    if row and all(c is _BLANK_CELL for c in row):
+                        buf.content[start:end] = prev.content[start:end]
 
         max_rows = max(new_rows, prev_rows)
         scan_start = max(0, min(stable_through, max_rows))
