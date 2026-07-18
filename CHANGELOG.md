@@ -2,6 +2,31 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.8.2 — 2026-07-18
+
+### Added
+
+-   Add the `kimi/kimi-k3` model, including image and video input support, a 1M-token context window, and Moonshot's `max` reasoning-effort dialect
+-   Add opt-in performance profiling: set `TAU_PROFILE=1` to write aggregate startup, extension, rendering, tool-call, and session-persistence timings to `~/.tau/logs/profile-<pid>-<timestamp>.log` on exit
+-   Expose the mutable request headers and provider ID to `BeforeProviderRequestEvent` hooks, and expose raw HTTP status and response headers through `AfterProviderResponseEvent` when the provider supplies them
+-   Add configurable tool, parallel-execution, and extension-event-handler timeouts (`tool_timeout_seconds`, `max_parallel_tool_calls`, and `event_handler_timeout_seconds`) with safe defaults
+
+### Changed
+
+-   Remove the experimental `serve` mode and `tau serve` command; supported `--mode` values are now `interactive`, `print`, `json`, and `rpc`
+-   Improve terminal LaTeX rendering: bracketed display math (`\[...\]`) and inline parenthesized math (`\(...\)`) are supported, while math is protected from Markdown table parsing and code spans/fences remain literal
+-   Resolve extension package directories through distribution metadata, handling packages whose distribution and import names differ, and strengthen package-name normalization and installation error reporting
+-   Move session loading, listing, rollback, clone rewrites, and extension imports off the interactive event loop; the resume selector now loads session lists lazily to keep the TUI responsive with large session stores
+-   Bound `grep` and `glob` execution to 30 seconds and cap concurrent tool task creation to avoid unbounded resource use
+
+### Fixed
+
+-   Prevent session and authentication persistence deadlocks by centralizing atomic file writes and using asynchronous file locks
+-   Prevent extension reloads from hanging on event handlers by applying handler timeouts, and improve extension dependency locking
+-   Ensure bounded tool execution cleans up child processes that outlive stdout closure or a timeout, and close model adapters to prevent connection leaks
+-   Reclaim TUI focus when detached components are removed or replaced, and reduce retained child-component state and rendering work in terminal scrollback
+-   Reuse generated session context across hook calls to avoid redundant context-building work
+
 ## 0.8.1 — 2026-07-16
 
 ### Added
