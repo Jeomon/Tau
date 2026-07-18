@@ -221,6 +221,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
 
     # ── Advanced tab — networking, retry, compaction, editor ──────────────────
     advanced_items: list[SettingItem] = [
+        # Advanced tab — networking, retry, compaction, editor.
         SettingItem(
             id="proxy",
             label="Proxy",
@@ -421,7 +422,8 @@ def open_settings_panel(ctx: CommandContext) -> None:
 
         return _wrapped
 
-    # Append extension sub-panels into the Advanced tab
+    # Build manifest-provided extension sub-panels in their own tab.
+    extension_items: list[SettingItem] = []
     ext_runtime = ctx.runtime.extension_runtime
     if ext_runtime is not None:
         from pathlib import Path as _Path
@@ -444,7 +446,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
                         )
 
                 row_id = f"_ext_{id(reg)}"
-                advanced_items.append(
+                extension_items.append(
                     SettingItem(
                         id=row_id,
                         label=reg.title,
@@ -457,7 +459,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
                 )
 
     # Flat reference list for _update_parent — built after extensions are appended
-    items = settings_items + model_items + advanced_items
+    items = settings_items + model_items + advanced_items + extension_items
 
     sm.begin_batch()
 
@@ -592,6 +594,7 @@ def open_settings_panel(ctx: CommandContext) -> None:
         tabs=[
             ("Settings", settings_items),
             ("Model", model_items),
+            ("Extensions", extension_items),
             ("Advanced", advanced_items),
         ],
     )

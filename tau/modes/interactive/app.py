@@ -312,12 +312,12 @@ class App:
 
     def _register_ui_commands(self) -> None:
         from tau.commands.types import CommandInfo
-        from tau.modes.interactive.commands import appearance as cmd_appearance
         from tau.modes.interactive.commands import auth as cmd_auth
         from tau.modes.interactive.commands import extensions as cmd_extensions
         from tau.modes.interactive.commands import misc as cmd_misc
         from tau.modes.interactive.commands import model as cmd_model
         from tau.modes.interactive.commands import session as cmd_session
+        from tau.modes.interactive.commands import settings as cmd_settings
 
         reg = [
             CommandInfo(
@@ -337,13 +337,13 @@ class App:
             CommandInfo(
                 name="theme",
                 description="Change the UI theme (interactive picker).",
-                call=lambda _r, _a: cmd_appearance.open_theme_selector(self._ctx()),
+                call=lambda _r, _a: cmd_settings.open_theme_selector(self._ctx()),
                 requires_idle=False,
             ),
             CommandInfo(
                 name="settings",
                 description="Show current settings.",
-                call=lambda _r, _a: cmd_appearance.open_settings_panel(self._ctx()),
+                call=lambda _r, _a: cmd_settings.open_settings_panel(self._ctx()),
                 requires_idle=False,
             ),
             CommandInfo(
