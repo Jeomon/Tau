@@ -2139,10 +2139,23 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kimi / Moonshot (platform.kimi.ai). Moonshot's API rejects
-    # reasoning_effort outright when sent alongside thinking — control is
-    # purely the binary thinking.type "enabled"/"disabled" toggle, no graded
-    # intensity levels, for every model except k2.7-code (not in this catalog).
+    # Kimi / Moonshot (platform.kimi.ai). K3 is the exception to the older
+    # K2 family: it accepts only reasoning_effort="max" (not thinking.type).
+    Model(
+        id="kimi-k3",
+        name="Kimi K3",
+        provider="kimi",
+        cost=Cost(),
+        thinking=True,
+        thinking_levels=[ThinkingLevel.Max],
+        thinking_format="moonshot",
+        context_window=1_000_000,
+        input=_TEXT_IMAGE_VIDEO,
+        output=_TEXT,
+    ),
+    # The older K2 family rejects reasoning_effort outright when sent alongside
+    # thinking — control is purely the binary thinking.type "enabled"/"disabled"
+    # toggle, with no graded intensity levels (except k2.7-code, not catalogued).
     Model(
         id="kimi-k2.6",
         name="Kimi K2.6",

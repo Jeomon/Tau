@@ -29,6 +29,7 @@ ANT_LING = "ant-ling"
 TOGETHER = "together"
 STRING_THINKING = "string-thinking"
 TINKER = "tinker"
+MOONSHOT = "moonshot"
 
 # Dialects whose assistant messages must carry the reasoning field back on
 # replay — omitting it doesn't always error (NVIDIA's qwen-chat-template
@@ -132,6 +133,11 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
 
     if tag == STRING_THINKING:
         return {"thinking": effort or "none"}
+
+    if tag == MOONSHOT:
+        # Kimi K3 only accepts the literal "max" value. Its descriptor exposes
+        # just ThinkingLevel.Max, so other levels cannot be selected normally.
+        return {"reasoning_effort": "max"} if options.thinking_level == ThinkingLevel.Max else {}
 
     if tag == TINKER:
         # Unlike OPENROUTER's mandatory-reasoning models, Tinker documents
