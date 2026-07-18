@@ -28,10 +28,62 @@ _INLINE_MATH_RE = re.compile(
 # Many models (notably ChatGPT-style/OpenAI-family output, which includes the
 # gpt-oss models) emit LaTeX math delimited with \( \) / \[ \] instead of
 # $ $ / $$ $$, since dollar signs collide with plain currency amounts in
-# prose. Unlike $, a literal "\(" or "\[" essentially never appears in
-# ordinary text, so no currency-style disambiguation is needed here.
+# prose. These can't be recognised the same way $ $ is (by regex, after
+# mistletoe has already tokenized the document): mistletoe is a CommonMark
+# parser, and CommonMark backslash-escaping treats "(", ")", "[", "]" as
+# escapable punctuation — by the time a RawText node's content reaches
+# _render_latex_math(), mistletoe has already silently stripped the
+# delimiters' own backslashes (\lambda survives since letters aren't
+# escapable, but \( does not). A regex applied after tokenization can never
+# see them. They're extracted from the raw text before mistletoe runs instead
+# (see _extract_bracket_math), each replaced with an inert placeholder that
+# survives tokenization unchanged, and spliced back in once _render_inline
+# reaches that placeholder's RawText node.
 _DISPLAY_MATH_BRACKET_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
 _INLINE_MATH_PAREN_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
+
+# Private-use codepoints used as inert stand-ins during markdown processing:
+# _PIPE_PLACEHOLDER hides a literal "|" inside $ $/$$ $$ math (e.g.
+# absolute-value bars, $|\sin\theta| \lesssim 0.2$) from mistletoe's
+# table-row tokenizer, which splits every top-level "|" into a new column
+# with no notion of math syntax — restored inside _latex_math_to_text, once
+# the real (correct) cell boundaries are already fixed. _MATH_PLACEHOLDER_RE
+# marks a \(\)/\[\] span extracted before tokenization (see above), wrapping
+# an index into the renderer's replacement list.
+_PIPE_PLACEHOLDER = ""
+_MATH_PLACEHOLDER_RE = re.compile(r"(\d+)")
+
+
+def _protect_pipes_in_math(text: str) -> str:
+    """Hide '|' inside $ $/$$ $$ math spans from mistletoe's table splitter."""
+    if _PIPE_PLACEHOLDER in text:
+        return text
+    for pattern in (_DISPLAY_MATH_RE, _INLINE_MATH_RE):
+        text = pattern.sub(lambda m: m.group(0).replace("|", _PIPE_PLACEHOLDER), text)
+    return text
+
+
+def _extract_bracket_math(text: str) -> tuple[str, list[str]]:
+    """Pull \\(\\)/\\[\\] math spans out of the raw text before mistletoe
+    tokenizes it (see the delimiter comment above for why this can't wait
+    until after). Returns the placeholder-substituted text plus the list of
+    already-converted Unicode replacements, indexed by the placeholder.
+    """
+    replacements: list[str] = []
+
+    def _make_repl(is_display: bool):
+        def repl(match):
+            converted = _latex_math_to_text(match.group(1))
+            replacements.append(f"\n{converted}\n" if is_display else converted)
+            return f"{len(replacements) - 1}"
+
+        return repl
+
+    text = _DISPLAY_MATH_BRACKET_RE.sub(_make_repl(True), text)
+    text = _INLINE_MATH_PAREN_RE.sub(_make_repl(False), text)
+    return text, replacements
+
+
 _SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
 _TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\]\s+")
 _BARE_URL_RE = re.compile(r"https?://[^\s<>\"']+")
@@ -89,6 +141,7 @@ def _normalize_math_spacing(text: str) -> str:
 @lru_cache(maxsize=512)
 def _latex_math_to_text(expression: str) -> str:
     """Convert one LaTeX math expression to terminal-readable Unicode text."""
+    expression = expression.replace(_PIPE_PLACEHOLDER, "|")
     try:
         expression = _unicode_scripts(expression)
         converted = _latex_node_cls()(math_mode="text").latex_to_text(f"${expression}$")
@@ -99,7 +152,12 @@ def _latex_math_to_text(expression: str) -> str:
 
 
 def _render_latex_math(text: str) -> str:
-    """Render Markdown math delimiters without touching ordinary dollar amounts."""
+    """Render $ $/$$ $$ math delimiters without touching ordinary dollar amounts.
+
+    \\(\\)/\\[\\] math is handled separately, before mistletoe tokenizes the
+    document (see _extract_bracket_math) — by the time text reaches here it's
+    already been replaced with placeholders, not left as \\(\\)/\\[\\] spans.
+    """
 
     def display(match: re.Match[str]) -> str:
         return f"\n{_latex_math_to_text(match.group(1))}\n"
@@ -107,8 +165,6 @@ def _render_latex_math(text: str) -> str:
     def inline(match: re.Match[str]) -> str:
         return _latex_math_to_text(match.group(1))
 
-    text = _DISPLAY_MATH_BRACKET_RE.sub(display, text)
-    text = _INLINE_MATH_PAREN_RE.sub(inline, text)
     return _INLINE_MATH_RE.sub(inline, _DISPLAY_MATH_RE.sub(display, text))
 
 
@@ -222,9 +278,12 @@ def _render_markdown(
     trim_trailing_blank_lines: bool = True,
 ) -> list[str]:
     document, html_block, html_span, md_context = _mistletoe()
+    text, math_replacements = _extract_bracket_math(text)
+    text = _protect_pipes_in_math(text)
     with md_context(html_span, html_block):
         doc = document(text.splitlines(keepends=True))
-        lines = _Renderer(width, theme, preserve_soft_breaks).render_blocks(doc.children or [])
+        renderer = _Renderer(width, theme, preserve_soft_breaks, math_replacements)
+        lines = renderer.render_blocks(doc.children or [])
     if trim_trailing_blank_lines:
         while lines and lines[-1] == "":
             lines.pop()
@@ -385,10 +444,15 @@ class _Renderer:
         width: int,
         theme: MarkdownTheme,
         preserve_soft_breaks: bool = False,
+        math_replacements: list[str] | None = None,
     ) -> None:
         self.width = width
         self.theme = theme
         self.preserve_soft_breaks = preserve_soft_breaks
+        # Already-converted \(\)/\[\] math spans, indexed by the placeholder
+        # tokens _extract_bracket_math() left in RawText nodes' content — see
+        # the delimiter comment near the top of this module for why.
+        self.math_replacements = math_replacements or []
 
     # ── Block rendering ───────────────────────────────────────────────────────
 
@@ -663,7 +727,12 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                content = self._autolink_bare_urls(_render_latex_math(node.content))
+                content = _render_latex_math(node.content)
+                if self.math_replacements:
+                    content = _MATH_PLACEHOLDER_RE.sub(
+                        lambda m: self.math_replacements[int(m.group(1))], content
+                    )
+                content = self._autolink_bare_urls(content)
                 parts.append(apply_style(self.theme.body, content))
             elif name == "LineBreak":
                 soft = getattr(node, "soft", True)
