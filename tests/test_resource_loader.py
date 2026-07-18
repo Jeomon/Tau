@@ -36,6 +36,22 @@ class _Settings:
     def is_extensions_enabled(self) -> bool:
         return self.extensions_enabled
 
+    def is_batching(self) -> bool:
+        # Matches SettingsManager's real default (see settings/manager.py) —
+        # this fake predates DefaultResourceLoader.discover() gaining a
+        # dependency on it (it skips pruning stale settings.json extension
+        # records while a real batch is in progress; nothing here simulates
+        # batch mode, so always report "not batching").
+        return False
+
+    def prune_dangling_extensions(self, cwd: Path) -> list:
+        # No-op: pruning stale settings.json records has its own coverage
+        # elsewhere (settings/manager.py's own tests) — these tests are about
+        # resource *discovery*, and self.extensions here is a fixed list the
+        # test author constructed directly, not something meant to be mutated
+        # out from under it mid-test.
+        return []
+
 
 def _resource_package(tmp_path: Path) -> PackageEntry:
     package = tmp_path / "demo"

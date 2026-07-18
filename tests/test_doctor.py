@@ -296,8 +296,17 @@ def test_check_extensions_passes_with_well_formed_manifest(tmp_path, monkeypatch
     ext_dir = tmp_path / "extensions" / "good"
     ext_dir.mkdir(parents=True)
     (ext_dir / "manifest.json").write_text(json.dumps({"tau": {"extensions": ["./main.py"]}}))
+    (ext_dir / "main.py").write_text("def register(tau): pass\n")
+    # get_extensions_dir(cwd) is called once for project scope and once (with
+    # no cwd) for global scope — a mock collapsing both to the same directory
+    # double-counts this one extension under both labels. Route global scope
+    # to an empty directory so only the project-scope check fires, matching
+    # what this test is actually about.
+    global_dir = tmp_path / "global_extensions"
+    global_dir.mkdir()
     monkeypatch.setattr(
-        "tau.settings.paths.get_extensions_dir", lambda cwd=None: tmp_path / "extensions"
+        "tau.settings.paths.get_extensions_dir",
+        lambda cwd=None: (tmp_path / "extensions") if cwd is not None else global_dir,
     )
 
     sm = SettingsManager.in_memory({})
