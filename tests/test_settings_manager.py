@@ -272,3 +272,17 @@ class TestModelRefSlots:
         reloaded = SettingsManager.from_storage(mgr.storage)
         assert _ref(reloaded, "voice").id == "whisper-1"  # untouched
         assert _ref(reloaded, "speak").id == "tts-1"
+
+
+def test_engine_execution_settings_load_from_json() -> None:
+    mgr = _manager(
+        {
+            "tool_timeout_seconds": 45.0,
+            "max_parallel_tool_calls": 3,
+            "event_handler_timeout_seconds": 4.0,
+        }
+    )
+
+    assert mgr.settings.tool_timeout_seconds == 45.0
+    assert mgr.settings.max_parallel_tool_calls == 3
+    assert mgr.settings.event_handler_timeout_seconds == 4.0

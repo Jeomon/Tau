@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import difflib
 import hashlib
 import re
@@ -359,7 +360,9 @@ class EditTool(Tool):
         params = EditParams.model_validate(invocation.params)
         path = resolve_tool_path(params.path, invocation.cwd)
         async with serialize_file_mutation(path):
-            return self._edit(invocation, params, path)
+            # Anchor resolution, diffing, and atomic writes can all be large
+            # synchronous filesystem/CPU operations.
+            return await asyncio.to_thread(self._edit, invocation, params, path)
 
     def _handle_noop(
         self, invocation: ToolInvocation, params: EditParams, resolved: Path

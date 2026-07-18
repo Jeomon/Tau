@@ -255,31 +255,53 @@ class TerminalTool(Tool):
                     await asyncio.gather(*waiters, return_exceptions=True)
                 if not data:
                     break
-                output.append(data)
+                await asyncio.to_thread(output.append, data)
                 await _schedule_update()
+
+        task_cancelled = False
+
+        async def _read_and_wait() -> None:
+            # Closing stdout is not the same as exiting. Keep the process wait
+            # inside the command deadline so a child that redirects/closes its
+            # output cannot bypass ``timeout`` and block the tool forever.
+            await _read_loop()
+            # The cooperative signal is observed by _read_loop(); return to
+            # the cleanup block so it can terminate the still-running child.
+            if not cancelled:
+                await proc.wait()
 
         try:
             try:
                 if tool_execution_update_callback is not None:
                     await _emit_update(force=True)
-                await asyncio.wait_for(_read_loop(), timeout=params.timeout)
+                await asyncio.wait_for(_read_and_wait(), timeout=params.timeout)
             except TimeoutError:
                 timed_out = True
+            except asyncio.CancelledError:
+                # Engine-level cancellation is distinct from the cooperative
+                # AbortSignal path. Clean up the process, then preserve normal
+                # asyncio cancellation semantics for the caller.
+                task_cancelled = True
+                raise
             finally:
-                if proc.returncode is None and (timed_out or cancelled):
+                if proc.returncode is None and (timed_out or cancelled or task_cancelled):
                     await _terminate_process_tree(proc)
                 if proc.stdout is not None and (timed_out or cancelled):
                     with contextlib.suppress(Exception):
                         remaining = await asyncio.wait_for(proc.stdout.read(), timeout=1)
                         if remaining:
-                            output.append(remaining)
-                await proc.wait()
+                            await asyncio.to_thread(output.append, remaining)
+                # Process-tree termination should make this immediate, but do
+                # not allow cleanup to become an unbounded second wait.
+                if proc.returncode is None:
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(proc.wait(), timeout=1)
 
             if update_task is not None:
                 update_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await update_task
-            snapshot = output.finish()
+            snapshot = await asyncio.to_thread(output.finish)
         finally:
             # Guarantee resource release even if _read_loop raised something
             # other than TimeoutError (e.g. CancelledError): finish() above is
@@ -289,7 +311,7 @@ class TerminalTool(Tool):
                 update_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await update_task
-            output.close()
+            await asyncio.to_thread(output.close)
         output_text = _display_content(snapshot)
         metadata = {
             **_metadata(snapshot, running=False),
@@ -348,7 +370,10 @@ async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
-                await killer.wait()
+                # taskkill is itself an external process; never let failed
+                # cleanup turn an already-timed-out command into an infinite wait.
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(killer.wait(), timeout=1)
     elif proc.pid is not None:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(proc.pid, signal_module.SIGKILL)

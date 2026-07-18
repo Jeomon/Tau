@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -151,13 +152,17 @@ class ReadTool(Tool):
         params = ReadParams.model_validate(invocation.params)
         path = resolve_tool_path(params.path, invocation.cwd)
 
-        if not path.exists():
+        try:
+            exists, is_file = await asyncio.to_thread(lambda: (path.exists(), path.is_file()))
+        except OSError as e:
+            return ToolResult.error(invocation.id, f"Cannot access file: {e}")
+        if not exists:
             return ToolResult.error(invocation.id, f"File not found: {params.path}")
-        if not path.is_file():
+        if not is_file:
             return ToolResult.error(invocation.id, f"Not a file: {params.path}")
 
         try:
-            raw = path.read_bytes()
+            raw = await asyncio.to_thread(path.read_bytes)
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
 

@@ -272,18 +272,71 @@ class Engine:
             case AgentErrorEvent(error=error):
                 self.state.error_message = error
 
-        await self.hooks.emit(event)
+        await self.hooks.emit(event, timeout=self.options.event_handler_timeout_seconds)
+
+        async def notify(handler: Any, label: str) -> None:
+            try:
+                result = handler(event)
+                if asyncio.iscoroutine(result):
+                    timeout = self.options.event_handler_timeout_seconds
+                    if timeout is None:
+                        await result
+                    else:
+                        await asyncio.wait_for(result, timeout=timeout)
+            except TimeoutError:
+                _log.warning("Engine %s timed out while handling event %r", label, event.type)
+            except Exception:
+                _log.exception("Engine %s raised while handling event %r", label, event.type)
+
         if self.options.on_event is not None:
-            await self.options.on_event(event)
+            await notify(self.options.on_event, "on_event callback")
         for handler in list(self._subscribers):
-            result = handler(event)
-            if asyncio.iscoroutine(result):
-                await result
+            await notify(handler, "subscriber")
 
     # -------------------------------------------------------------------------
     # Tool execution
     # -------------------------------------------------------------------------
 
+    async def _run_tool_with_controls(
+        self,
+        awaitable: Coroutine[Any, Any, ToolResult],
+        signal: AbortSignal | None,
+    ) -> tuple[ToolResult | None, bool, bool]:
+        """Run a tool with enforced abort and timeout boundaries.
+
+        Returns ``(result, aborted, timed_out)``.  ``Tool.execute`` receives the
+        signal too, but this boundary protects the engine from tools that do
+        not implement cooperative cancellation.
+        """
+        tool_task = asyncio.create_task(awaitable)
+        signal_task = asyncio.create_task(signal.wait()) if signal is not None else None
+        waiters: set[asyncio.Task[Any]] = {tool_task}
+        if signal_task is not None:
+            waiters.add(signal_task)
+        try:
+            done, _ = await asyncio.wait(
+                waiters,
+                timeout=self.options.tool_timeout_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if tool_task in done:
+                return tool_task.result(), False, False
+
+            aborted = signal_task is not None and signal_task in done
+            timed_out = not aborted
+            tool_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await tool_task
+            return None, aborted, timed_out
+        finally:
+            if not tool_task.done():
+                tool_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await tool_task
+            if signal_task is not None:
+                signal_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await signal_task
     async def _execute(
         self,
         tool_call: ToolCallContent,
@@ -344,31 +397,55 @@ class Engine:
         tool_result: ToolResultContent
         try:
             await emit(ToolExecutionStartEvent(tool_call=tool_call))
-            raw = await tool.execute(
-                invocation=invocation,
-                tool_execution_update_callback=on_update,
-                signal=signal,
-                context=self.tool_context,
+            raw, aborted, timed_out = await self._run_tool_with_controls(
+                tool.execute(
+                    invocation=invocation,
+                    tool_execution_update_callback=on_update,
+                    signal=signal,
+                    context=self.tool_context,
+                ),
+                signal,
             )
-            if self.options.after_tool_call is not None:
-                raw = await self.options.after_tool_call(invocation, raw, signal) or raw
-            # raw.content is typed str but not runtime-enforced (plain dataclass), so a
-            # careless custom/extension tool can hand back None or a non-string value.
-            content = (
-                raw.content if isinstance(raw.content, str) or not raw.content else str(raw.content)
-            )
-            tool_result = ToolResultContent(
-                id=tool_call.id,
-                is_error=raw.is_error,
-                content=content,
-                metadata=raw.metadata,
-                terminate=raw.terminate,
-                terminate_message=raw.terminate_message,
-                tool_name=tool_call.name,
-                image=raw.image,
-                audio=raw.audio,
-                video=raw.video,
-            )
+            if aborted:
+                tool_result = ToolResultContent(
+                    id=tool_call.id,
+                    is_error=True,
+                    content="Tool execution cancelled.",
+                    metadata={"cancelled": True},
+                    tool_name=tool_call.name,
+                )
+            elif timed_out:
+                timeout = self.options.tool_timeout_seconds
+                tool_result = ToolResultContent(
+                    id=tool_call.id,
+                    is_error=True,
+                    content=f"Tool execution timed out after {timeout:g} seconds.",
+                    metadata={"timed_out": True},
+                    tool_name=tool_call.name,
+                )
+            else:
+                assert raw is not None
+                if self.options.after_tool_call is not None:
+                    raw = await self.options.after_tool_call(invocation, raw, signal) or raw
+                # raw.content is typed str but not runtime-enforced (plain dataclass), so a
+                # careless custom/extension tool can hand back None or a non-string value.
+                content = (
+                    raw.content
+                    if isinstance(raw.content, str) or not raw.content
+                    else str(raw.content)
+                )
+                tool_result = ToolResultContent(
+                    id=tool_call.id,
+                    is_error=raw.is_error,
+                    content=content,
+                    metadata=raw.metadata,
+                    terminate=raw.terminate,
+                    terminate_message=raw.terminate_message,
+                    tool_name=tool_call.name,
+                    image=raw.image,
+                    audio=raw.audio,
+                    video=raw.video,
+                )
         except Exception as e:
             _log.error("tool %s raised: %s", tool_call.name, e, exc_info=True)
             # First line is a concise summary (what a collapsed render shows); the
@@ -409,7 +486,8 @@ class Engine:
                 input=tool_call.args,
                 content=tool_result.content,
                 is_error=tool_result.is_error,
-            )
+            ),
+            timeout=self.options.event_handler_timeout_seconds,
         )
         for r in hook_results:
             if isinstance(r, ToolResultEventResult):
@@ -456,17 +534,29 @@ class Engine:
         emit: EmitEvent,
         signal: AbortSignal | None,
     ) -> list[ToolResultContent]:
-        """Execute all tool calls concurrently via asyncio.gather.
+        """Execute parallel-safe calls with a bounded, input-ordered scheduler."""
+        limit = self.options.max_parallel_tool_calls
+        if limit is None:
+            limit = len(tool_calls) or 1
+        if limit < 1:
+            raise ValueError("max_parallel_tool_calls must be at least 1 or None")
+        semaphore = asyncio.Semaphore(limit)
 
-        Args:
-            tool_calls: List of tool calls to execute in parallel.
-            emit: Callback to emit execution events.
-            signal: Abort signal to check for cancellation.
+        async def run_one(tool_call: ToolCallContent) -> ToolResultContent:
+            async with semaphore:
+                # Do not start work that was queued when the user aborted.
+                if signal is not None and signal.is_set():
+                    return ToolResultContent(
+                        id=tool_call.id,
+                        is_error=True,
+                        content="Tool execution cancelled.",
+                        metadata={"cancelled": True},
+                        tool_name=tool_call.name,
+                    )
+                return await self._execute(tool_call, emit, signal)
 
-        Returns:
-            List of ToolResultContent (order may differ from input).
-        """
-        return list(await asyncio.gather(*[self._execute(tc, emit, signal) for tc in tool_calls]))
+        tasks = [asyncio.create_task(run_one(tool_call)) for tool_call in tool_calls]
+        return list(await asyncio.gather(*tasks))
 
     async def _batch_execute(
         self,
@@ -993,13 +1083,15 @@ class Engine:
             case _:
                 pass
 
-        await self._loop_continue()
+        await self._loop_continue(signal)
 
-    async def _loop_continue(self) -> None:
-        """Re-enter the loop with existing state.messages
-        (used when last message is a tool result).
+    async def _loop_continue(self, signal: AbortSignal | None = None) -> None:
+        """Re-enter the loop with existing state.messages.
+
+        Used when the last message is a tool result. Preserve the caller's
+        abort signal instead of silently replacing it during continuation.
         """
-        self._signal = asyncio.Event()  # standalone re-entry gets its own fresh signal
+        self._signal = signal or asyncio.Event()
         self.state.error_message = None
         self.state.streaming_message = None
         self.state.pending_tool_calls.clear()

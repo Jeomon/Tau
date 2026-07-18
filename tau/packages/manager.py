@@ -13,6 +13,20 @@ from tau.settings.types import PackageEntry
 
 _log = logging.getLogger(__name__)
 
+# None of these subprocess.run() calls had a timeout — a hung pip/uv (a
+# private index prompting for credentials with no TTY to answer on, a stalled
+# network) blocked forever with no recovery short of killing the process.
+# install_requirements() runs on the extension-loading path (via
+# ExtensionLoader._load_one() -> asyncio.to_thread), awaited inside an
+# asyncio.gather() over every discovered extension — one hung install there
+# means the whole gather() never completes, so app startup or a full
+# extension reload hangs indefinitely, not just that one extension's load.
+_INSTALL_TIMEOUT_SECONDS = 120
+# Local, network-free introspection of an already-installed venv (site
+# location, an installed package's version) — a genuine hang here would be
+# pathological, not a legitimately slow operation, so this is tighter.
+_QUERY_TIMEOUT_SECONDS = 15
+
 
 class PackageManager:
     """Manages Python extension packages in a dedicated venv."""
@@ -61,23 +75,33 @@ class PackageManager:
                 ["uv", "venv", "--python", sys.executable, str(self.venv_dir)],
                 check=True,
                 capture_output=True,
+                timeout=_INSTALL_TIMEOUT_SECONDS,
             )
         else:
             subprocess.run(
                 [sys.executable, "-m", "venv", str(self.venv_dir)],
                 check=True,
                 capture_output=True,
+                timeout=_INSTALL_TIMEOUT_SECONDS,
             )
 
     def site_packages(self) -> Path | None:
         """Return the venv's site-packages directory."""
         if not self._python.exists():
             return None
-        result = subprocess.run(
-            [str(self._python), "-c", "import site; print(site.getsitepackages()[0])"],
-            capture_output=True,
-            text=True,
-        )
+        # No check=True — this has always tolerated failure by returning None
+        # rather than raising (callers, e.g. resource discovery, aren't
+        # wrapped in a broad try/except here). A timeout must fail the same
+        # way, not surface as a new, previously-impossible crash.
+        try:
+            result = subprocess.run(
+                [str(self._python), "-c", "import site; print(site.getsitepackages()[0])"],
+                capture_output=True,
+                text=True,
+                timeout=_QUERY_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return None
         if result.returncode == 0 and result.stdout.strip():
             return Path(result.stdout.strip())
         return None
@@ -103,7 +127,7 @@ class PackageManager:
             cmd.extend(["--index-url", index_url])
         for url in extra_index_urls or []:
             cmd.extend(["--extra-index-url", url])
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=_INSTALL_TIMEOUT_SECONDS)
 
         installed_path = self._find_package_dir(parsed.name)
         version = parsed.version or self._get_installed_version(parsed.name)
@@ -123,7 +147,7 @@ class PackageManager:
             cmd = ["uv", "pip", "uninstall", "--python", str(self._python), name]
         else:
             cmd = [str(self._pip_exe), "uninstall", "-y", name]
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=_INSTALL_TIMEOUT_SECONDS)
 
     def install_requirements(self, dependencies: list[str]) -> None:
         """Install a batch of dependency specs (e.g. extension-declared requirements)."""
@@ -134,7 +158,7 @@ class PackageManager:
             cmd = ["uv", "pip", "install", "--python", str(self._python), *dependencies]
         else:
             cmd = [str(self._python), "-m", "pip", "install", *dependencies]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=_INSTALL_TIMEOUT_SECONDS)
 
     def update(
         self,
@@ -152,7 +176,7 @@ class PackageManager:
             cmd.extend(["--index-url", index_url])
         for url in extra_index_urls or []:
             cmd.extend(["--extra-index-url", url])
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=_INSTALL_TIMEOUT_SECONDS)
         return self._get_installed_version(name)
 
     # ── Extension discovery ───────────────────────────────────────────────────
@@ -251,15 +275,23 @@ class PackageManager:
         if not self._python.exists():
             return None
         for n in [name.replace("-", "_").lower(), name.lower()]:
-            result = subprocess.run(
-                [
-                    str(self._python),
-                    "-c",
-                    f"import importlib.metadata; print(importlib.metadata.version({n!r}))",
-                ],
-                capture_output=True,
-                text=True,
-            )
+            # No check=True — this has always tolerated failure by trying the
+            # next name variant / falling through to None rather than
+            # raising. A timeout must fail the same way, not surface as a
+            # new, previously-impossible crash.
+            try:
+                result = subprocess.run(
+                    [
+                        str(self._python),
+                        "-c",
+                        f"import importlib.metadata; print(importlib.metadata.version({n!r}))",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=_QUERY_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                continue
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
         return None

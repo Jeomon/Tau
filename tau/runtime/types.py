@@ -13,6 +13,7 @@ from tau.agent.service import Agent
 from tau.agent.types import AgentConfig
 from tau.builtins.tools import TOOLS
 from tau.engine.service import Engine
+from tau.engine.types import EngineOptions
 from tau.extensions.api import ExtensionError, ExtensionFactory, _RuntimeRef
 from tau.extensions.runtime import ExtensionRuntime
 from tau.hooks.service import Hooks
@@ -416,10 +417,20 @@ class RuntimeContext:
         all_tools: list[Tool] = tool_registry.list()
 
         # ── Engine ────────────────────────────────────────────────────────────
+        engine_options = EngineOptions()
+        for name in (
+            "tool_timeout_seconds",
+            "max_parallel_tool_calls",
+            "event_handler_timeout_seconds",
+        ):
+            value = getattr(settings_manager.settings, name)
+            if value is not None:
+                setattr(engine_options, name, value)
         engine = Engine(
             cwd=cwd,
             llm=llm,
             tools=all_tools,
+            options=engine_options,
             hooks=hooks,
             settings=settings_manager,
         )

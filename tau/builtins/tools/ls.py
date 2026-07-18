@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -105,16 +106,20 @@ class LsTool(Tool):
     ) -> ToolResult:
         params = LsParams.model_validate(invocation.params)
         target = Path(params.path or invocation.cwd or ".").resolve()
+        return await asyncio.to_thread(self._list_directory, invocation.id, target)
 
+    @staticmethod
+    def _list_directory(invocation_id: str, target: Path) -> ToolResult:
+        """Perform directory metadata reads away from the asyncio event loop."""
         if not target.exists():
-            return ToolResult.error(invocation.id, f"Path not found: {target}")
+            return ToolResult.error(invocation_id, f"Path not found: {target}")
         if not target.is_dir():
-            return ToolResult.error(invocation.id, f"Not a directory: {target}")
+            return ToolResult.error(invocation_id, f"Not a directory: {target}")
 
         try:
             raw_entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
         except PermissionError:
-            return ToolResult.error(invocation.id, f"Permission denied: {target}")
+            return ToolResult.error(invocation_id, f"Permission denied: {target}")
 
         file_count = dir_count = 0
         entries = []
@@ -139,4 +144,4 @@ class LsTool(Tool):
             "dir_count": dir_count,
             "entries": entries,
         }
-        return ToolResult.ok(invocation.id, "\n".join(lines), metadata=metadata)
+        return ToolResult.ok(invocation_id, "\n".join(lines), metadata=metadata)

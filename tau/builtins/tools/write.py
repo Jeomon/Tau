@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +98,9 @@ class WriteTool(Tool):
         params = WriteParams.model_validate(invocation.params)
         path = resolve_tool_path(params.path, invocation.cwd)
         async with serialize_file_mutation(path):
-            return self._write(invocation, params, path)
+            # mkdir/write/fsync/replace are synchronous filesystem calls; keep
+            # them off the shared agent event loop while retaining the per-path lock.
+            return await asyncio.to_thread(self._write, invocation, params, path)
 
     def _write(self, invocation: ToolInvocation, params: WriteParams, path: Path) -> ToolResult:
         created = not path.exists()

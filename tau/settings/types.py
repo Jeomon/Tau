@@ -186,6 +186,10 @@ class Settings:
 
     # Execution
     terminal: TerminalSettings | None = None
+    # Engine-level safety controls. None means use the EngineOptions default.
+    tool_timeout_seconds: float | None = None
+    max_parallel_tool_calls: int | None = None
+    event_handler_timeout_seconds: float | None = None
 
     # Network
     http_idle_timeout_ms: int | None = None  # idle timeout for LLM HTTP streams (default: 60000)

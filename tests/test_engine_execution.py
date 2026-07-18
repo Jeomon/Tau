@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 from tau.engine.service import Engine
 from tau.engine.types import EngineOptions
-from tau.message.types import ToolCallContent
+from tau.message.types import ToolCallContent, UserMessage
 from tau.tool.types import ToolExecutionMode
 
 
@@ -93,3 +93,80 @@ def test_explicit_parallel_mode_does_not_override_tool_safety() -> None:
 
     engine._sequential_execute.assert_awaited_once()
     engine._parallel_execute.assert_not_awaited()
+
+
+def test_non_cooperative_tool_is_timed_out_by_engine() -> None:
+    engine = _engine(EngineOptions(tool_timeout_seconds=0.02))
+
+    async def never_finishes():
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    async def run() -> None:
+        result, aborted, timed_out = await engine._run_tool_with_controls(never_finishes(), None)
+        assert result is None
+        assert aborted is False
+        assert timed_out is True
+
+    asyncio.run(run())
+
+
+def test_engine_abort_cancels_a_non_cooperative_tool() -> None:
+    engine = _engine(EngineOptions(tool_timeout_seconds=None))
+    signal = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def never_finishes():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async def run() -> None:
+        task = asyncio.create_task(engine._run_tool_with_controls(never_finishes(), signal))
+        await asyncio.sleep(0)
+        signal.set()
+        result, aborted, timed_out = await asyncio.wait_for(task, timeout=1)
+        assert result is None
+        assert aborted is True
+        assert timed_out is False
+        assert cancelled.is_set()
+
+    asyncio.run(run())
+
+
+def test_parallel_tool_execution_is_bounded() -> None:
+    engine = _engine(EngineOptions(max_parallel_tool_calls=2))
+    calls = [ToolCallContent(id=str(index), name="test", args={}) for index in range(5)]
+    active = 0
+    maximum_active = 0
+
+    async def execute(call, _emit, _signal):
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return SimpleNamespace(id=call.id)
+
+    engine._execute = execute
+    result = asyncio.run(engine._parallel_execute(calls, AsyncMock(), None))
+
+    assert maximum_active == 2
+    assert [item.id for item in result] == [call.id for call in calls]
+
+
+def test_continue_preserves_the_supplied_abort_signal() -> None:
+    engine = _engine()
+    supplied_signal = asyncio.Event()
+    received_signals = []
+    engine.state.messages = [UserMessage.from_text("continue")]
+
+    async def loop(_messages, _emit, signal):
+        received_signals.append(signal)
+
+    engine._loop = loop
+    asyncio.run(engine.run_continue(signal=supplied_signal))
+
+    assert received_signals == [supplied_signal]

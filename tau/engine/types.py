@@ -154,6 +154,13 @@ class EngineOptions:
     should_skip_tool_calls: ShouldSkipToolCallsCallback | None = None
     transform_context: TransformContextCallback | None = None
     ephemeral_injection: EphemeralInjectionCallback | None = None
+    # Safety limits for every Tool.execute() call. Set either to None to opt
+    # out for an embedded client with intentionally long-running tools.
+    tool_timeout_seconds: float | None = 120.0
+    max_parallel_tool_calls: int | None = 10
+    # Engine event observers are external integration points and must not hold
+    # up tool lifecycle completion indefinitely.
+    event_handler_timeout_seconds: float | None = 10.0
 
 
 @dataclass

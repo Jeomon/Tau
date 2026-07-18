@@ -390,7 +390,7 @@ class Renderer:
                 component._elide_stable_prefix_for_next_render = False  # type: ignore[attr-defined]
         buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
 
-        if has_overlays:
+        if overlays:
             self._composite_overlays(buf, overlays, width, height)
 
         # stable_through only reflects the base content's frozen span — it has
