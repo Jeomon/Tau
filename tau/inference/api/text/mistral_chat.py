@@ -157,17 +157,33 @@ class MistralChatAPI(BaseAPI):
             timeout_ms=int(self.options.timeout.total_seconds() * 1000),
         )
 
-    def _sync_client(self) -> None:
+    async def _sync_client(self) -> None:
         """Rebuild the Mistral client if the api_key has changed since construction."""
         # The api_key is resolved and assigned to options *after* __init__,
         # so rebuild the client whenever it changes.
         if self.options.api_key != self._client_key:
             self._client_key = self.options.api_key
+            old_client = self._client
             self._client = self._build_client()
+            await self._aclose_client(old_client)
+
+    @staticmethod
+    async def _aclose_client(client: Mistral) -> None:
+        # Mistral's SDK exposes no close()/aclose() of its own — reach into
+        # the httpx.AsyncClient it builds internally (see _build_client).
+        # _build_client() never passes its own async_client, so the SDK
+        # always constructs one; the Optional[...] in its type signature
+        # only covers the caller-supplied-client case.
+        async_client = client.sdk_configuration.async_client
+        if async_client is not None:
+            await async_client.aclose()
+
+    async def aclose(self) -> None:
+        await self._aclose_client(self._client)
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         """Stream LLMEvents from the Mistral Chat API."""
-        self._sync_client()
+        await self._sync_client()
         mistral_messages = _messages_to_mistral(
             context.messages, supports_thinking=bool(model.thinking)
         )

@@ -357,7 +357,8 @@ class Runtime:
         agent = self._context.agent
         if agent is None:
             return False
-        old_model = agent._engine.llm.model
+        old_llm = agent._engine.llm
+        old_model = old_llm.model
         try:
             llm_factory = self._config.dependencies.llm
             new_llm = (
@@ -390,6 +391,16 @@ class Runtime:
         new_llm.api.options.distrust_thought_signatures = True
         agent._engine.set_llm(new_llm)
         agent._context_window = new_llm.model.input_limit or 128_000
+        # The outgoing provider's client (connection pool, kept-alive sockets)
+        # is otherwise never released — nothing else holds a reference to
+        # old_llm once it's replaced above, and there's no other lifecycle
+        # hook that would close it. A no-op if old_llm never actually made a
+        # request (its client was never lazily constructed). Best-effort:
+        # a close failure shouldn't undo an already-successful model swap.
+        try:
+            await old_llm.api.aclose()
+        except Exception:
+            _log.warning("failed to close outgoing model's client", exc_info=True)
         await self._context.hooks.emit(
             ModelSelectEvent(
                 model=new_llm.model,

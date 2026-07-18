@@ -69,6 +69,9 @@ class GitHubCopilotChatAPI(BaseAPI):
             timeout=options.timeout.total_seconds(),
         )
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     def _build_params(
         self, model: Model, messages: list[dict[str, Any]], tools: list[Tool] | None = None
     ) -> dict[str, Any]:

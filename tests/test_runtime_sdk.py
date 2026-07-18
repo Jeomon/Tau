@@ -348,3 +348,145 @@ def test_create_with_result_collects_startup_outcome(
     assert result.selected_provider_id == "selected-provider"
     assert result.model_fallback_reason == "requested provider unavailable"
     assert result.has_issues
+
+
+class _FakeAsyncApi:
+    """Duck-typed stand-in for LazyAPI's aclose() contract."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.aclose_calls = 0
+        self.options = SimpleNamespace(thinking_level=None, distrust_thought_signatures=False)
+
+    async def aclose(self) -> None:
+        self.aclose_calls += 1
+
+
+class _FakeLLM:
+    def __init__(self, name: str, provider_id: str = "test-provider") -> None:
+        self.model = SimpleNamespace(id=name, thinking=False, input_limit=100_000)
+        self.api = _FakeAsyncApi(name)
+        self.provider_id = provider_id
+
+
+class _FakeEngine:
+    def __init__(self, llm: _FakeLLM) -> None:
+        self.llm = llm
+        self._context_window = 0
+
+    def set_llm(self, llm: _FakeLLM) -> None:
+        self.llm = llm
+
+
+def test_set_model_closes_outgoing_client_on_successful_swap() -> None:
+    """Runtime.set_model() must close the provider client it's replacing.
+
+    Without this, every model switch during a live session abandons the
+    outgoing provider's connection pool — nothing else holds a reference to
+    it once agent._engine.set_llm() overwrites .llm, and there's no other
+    lifecycle hook that would close it.
+    """
+    old_llm = _FakeLLM("old-model")
+    new_llm = _FakeLLM("new-model")
+    engine = _FakeEngine(old_llm)
+    agent = SimpleNamespace(_engine=engine)
+
+    runtime = object.__new__(Runtime)
+    runtime._config = RuntimeConfig(
+        cwd=Path.cwd(),
+        dependencies=RuntimeDependencies(llm=lambda ctx: new_llm),  # type: ignore[arg-type]
+    )
+    runtime._context = SimpleNamespace(
+        agent=agent,
+        hooks=Hooks(),
+        settings_manager=SimpleNamespace(
+            get_thinking_level=lambda: None,
+            set_model_ref=lambda *a, **k: None,
+        ),
+        session_manager=None,
+    )
+
+    ok = asyncio.run(runtime.set_model("new-model", "test-provider"))
+
+    assert ok is True
+    assert engine.llm is new_llm
+    assert old_llm.api.aclose_calls == 1
+    assert new_llm.api.aclose_calls == 0
+
+
+def test_set_model_never_closes_client_that_was_never_used() -> None:
+    """A model switched away from without ever sending a message must not
+    force-construct its client just to close it (see LazyAPI.aclose()).
+    """
+    calls: list[str] = []
+
+    class _NeverResolvedApi:
+        def __getattr__(self, name: str):  # any real access means unwanted resolution
+            calls.append(name)
+            raise AssertionError(f"unexpected attribute access: {name}")
+
+        async def aclose(self) -> None:
+            calls.append("aclose")
+
+    old_llm = SimpleNamespace(
+        model=SimpleNamespace(id="old-model"),
+        api=_NeverResolvedApi(),
+    )
+    new_llm = _FakeLLM("new-model")
+    engine = _FakeEngine(old_llm)  # type: ignore[arg-type]
+    agent = SimpleNamespace(_engine=engine)
+
+    runtime = object.__new__(Runtime)
+    runtime._config = RuntimeConfig(
+        cwd=Path.cwd(),
+        dependencies=RuntimeDependencies(llm=lambda ctx: new_llm),  # type: ignore[arg-type]
+    )
+    runtime._context = SimpleNamespace(
+        agent=agent,
+        hooks=Hooks(),
+        settings_manager=SimpleNamespace(
+            get_thinking_level=lambda: None,
+            set_model_ref=lambda *a, **k: None,
+        ),
+        session_manager=None,
+    )
+
+    ok = asyncio.run(runtime.set_model("new-model", "test-provider"))
+
+    assert ok is True
+    assert calls == ["aclose"]  # only aclose() itself was touched, nothing else
+
+
+def test_set_model_close_failure_does_not_undo_a_successful_swap() -> None:
+    """A close() error on the outgoing client must be logged and swallowed —
+    the swap already succeeded and must not be reported as failed because of it.
+    """
+
+    class _FailsToClose:
+        async def aclose(self) -> None:
+            raise RuntimeError("boom")
+
+    old_llm = SimpleNamespace(model=SimpleNamespace(id="old-model"), api=_FailsToClose())
+    new_llm = _FakeLLM("new-model")
+    engine = _FakeEngine(old_llm)  # type: ignore[arg-type]
+    agent = SimpleNamespace(_engine=engine)
+
+    runtime = object.__new__(Runtime)
+    runtime._config = RuntimeConfig(
+        cwd=Path.cwd(),
+        dependencies=RuntimeDependencies(llm=lambda ctx: new_llm),  # type: ignore[arg-type]
+    )
+    runtime._context = SimpleNamespace(
+        agent=agent,
+        hooks=Hooks(),
+        settings_manager=SimpleNamespace(
+            get_thinking_level=lambda: None,
+            set_model_ref=lambda *a, **k: None,
+        ),
+        session_manager=None,
+    )
+
+    ok = asyncio.run(runtime.set_model("new-model", "test-provider"))
+
+    assert ok is True
+    assert engine.llm is new_llm

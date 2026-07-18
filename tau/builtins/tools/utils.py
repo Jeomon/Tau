@@ -306,17 +306,26 @@ async def run_bounded_lines(
             waiters: set[asyncio.Task[Any]] = {read_task}
             if signal_task is not None:
                 waiters.add(signal_task)
-            done, pending = await asyncio.wait(
-                waiters,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
-            if signal_task is not None and signal_task in done:
-                cancelled = True
-                read_task.cancel()
-                break
-            data = read_task.result()
+            try:
+                done, _pending = await asyncio.wait(
+                    waiters,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if signal_task is not None and signal_task in done:
+                    cancelled = True
+                    break
+                data = read_task.result()
+            finally:
+                # Cancel and await every waiter, not just the ones asyncio.wait()
+                # reported as still pending — cancelling a task without awaiting
+                # it leaves it dangling until the GC reaps it (with a "Task was
+                # destroyed but it is pending" warning) instead of actually
+                # unwinding it now. Mirrors the read loop in
+                # builtins/tools/terminal.py, which this was missing relative to.
+                for task in waiters:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
             if not data:
                 break
             lines.append(data.decode("utf-8", errors="replace").rstrip("\r\n"))

@@ -273,6 +273,9 @@ class OpenAIResponsesAPI(BaseAPI):
             timeout=options.timeout.total_seconds(),
         )
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     def _build_params(
         self,
         model: Model,

@@ -236,6 +236,11 @@ class GeminiGenerateAPI(BaseAPI):
         )
         self._client = genai.Client(api_key=options.api_key, http_options=http_options)
 
+    async def aclose(self) -> None:
+        # genai.Client.close() only tears down the synchronous client; the
+        # async interface (.aio, used by _stream) needs its own aclose().
+        await self._client.aio.aclose()
+
     def _build_config(
         self,
         uses_thinking_level: bool = False,

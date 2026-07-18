@@ -237,11 +237,12 @@ class AnthropicClaudeCodeAPI(BaseAPI):
             params["tools"] = []
         return params
 
-    def _sync_client(self) -> None:
+    async def _sync_client(self) -> None:
         """Rebuild client if the api_key (OAuth token) has been refreshed."""
         if self.options.api_key != self._current_api_key:
             self._current_api_key = self.options.api_key
             merged_headers = {**_OAUTH_HEADERS, **(self.options.headers or {})}
+            old_client = self._client
             self._client = AsyncAnthropic(
                 auth_token=self.options.api_key,
                 base_url=self.options.base_url,
@@ -249,10 +250,18 @@ class AnthropicClaudeCodeAPI(BaseAPI):
                 max_retries=self.options.max_retries,
                 timeout=self.options.timeout.total_seconds(),
             )
+            # OAuth tokens refresh periodically over a long session — without
+            # this, every refresh leaks the connection pool of the client it
+            # replaces (see aclose() below for the same leak at the top-level
+            # model-switch boundary).
+            await old_client.close()
+
+    async def aclose(self) -> None:
+        await self._client.close()
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         """Stream LLMEvents from the Anthropic Messages API using an OAuth token."""
-        self._sync_client()
+        await self._sync_client()
         system, anthropic_messages = anthropic_messages_to_list(
             context.messages, supports_thinking=bool(model.thinking)
         )

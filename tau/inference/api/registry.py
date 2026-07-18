@@ -91,6 +91,19 @@ class LazyAPI:
 
             await asyncio.to_thread(self._resolve)
 
+    async def aclose(self) -> None:
+        """Close the real adapter's network client, if one was ever built.
+
+        Deliberately does *not* go through ``__getattr__`` — doing so would
+        resolve (import the SDK, construct a client) an adapter that was
+        never actually used just to immediately close it, which is exactly
+        the wasted work laziness exists to avoid. A model that was switched
+        to but never sent a message has ``_real is None``: nothing to close.
+        """
+        real = object.__getattribute__(self, "_real")
+        if real is not None:
+            await real.aclose()
+
     def __getattr__(self, name: str):
         # Only reached for attributes not set on the proxy itself (e.g. not
         # ``options``), which means the real adapter is genuinely needed.

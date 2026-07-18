@@ -87,6 +87,9 @@ class AnthropicVertexAPI(BaseAPI):
         super().__init__(options)
         self._client = _build_client(options)
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     def _build_params(
         self,
         model: Model,

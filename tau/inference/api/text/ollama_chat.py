@@ -145,6 +145,9 @@ class OllamaChatAPI(BaseAPI):
             timeout=options.timeout.total_seconds(),
         )
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     async def _stream_chat(self, payload: dict[str, Any]):
         """Stream ChatResponse objects from Ollama's raw HTTP layer.
 

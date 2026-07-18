@@ -280,6 +280,11 @@ class GoogleVertexAPI(BaseAPI):
         super().__init__(options)
         self._client = _build_client(options)
 
+    async def aclose(self) -> None:
+        # genai.Client.close() only tears down the synchronous client; the
+        # async interface (.aio, used by _stream) needs its own aclose().
+        await self._client.aio.aclose()
+
     def _build_config(
         self,
         uses_thinking_level: bool = False,

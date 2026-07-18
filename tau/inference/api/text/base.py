@@ -39,3 +39,16 @@ class BaseLLMAPI(ABC):
         async for event in self.stream(context, model=model):
             events.append(event)
         return events
+
+    async def aclose(self) -> None:
+        """Release any persistent network client this adapter holds.
+
+        Default no-op: most adapters either open a per-call client (already
+        scoped with ``async with``) or hold nothing closable. Adapters that
+        construct a persistent SDK client in ``__init__`` (Anthropic, OpenAI,
+        Ollama, Mistral, the Vertex variants, ...) override this — callers
+        (e.g. ``Runtime.set_model()`` swapping the active model) must close
+        the outgoing adapter or its connection pool leaks for the rest of
+        the process.
+        """
+        return None
