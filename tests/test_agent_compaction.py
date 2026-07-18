@@ -303,3 +303,62 @@ def test_messages_queued_by_save_point_handler_are_continued() -> None:
         assert save_points == 2
 
     asyncio.run(scenario())
+
+
+def test_ephemeral_injection_reuses_transform_context_session_ctx() -> None:
+    """Engine._loop calls transform_context() then ephemeral_injection() back
+    to back on every turn, with nothing in between that touches session
+    state — so build_session_context() (walks the whole branch chain, no
+    caching) must run once per turn, not twice.
+    """
+
+    async def scenario() -> None:
+        build_calls = 0
+
+        def build_session_context() -> Any:
+            nonlocal build_calls
+            build_calls += 1
+            return SimpleNamespace(messages=[])
+
+        agent: Any = Agent.__new__(Agent)
+        agent._compaction_failures = 3  # short-circuits _check_compaction before it
+        # would otherwise call build_session_context() too (see _check_compaction —
+        # that call is *not* redundant with transform_context's, since compaction
+        # can mutate the branch in between; this test isolates the one that is).
+        agent._session_manager = SimpleNamespace(build_session_context=build_session_context)
+        agent.hooks = Hooks()
+
+        await agent._transform_context([], None)
+        assert build_calls == 1
+
+        await agent._ephemeral_injection()
+        assert build_calls == 1, "ephemeral_injection() must reuse transform_context()'s context"
+
+    asyncio.run(scenario())
+
+
+def test_ephemeral_injection_falls_back_when_called_without_transform_context() -> None:
+    """If ephemeral_injection() is ever invoked without a preceding
+    transform_context() this turn (Engine's callback slots are independently
+    configurable, even though Agent always wires both), it must build its own
+    context rather than silently reusing a stale one from a previous turn.
+    """
+
+    async def scenario() -> None:
+        build_calls = 0
+
+        def build_session_context() -> Any:
+            nonlocal build_calls
+            build_calls += 1
+            return SimpleNamespace(messages=[])
+
+        agent: Any = Agent.__new__(Agent)
+        agent._session_manager = SimpleNamespace(build_session_context=build_session_context)
+        agent.hooks = Hooks()
+        agent._pending_session_ctx = None
+
+        await agent._ephemeral_injection()
+
+        assert build_calls == 1
+
+    asyncio.run(scenario())

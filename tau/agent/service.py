@@ -18,6 +18,7 @@ from tau.message.types import (
 )
 from tau.message.utils import strip_unusable_trailing_assistant
 from tau.session.compaction import CompactionSettings
+from tau.session.types import SessionContext
 from tau.session.utils import to_llm_messages as _to_llm_messages
 from tau.tool.types import ToolInvocation, ToolResult
 from tau.utils.format import human_size as _fmt_size
@@ -76,6 +77,17 @@ class Agent:
         self._engine.options.after_tool_call = self._after_tool_call
         self._engine.options.transform_context = self._transform_context
         self._engine.options.ephemeral_injection = self._ephemeral_injection
+        # Engine._loop calls transform_context() then ephemeral_injection() back
+        # to back on every turn, and nothing in between touches session state —
+        # so the SessionContext transform_context just built is still valid.
+        # Stashed here so ephemeral_injection() doesn't redundantly rebuild it
+        # (walk the whole branch chain and rescan every entry a second time).
+        # Cleared immediately after use so a call to ephemeral_injection()
+        # without a preceding transform_context() this turn — not how Agent
+        # wires them, but Engine's callback slots are independently
+        # configurable — safely falls back to building its own instead of
+        # serving a stale context from a previous turn.
+        self._pending_session_ctx: SessionContext | None = None
 
     # -------------------------------------------------------------------------
     # Public interface
@@ -268,6 +280,7 @@ class Agent:
         """
         await self._check_compaction()
         session_ctx = self._session_manager.build_session_context()
+        self._pending_session_ctx = session_ctx
         llm_messages = _to_llm_messages(session_ctx.messages)
         return strip_unusable_trailing_assistant(llm_messages, self._session_manager)
 
@@ -281,7 +294,14 @@ class Agent:
         """
         from tau.hooks.engine import ContextEvent, ContextEventResult
 
-        session_ctx = self._session_manager.build_session_context()
+        # Reuse the SessionContext transform_context() just built this same
+        # turn (see the comment on self._pending_session_ctx in __init__)
+        # instead of walking the whole branch chain and rescanning every
+        # entry a second time.
+        session_ctx = self._pending_session_ctx
+        self._pending_session_ctx = None
+        if session_ctx is None:
+            session_ctx = self._session_manager.build_session_context()
         results = await self.hooks.emit(ContextEvent(messages=list(session_ctx.messages)))
         ephemeral: list[UserMessage] = []
         for result in results:
