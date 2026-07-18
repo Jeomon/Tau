@@ -37,6 +37,19 @@ augment it.
 | `--mode` | | Run mode: `interactive` (default), `print`, `json`, `rpc` |
 | `--help` | `-h` | Show help message |
 
+## Profiling
+
+Set `TAU_PROFILE=1` before starting Tau to collect aggregate component timings.
+Tau writes a report to `~/.tau/logs/profile-<pid>-<timestamp>.log` when the
+process exits. The report includes startup phases, per-extension discovery/load,
+import, and registration spans, plus TUI base rendering, overlay rendering/blitting,
+tool calls, and session persistence.
+
+```bash
+TAU_PROFILE=1 tau
+```
+
+## Run Modes
 ## Run Modes
 
 ## Interactive Commands

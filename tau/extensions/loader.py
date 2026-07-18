@@ -20,6 +20,7 @@ from tau.extensions.api import (
     _RuntimeRef,
 )
 from tau.packages.utils import add_site_packages_path
+from tau.utils import profiling
 from tau.utils.fs import atomic_write_text
 
 if TYPE_CHECKING:
@@ -502,8 +503,10 @@ class ExtensionLoader:
         Returns a ``LoadExtensionsResult`` with loaded ``Extension`` objects and
         any ``ExtensionError`` entries for files that failed to load.
         """
-        discovered = self._discover()
-        self._register_declared_skills()
+        with profiling.span("extensions.discover"):
+            discovered = self._discover()
+        with profiling.span("extensions.declared_skills"):
+            self._register_declared_skills()
 
         # Loading may install dependencies into a shared venv; avoid an
         # unbounded fan-out of import and installer work.
@@ -511,9 +514,10 @@ class ExtensionLoader:
 
         async def _load(path: Path, source: str) -> tuple[Extension | None, list[ExtensionError]]:
             async with semaphore:
-                config_key = path.parent.name if path.name == "__init__.py" else path.stem
+                config_key = _extension_identity(path)
                 config = self._entry_configs.get(config_key, {})
-                ext, errs = await self._load_one(path, config, source=source)
+                with profiling.span(f"extension.load.{source}.{config_key}"):
+                    ext, errs = await self._load_one(path, config, source=source)
             if ext is not None:
                 _log.debug("Loaded extension: %s (%s)", path, source)
             return ext, errs
@@ -535,11 +539,14 @@ class ExtensionLoader:
         """Load a single extension file and call its ``register(tau)`` factory."""
         str_path = str(path)
         errors: list[ExtensionError] = []
+        extension_name = _extension_identity(path)
+        span_prefix = f"extension.{source}.{extension_name}"
 
         try:
             deps = self._subdir_deps.get(path.parent.resolve())
             if deps:
-                await asyncio.to_thread(self._ensure_dependencies, path.parent, deps, source)
+                with profiling.span(f"{span_prefix}.dependencies"):
+                    await asyncio.to_thread(self._ensure_dependencies, path.parent, deps, source)
 
             module_name = f"_tau_ext_{hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:16]}"
             spec = importlib.util.spec_from_file_location(module_name, path)
@@ -565,7 +572,8 @@ class ExtensionLoader:
             # the main thread as normal) — top-level module code is expected
             # to be a set of def/class statements, not something that touches
             # the event loop, so this is safe for well-behaved extensions.
-            await asyncio.to_thread(spec.loader.exec_module, module)  # type: ignore[union-attr]
+            with profiling.span(f"{span_prefix}.import"):
+                await asyncio.to_thread(spec.loader.exec_module, module)  # type: ignore[union-attr]
 
             register_fn = getattr(module, _ENTRY_POINT, None)
             if register_fn is None or not callable(register_fn):
@@ -587,12 +595,12 @@ class ExtensionLoader:
                 runtime_ref=self._runtime_ref,
             )
 
-            result = register_fn(api)
-            if inspect.isawaitable(result):
-                await result
+            with profiling.span(f"{span_prefix}.register"):
+                result = register_fn(api)
+                if inspect.isawaitable(result):
+                    await result
 
             self._attach_manifest_panel(ext, path)
-
             return ext, errors
 
         except Exception:

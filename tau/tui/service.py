@@ -39,6 +39,7 @@ def _span(name: str) -> Generator[None]:
     with _span_hook(name):
         yield
 
+
 # The asyncio event loops on Windows can't watch a console handle with
 # add_reader, so stdin is pumped from a background thread there instead.
 _IS_WINDOWS = sys.platform == "win32"
@@ -407,7 +408,7 @@ class Renderer:
         if hasattr(component, "_elide_stable_prefix_for_next_render"):
             component._elide_stable_prefix_for_next_render = can_elide_stable_prefix  # type: ignore[attr-defined]
         try:
-            with _span("tui.render_cells"):
+            with _span("tui.render_cells"), _span("tui.base_component_render"):
                 rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
         finally:
             if hasattr(component, "_elide_stable_prefix_for_next_render"):
@@ -415,7 +416,8 @@ class Renderer:
         buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
 
         if overlays:
-            self._composite_overlays(buf, overlays, width, height)
+            with _span("tui.overlay_composite"):
+                self._composite_overlays(buf, overlays, width, height)
 
         # stable_through only reflects the base content's frozen span — it has
         # no notion of overlay pixels blitted on top afterward. Trusting it while
@@ -489,21 +491,23 @@ class Renderer:
                 continue
             ov_w = max(1, entry.resolve_width(width))
             ov_buf = Buffer.empty(Rect(0, 0, ov_w, 0))
-            natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
+            with _span("tui.overlay_render"):
+                natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
             _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
             ov_h = min(ov_h, natural_h)
 
             buf.grow_to(viewport_start + ov_row + ov_h)
-            for y in range(ov_h):
-                target_y = viewport_start + ov_row + y
-                if target_y < 0:
-                    continue
-                for x in range(ov_w):
-                    target_x = _LEFT_PAD + ov_col + x
-                    if target_x < 0 or target_x >= buf.area.width:
+            with _span("tui.overlay_blit"):
+                for y in range(ov_h):
+                    target_y = viewport_start + ov_row + y
+                    if target_y < 0:
                         continue
-                    cell = ov_buf.get(x, y)
-                    buf.set(target_x, target_y, cell.symbol, cell.style)
+                    for x in range(ov_w):
+                        target_x = _LEFT_PAD + ov_col + x
+                        if target_x < 0 or target_x >= buf.area.width:
+                            continue
+                        cell = ov_buf.get(x, y)
+                        buf.set(target_x, target_y, cell.symbol, cell.style)
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
