@@ -16,73 +16,51 @@ if TYPE_CHECKING:
 
 
 # ── LaTeX math ────────────────────────────────────────────────────────────────
-
-_DISPLAY_MATH_RE = re.compile(
-    r"(?<!\\)\$\$(?!\s)(.+?)(?<![\s\\])\$\$",
-    re.DOTALL,
-)
-_INLINE_MATH_RE = re.compile(
-    r"(?<![\\$])\$(?![\s$])(.+?)(?<![\s\\])\$(?![\d$])",
-    re.DOTALL,
-)
-# Many models (notably ChatGPT-style/OpenAI-family output, which includes the
-# gpt-oss models) emit LaTeX math delimited with \( \) / \[ \] instead of
-# $ $ / $$ $$, since dollar signs collide with plain currency amounts in
-# prose. These can't be recognised the same way $ $ is (by regex, after
-# mistletoe has already tokenized the document): mistletoe is a CommonMark
-# parser, and CommonMark backslash-escaping treats "(", ")", "[", "]" as
-# escapable punctuation — by the time a RawText node's content reaches
-# _render_latex_math(), mistletoe has already silently stripped the
-# delimiters' own backslashes (\lambda survives since letters aren't
-# escapable, but \( does not). A regex applied after tokenization can never
-# see them. They're extracted from the raw text before mistletoe runs instead
-# (see _extract_bracket_math), each replaced with an inert placeholder that
-# survives tokenization unchanged, and spliced back in once _render_inline
-# reaches that placeholder's RawText node.
+#
+# Math is extracted from the raw text *before* mistletoe tokenizes it, for two
+# reasons that both trace back to mistletoe being a real CommonMark parser:
+#
+#  1. \(\)/\[\] delimiters use a literal backslash, which collides with
+#     CommonMark's own backslash-escaping -- "(", ")", "[", "]" are escapable
+#     punctuation, so by the time any post-tokenization code sees this text,
+#     mistletoe has already silently stripped \( down to a bare "(" (letters
+#     like \lambda survive, since they're not escapable). A regex applied
+#     after tokenization can never see the delimiter.
+#  2. A literal "|" inside math (e.g. absolute-value bars, $|\sin\theta|$)
+#     is otherwise indistinguishable from a table-row column separator to
+#     mistletoe's tokenizer, which has no notion of math syntax and will
+#     shred the row into extra cells.
+#
+# Extracting everything up front sidesteps both: each matched span is
+# converted immediately and swapped for an inert placeholder that mistletoe
+# can only ever see as ordinary text, then spliced back in once rendering
+# reaches that placeholder's RawText node (see _render_inline).
+_DISPLAY_MATH_RE = re.compile(r"\$\$(?!\s)(.+?)(?<!\s)\$\$", re.DOTALL)
+_INLINE_MATH_RE = re.compile(r"(?<![\\$])\$(?![\s$])(.+?)(?<![\s\\])\$(?![\d$])", re.DOTALL)
 _DISPLAY_MATH_BRACKET_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
 _INLINE_MATH_PAREN_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
+# Ordered display-before-inline within each delimiter family, so the inline
+# pattern can't partially match into a display block's own delimiters.
+_MATH_RES = (
+    (_DISPLAY_MATH_RE, True),
+    (_DISPLAY_MATH_BRACKET_RE, True),
+    (_INLINE_MATH_RE, False),
+    (_INLINE_MATH_PAREN_RE, False),
+)
 
-# Private-use codepoints used as inert stand-ins during markdown processing:
-# _PIPE_PLACEHOLDER hides a literal "|" inside $ $/$$ $$ math (e.g.
-# absolute-value bars, $|\sin\theta| \lesssim 0.2$) from mistletoe's
-# table-row tokenizer, which splits every top-level "|" into a new column
-# with no notion of math syntax — restored inside _latex_math_to_text, once
-# the real (correct) cell boundaries are already fixed. _MATH_PLACEHOLDER_RE
-# marks a \(\)/\[\] span extracted before tokenization (see above), wrapping
-# an index into the renderer's replacement list.
-_PIPE_PLACEHOLDER = ""
-_MATH_PLACEHOLDER_RE = re.compile(r"(\d+)")
+_MATH_PLACEHOLDER = ""  # private-use codepoint, never appears in real text
+_MATH_PLACEHOLDER_RE = re.compile(re.escape(_MATH_PLACEHOLDER) + r"(\d+)" + re.escape(_MATH_PLACEHOLDER))
 
-
-def _protect_pipes_in_math(text: str) -> str:
-    """Hide '|' inside $ $/$$ $$ math spans from mistletoe's table splitter."""
-    if _PIPE_PLACEHOLDER in text:
-        return text
-    for pattern in (_DISPLAY_MATH_RE, _INLINE_MATH_RE):
-        text = pattern.sub(lambda m: m.group(0).replace("|", _PIPE_PLACEHOLDER), text)
-    return text
-
-
-def _extract_bracket_math(text: str) -> tuple[str, list[str]]:
-    """Pull \\(\\)/\\[\\] math spans out of the raw text before mistletoe
-    tokenizes it (see the delimiter comment above for why this can't wait
-    until after). Returns the placeholder-substituted text plus the list of
-    already-converted Unicode replacements, indexed by the placeholder.
-    """
-    replacements: list[str] = []
-
-    def _make_repl(is_display: bool):
-        def repl(match):
-            converted = _latex_math_to_text(match.group(1))
-            replacements.append(f"\n{converted}\n" if is_display else converted)
-            return f"{len(replacements) - 1}"
-
-        return repl
-
-    text = _DISPLAY_MATH_BRACKET_RE.sub(_make_repl(True), text)
-    text = _INLINE_MATH_PAREN_RE.sub(_make_repl(False), text)
-    return text, replacements
-
+# Fenced/inline code is left untouched by extraction below: a LaTeX example
+# shown inside a ```tex block or `$...$` code span is text to display
+# verbatim, not math to render, and mistletoe's own code-span/fence
+# recognition isn't available yet at this pre-tokenization stage to lean on.
+# Approximates CommonMark fence/span matching (same-length open/close
+# backtick or tilde run) rather than implementing it in full.
+_CODE_REGION_RE = re.compile(
+    r"(?P<fence>`{3,}|~{3,})[^\n]*\n.*?\n?(?P=fence)|`+[^`\n]+?`+",
+    re.DOTALL,
+)
 
 _SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
 _TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\]\s+")
@@ -141,7 +119,6 @@ def _normalize_math_spacing(text: str) -> str:
 @lru_cache(maxsize=512)
 def _latex_math_to_text(expression: str) -> str:
     """Convert one LaTeX math expression to terminal-readable Unicode text."""
-    expression = expression.replace(_PIPE_PLACEHOLDER, "|")
     try:
         expression = _unicode_scripts(expression)
         converted = _latex_node_cls()(math_mode="text").latex_to_text(f"${expression}$")
@@ -151,21 +128,37 @@ def _latex_math_to_text(expression: str) -> str:
     return _normalize_math_spacing(converted) or expression
 
 
-def _render_latex_math(text: str) -> str:
-    """Render $ $/$$ $$ math delimiters without touching ordinary dollar amounts.
-
-    \\(\\)/\\[\\] math is handled separately, before mistletoe tokenizes the
-    document (see _extract_bracket_math) — by the time text reaches here it's
-    already been replaced with placeholders, not left as \\(\\)/\\[\\] spans.
+def _extract_math(text: str) -> tuple[str, list[str]]:
+    """Pull every recognised math span out of the raw text before mistletoe
+    tokenizes it (see the module comment above for why). Returns the
+    placeholder-substituted text plus the list of already-converted Unicode
+    replacements, indexed by the placeholder. Fenced/inline code regions are
+    passed through untouched (see _CODE_REGION_RE).
     """
+    replacements: list[str] = []
 
-    def display(match: re.Match[str]) -> str:
-        return f"\n{_latex_math_to_text(match.group(1))}\n"
+    def _repl(is_display: bool):
+        def repl(match: re.Match[str]) -> str:
+            converted = _latex_math_to_text(match.group(1))
+            replacements.append(f"\n{converted}\n" if is_display else converted)
+            return f"{_MATH_PLACEHOLDER}{len(replacements) - 1}{_MATH_PLACEHOLDER}"
 
-    def inline(match: re.Match[str]) -> str:
-        return _latex_math_to_text(match.group(1))
+        return repl
 
-    return _INLINE_MATH_RE.sub(inline, _DISPLAY_MATH_RE.sub(display, text))
+    def _extract_in_segment(segment: str) -> str:
+        for pattern, is_display in _MATH_RES:
+            segment = pattern.sub(_repl(is_display), segment)
+        return segment
+
+    parts: list[str] = []
+    pos = 0
+    for m in _CODE_REGION_RE.finditer(text):
+        parts.append(_extract_in_segment(text[pos : m.start()]))
+        parts.append(m.group(0))
+        pos = m.end()
+    parts.append(_extract_in_segment(text[pos:]))
+    text = "".join(parts)
+    return text, replacements
 
 
 # ── Syntax highlighting (pygments) ──────────────────────────────────────────────
@@ -278,8 +271,7 @@ def _render_markdown(
     trim_trailing_blank_lines: bool = True,
 ) -> list[str]:
     document, html_block, html_span, md_context = _mistletoe()
-    text, math_replacements = _extract_bracket_math(text)
-    text = _protect_pipes_in_math(text)
+    text, math_replacements = _extract_math(text)
     with md_context(html_span, html_block):
         doc = document(text.splitlines(keepends=True))
         renderer = _Renderer(width, theme, preserve_soft_breaks, math_replacements)
@@ -449,9 +441,9 @@ class _Renderer:
         self.width = width
         self.theme = theme
         self.preserve_soft_breaks = preserve_soft_breaks
-        # Already-converted \(\)/\[\] math spans, indexed by the placeholder
-        # tokens _extract_bracket_math() left in RawText nodes' content — see
-        # the delimiter comment near the top of this module for why.
+        # Already-converted math spans, indexed by the placeholder tokens
+        # _extract_math() left in RawText nodes' content — see the module
+        # comment near the top of this file for why.
         self.math_replacements = math_replacements or []
 
     # ── Block rendering ───────────────────────────────────────────────────────
@@ -727,7 +719,7 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                content = _render_latex_math(node.content)
+                content = node.content
                 if self.math_replacements:
                     content = _MATH_PLACEHOLDER_RE.sub(
                         lambda m: self.math_replacements[int(m.group(1))], content
