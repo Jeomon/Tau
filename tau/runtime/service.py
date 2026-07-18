@@ -54,6 +54,11 @@ _SHUTDOWN_TASK_TIMEOUT = 1.0
 # internal timeout at all); cutting it too close would cancel an
 # already-well-behaved handler before it reaches its own kill() fallback,
 # orphaning the very subprocess it exists to reap.
+#
+# Also used to bound _emit_to_extension() (extension_unload/extension_reloaded,
+# fired on every enable/disable/reload — not just process shutdown): those run
+# under self._reload_lock, so a handler that hangs forever wedges every future
+# reload/toggle attempt for the rest of the session, not just the current one.
 _SHUTDOWN_HOOK_TIMEOUT = 10.0
 
 
@@ -817,6 +822,11 @@ class Runtime:
         Used for reload-only events (``extension_unload`` / ``extension_reloaded``)
         that must reach exactly one extension rather than every handler on the bus.
         Handler exceptions are swallowed so one bad handler can't block the reload.
+
+        Bounded by ``_SHUTDOWN_HOOK_TIMEOUT``: this runs under ``self._reload_lock``,
+        so a handler with no timeout of its own (an unbounded network call, a
+        deadlock) would otherwise hang forever and wedge every future
+        reload/toggle for the rest of the session — not just fail the current one.
         """
         import inspect
         from types import SimpleNamespace
@@ -833,7 +843,14 @@ class Runtime:
             try:
                 result = handler(event, ctx)
                 if inspect.isawaitable(result):
-                    await result
+                    await asyncio.wait_for(result, _SHUTDOWN_HOOK_TIMEOUT)
+            except TimeoutError:
+                _log.warning(
+                    "extension %s handler for %r timed out after %.0fs; skipping",
+                    ext.path,
+                    event_type,
+                    _SHUTDOWN_HOOK_TIMEOUT,
+                )
             except Exception:
                 # Don't let one failed handler abort the reload, but never fail
                 # silently — a botched dispose (e.g. servers not reaped) must be

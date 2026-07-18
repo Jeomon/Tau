@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from tau.extensions.api import ExtensionAPI, ExtensionError
+from tau.extensions.api import Extension, ExtensionAPI, ExtensionError
 from tau.hooks.runtime import RuntimeReadyEvent
 from tau.hooks.service import Hooks
 from tau.message.types import (
@@ -490,3 +490,49 @@ def test_set_model_close_failure_does_not_undo_a_successful_swap() -> None:
 
     assert ok is True
     assert engine.llm is new_llm
+
+
+def test_emit_to_extension_times_out_a_hung_handler(monkeypatch) -> None:
+    """A handler with no timeout of its own (unbounded network call, deadlock)
+    must not hang _emit_to_extension() forever.
+
+    This runs under Runtime._reload_lock during every enable/disable/reload —
+    an unbounded hang here would wedge every future reload/toggle for the
+    rest of the session, not just fail the current one.
+    """
+    import tau.runtime.service as runtime_service
+
+    monkeypatch.setattr(runtime_service, "_SHUTDOWN_HOOK_TIMEOUT", 0.05)
+
+    handler_started = asyncio.Event()
+
+    async def _hangs_forever(_event, _ctx) -> None:
+        handler_started.set()
+        await asyncio.Event().wait()  # never set — simulates a truly hung handler
+
+    ext = Extension(path="fake_ext", handlers={"extension_unload": [_hangs_forever]})
+
+    runtime = object.__new__(Runtime)
+    runtime._extension_callback_depth = 0
+    runtime._extension_callbacks_idle = asyncio.Event()
+    runtime._extension_callbacks_idle.set()
+    runtime._context = SimpleNamespace(
+        agent=None,
+        session_manager=None,
+        settings_manager=None,
+    )
+
+    async def _run() -> None:
+        await asyncio.wait_for(
+            runtime._emit_to_extension(ext, "extension_unload"),
+            timeout=2.0,  # generous outer bound — fails loudly if the fix regresses
+        )
+
+    asyncio.run(_run())
+
+    assert handler_started.is_set()
+    # The timeout path must also leave the callback-depth counter balanced,
+    # same as a normal exception — otherwise _extension_callbacks_idle never
+    # gets set again and the deferred-reload drain hangs on *that* instead.
+    assert runtime._extension_callback_depth == 0
+    assert runtime._extension_callbacks_idle.is_set()
