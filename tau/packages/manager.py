@@ -319,12 +319,38 @@ class PackageManager:
         return None
 
     def _find_package_dir(self, name: str) -> Path | None:
-        """Locate the installation directory of a package in site-packages."""
+        """Locate an import directory using distribution metadata when available."""
         site_pkgs = self.site_packages()
         if not site_pkgs or not site_pkgs.is_dir():
             return None
+
+        # Distribution and import names often differ (beautifulsoup4 -> bs4).
+        # Query the managed interpreter rather than assuming a directory named
+        # after the distribution exists in site-packages.
+        imports: list[str] = []
+        if self._python.exists():
+            script = (
+                "import importlib.metadata as m, json, re; "
+                f"n=re.sub(r'[-_.]+','-',{name!r}).lower(); "
+                "print(json.dumps([k for k,v in m.packages_distributions().items() "
+                "if any(re.sub(r'[-_.]+','-',d).lower()==n for d in v)]))"
+            )
+            try:
+                result = subprocess.run(
+                    [str(self._python), "-c", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=_QUERY_TIMEOUT_SECONDS,
+                )
+                if result.returncode == 0:
+                    parsed = json.loads(result.stdout)
+                    if isinstance(parsed, list):
+                        imports = [item for item in parsed if isinstance(item, str)]
+            except (subprocess.TimeoutExpired, json.JSONDecodeError):
+                pass
+
         normalized = name.replace("-", "_")
-        for candidate in [name, normalized, normalized.lower(), normalized.upper()]:
+        for candidate in [*imports, name, normalized, normalized.lower(), normalized.upper()]:
             p = site_pkgs / candidate
             if p.is_dir():
                 return p
