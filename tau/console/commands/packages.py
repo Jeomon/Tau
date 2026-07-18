@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import click
@@ -47,8 +48,15 @@ def install(
         raise click.ClickException(str(e)) from e
 
     settings = SettingsManager.create(cwd)
-    settings.add_package(entry, local=local)
-    asyncio.run(settings.flush())
+    try:
+        settings.add_package(entry, local=local)
+        asyncio.run(settings.flush())
+    except Exception as e:
+        # Do not report success for an installation that cannot be persisted.
+        # Best-effort rollback keeps the managed venv and settings aligned.
+        with contextlib.suppress(Exception):
+            pkg_manager.remove(entry.name)
+        raise click.ClickException(f"Installed package could not be saved: {e}") from e
 
     v = f"@{entry.version}" if entry.version else ""
     scope = "project" if local else "global"
@@ -77,8 +85,14 @@ def remove(name: str, local: bool) -> None:
         raise click.ClickException(str(e)) from e
 
     settings = SettingsManager.create(cwd)
-    settings.remove_package(name, local=local)
-    asyncio.run(settings.flush())
+    try:
+        settings.remove_package(name, local=local)
+        asyncio.run(settings.flush())
+    except Exception as e:
+        raise click.ClickException(
+            "Package was removed but settings could not be updated; "
+            f"run 'tau install' to reconcile: {e}"
+        ) from e
 
     click.echo(click.style(f"✓ Removed {name}", fg="green"))
 
@@ -110,8 +124,11 @@ def list_packages(local: bool, show_all: bool) -> None:
         return
 
     click.echo(f"{header}:\n")
+    from tau.packages.utils import redact_source
+
+    click.echo(f"{header}:\n")
     for pkg in packages:
         v = f"  {pkg.version}" if pkg.version else ""
         status = click.style("  [disabled]", fg="bright_black") if not pkg.enabled else ""
-        source = click.style(f"  ({pkg.source})", fg="bright_black")
+        source = click.style(f"  ({redact_source(pkg.source)})", fg="bright_black")
         click.echo(f"  {pkg.name}{v}{status}{source}")

@@ -8,6 +8,7 @@ from urllib.parse import unquote, urlparse
 from packaging.utils import (
     InvalidSdistFilename,
     InvalidWheelFilename,
+    canonicalize_name,
     parse_sdist_filename,
     parse_wheel_filename,
 )
@@ -23,6 +24,11 @@ def add_site_packages_path(path: Path | None) -> None:
     value = str(path)
     if value not in sys.path:
         sys.path.append(value)
+
+
+def redact_source(source: str) -> str:
+    """Remove URL userinfo and sensitive query/fragment data before display."""
+    return re.sub(r"(?<=//)[^/@\s]+@", "", source.split("?", 1)[0].split("#", 1)[0])
 
 
 def parse_source(source: str) -> ParsedSource:
@@ -43,21 +49,40 @@ def parse_source(source: str) -> ParsedSource:
         rest = s[5:]
         if "==" in rest:
             name, _, version = rest.partition("==")
+            if not version:
+                raise ValueError(f"Cannot parse package source: {source!r}")
         else:
             name, version = rest, None
         name = name.strip()
         if not re.fullmatch(r"[a-zA-Z0-9_.-]+", name):
             raise ValueError(f"Cannot parse package source: {source!r}")
+        normalized_name = canonicalize_name(name)
         spec = f"{name}=={version}" if version else name
         return ParsedSource(
-            source=SourceType.PYPI, raw=source, name=name, version=version, install_spec=spec
+            source=SourceType.PYPI,
+            raw=source,
+            name=normalized_name,
+            version=version,
+            install_spec=spec,
         )
 
     if s.startswith("git+"):
-        # git+https://github.com/user/repo@tag  →  name = "repo"
-        base = re.sub(r"@[^/]+$", "", s) if "@" in s else s
-        name = re.sub(r"\.git$", "", base).rstrip("/").split("/")[-1]
-        return ParsedSource(source=SourceType.GIT, raw=source, name=name, install_spec=source)
+        # A Git revision may contain slashes. Only .git@ starts the revision;
+        # stripping at a slash would make the branch name the package name.
+        repository = (
+            s.split(".git@", 1)[0] + ".git"
+            if ".git@" in s
+            else s.rsplit("@", 1)[0]
+            if "@" in s
+            else s
+        )
+        name = re.sub(r"\.git$", "", repository).rstrip("/").split("/")[-1]
+        return ParsedSource(
+            source=SourceType.GIT,
+            raw=source,
+            name=canonicalize_name(name),
+            install_spec=source,
+        )
 
     if s.startswith(("https://", "http://")):
         filename = Path(unquote(urlparse(s).path)).name
@@ -87,10 +112,15 @@ def parse_source(source: str) -> ParsedSource:
         name, version = m.group(1), m.group(2)
         spec = f"{name}=={version}" if version else name
         return ParsedSource(
-            source=SourceType.PYPI, raw=source, name=name, version=version, install_spec=spec
+            source=SourceType.PYPI,
+            raw=source,
+            name=canonicalize_name(name),
+            version=version,
+            install_spec=spec,
         )
 
     raise ValueError(f"Cannot parse package source: {source!r}")
+
 
 
 def _distribution_name_and_version(
@@ -107,22 +137,36 @@ def _distribution_name_and_version(
         return str(name), str(version)
     except InvalidSdistFilename:
         if fallback is not None:
-            return fallback, None
+            return canonicalize_name(fallback), None
         raise ValueError(f"URL does not identify a wheel or source archive: {filename!r}") from None
 
 
 def extensions_from_pyproject(pyproject: Path, base: Path) -> list[Path]:
-    """Read [tool.tau].extensions from a pyproject.toml and return resolved paths."""
+    """Read [tool.tau].extensions, rejecting declarations outside its root."""
     try:
         try:
-            import tomllib  # Python 3.11+
+            import tomllib
         except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore[no-redef]
-            except ImportError:
-                return []
+            import tomli as tomllib  # type: ignore[no-redef]
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        declared = data.get("tool", {}).get(get_app_name().lower(), {}).get("extensions", [])
-        return [(base / p).resolve() for p in declared if (base / p).is_file()]
+        section = (
+            data.get("tool", {}).get(get_app_name().lower(), {})
+            if isinstance(data, dict)
+            else {}
+        )
+        declared = section.get("extensions", []) if isinstance(section, dict) else []
+        root = base.resolve()
+        paths: list[Path] = []
+        for value in declared if isinstance(declared, list) else []:
+            if not isinstance(value, str):
+                continue
+            candidate = (root / value).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                paths.append(candidate)
+        return paths
     except Exception:
         return []

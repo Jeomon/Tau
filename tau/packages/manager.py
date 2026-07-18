@@ -28,6 +28,22 @@ _INSTALL_TIMEOUT_SECONDS = 120
 _QUERY_TIMEOUT_SECONDS = 15
 
 
+def _package_path(root: Path, declared: object, *, file_only: bool = False) -> Path | None:
+    """Resolve a package declaration without permitting path traversal/symlink escape."""
+    if not isinstance(declared, str):
+        return None
+    resolved_root = root.resolve()
+    candidate = (resolved_root / declared).resolve()
+    try:
+        candidate.relative_to(resolved_root)
+    except ValueError:
+        _log.warning("ignoring package declaration outside %s: %r", resolved_root, declared)
+        return None
+    if not candidate.exists() or (file_only and not candidate.is_file()):
+        return None
+    return candidate
+
+
 class PackageManager:
     """Manages Python extension packages in a dedicated venv."""
 
@@ -199,9 +215,13 @@ class PackageManager:
         if manifest.is_file():
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
-                declared = data.get(get_app_name().lower(), {}).get("extensions", [])
-                if declared:
-                    return [(pkg_dir / p).resolve() for p in declared if (pkg_dir / p).is_file()]
+                section = data.get(get_app_name().lower(), {}) if isinstance(data, dict) else {}
+                declared = section.get("extensions", []) if isinstance(section, dict) else []
+                if isinstance(declared, list):
+                    paths = [_package_path(pkg_dir, value, file_only=True) for value in declared]
+                    found = [path for path in paths if path is not None]
+                    if found:
+                        return found
             except (json.JSONDecodeError, OSError):
                 _log.warning("failed to parse package manifest %s", manifest, exc_info=True)
 
@@ -243,7 +263,9 @@ class PackageManager:
         if manifest.is_file():
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
-                declared = data.get(get_app_name().lower(), {}).get(resource, [])
+                section = data.get(get_app_name().lower(), {}) if isinstance(data, dict) else {}
+                value = section.get(resource, []) if isinstance(section, dict) else []
+                declared = value if isinstance(value, list) else []
             except (json.JSONDecodeError, OSError):
                 _log.warning("failed to parse package manifest %s", manifest, exc_info=True)
 
@@ -252,8 +274,8 @@ class PackageManager:
             if conventional.exists():
                 declared = [f"./{resource}"]
 
-        paths = [(pkg_dir / value).resolve() for value in declared]
-        paths = [path for path in paths if path.exists()]
+        paths = [_package_path(pkg_dir, value) for value in declared]
+        paths = [path for path in paths if path is not None]
         if include is None:
             return paths
 
