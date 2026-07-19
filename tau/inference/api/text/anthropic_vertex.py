@@ -103,13 +103,12 @@ class AnthropicVertexAPI(BaseAPI):
             "messages": anthropic_apply_message_cache(messages, skip_tail=ephemeral_message_count),
             "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
         }
-        if not model.thinking_suppresses_sampling:
-            params["temperature"] = self.options.temperature
+        params["temperature"] = self.options.temperature
         if system:
             params["system"] = [
                 {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
             ]
-        params.update(anthropic_thinking_params(model, self.options))
+        params.update(anthropic_thinking_params(self.options))
 
         if tools:
             tool_defs = [

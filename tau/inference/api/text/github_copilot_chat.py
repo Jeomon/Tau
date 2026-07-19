@@ -108,7 +108,7 @@ class GitHubCopilotChatAPI(BaseAPI):
         # as openai_completions.py).
         if self.options.api_key:
             self._client.api_key = self.options.api_key
-        chat_messages = openai_messages_to_chat(context.messages, model)
+        chat_messages = openai_messages_to_chat(context.messages)
         if context.system_prompt:
             chat_messages = [{"role": "system", "content": context.system_prompt}] + chat_messages
         params = self._build_params(model, chat_messages, tools=context.tools or None)

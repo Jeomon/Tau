@@ -184,49 +184,8 @@ async def resolve_project_id(access_token: str, base_url: str = _DEFAULT_BASE_UR
     return _FALLBACK_PROJECT_ID
 
 
-def _claude_strict_schema(node: Any) -> Any:
-    """Recursively adapt a tool schema for Claude's strict JSON Schema draft
-    2020-12 validation, which Gemini tolerates violating but Claude 400s on:
-
-    - every object-shaped node needs an explicit ``type: "object"``, at any depth
-    - genuine multi-branch unions (``anyOf``/``oneOf``/``allOf`` with more than
-      one surviving branch, e.g. a Pydantic ``str | SomeModel`` field) are
-      rejected outright by Claude's tool-use engine — collapsed to an untyped
-      (permissive) schema, since Claude has no equivalent of a JSON Schema
-      union for structured tool input.
-    """
-    if isinstance(node, list):
-        return [_claude_strict_schema(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    fixed = dict(node)
-    for key in ("anyOf", "oneOf", "allOf"):
-        if key in fixed and isinstance(fixed[key], list):
-            branches = [_claude_strict_schema(item) for item in fixed[key]]
-            if len(branches) == 1:
-                fixed.pop(key)
-                fixed.update(branches[0])
-            else:
-                # Claude rejects real unions; drop the constraint, keep the
-                # description so the model still knows what shape to send.
-                fixed.pop(key)
-                fixed.pop("type", None)
-    if "properties" in fixed and isinstance(fixed["properties"], dict):
-        fixed["properties"] = {
-            key: _claude_strict_schema(value) for key, value in fixed["properties"].items()
-        }
-        fixed.setdefault("type", "object")
-    if "items" in fixed:
-        fixed["items"] = _claude_strict_schema(fixed["items"])
-    if fixed.get("type") == "object" and "properties" not in fixed:
-        fixed["properties"] = {}
-    return fixed
-
-
 def _messages_to_contents(
     messages: list[LLMMessage],
-    requires_tool_call_id: bool = False,
     *,
     distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[dict[str, Any]]]:
@@ -306,8 +265,6 @@ def _messages_to_contents(
                                     "name": item.name,
                                     "args": item.args if isinstance(item.args, dict) else {},
                                 }
-                                if requires_tool_call_id:
-                                    function_call["id"] = item.id
                                 fc_entry: dict[str, Any] = {"functionCall": function_call}
                                 if sig:
                                     fc_entry["thoughtSignature"] = sig
@@ -339,8 +296,6 @@ def _messages_to_contents(
                             "name": content.tool_name,
                             "response": {response_key: tool_result_text(content)},
                         }
-                        if requires_tool_call_id:
-                            function_response["id"] = content.id
                         response_parts = gemini_function_response_parts_raw(content)
                         if response_parts is not None:
                             function_response["parts"] = response_parts
@@ -413,17 +368,8 @@ class GoogleAntigravityAPI(BaseAPI):
         return self._project_id
 
     @staticmethod
-    def _tools_to_declarations(tools: list[Tool], is_claude: bool = False) -> list[dict[str, Any]]:
-        """Convert Tool objects to Gemini functionDeclarations format.
-
-        The wire envelope always uses ``functionDeclarations[].parameters`` —
-        cloudcode-pa rejects an ``input_schema`` key outright, even when the
-        model routes to Claude server-side. But Claude's backend validates that
-        schema strictly against JSON Schema draft 2020-12 and 400s if any node
-        with `properties` is missing `type: object` — including nested nodes
-        inside `items`/`anyOf`/`oneOf`/`allOf`, which Gemini tolerates but
-        Claude does not — so the fix has to walk the whole tree, not just the root.
-        """
+    def _tools_to_declarations(tools: list[Tool]) -> list[dict[str, Any]]:
+        """Convert Tool objects to Gemini functionDeclarations format."""
         seen: set[str] = set()
         decls = []
         for t in tools:
@@ -432,8 +378,6 @@ class GoogleAntigravityAPI(BaseAPI):
             seen.add(t.name)
             raw = t.schema.model_json_schema() if t.schema else {}
             schema = gemini_tool_schema(raw)
-            if is_claude:
-                schema = _claude_strict_schema(schema)
             decls.append({"name": t.name, "description": t.description or "", "parameters": schema})
         return decls
 
@@ -455,36 +399,19 @@ class GoogleAntigravityAPI(BaseAPI):
         if schema is not None:
             generation_config["responseMimeType"] = "application/json"
             generation_config["responseSchema"] = schema
-        is_claude = model.antigravity_is_claude
         if self.options.thinking_level is not None:
             from tau.inference.types import ThinkingBudgets
             from tau.inference.types import ThinkingLevel as _TL
 
             if self.options.thinking_level == _TL.Off:
-                generation_config["thinkingConfig"] = (
-                    {"thinking_budget": 0} if is_claude else {"thinkingBudget": 0}
-                )
+                generation_config["thinkingConfig"] = {"thinkingBudget": 0}
             else:
                 budgets = self.options.thinking_budgets or ThinkingBudgets()
                 budget = budgets.get(self.options.thinking_level)
-                if is_claude:
-                    # Antigravity's Claude backend only reliably returns thought
-                    # parts when thinkingConfig is snake_case, and requires
-                    # maxOutputTokens to exceed the thinking budget.
-                    generation_config["thinkingConfig"] = {
-                        "thinking_budget": budget,
-                        "include_thoughts": True,
-                    }
-                    current_max = generation_config.get("maxOutputTokens")
-                    if not current_max or current_max <= budget:
-                        generation_config["maxOutputTokens"] = max(
-                            budget + 8_192, model.max_output_tokens or 0
-                        )
-                else:
-                    generation_config["thinkingConfig"] = {
-                        "thinkingBudget": budget,
-                        "includeThoughts": True,
-                    }
+                generation_config["thinkingConfig"] = {
+                    "thinkingBudget": budget,
+                    "includeThoughts": True,
+                }
 
         inner: dict[str, Any] = {"contents": contents}
         if system:
@@ -492,7 +419,7 @@ class GoogleAntigravityAPI(BaseAPI):
         if generation_config:
             inner["generationConfig"] = generation_config
         if tools:
-            decls = self._tools_to_declarations(tools, is_claude)
+            decls = self._tools_to_declarations(tools)
             if decls:
                 inner["tools"] = [{"functionDeclarations": decls}]
 
@@ -503,7 +430,6 @@ class GoogleAntigravityAPI(BaseAPI):
         distrust_sigs = self.options.distrust_thought_signatures
         system, contents = _messages_to_contents(
             context.messages,
-            model.antigravity_is_claude,
             distrust_thought_signatures=distrust_sigs,
         )
         if context.system_prompt:
@@ -517,10 +443,6 @@ class GoogleAntigravityAPI(BaseAPI):
             response_format=context.response_format,
         )
         headers = _antigravity_headers(self.options.api_key or "")
-        if model.antigravity_is_claude and model.thinking:
-            # Antigravity's Claude backend disables interleaved thinking (thinking
-            # between tool calls) unless this beta flag is explicitly present.
-            headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
         # Read live, not cached: a `before_provider_request` extension hook may
         # have mutated `self.options.headers` in place just before this call.
         headers.update(self.options.headers or {})

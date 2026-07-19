@@ -190,21 +190,6 @@ def test_client_forwards_custom_base_url():
     assert api._client._api_client._http_options.base_url == "https://custom.example.com/v1"
 
 
-def test_gemini3_uses_thinking_level_not_budget():
-    from tau.inference.api.text.gemini_generate import GeminiGenerateAPI
-    from tau.inference.types import LLMOptions, ThinkingLevel
-
-    api = GeminiGenerateAPI(LLMOptions(api_key="fake", thinking_level=ThinkingLevel.High))
-
-    gemini3_config = api._build_config(uses_thinking_level=True)
-    assert gemini3_config.thinking_config.thinking_level == genai_types.ThinkingLevel.HIGH
-    assert gemini3_config.thinking_config.thinking_budget is None
-
-    other_config = api._build_config(uses_thinking_level=False)
-    assert other_config.thinking_config.thinking_level is None
-    assert other_config.thinking_config.thinking_budget is not None
-
-
 def test_distrust_thought_signatures_never_leaks_into_extra_params():
     # distrust_thought_signatures is a dedicated LLMOptions field, not part of
     # extra_params — several providers (e.g. openai_completions.py) spread

@@ -1,31 +1,37 @@
-from tau.inference.api.text.dialect import OPENROUTER, build_reasoning_request_params
+from tau.inference.api.text.dialect import build_reasoning_request_params
 from tau.inference.model.types import Model
 from tau.inference.types import LLMOptions, ThinkingLevel
 
 
-def _openrouter_reasoning_model() -> Model:
+def _reasoning_model() -> Model:
     return Model(
         id="openai/gpt-oss-120b:free",
         name="GPT-OSS 120B",
         provider="openrouter",
         thinking=True,
-        thinking_format=OPENROUTER,
     )
 
 
-def test_openrouter_reasoning_model_defaults_to_enabled() -> None:
+def test_reasoning_model_no_level_returns_no_params() -> None:
     params = build_reasoning_request_params(
-        _openrouter_reasoning_model(),
+        _reasoning_model(),
         LLMOptions(thinking_level=None),
     )
 
-    assert params == {"reasoning": {"enabled": True}}
+    assert params == {}
 
 
-def test_openrouter_reasoning_model_uses_selected_effort() -> None:
+def test_reasoning_model_uses_selected_effort() -> None:
     params = build_reasoning_request_params(
-        _openrouter_reasoning_model(),
+        _reasoning_model(),
         LLMOptions(thinking_level=ThinkingLevel.Medium),
     )
 
-    assert params == {"reasoning": {"effort": "medium"}}
+    assert params == {"reasoning_effort": "medium"}
+
+
+def test_non_thinking_model_returns_no_params() -> None:
+    model = Model(id="gpt-4o", name="GPT-4o", provider="openai", thinking=False)
+    params = build_reasoning_request_params(model, LLMOptions(thinking_level=ThinkingLevel.High))
+
+    assert params == {}

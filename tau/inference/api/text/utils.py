@@ -354,14 +354,8 @@ def openai_response_format(response_format: Any | None) -> dict[str, Any] | None
     }
 
 
-def openai_messages_to_chat(messages: list, model: Any = None) -> list[dict[str, Any]]:
-    """Convert a message list to OpenAI chat completions format.
-
-    ``model`` (when given) drives dialect-specific replay handling, e.g.
-    re-attaching stored thinking as ``reasoning_content`` for models that
-    require it on every assistant message.
-    """
-    from tau.inference.api.text import dialect
+def openai_messages_to_chat(messages: list) -> list[dict[str, Any]]:
+    """Convert a message list to OpenAI chat completions format."""
     from tau.message.types import (
         AssistantMessage,
         SystemMessage,
@@ -382,14 +376,12 @@ def openai_messages_to_chat(messages: list, model: Any = None) -> list[dict[str,
                     continue
                 result.append({"role": "user", "content": openai_user_content(msg.contents)})
             case AssistantMessage():
-                text, tool_calls, thinking_text = openai_assistant_content(msg.contents)
+                text, tool_calls, _thinking_text = openai_assistant_content(msg.contents)
                 entry: dict[str, Any] = {"role": "assistant"}
                 if text is not None:
                     entry["content"] = text
                 if tool_calls:
                     entry["tool_calls"] = tool_calls
-                if model is not None:
-                    dialect.attach_reasoning_for_replay(entry, model, thinking_text)
                 result.append(entry)
             case ToolMessage():
                 for content in msg.contents:
@@ -548,32 +540,15 @@ def anthropic_output_config(response_format: Any | None) -> dict[str, Any] | Non
     return {"format": {"type": "json_schema", "schema": structured.schema}}
 
 
-def anthropic_thinking_params(model: Any, options: Any) -> dict[str, Any]:
-    """Build the ``thinking`` (and, for adaptive models, ``output_config.effort``)
-    request params for an Anthropic-Messages-compatible request.
-
-    Dispatches on ``model.thinking_adaptive``: adaptive models (Opus 4.7+,
-    Sonnet 4.6+/5, Fable 5) use ``thinking: {type: "adaptive"}`` with the level
-    name passed as ``output_config.effort`` (or ``{type: "disabled"}`` for Off);
-    older models (Haiku 4.5, Sonnet 4.5, Opus 4.5 and earlier) use
-    ``thinking: {type: "enabled", budget_tokens: N}`` and have no notion of
-    Off — omitting ``thinking`` entirely leaves it off by default.
+def anthropic_thinking_params(options: Any) -> dict[str, Any]:
+    """Build the ``thinking`` request params for an Anthropic-Messages-compatible
+    request: ``thinking: {type: "enabled", budget_tokens: N}``. No notion of Off —
+    omitting ``thinking`` entirely leaves it off by default.
     """
     from tau.inference.types import ThinkingBudgets, ThinkingLevel
 
     level = options.thinking_level
-    if level is None:
-        return {}
-
-    if model.thinking_adaptive:
-        if level == ThinkingLevel.Off:
-            return {"thinking": {"type": "disabled"}}
-        return {
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": level.value},
-        }
-
-    if level == ThinkingLevel.Off:
+    if level is None or level == ThinkingLevel.Off:
         return {}
     budgets = options.thinking_budgets or ThinkingBudgets()
     return {"thinking": {"type": "enabled", "budget_tokens": budgets.get(level)}}
