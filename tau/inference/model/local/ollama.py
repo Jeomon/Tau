@@ -2,10 +2,9 @@
 
 `/api/tags` on a local Ollama server returns both genuinely local models and
 cloud-linked tags (pulled via `ollama pull <model>` against Ollama Cloud) —
-the latter are already covered by the static catalog in
-`tau.builtins.models.text`, so this module filters them out via the
-`remote_host` field the raw HTTP API exposes (the `ollama` SDK's typed
-response silently drops that field, hence using httpx directly here).
+this module filters out the latter via the `remote_host` field the raw HTTP
+API exposes (the `ollama` SDK's typed response silently drops that field,
+hence using httpx directly here).
 
 Intended to run once, in the background, at process startup — see
 `Runtime._start_ollama_discovery`. Best-effort throughout: any failure

@@ -8,7 +8,6 @@ from google.genai import types as genai_types
 
 from tau.inference.api.text.gemini_generate import _messages_to_gemini
 from tau.inference.api.text.utils import gemini_tool_schema
-from tau.inference.model.registry import ModelRegistry
 from tau.message.types import (
     AssistantMessage,
     ToolCallContent,
@@ -61,17 +60,6 @@ def test_gemini_tool_schema_preserves_property_named_title() -> None:
     option_object = question_object["properties"]["options"]["items"]["anyOf"][1]
     assert "title" in option_object["properties"]
     assert option_object["required"] == ["title"]
-
-
-def test_google_ai_studio_models_are_registered() -> None:
-    registry = ModelRegistry.from_text_builtins()
-
-    assert registry.get("gemini-3.5-flash", provider="google") is not None
-    assert registry.get("gemini-3.1-flash-lite", provider="google") is not None
-    assert registry.get("gemini-3.1-pro-preview", provider="google") is not None
-    assert registry.get("gemini-2.5-pro", provider="google") is not None
-    assert registry.get("gemini-2.5-flash", provider="google") is not None
-    assert registry.get("gemini-2.5-flash-lite", provider="google") is not None
 
 
 def test_messages_preserve_function_call_id_and_signature() -> None:

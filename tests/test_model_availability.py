@@ -58,15 +58,6 @@ class TestSTTTTSClassification:
         assert m.is_stt is False
         assert m.is_tts is False
 
-    def test_builtin_audio_models_split_cleanly(self):
-        audio = ModelRegistry.from_audio_builtins().list()
-        stt = {m.id for m in audio if m.is_stt}
-        tts = {m.id for m in audio if m.is_tts}
-        assert stt and tts  # both groups are non-empty
-        assert not (stt & tts)  # no model is both
-        # every audio model classifies as exactly one of the two
-        assert all(m.is_stt ^ m.is_tts for m in audio)
-
 
 class TestAvailableModels:
     def test_no_auth_type_provider_always_included(self):

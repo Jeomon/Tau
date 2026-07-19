@@ -267,8 +267,26 @@ def test_runtime_config_seeds_initial_messages_and_media(tmp_path: Path) -> None
     ]
 
 
-def test_runtime_config_base_url_overrides_llm_options(tmp_path: Path) -> None:
+def test_runtime_config_base_url_overrides_llm_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """RuntimeConfig.base_url must apply as a temporary override (not persisted)."""
+    from tau.inference.api.text.service import TextLLM
+    from tau.inference.model.registry import ModelRegistry
+    from tau.inference.model.types import Model
+    from tau.inference.provider.registry import TextProviderRegistry
+    from tau.inference.provider.types import APIProvider
+    from tau.inference.types import LLMOptions
+
+    models = ModelRegistry()
+    models.register(Model(id="llama-3.3-70b-versatile", name="Llama 3.3 70B", provider="groq"))
+    providers = TextProviderRegistry()
+    providers.register(
+        APIProvider(id="groq", name="Groq", api="openai_completions", options=LLMOptions())
+    )
+    monkeypatch.setattr(TextLLM, "_models", models)
+    monkeypatch.setattr(TextLLM, "_providers", providers)
+
     config = RuntimeConfig(
         cwd=tmp_path,
         config_dir=tmp_path / "config",

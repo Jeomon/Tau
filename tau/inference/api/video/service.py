@@ -16,12 +16,10 @@ _log = logging.getLogger(__name__)
 class VideoLLM:
     """Service for video generation using video generation APIs."""
 
-    _models = ModelRegistry.from_video_builtins()
-    _providers = VideoProviderRegistry.from_builtins()
+    _models = ModelRegistry()
+    _providers = VideoProviderRegistry()
     _apis = VideoAPIRegistry.from_builtins()
-    _auth_manager = AuthManager.create(
-        ProviderRegistry(video=VideoProviderRegistry.from_builtins())
-    )
+    _auth_manager = AuthManager.create(ProviderRegistry(video=VideoProviderRegistry()))
 
     @classmethod
     def list_available(cls) -> list:

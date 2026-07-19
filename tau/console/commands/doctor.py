@@ -61,7 +61,7 @@ async def _run_checks(fix: bool = False) -> list[Section]:
     from tau.settings.manager import SettingsManager
 
     cwd = Path.cwd()
-    provider_registry = ProviderRegistry.from_builtins()
+    provider_registry = ProviderRegistry()
     settings_manager = SettingsManager.create(cwd)
     auth_manager = AuthManager.create(provider_registry)
 
@@ -259,7 +259,7 @@ def _check_models(sm, provider_registry, model_registry=None) -> tuple[Section, 
     if model_registry is None:
         from tau.inference.model.registry import ModelRegistry
 
-        model_registry = ModelRegistry.from_all_builtins()
+        model_registry = ModelRegistry()
     results: list[CheckResult] = []
     referenced_providers: set[str] = set()
 

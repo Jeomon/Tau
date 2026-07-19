@@ -35,13 +35,13 @@ class TextLLM:
     @classmethod
     def _builtin_models(cls) -> ModelRegistry:
         if cls._models is None:
-            cls._models = ModelRegistry.from_text_builtins()
+            cls._models = ModelRegistry()
         return cls._models
 
     @classmethod
     def _builtin_providers(cls) -> TextProviderRegistry:
         if cls._providers is None:
-            cls._providers = TextProviderRegistry.from_builtins()
+            cls._providers = TextProviderRegistry()
         return cls._providers
 
     @classmethod

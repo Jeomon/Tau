@@ -74,17 +74,14 @@ def auth_unset(provider):
 def auth_status():
     """Show configuration status for all known providers."""
     from tau.auth.manager import AuthManager
-    from tau.builtins.providers.text import api_providers, oauth_providers
     from tau.inference.provider.registry import ProviderRegistry
     from tau.inference.provider.types import OAuthProvider
 
     registry = ProviderRegistry()
-    for p in api_providers + oauth_providers:
-        registry.text.register(p)
 
     manager = AuthManager.create(registry)
 
-    all_providers = api_providers + oauth_providers
+    all_providers = registry.text.list()
     header = f"  {'Provider':<24} {'Type':<8} {'Source':<8} Status"
     separator = "  " + "─" * 54
     click.echo(header)
@@ -120,20 +117,17 @@ def auth_login(provider):
 
 async def _login(provider_id: str) -> None:
     from tau.auth.manager import AuthManager
-    from tau.builtins.providers.text import oauth_providers
     from tau.inference.provider.oauth.types import OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt
     from tau.inference.provider.registry import ProviderRegistry
 
-    oauth_ids = [p.id for p in oauth_providers]
+    registry = ProviderRegistry()
+
+    oauth_ids = [p.id for p in registry.text.get_oauth_providers()]
     if provider_id not in oauth_ids:
         raise click.ClickException(
             f"'{provider_id}' does not support OAuth. "
             f"Use 'tau auth set {provider_id} <key>' instead."
         )
-
-    registry = ProviderRegistry()
-    for p in oauth_providers:
-        registry.text.register(p)
 
     manager = AuthManager.create(registry)
 
@@ -174,12 +168,9 @@ def auth_logout(provider):
 
 async def _logout(provider_id: str) -> None:
     from tau.auth.manager import AuthManager
-    from tau.builtins.providers.text import oauth_providers
     from tau.inference.provider.registry import ProviderRegistry
 
     registry = ProviderRegistry()
-    for p in oauth_providers:
-        registry.text.register(p)
 
     manager = AuthManager.create(registry)
 

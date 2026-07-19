@@ -67,30 +67,12 @@ class TextProviderRegistry(_ProviderRegistryBase[TextProvider]):
         p = self.get(provider)
         return p if isinstance(p, APIProvider) else None
 
-    @classmethod
-    def from_builtins(cls) -> TextProviderRegistry:
-        from tau.builtins.providers.text import providers
-
-        instance = cls()
-        for provider in providers:
-            instance.register(provider)
-        return instance
-
 
 class ImageProviderRegistry(_ProviderRegistryBase[ImageProvider]):
     """Registry mapping provider names to image-generation provider instances."""
 
     def _key(self, provider: ImageProvider) -> str:
         return provider.id
-
-    @classmethod
-    def from_builtins(cls) -> ImageProviderRegistry:
-        from tau.builtins.providers.image import providers
-
-        instance = cls()
-        for provider in providers:
-            instance.register(provider)
-        return instance
 
 
 class AudioProviderRegistry(_ProviderRegistryBase[AudioProvider]):
@@ -99,30 +81,12 @@ class AudioProviderRegistry(_ProviderRegistryBase[AudioProvider]):
     def _key(self, provider: AudioProvider) -> str:
         return provider.id
 
-    @classmethod
-    def from_builtins(cls) -> AudioProviderRegistry:
-        from tau.builtins.providers.audio import providers
-
-        instance = cls()
-        for provider in providers:
-            instance.register(provider)
-        return instance
-
 
 class VideoProviderRegistry(_ProviderRegistryBase[VideoProvider]):
     """Registry mapping provider names to video-generation provider instances."""
 
     def _key(self, provider: VideoProvider) -> str:
         return provider.id
-
-    @classmethod
-    def from_builtins(cls) -> VideoProviderRegistry:
-        from tau.builtins.providers.video import providers
-
-        instance = cls()
-        for provider in providers:
-            instance.register(provider)
-        return instance
 
 
 class ProviderRegistry:
@@ -139,12 +103,3 @@ class ProviderRegistry:
         self.image = image or ImageProviderRegistry()
         self.audio = audio or AudioProviderRegistry()
         self.video = video or VideoProviderRegistry()
-
-    @classmethod
-    def from_builtins(cls) -> ProviderRegistry:
-        return cls(
-            text=TextProviderRegistry.from_builtins(),
-            image=ImageProviderRegistry.from_builtins(),
-            audio=AudioProviderRegistry.from_builtins(),
-            video=VideoProviderRegistry.from_builtins(),
-        )

@@ -16,12 +16,10 @@ _log = logging.getLogger(__name__)
 class ImageLLM:
     """Service for image generation using image generation APIs."""
 
-    _models = ModelRegistry.from_image_builtins()
-    _providers = ImageProviderRegistry.from_builtins()
+    _models = ModelRegistry()
+    _providers = ImageProviderRegistry()
     _apis = ImageAPIRegistry.from_builtins()
-    _auth_manager = AuthManager.create(
-        ProviderRegistry(image=ImageProviderRegistry.from_builtins())
-    )
+    _auth_manager = AuthManager.create(ProviderRegistry(image=ImageProviderRegistry()))
 
     @classmethod
     def list_available(cls) -> list:

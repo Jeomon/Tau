@@ -124,23 +124,3 @@ class TestModelRegistryList:
         r.register(_model("b"))
         r.reset()
         assert r.list() == []
-
-
-class TestModelRegistryFromBuiltins:
-    def test_from_text_builtins_has_models(self):
-        r = ModelRegistry.from_text_builtins()
-        assert len(r.list()) > 0
-
-    def test_from_text_builtins_all_have_id(self):
-        r = ModelRegistry.from_text_builtins()
-        for m in r.list():
-            assert m.id
-            assert m.provider
-
-    def test_openrouter_free_gpt_oss_reserves_room_for_input(self):
-        r = ModelRegistry.from_text_builtins()
-        model = r.get("openai/gpt-oss-120b:free", provider="openrouter")
-
-        assert model is not None
-        assert model.max_output_tokens == 16_384
-        assert model.max_output_tokens < model.context_window

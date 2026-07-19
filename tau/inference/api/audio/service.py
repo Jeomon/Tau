@@ -34,11 +34,11 @@ class AudioLLM:
     def _ensure_defaults(cls) -> None:
         """Lazily initialize default registries."""
         if cls._models is None:
-            cls._models = ModelRegistry.from_audio_builtins()
-            cls._providers = AudioProviderRegistry.from_builtins()
+            cls._models = ModelRegistry()
+            cls._providers = AudioProviderRegistry()
             cls._apis = AudioAPIRegistry.from_builtins()
             cls._auth_manager = AuthManager.create(
-                ProviderRegistry(audio=AudioProviderRegistry.from_builtins())
+                ProviderRegistry(audio=AudioProviderRegistry())
             )
 
     @classmethod
