@@ -59,7 +59,7 @@ def test_aclose_only_closes_once_even_if_called_twice() -> None:
     asyncio.run(lazy.aclose())
     asyncio.run(lazy.aclose())
 
-    assert _FakeReal.instances[0].aclose_calls == 2  # delegates each time; SDK closes are idempotent
+    assert _FakeReal.instances[0].aclose_calls == 2  # delegates each time; close is idempotent
 
 
 class _ConcreteAPI(BaseLLMAPI):
@@ -69,8 +69,9 @@ class _ConcreteAPI(BaseLLMAPI):
 
 
 def test_base_llm_api_aclose_default_is_a_safe_noop() -> None:
-    from tau.inference.types import LLMOptions, Transport
     from datetime import timedelta
+
+    from tau.inference.types import LLMOptions, Transport
 
     options = LLMOptions(
         api_key="x",

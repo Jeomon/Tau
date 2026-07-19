@@ -40,7 +40,7 @@ def test_uuid7_has_correct_version_and_variant_nibbles() -> None:
 
 
 def test_lite_models_are_exactly_the_gpt_5_6_family() -> None:
-    assert _RESPONSES_LITE_MODELS == {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+    assert {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} == _RESPONSES_LITE_MODELS
 
 
 def test_build_body_never_sends_prompt_cache_options() -> None:

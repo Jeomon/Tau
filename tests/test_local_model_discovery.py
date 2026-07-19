@@ -16,6 +16,13 @@ import pytest
 
 from tau.inference.api.text.service import TextLLM
 from tau.inference.model.local import register_all
+from tau.inference.model.local.llamacpp import (
+    _build_model as _llamacpp_build_model,
+)
+from tau.inference.model.local.llamacpp import (
+    discover_local_llamacpp_models,
+    register_local_llamacpp_models,
+)
 from tau.inference.model.local.lmstudio import (
     _build_model as _lmstudio_build_model,
 )
@@ -29,13 +36,6 @@ from tau.inference.model.local.ollama import (
 from tau.inference.model.local.ollama import (
     _context_length,
     discover_local_ollama_models,
-)
-from tau.inference.model.local.llamacpp import (
-    _build_model as _llamacpp_build_model,
-)
-from tau.inference.model.local.llamacpp import (
-    discover_local_llamacpp_models,
-    register_local_llamacpp_models,
 )
 from tau.inference.model.local.vllm import (
     _build_model as _vllm_build_model,
