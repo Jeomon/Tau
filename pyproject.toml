@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "tau-coding-agent"
@@ -63,19 +63,24 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 quote-style = "double"
 indent-style = "space"
 
-[tool.setuptools]
-include-package-data = true
+# Only the `tau` import package is shipped. Its non-Python data files (builtins,
+# bundled skills/prompts/themes) are included automatically.
+[tool.hatch.build.targets.wheel]
+packages = ["tau"]
+# A stray empty settings file in the source tree that must not ship.
+exclude = ["tau/.tau"]
 
-# Only package the `tau` import package. Without this, setuptools auto-discovery
-# trips over sibling top-level dirs (dist/, docs/, assets/, *.egg-info) and
-# aborts editable installs with "Multiple top-level packages discovered".
-[tool.setuptools.packages.find]
-include = ["tau*"]
+# The system prompt points the model at Tau's docs (tau/agent/prompt/builder.py).
+# They live at the repo root, outside the import package, so they are staged into
+# `tau/` at build time; get_docs_dir() then resolves them from site-packages.
+# Editable installs skip this and read the working tree directly.
+[tool.hatch.build.targets.wheel.force-include]
+"docs" = "tau/docs"
+"README.md" = "tau/README.md"
 
-[tool.setuptools.package-data]
-tau = [
-    "builtins/**/*",
-]
+# The sdist keeps the natural repo layout (docs/ at root); only the wheel relocates.
+[tool.hatch.build.targets.sdist]
+include = ["tau", "docs", "examples", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

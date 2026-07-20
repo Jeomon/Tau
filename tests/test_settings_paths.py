@@ -210,3 +210,47 @@ class TestDistributedPathsResolveToRealFiles:
         from tau.settings.paths import get_docs_dir
 
         assert (get_docs_dir() / "index.md").is_file()
+
+
+class TestDocsResolveWhenPackagedInsidePackage:
+    """A wheel ships docs at ``tau/docs`` (staged by hatchling's force-include), while a
+    source checkout has them at the repository root. The resolver must find either.
+
+    Without the in-package branch, pip-installed users got no documentation at all:
+    the prompt's docs section is dropped when the directory does not exist."""
+
+    def test_prefers_in_package_docs_when_present(self, tmp_path, monkeypatch):
+        """Simulates the wheel layout: docs live inside the installed package."""
+        import importlib.resources
+
+        from tau.settings.paths import _resolve_distributed_path
+
+        pkg = tmp_path / "site-packages" / "tau"
+        (pkg / "docs").mkdir(parents=True)
+        monkeypatch.setattr(importlib.resources, "files", lambda _pkg: pkg)
+
+        assert _resolve_distributed_path("docs") == pkg / "docs"
+
+    def test_falls_back_to_repo_root_when_not_packaged(self, tmp_path, monkeypatch):
+        """Simulates the source-checkout layout: nothing inside the package."""
+        import importlib.resources
+
+        from tau.settings.paths import _resolve_distributed_path, get_docs_dir
+
+        empty_pkg = tmp_path / "site-packages" / "tau"
+        empty_pkg.mkdir(parents=True)
+        monkeypatch.setattr(importlib.resources, "files", lambda _pkg: empty_pkg)
+
+        resolved = _resolve_distributed_path("docs")
+
+        assert resolved == get_docs_dir()
+        assert resolved.is_dir()
+        assert (resolved / "index.md").is_file()
+
+    def test_returns_stable_path_when_asset_missing_everywhere(self):
+        from tau.settings.paths import _resolve_distributed_path
+
+        resolved = _resolve_distributed_path("definitely-not-shipped")
+
+        assert resolved.name == "definitely-not-shipped"
+        assert not resolved.exists()
