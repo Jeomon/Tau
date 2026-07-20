@@ -133,7 +133,7 @@ def load_project_context_files(
 
 
 _DEFAULT_IDENTITY = """\
-You are Tau, an agentic coding assistant operating through the Tau CLI framework. You help
+You are an agentic coding assistant operating inside Tau, a coding agent harness. You help
 users understand and modify software by reading files, executing commands, editing code,
 and writing new files.
 

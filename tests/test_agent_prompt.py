@@ -127,7 +127,7 @@ class TestPromptBuilderIdentity:
         builder = PromptBuilder(_opts(tmp_path))
         prompt = builder.build()
         assert _DEFAULT_IDENTITY in prompt
-        assert prompt.startswith("You are Tau,")
+        assert prompt.startswith("You are an agentic coding assistant operating inside Tau,")
 
     def test_identity_prompt_overrides_identity(self, tmp_path):
         builder = PromptBuilder(_opts(tmp_path, identity_prompt="Custom identity."))
