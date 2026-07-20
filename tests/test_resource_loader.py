@@ -21,11 +21,15 @@ class _Settings:
         global_packages: list[PackageEntry] | None = None,
         project_packages: list[PackageEntry] | None = None,
         extensions_enabled: bool = True,
+        project_trusted: bool = True,
     ) -> None:
         self.extensions = extensions or []
         self.global_packages = global_packages or []
         self.project_packages = project_packages or []
         self.extensions_enabled = extensions_enabled
+        # Defaults to True so tests unrelated to trust keep loading project
+        # resources; the untrusted path has dedicated coverage below.
+        self.project_trusted = project_trusted
 
     def get_all_extension_entries(self) -> list[ExtensionEntry]:
         return self.extensions
@@ -35,6 +39,9 @@ class _Settings:
 
     def is_extensions_enabled(self) -> bool:
         return self.extensions_enabled
+
+    def is_project_trusted(self) -> bool:
+        return self.project_trusted
 
     def is_batching(self) -> bool:
         # Matches SettingsManager's real default (see settings/manager.py) —
@@ -348,3 +355,69 @@ def test_diagnostics_report_context_read_errors(tmp_path: Path) -> None:
     assert snapshot.context_files == ()
     assert snapshot.diagnostics[0].source == "context-file"
     assert "permission denied" in snapshot.diagnostics[0].message
+
+
+# ── Project trust gating ──────────────────────────────────────────────────────
+#
+# Project-local skills and prompts are model-executable instructions, and project
+# extensions are arbitrary in-process Python. None of them may load from an
+# untrusted project. These tests pin that boundary: before this gate existed the
+# registries were reloaded with cwd unconditionally, so an untrusted project's
+# skills loaded anyway.
+
+
+def _project_skill(cwd: Path, name: str) -> None:
+    """Write a minimal valid project skill at <cwd>/.tau/skills/<name>/SKILL.md."""
+    skill_dir = cwd / ".tau" / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: Fixture skill used to assert trust gating.\n---\nBody.\n"
+    )
+
+
+def _apply(cwd: Path, *, project_trusted: bool):
+    """Discover + apply registries for *cwd*, returning the skill registry."""
+    from tau.skills.registry import skill_registry
+
+    settings = _Settings(project_trusted=project_trusted)
+    context = ResourceContext(
+        cwd=cwd,
+        settings=settings,  # type: ignore[arg-type]
+        hooks=Hooks(),
+    )
+    loader = DefaultResourceLoader()
+    snapshot = asyncio.run(loader.discover(context))
+    loader.apply_registries(snapshot, context=context)
+    return snapshot, skill_registry
+
+
+def test_untrusted_project_skills_are_not_loaded(tmp_path: Path) -> None:
+    _project_skill(tmp_path, "untrusted-fixture-skill")
+
+    _snapshot, registry = _apply(tmp_path, project_trusted=False)
+
+    assert registry.get("untrusted-fixture-skill") is None
+    # Builtins must still load — the gate is scoped to the project tier only.
+    assert registry.get("debug") is not None
+
+
+def test_trusted_project_skills_are_loaded(tmp_path: Path) -> None:
+    _project_skill(tmp_path, "trusted-fixture-skill")
+
+    _snapshot, registry = _apply(tmp_path, project_trusted=True)
+
+    assert registry.get("trusted-fixture-skill") is not None
+
+
+def test_untrusted_project_extension_dir_is_omitted(tmp_path: Path) -> None:
+    snapshot, _registry = _apply(tmp_path, project_trusted=False)
+
+    assert snapshot.project_extension_dir is None
+    # Global extensions are unaffected by project trust.
+    assert snapshot.global_extension_dir is not None
+
+
+def test_trusted_project_extension_dir_is_included(tmp_path: Path) -> None:
+    snapshot, _registry = _apply(tmp_path, project_trusted=True)
+
+    assert snapshot.project_extension_dir == tmp_path / ".tau" / "extensions"

@@ -11,6 +11,7 @@ Tau is a local agent. It runs as the user account that starts it and can read, w
 - [The Trust File](#the-trust-file)
 - [Default Trust Policy](#default-trust-policy)
 - [Overriding Trust for One Run](#overriding-trust-for-one-run)
+- [Trust in Subcommands](#trust-in-subcommands)
 - [No Built-in Sandbox](#no-built-in-sandbox)
 - [Telemetry](#telemetry)
 - [Reporting Security Issues](#reporting-security-issues)
@@ -52,13 +53,19 @@ Non-interactive modes (`--mode print`, `--mode json`, `--mode rpc`) never show t
 
 ## What Trusting a Project Permits
 
-Trust is consumed at three points, all verified in the runtime:
+Trust is consumed at these points, all verified in the runtime:
 
 | Granted by trust | Mechanism |
 |------------------|-----------|
 | Project settings are merged | `.tau/settings.json` is only exposed when the project is trusted; otherwise project settings are empty |
 | Project context files reach the system prompt | `AGENTS.md` / `CLAUDE.md` discovery is enabled only when trusted |
 | The git snapshot reaches the system prompt | The `git status` section is skipped when the project is untrusted |
+| Project skills, prompts, and themes load | `.tau/skills/`, `.tau/prompts/`, and `.tau/themes/` load only when trusted. Skills and prompts are model-executable instructions, so an untrusted project contributes none |
+| Project extensions load | `.tau/extensions/` is included in the resource snapshot only when trusted. Extensions are arbitrary Python executed in-process |
+
+Builtin and global resources are unaffected: an untrusted project still gets the bundled skills, your `~/.tau/skills/`, and every globally configured extension. Only the project tier is withheld.
+
+Granting trust mid-session takes effect immediately — accepting the trust prompt reloads settings, resources, and the system prompt without a restart.
 
 Because project settings are the carrier for several other things, trusting a project transitively enables everything they configure:
 
@@ -70,14 +77,7 @@ Extensions can participate in the decision. `await ctx.is_project_trusted()` con
 
 ## What Trust Does Not Cover
 
-Trust gates the inputs listed above and nothing else. In the current implementation the following are loaded regardless of the trust decision:
-
-- `.tau/skills/`, `.tau/prompts/`, and `.tau/themes/` in the project directory — the skill, prompt, and theme registries reload from the working directory unconditionally
-- the project `.tau/extensions/` directory, which is included in the resource snapshot whenever extensions are enabled globally
-
-In interactive mode this rarely matters, because the presence of a `.tau/` directory is itself a trust input and declining exits the process. It does matter for non-interactive runs started with `--no-approve` against an untrusted checkout.
-
-Trust also does not constrain the model or its tools. Once a session is running, built-in tools read files, write files, and run shell commands with the full permissions of the Tau process. Prompt injection from repository files, comments, documentation, dependency source, or build output is expected local-agent risk and cannot be reliably prevented.
+Trust gates which project-local files Tau loads. It does **not** constrain the model or its tools. Once a session is running, built-in tools read files, write files, and run shell commands with the full permissions of the Tau process. Prompt injection from repository files, comments, documentation, dependency source, or build output is expected local-agent risk and cannot be reliably prevented.
 
 ## The Trust File
 
@@ -143,6 +143,21 @@ tau --mode rpc --approve           # Non-interactive modes never prompt; be expl
 Neither flag writes to `~/.tau/trust.json`; both apply only to the process they start. If both are passed, `--approve` wins.
 
 Related flags: `--no-context-files` / `-nc` disables `AGENTS.md` and `CLAUDE.md` loading independently of trust, and `--system` / `-s` replaces the generated system prompt entirely. See [CLI Reference](cli-reference.md).
+
+## Trust in Subcommands
+
+`tau doctor`, `tau list`, `tau install`, `tau remove`, and `tau update` also honour project trust. None of them can prompt, so they resolve the decision the same way non-interactive modes do: a directory with no trust inputs needs none, otherwise the `project_trust` policy decides, with `"ask"` falling back to the stored decision and to untrusted when none exists.
+
+An untrusted project contributes no `.tau/settings.json`, which means its package entries are invisible to these commands:
+
+| Command | Behaviour in an untrusted project |
+|---------|-----------------------------------|
+| `tau update --all`, `tau update NAME --local` | Project packages are not in the update set |
+| `tau install --local`, `tau remove --local` | Refused with an error; run tau in the directory and approve first |
+| `tau list --local`, `tau list --all` | Project packages are omitted, with a note saying so |
+| `tau doctor` | Project settings and project package entries are not reported |
+
+This matters because a package entry carries its own `index_url` and `extra_index_urls`, which are passed to `pip install` when the package is updated. Honouring those from a repository you have not trusted would let it choose the index that code is fetched from. Global packages are unaffected.
 
 ## No Built-in Sandbox
 

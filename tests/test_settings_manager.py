@@ -40,7 +40,11 @@ class TestInMemoryFactory:
         assert _manager() is not None
 
     def test_is_project_trusted_default(self):
-        assert _manager().is_project_trusted() is True
+        # Fails closed: a manager built without an explicit decision is untrusted,
+        # so forgetting to pass project_trusted withholds project settings rather
+        # than silently merging them. Callers resolve trust via
+        # tau.trust.manager.create_project_settings_manager.
+        assert _manager().is_project_trusted() is False
 
     def test_drain_errors_empty(self):
         assert _manager().drain_errors() == []

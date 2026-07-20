@@ -104,10 +104,76 @@ class TrustStore:
 
 trust_store = TrustStore()
 
+
+# ── Non-interactive resolution ────────────────────────────────────────────────
+
+
+def resolve_project_trust(
+    cwd: Path,
+    *,
+    override: bool | None = None,
+    settings_manager: object | None = None,
+) -> bool:
+    """Resolve the trust decision for *cwd* without prompting.
+
+    Mirrors the non-interactive branch of ``RuntimeContext.create``: a directory
+    with no trust inputs needs no decision, an explicit override wins next, and
+    otherwise the ``project_trust`` policy decides — with ``"ask"`` falling back
+    to the stored decision, and to untrusted when none exists.
+
+    *settings_manager* supplies the policy; pass one already loaded with
+    ``project_trusted=False`` to avoid re-reading the settings files.
+    """
+    if not has_project_trust_inputs(cwd):
+        return True
+    if override is not None:
+        return override
+
+    sm = settings_manager
+    if sm is None:
+        from tau.settings.manager import SettingsManager
+
+        sm = SettingsManager.create(cwd=cwd, project_trusted=False)
+
+    policy = sm.get_project_trust()  # type: ignore[attr-defined]
+    match policy:
+        case "always":
+            return True
+        case "never":
+            return False
+        case _:
+            stored = trust_store.get(cwd)
+            return stored if stored is not None else False
+
+
+def create_project_settings_manager(
+    cwd: Path,
+    config_dir: Path | None = None,
+    *,
+    override: bool | None = None,
+):
+    """Build a SettingsManager whose project settings are gated on trust.
+
+    This is the entry point for non-interactive callers (the ``tau`` subcommands)
+    that need project settings but have no way to prompt. The manager is built
+    untrusted, used to read the trust policy, then upgraded in place when the
+    project turns out to be trusted — which reloads project settings without a
+    second pass over the files.
+    """
+    from tau.settings.manager import SettingsManager
+
+    sm = SettingsManager.create(cwd=cwd, config_dir=config_dir, project_trusted=False)
+    if resolve_project_trust(cwd, override=override, settings_manager=sm):
+        sm.set_project_trusted(True)
+    return sm
+
+
 __all__ = [
     "TrustStore",
     "TrustOption",
     "trust_store",
     "has_project_trust_inputs",
     "get_trust_options",
+    "resolve_project_trust",
+    "create_project_settings_manager",
 ]

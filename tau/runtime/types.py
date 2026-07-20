@@ -141,9 +141,23 @@ class RuntimeContext:
         self.tool_registry: ToolRegistry = tool_registry or ToolRegistry()
         self.resource_loader = resource_loader
         self.resource_snapshot = resource_snapshot
-        self.project_trusted = project_trusted
+        self._project_trusted = project_trusted
         self.requested_model_id = requested_model_id
         self.requested_provider_id = requested_provider_id
+
+    @property
+    def project_trusted(self) -> bool:
+        """Whether the project directory is currently trusted.
+
+        Delegates to the settings manager, which is the single source of truth once
+        the runtime is live: granting trust in-session calls
+        ``SettingsManager.set_project_trusted`` and must take effect immediately.
+        The constructor value is only a fallback for contexts built without a
+        settings manager.
+        """
+        if self.settings_manager is not None:
+            return self.settings_manager.is_project_trusted()
+        return self._project_trusted
 
     @classmethod
     async def create(

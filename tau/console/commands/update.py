@@ -33,13 +33,17 @@ def update(name: str | None, update_all: bool, local: bool) -> None:
         return
 
     from tau.packages.manager import PackageManager
-    from tau.settings.manager import SettingsManager
     from tau.settings.paths import get_packages_venv
+    from tau.trust.manager import create_project_settings_manager
 
     cwd = Path.cwd()
     venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
     pkg_manager = PackageManager(venv_dir)
-    settings = SettingsManager.create(cwd)
+    # Project package entries carry an attacker-controllable `index_url` that is
+    # passed straight to `pip install`, so they must not be read from an
+    # untrusted project. Untrusted -> project settings are empty -> project
+    # packages are simply absent from the update set.
+    settings = create_project_settings_manager(cwd)
 
     packages = settings.get_packages(local=local)
     if update_all:

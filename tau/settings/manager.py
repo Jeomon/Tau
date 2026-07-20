@@ -79,7 +79,7 @@ class SettingsManager:
         global_load_error: Exception | None = None,
         project_load_error: Exception | None = None,
         initial_errors: list[SettingsError] | None = None,
-        project_trusted: bool = True,
+        project_trusted: bool = False,
         global_recovered_issues: list[str] | None = None,
         project_recovered_issues: list[str] | None = None,
     ):
@@ -108,16 +108,22 @@ class SettingsManager:
     def create(
         cwd: Path,
         config_dir: Path | None = None,
-        project_trusted: bool = True,
+        project_trusted: bool = False,
     ) -> SettingsManager:
         """Create a SettingsManager backed by files in cwd
         (and optional config_dir for global settings).
+
+        ``project_trusted`` defaults to False so that forgetting to pass it fails
+        closed: an untrusted manager exposes no project settings, rather than
+        silently merging `.tau/settings.json` from a directory the user never
+        approved. Callers that need project settings must resolve trust first —
+        see :func:`tau.trust.manager.create_project_settings_manager`.
         """
         storage = FileSettingsStorage(cwd, config_dir)
         return SettingsManager.from_storage(storage, project_trusted=project_trusted)
 
     @staticmethod
-    def from_storage(storage: SettingsStorage, project_trusted: bool = True) -> SettingsManager:
+    def from_storage(storage: SettingsStorage, project_trusted: bool = False) -> SettingsManager:
         """Create a SettingsManager from an arbitrary storage backend."""
         global_settings, global_error, global_issues = SettingsManager._try_load_from_storage(
             storage, SCOPE.GLOBAL

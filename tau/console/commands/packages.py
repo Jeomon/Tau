@@ -7,6 +7,26 @@ from pathlib import Path
 import click
 
 
+def _project_settings_manager(cwd: Path, *, local: bool):
+    """Return a trust-gated settings manager, refusing project-scope writes when untrusted.
+
+    Project settings are withheld from an untrusted project, so a project-scoped
+    mutation would be computed against an empty settings object and persist a
+    ``packages.list`` that drops the entries already on disk. Refusing is both
+    safer and clearer than silently rewriting the user's file.
+    """
+    from tau.trust.manager import create_project_settings_manager
+
+    settings = create_project_settings_manager(cwd)
+    if local and not settings.is_project_trusted():
+        raise click.ClickException(
+            f"Project '{cwd}' is not trusted, so project-scoped packages cannot be "
+            "modified. Start tau in this directory and approve the trust prompt, "
+            "or re-run without --local to use global scope."
+        )
+    return settings
+
+
 @click.command("install")
 @click.argument("source")
 @click.option(
@@ -30,12 +50,15 @@ def install(
       https://...whl      install a wheel or source archive URL
     """
     from tau.packages.manager import PackageManager
-    from tau.settings.manager import SettingsManager
     from tau.settings.paths import get_packages_venv
 
     cwd = Path.cwd()
     venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
     pkg_manager = PackageManager(venv_dir)
+
+    # Resolve trust before installing: refusing afterwards would leave the package
+    # in the venv with no settings entry recording it.
+    settings = _project_settings_manager(cwd, local=local)
 
     click.echo(f"Installing {source}…")
     try:
@@ -47,7 +70,6 @@ def install(
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
-    settings = SettingsManager.create(cwd)
     try:
         settings.add_package(entry, local=local)
         asyncio.run(settings.flush())
@@ -71,12 +93,13 @@ def install(
 def remove(name: str, local: bool) -> None:
     """Remove an installed package by NAME."""
     from tau.packages.manager import PackageManager
-    from tau.settings.manager import SettingsManager
     from tau.settings.paths import get_packages_venv
 
     cwd = Path.cwd()
     venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
     pkg_manager = PackageManager(venv_dir)
+
+    settings = _project_settings_manager(cwd, local=local)
 
     click.echo(f"Removing {name}…")
     try:
@@ -84,7 +107,6 @@ def remove(name: str, local: bool) -> None:
     except Exception as e:
         raise click.ClickException(str(e)) from e
 
-    settings = SettingsManager.create(cwd)
     try:
         settings.remove_package(name, local=local)
         asyncio.run(settings.flush())
@@ -104,10 +126,20 @@ def remove(name: str, local: bool) -> None:
 )
 def list_packages(local: bool, show_all: bool) -> None:
     """List installed packages."""
-    from tau.settings.manager import SettingsManager
+    from tau.trust.manager import create_project_settings_manager
 
     cwd = Path.cwd()
-    settings = SettingsManager.create(cwd)
+    settings = create_project_settings_manager(cwd)
+
+    # Listing is read-only, so report the withheld scope instead of refusing —
+    # an empty project list would otherwise look like "nothing installed".
+    if (show_all or local) and not settings.is_project_trusted():
+        click.echo(
+            click.style(
+                f"Note: '{cwd}' is not trusted, so project-scoped packages are not shown.",
+                fg="yellow",
+            )
+        )
 
     if show_all:
         packages = settings.get_all_packages()

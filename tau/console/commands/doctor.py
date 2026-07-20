@@ -58,11 +58,13 @@ def doctor(as_json: bool, fix: bool) -> None:
 async def _run_checks(fix: bool = False) -> list[Section]:
     from tau.auth.manager import AuthManager
     from tau.inference.provider.registry import ProviderRegistry
-    from tau.settings.manager import SettingsManager
+    from tau.trust.manager import create_project_settings_manager
 
     cwd = Path.cwd()
     provider_registry = ProviderRegistry.from_builtins()
-    settings_manager = SettingsManager.create(cwd)
+    # Checks are read-only, but they report project settings and package entries,
+    # so an untrusted project must not contribute them.
+    settings_manager = create_project_settings_manager(cwd)
     auth_manager = AuthManager.create(provider_registry)
 
     settings_section = _check_settings(settings_manager, fix=fix)
