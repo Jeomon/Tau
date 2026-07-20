@@ -43,10 +43,13 @@ class PromptOptions(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     meta: MessageMeta | None = None
-    images: list[bytes] = []
-    audio: list[bytes] = []
-    video: list[bytes] = []
-    file: list[bytes] = []
+    # str members carry the JSON-friendly forms UserMessage.with_media accepts:
+    # image URLs / base64 strings, and 'file:' paths or base64 for audio/video/file.
+    # This lets non-bytes callers (e.g. the RPC layer) supply media too.
+    images: list[bytes | str] = []
+    audio: list[bytes | str] = []
+    video: list[bytes | str] = []
+    file: list[bytes | str] = []
 
 
 @dataclass

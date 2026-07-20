@@ -123,6 +123,50 @@ class RpcExtensionUIContext:
 
 
 # ---------------------------------------------------------------------------
+# Attachments
+# ---------------------------------------------------------------------------
+
+
+def _resolve_attachments(
+    attachments: list[dict] | None,
+) -> tuple[list, list, list, list]:
+    """Turn RPC ``attachments`` into (images, audio, video, file) source lists.
+
+    Each attachment carries exactly one source: base64 ``data`` (kept as a
+    string — every content type accepts base64), a server-side ``path`` (read
+    into bytes), or an image-only ``url``. The returned lists are ready to pass
+    straight to :meth:`UserMessage.with_media` / ``PromptOptions``.
+
+    Raises ValueError on a malformed attachment and OSError if a ``path`` can't
+    be read.
+    """
+    from pathlib import Path
+
+    buckets: dict[str, list] = {"image": [], "audio": [], "video": [], "file": []}
+    for i, att in enumerate(attachments or []):
+        if not isinstance(att, dict):
+            raise ValueError(f"attachment[{i}] must be an object")
+        kind = att.get("kind")
+        if kind not in buckets:
+            raise ValueError(f"attachment[{i}]: invalid or missing 'kind' ({kind!r})")
+        present = [k for k in ("data", "path", "url") if att.get(k)]
+        if len(present) != 1:
+            raise ValueError(
+                f"attachment[{i}]: exactly one of 'data', 'path', 'url' is required"
+            )
+        source = present[0]
+        if source == "url" and kind != "image":
+            raise ValueError(f"attachment[{i}]: 'url' is only supported for images")
+        if source == "data":
+            buckets[kind].append(att["data"])  # base64 string, accepted as-is
+        elif source == "path":
+            buckets[kind].append(Path(att["path"]).read_bytes())
+        else:
+            buckets[kind].append(att["url"])  # image URL
+    return buckets["image"], buckets["audio"], buckets["video"], buckets["file"]
+
+
+# ---------------------------------------------------------------------------
 # Command dispatcher
 # ---------------------------------------------------------------------------
 
@@ -154,8 +198,14 @@ async def _handle_command(
 
             case "prompt":
                 text = cmd.get("message", "")
-                if not text:
-                    _err("'message' is required")
+                try:
+                    images, audio, video, file = _resolve_attachments(cmd.get("attachments"))
+                except (ValueError, OSError) as exc:
+                    _err(f"invalid attachment: {exc}")
+                    return
+                has_media = bool(images or audio or video or file)
+                if not text and not has_media:
+                    _err("'message' or 'attachments' is required")
                     return
                 streaming_behavior = cmd.get("streamingBehavior")
                 agent = runtime.agent
@@ -166,46 +216,71 @@ async def _handle_command(
                     return
 
                 if is_streaming and streaming_behavior == "steer":
-                    from tau.message.types import TextContent, UserMessage
+                    from tau.message.types import UserMessage
 
-                    msg = UserMessage(contents=[TextContent(content=text)])
+                    msg = UserMessage.with_media(
+                        text, images or None, audio or None, video or None, file or None
+                    )
                     await agent._engine.steer(msg)  # type: ignore[union-attr]
                 elif is_streaming and streaming_behavior == "followUp":
-                    from tau.message.types import TextContent, UserMessage
+                    from tau.message.types import UserMessage
 
-                    msg = UserMessage(contents=[TextContent(content=text)])
+                    msg = UserMessage.with_media(
+                        text, images or None, audio or None, video or None, file or None
+                    )
                     await agent._engine.follow_up(msg)  # type: ignore[union-attr]
+                elif has_media:
+                    from tau.agent.types import PromptOptions
+
+                    await runtime.invoke(
+                        text,
+                        PromptOptions(images=images, audio=audio, video=video, file=file),
+                    )
                 else:
                     await runtime.invoke(text)
                 _ok()
 
             case "steer":
                 text = cmd.get("message", "")
-                if not text:
-                    _err("'message' is required")
+                try:
+                    images, audio, video, file = _resolve_attachments(cmd.get("attachments"))
+                except (ValueError, OSError) as exc:
+                    _err(f"invalid attachment: {exc}")
+                    return
+                if not text and not (images or audio or video or file):
+                    _err("'message' or 'attachments' is required")
                     return
                 agent = runtime.agent
                 if agent is None:
                     _err("No active agent")
                     return
-                from tau.message.types import TextContent, UserMessage
+                from tau.message.types import UserMessage
 
-                msg = UserMessage(contents=[TextContent(content=text)])
+                msg = UserMessage.with_media(
+                    text, images or None, audio or None, video or None, file or None
+                )
                 await agent._engine.steer(msg)
                 _ok()
 
             case "follow_up":
                 text = cmd.get("message", "")
-                if not text:
-                    _err("'message' is required")
+                try:
+                    images, audio, video, file = _resolve_attachments(cmd.get("attachments"))
+                except (ValueError, OSError) as exc:
+                    _err(f"invalid attachment: {exc}")
+                    return
+                if not text and not (images or audio or video or file):
+                    _err("'message' or 'attachments' is required")
                     return
                 agent = runtime.agent
                 if agent is None:
                     _err("No active agent")
                     return
-                from tau.message.types import TextContent, UserMessage
+                from tau.message.types import UserMessage
 
-                msg = UserMessage(contents=[TextContent(content=text)])
+                msg = UserMessage.with_media(
+                    text, images or None, audio or None, video or None, file or None
+                )
                 await agent._engine.follow_up(msg)
                 _ok()
 

@@ -13,10 +13,29 @@ from typing import Any, Literal, TypedDict
 # ── Commands (stdin) ──────────────────────────────────────────────────────────
 
 
+class RpcAttachment(TypedDict, total=False):
+    """A single media attachment on a prompt/steer/follow-up command.
+
+    ``kind`` selects the content block. Exactly one source must be supplied:
+      - ``data``: base64-encoded bytes (any kind)
+      - ``path``: server-side file path, read into bytes (any kind)
+      - ``url``:  remote URL (images only)
+    ``mimeType`` and ``name`` are optional metadata.
+    """
+
+    kind: Literal["image", "audio", "video", "file"]
+    data: str
+    path: str
+    url: str
+    mimeType: str
+    name: str
+
+
 class PromptCommand(TypedDict, total=False):
     type: Literal["prompt"]
     id: str
     message: str
+    attachments: list[RpcAttachment]
     streamingBehavior: Literal["steer", "followUp"]
 
 
@@ -24,12 +43,14 @@ class SteerCommand(TypedDict, total=False):
     type: Literal["steer"]
     id: str
     message: str
+    attachments: list[RpcAttachment]
 
 
 class FollowUpCommand(TypedDict, total=False):
     type: Literal["follow_up"]
     id: str
     message: str
+    attachments: list[RpcAttachment]
 
 
 class AbortCommand(TypedDict, total=False):
