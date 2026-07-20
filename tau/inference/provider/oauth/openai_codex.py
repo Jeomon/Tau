@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import secrets
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -47,6 +49,18 @@ JWT_CLAIM_PATH = "https://api.openai.com/auth"
 CALLBACK_HOST = "127.0.0.1"  # Match the loopback-only redirect URI.
 CALLBACK_PORT = 1455
 _HTTP_TIMEOUT_SECONDS = 30
+
+# Device-code (headless) login. OpenAI's Codex device flow is a bespoke variant:
+# the /usercode endpoint issues a short user_code the operator types into
+# DEVICE_VERIFICATION_URI, and the /token endpoint — once approved — returns both
+# the authorization_code AND the PKCE code_verifier (the server generates the PKCE
+# pair, unlike the browser flow where we generate it locally). The final exchange
+# then uses DEVICE_REDIRECT_URI as the redirect_uri instead of the loopback URL.
+DEVICE_USER_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
+DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
+DEVICE_VERIFICATION_URI = "https://auth.openai.com/codex/device"
+DEVICE_REDIRECT_URI = "https://auth.openai.com/deviceauth/callback"
+DEVICE_CODE_TIMEOUT_SECONDS = 15 * 60
 
 
 def _create_state() -> str:
@@ -119,16 +133,64 @@ def _post_token(body: dict[str, str]) -> dict:
         raise RuntimeError(f"Token request failed ({e.code}): {body_text}") from e
 
 
-def _exchange_code(code: str, verifier: str) -> dict:
-    """Exchange an authorization code for tokens using PKCE verification."""
+def _exchange_code(code: str, verifier: str, redirect_uri: str = REDIRECT_URI) -> dict:
+    """Exchange an authorization code for tokens using PKCE verification.
+
+    ``redirect_uri`` must match the one bound to the authorization code: the
+    loopback URL for the browser flow, or ``DEVICE_REDIRECT_URI`` for the
+    device-code flow.
+    """
     return _post_token(
         {
             "grant_type": "authorization_code",
             "client_id": CLIENT_ID,
             "code": code,
             "code_verifier": verifier,
-            "redirect_uri": REDIRECT_URI,
+            "redirect_uri": redirect_uri,
         }
+    )
+
+
+def _post_device_json(url: str, body: dict[str, str]) -> tuple[int, dict]:
+    """POST a JSON body to a Codex device-auth endpoint.
+
+    Returns (status_code, parsed_json). Unlike token requests these endpoints
+    speak JSON, and their pending states arrive as ordinary HTTP errors (403/404
+    or an ``error.code`` field), so the caller needs the status code — hence we
+    swallow HTTPError and return its code rather than raising.
+    """
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            req, context=get_oauth_ssl_context(), timeout=_HTTP_TIMEOUT_SECONDS
+        ) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="replace")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {"_raw": raw}
+        return e.code, parsed
+
+
+def _credential_from_token_data(data: dict) -> OAuthCredential:
+    """Build an OAuthCredential from a token response, requiring a ChatGPT account id."""
+    access, refresh, expires_ms = _parse_token_response(data)
+    account_id = _get_account_id(access)
+    if not account_id:
+        raise ValueError(
+            "missing chatgpt_account_id in token."
+            " Ensure you have a valid ChatGPT subscription."
+        )
+    return OAuthCredential(
+        access=access, refresh=refresh, expires=expires_ms, extra={"account_id": account_id}
     )
 
 
@@ -226,6 +288,129 @@ def read_codex_file_credential() -> OAuthCredential | None:
         return None
 
 
+def _is_headless() -> bool:
+    """Best-effort guess at whether a browser-based login is unreachable.
+
+    A remote/SSH session or a Linux host with no display server can't open the
+    loopback authorization URL, so the device-code flow is the only usable path.
+    macOS and Windows are assumed to have a GUI unless we're on SSH.
+    """
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    if sys.platform.startswith("linux"):
+        return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return False
+
+
+def _start_codex_device_auth() -> dict:
+    """Request a device/user code pair from the Codex device-auth endpoint."""
+    status, data = _post_device_json(DEVICE_USER_CODE_URL, {"client_id": CLIENT_ID})
+    if status != 200:
+        raise RuntimeError(f"Codex device code request failed ({status}): {data}")
+    return data
+
+
+def _poll_codex_device_once(device_auth_id: str, user_code: str) -> tuple[int, dict]:
+    """Poll the Codex device-auth token endpoint once; returns (status, body)."""
+    return _post_device_json(
+        DEVICE_TOKEN_URL,
+        {"device_auth_id": device_auth_id, "user_code": user_code},
+    )
+
+
+async def _poll_for_codex_device_code(
+    device_auth_id: str,
+    user_code: str,
+    interval_seconds: int,
+    expires_in: int,
+    signal: AbortSignal | None = None,
+) -> tuple[str, str]:
+    """Poll until the operator approves the device code; returns (code, verifier).
+
+    The token endpoint returns HTTP 200 with ``authorization_code`` and
+    ``code_verifier`` once approved. Before then it reports pending via 403/404
+    or an ``error.code`` of ``deviceauth_authorization_pending``; ``slow_down``
+    asks us to back off.
+    """
+    deadline = time.time() + expires_in
+    interval_ms = max(1000, interval_seconds * 1000)
+
+    while time.time() < deadline:
+        if signal is not None and signal.is_set():
+            raise RuntimeError("Codex device code login aborted")
+        remaining = deadline - time.time()
+        await asyncio.sleep(min(interval_ms / 1000, remaining))
+
+        status, data = await asyncio.to_thread(
+            _poll_codex_device_once, device_auth_id, user_code
+        )
+
+        if status == 200:
+            code = data.get("authorization_code")
+            verifier = data.get("code_verifier")
+            if not isinstance(code, str) or not isinstance(verifier, str):
+                raise RuntimeError(f"Invalid Codex device auth token response: {data}")
+            return code, verifier
+
+        if status in (403, 404):
+            continue  # authorization still pending
+
+        error = data.get("error")
+        error_code = error.get("code") if isinstance(error, dict) else error
+        if error_code == "deviceauth_authorization_pending":
+            continue
+        if error_code == "slow_down":
+            interval_ms += 5000
+            continue
+
+        raise RuntimeError(f"Codex device auth failed ({status}): {data}")
+
+    raise RuntimeError("Codex device code login timed out")
+
+
+async def login_openai_codex_device_code(
+    callbacks: OAuthLoginCallbacks,
+) -> OAuthCredential:
+    """Run the Codex device-code login for headless/remote environments.
+
+    No local callback server or browser redirect is needed: the operator opens
+    DEVICE_VERIFICATION_URI on any device and enters the displayed user code.
+    """
+    device = await asyncio.to_thread(_start_codex_device_auth)
+    device_auth_id = device.get("device_auth_id")
+    user_code = device.get("user_code")
+    raw_interval = device.get("interval", 5)
+    try:
+        interval = int(raw_interval)
+    except (TypeError, ValueError):
+        interval = 5
+    if not isinstance(device_auth_id, str) or not isinstance(user_code, str):
+        raise ValueError(f"Invalid Codex device code response: {device}")
+
+    callbacks.on_auth(
+        OAuthAuthInfo(
+            url=DEVICE_VERIFICATION_URI,
+            instructions=f"Visit {DEVICE_VERIFICATION_URI} and enter code: {user_code}",
+        )
+    )
+    if callbacks.on_progress:
+        callbacks.on_progress("Waiting for device authorization...")
+
+    code, verifier = await _poll_for_codex_device_code(
+        device_auth_id,
+        user_code,
+        interval,
+        DEVICE_CODE_TIMEOUT_SECONDS,
+        callbacks.signal,
+    )
+
+    if callbacks.on_progress:
+        callbacks.on_progress("Exchanging authorization code for tokens...")
+
+    data = await asyncio.to_thread(_exchange_code, code, verifier, DEVICE_REDIRECT_URI)
+    return _credential_from_token_data(data)
+
+
 async def login_openai_codex(
     callbacks: OAuthLoginCallbacks,
     originator: str = "program",
@@ -233,19 +418,28 @@ async def login_openai_codex(
     """Run the full OpenAI PKCE login flow and return a fresh OAuthCredential.
 
     If a valid Codex CLI credential exists at ~/.codex/auth.json it is returned
-    directly without opening a browser.
+    directly without opening a browser. On headless/remote hosts — or when the
+    loopback callback server can't bind — the device-code flow is used instead.
     """
     file_cred = read_codex_file_credential()
     if file_cred is not None:
         return file_cred
 
+    if _is_headless():
+        return await login_openai_codex_device_code(callbacks)
+
     verifier, challenge = generate_pkce()
     state = _create_state()
     url = _build_authorization_url(challenge, state, originator)
 
-    server, code_future = await start_oauth_callback_server(
-        "/auth/callback", state, CALLBACK_HOST, CALLBACK_PORT
-    )
+    try:
+        server, code_future = await start_oauth_callback_server(
+            "/auth/callback", state, CALLBACK_HOST, CALLBACK_PORT
+        )
+    except OSError:
+        # Loopback callback couldn't bind (sandboxed/headless/port in use):
+        # fall back to the device-code flow, which needs no local server.
+        return await login_openai_codex_device_code(callbacks)
     callbacks.on_auth(
         OAuthAuthInfo(
             url=url,
@@ -278,17 +472,7 @@ async def login_openai_codex(
         callbacks.on_progress("Exchanging authorization code for tokens...")
 
     data = await asyncio.to_thread(_exchange_code, code, verifier)
-    access, refresh, expires_ms = _parse_token_response(data)
-
-    account_id = _get_account_id(access)
-    if not account_id:
-        raise ValueError(
-            "missing chatgpt_account_id in token. Ensure you have a valid ChatGPT subscription."
-        )
-
-    return OAuthCredential(
-        access=access, refresh=refresh, expires=expires_ms, extra={"account_id": account_id}
-    )
+    return _credential_from_token_data(data)
 
 
 async def refresh_openai_codex_token(
