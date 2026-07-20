@@ -1,6 +1,8 @@
 # Extension Settings
 
-All extensions should use `ExtensionSettings` for type-safe configuration access. It handles both simple flat structures and complex nested configurations seamlessly.
+Extensions read their configuration through `ExtensionSettings`, a typed wrapper that deserializes the raw `tau.config` dict into a dataclass with defaults and nested-structure support.
+
+Import it from `tau.extensions`, alongside `ExtensionSettingsError`.
 
 ## Quick Start
 
@@ -20,6 +22,8 @@ def register(tau):
     api_key = config.get("api_key")
     timeout = config.get("timeout_ms", 5000)
 ```
+
+> **Do not use `from __future__ import annotations` in a module that defines a nested settings schema.** It turns every annotation into a string, and `ExtensionSettings` tests `dataclasses.is_dataclass(field.type)` to decide whether to recurse. With stringized annotations that test fails silently, nested fields stay raw `dict`s, and `get_nested()` returns `None`. Flat schemas are unaffected.
 
 The values are stored in `~/.tau/settings.json` (global) or `.tau/settings.json` (project-local):
 
@@ -153,9 +157,18 @@ In settings.json:
 
 ## API Reference
 
+### `ExtensionSettings(schema, raw_config=None)`
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `schema` | `type` | A dataclass type describing the expected structure. Anything else raises `ExtensionSettingsError` |
+| `raw_config` | `dict \| None` | The raw dict from `tau.config`. Defaults to `{}` |
+
+Deserialization happens once, in the constructor. A key absent from `raw_config` — or present with a JSON `null` — takes the field's `default` or `default_factory`. A field with neither becomes `None`.
+
 ### `get(key, default=None) → Any`
 
-Get a top-level setting value. Returns `default` if the key is missing.
+Get a top-level setting value. Returns `default` only if the attribute does not exist; a field whose value is `None` returns `None`, not `default`.
 
 ```python
 config = ExtensionSettings(MyConfig, tau.config)
@@ -186,9 +199,9 @@ json.dump(as_dict, file)
 
 ## Features
 
-### Type Safety & Validation
+### Schema Checking
 
-Your schema defines the expected structure. `ExtensionSettings` validates it at load time:
+`ExtensionSettings` raises `ExtensionSettingsError` when the schema itself is not a dataclass:
 
 ```python
 from tau.extensions import ExtensionSettings, ExtensionSettingsError
@@ -200,9 +213,10 @@ class Config:
 try:
     config = ExtensionSettings(Config, tau.config)
 except ExtensionSettingsError as e:
-    # Handle validation errors
     print(f"Config error: {e}")
 ```
+
+> **Values are not type-checked.** The schema supplies structure and defaults, not validation. A `port` declared as `int` but stored as `"8080"` in JSON is handed back as the string `"8080"`. Coerce and range-check values yourself, or declare them through a [manifest schema](#option-a--manifestjson-schema-recommended), which does coerce and validate on the `/settings` path.
 
 ### Sensible Defaults
 
@@ -225,16 +239,18 @@ assert config.get("retries") == 3
 Define arbitrarily deep nested structures:
 
 ```python
+from dataclasses import dataclass, field
+from tau.extensions import ExtensionSettings
+
+@dataclass
+class Credentials:
+    username: str = ""
+    password: str = ""
+
 @dataclass
 class DatabaseConfig:
     host: str = "localhost"
     port: int = 5432
-    
-    @dataclass
-    class Credentials:
-        username: str = ""
-        password: str = ""
-    
     credentials: Credentials = field(default_factory=Credentials)
 
 @dataclass
@@ -245,6 +261,8 @@ class AppConfig:
 config = ExtensionSettings(AppConfig, tau.config)
 username = config.get_nested("database.credentials.username")
 ```
+
+Declare each nested dataclass at module level, before the schema that references it. Nesting a dataclass inside another class body also works, but module level keeps the annotation resolvable.
 
 ## Real-World Example
 
@@ -308,7 +326,13 @@ There are two ways to do this: declare the schema in `manifest.json` (recommende
 
 ### Option A — manifest.json schema (recommended)
 
-Add a `"settings"` block under the `"tau"` key in `manifest.json`. Tau reads it at load time, builds the `/settings` sub-panel automatically, reads current values from the extension's config, and persists changes back to `settings.json` (reloading just that extension so the change applies live — no restart needed).
+Add a `"settings"` block under the `"tau"` key in `manifest.json`. Tau reads it at load time, builds the `/settings` sub-panel automatically, reads current values from the extension's config, and persists changes back to `settings.json` — then reloads just that one extension so the change applies live, with no restart.
+
+Three conditions apply:
+
+1. `manifest.json` is only read for **directory** extensions. A single-file extension must use [Option B](#option-b--tauregister_settings-imperative).
+2. If the extension calls `tau.register_settings()` itself, the manual panel wins and the manifest schema is ignored.
+3. `"title"` is optional; it defaults to the extension directory's name.
 
 ```json
 {
@@ -471,17 +495,26 @@ Registers a sub-panel in `/settings` containing the provided items.
 
 #### `SettingItem` fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `str` | Key passed to `on_change` when the value changes |
-| `label` | `str` | Display label shown in the panel |
-| `current_value` | `str` | The current value (always a string) |
-| `values` | `list[str] \| None` | Cycle through these values on Enter (enum-style toggle) |
-| `text_input` | `bool` | When `True`, Enter opens inline text editing for integer/string values |
-| `submenu_items` | `list[str] \| None` | Open a picker sub-panel containing these choices |
-| `submenu_title` | `str \| None` | Title for the picker sub-panel |
-| `submenu_settings` | `list[SettingItem] \| None` | Open a full nested sub-panel with these items (arbitrary depth) |
-| `submenu_on_change` | `callable \| None` | Overrides the parent `on_change` for a nested sub-panel |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `str` | *required* | Key passed to `on_change` when the value changes |
+| `label` | `str` | *required* | Display label shown in the panel |
+| `current_value` | `str` | *required* | The current value, always as a string |
+| `description` | `str` | `""` | Dimmed help text shown below the label |
+| `values` | `list[str]` | `[]` | Cycle through these values on Enter (enum-style toggle) |
+| `text_input` | `bool` | `False` | When `True`, Enter opens inline text editing |
+| `submenu_items` | `list[str]` | `[]` | Open a picker sub-panel containing these choices |
+| `submenu_title` | `str` | `""` | Title for the picker sub-panel |
+| `submenu_settings` | `list[SettingItem]` | `[]` | Open a full nested sub-panel with these items, to arbitrary depth |
+| `submenu_on_change` | `callable \| None` | `None` | Overrides the parent `on_change` for a nested sub-panel |
+| `submenu_on_preview` | `callable \| None` | `None` | Called as the highlighted item changes, for live preview |
+| `submenu_on_cancel` | `callable \| None` | `None` | Called when the sub-panel is dismissed, to undo a preview |
+
+The list-valued fields default to empty lists, not `None` — leave them out rather than passing `None`.
+
+`submenu_on_preview` and `submenu_on_cancel` are what make the built-in theme picker preview a theme live on ↑/↓ and restore the previous one on Escape.
+
+Import `SettingItem` from `tau.modes.interactive.components.settings_selector`.
 
 #### Nested sub-panels
 

@@ -1,15 +1,48 @@
 # Creating Tools
 
-Tools are typed asynchronous operations that a model can request. A tool
-defines its name, description, Pydantic input schema, execution policy, and
-result handling.
+A tool is a typed asynchronous operation the model can request. Every tool declares a name, a description, a Pydantic input schema, an execution policy, and how its result is rendered.
 
-Use this guide to implement and test a tool. See [Tools](tools.md) for the
-built-in tool reference and execution model.
+Use this guide to implement, register, and test a tool. See [Tools](tools.md) for the built-in tool reference and the execution model the engine applies.
+
+## Table of Contents
+
+- [Anatomy of a Tool](#anatomy-of-a-tool)
+- [Implement a Tool](#implement-a-tool)
+- [Constructor Reference](#constructor-reference)
+- [Return Results](#return-results)
+- [Use Runtime Context](#use-runtime-context)
+- [Streaming and Cancellation](#streaming-and-cancellation)
+- [Register the Tool](#register-the-tool)
+- [Standalone Usage](#standalone-usage)
+- [Test the Tool](#test-the-tool)
+- [Checklist](#checklist)
+
+## Anatomy of a Tool
+
+Subclass `tau.tool.types.Tool`, pass metadata to `super().__init__()`, and implement one abstract method:
+
+```python
+async def execute(
+    self,
+    invocation: ToolInvocation,
+    tool_execution_update_callback: ToolExecutionUpdateCallback | None = None,
+    signal: AbortSignal | None = None,
+    context: ToolContext | None = None,
+) -> ToolResult: ...
+```
+
+There is no decorator-based registration API — `Tool` subclassing is the only way to define a tool. The base class supplies `validate()` (schema check returning `(ok, errors)`) and `to_json()` (provider-facing `{name, description, input_schema}`); you do not override them.
+
+| Object | Role |
+|--------|------|
+| `ToolInvocation` | The call: `id`, `name`, `cwd`, `params` |
+| `ToolContext` | Runtime services: `cwd`, `llm`, `settings` |
+| `AbortSignal` | An `asyncio.Event` set when the user cancels |
+| `ToolResult` | The outcome: `content`, `metadata`, `is_error`, optional media |
 
 ## Implement a Tool
 
-This example creates a read-only word-count tool:
+This read-only word-count tool is complete and runnable:
 
 ```python
 from __future__ import annotations
@@ -78,39 +111,44 @@ class WordCountTool(Tool):
         )
 ```
 
-The engine validates `invocation.params` against `schema` before execution.
-Validating again inside `execute()` produces a typed parameter object and keeps
-the tool safe when called directly in tests.
+The engine validates `invocation.params` against `schema` before calling `execute()`. Validating again inside `execute()` gives you a typed parameter object and keeps the tool correct when it is called directly from tests.
 
-## Define Clear Metadata
+## Constructor Reference
 
-Constructor fields affect both model behavior and execution:
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | — | Stable lowercase identifier, underscores for spaces |
+| `description` | `str` | — | What the tool does and when the model should call it |
+| `schema` | `type[BaseModel]` | — | Pydantic model describing the parameters |
+| `kind` | `ToolKind` | — | `Read`, `Edit`, `Write`, `Execute`, or `Web` |
+| `execution_mode` | `ToolExecutionMode` | `Sequential` | `Sequential`, `Parallel`, or `Batch` |
+| `render_call` | callable \| `None` | `None` | Renders the invocation line in the TUI |
+| `render_result` | callable \| `None` | `None` | Renders the result body in the TUI |
+| `render_shell` | `str` | `"self"` | `"self"` uses renderer output as-is; `"default"` applies the standard shell |
+| `result_expandable` | `bool` | `True` | `False` disables central collapsing |
+| `result_preview_lines` | `int` \| `None` | `None` | Overrides the global preview threshold |
+| `prompt_snippet` | `str` \| `None` | `None` | Appended to the tool's line in the system prompt's tool list |
+| `prompt_guidelines` | `str` \| `None` | `None` | Adds an entry to the system prompt's "Tool Guidelines" section |
+| `prepare_arguments` | callable \| `None` | `None` | Transforms the raw argument dict before validation |
 
-| Field | Guidance |
-|-------|----------|
-| `name` | Use a stable lowercase identifier with underscores |
-| `description` | State what the tool does and when it should be used |
-| `schema` | Use Pydantic fields with precise descriptions and constraints |
-| `kind` | Classify the side effect as read, edit, write, execute, or web |
-| `execution_mode` | Use parallel only when concurrent calls are safe |
+Choose `kind` and `execution_mode` deliberately:
 
-Tools that mutate files, launch processes, or modify external state should
-normally use `ToolExecutionMode.Sequential`. Read-only operations may use
-`Parallel` when they do not share mutable state.
+- Tools that mutate files, launch processes, or change external state should use `ToolExecutionMode.Sequential`. A sequential tool acts as an ordering barrier for its whole batch.
+- Read-only operations may use `Parallel`, but only when they share no mutable state.
+- `kind` is descriptive metadata for rendering, telemetry, and hooks. It does not gate execution — Tau has no tool approval prompt.
 
 ## Return Results
 
-Return model-facing text with one of the result constructors:
+Build results with the `ToolResult` constructors rather than instantiating it directly:
 
 ```python
 return ToolResult.ok(invocation.id, "Completed", metadata={"items": 3})
 return ToolResult.error(invocation.id, "The requested file does not exist")
 ```
 
-Keep `content` concise and actionable. Use `metadata` for structured facts
-needed by hooks or renderers, not for duplicating the complete text result.
+Keep `content` concise and actionable — it goes to the model. Use `metadata` for structured facts that hooks and renderers need, not to duplicate the text result.
 
-For Markdown rendering of a successful result:
+To render a successful result as Markdown in the TUI:
 
 ```python
 return ToolResult.ok(
@@ -120,32 +158,44 @@ return ToolResult.ok(
 )
 ```
 
+A tool can also hand media back to the model:
+
+| Constructor | Attaches |
+|-------------|----------|
+| `ToolResult.with_images(id, content, images)` | PIL Images, raw bytes, or image URLs |
+| `ToolResult.with_audio(id, content, audio)` | Bytes, base64 strings, or `file:` paths |
+| `ToolResult.with_video(id, content, video)` | Bytes, base64 strings, or `file:` paths |
+| `ToolResult.with_media(id, content, images=…, audio=…, video=…)` | Any combination |
+
+Only providers with native tool-result media support (Anthropic, Gemini, OpenAI Responses) deliver these to the model; others ignore them silently.
+
+Set `terminate=True` (with an optional `terminate_message`) on a result to stop the agent loop after the call completes.
+
 ## Use Runtime Context
 
-`ToolContext` provides optional runtime services:
+`ToolContext` carries optional runtime services:
 
 | Attribute | Value |
 |-----------|-------|
 | `cwd` | Current engine working directory |
-| `llm` | Active text inference client |
+| `llm` | Active text inference client, for tools that call a model |
 | `settings` | Active settings manager, when available |
 
-Treat every attribute as optional because tools can be unit-tested or called
-outside the complete runtime.
+Treat every attribute as optional. Tools are unit-tested and invoked outside the full runtime, so always guard before use and fall back sensibly — as the example does with `Path.cwd()`.
 
-Long-running tools should check `signal.is_set()` at safe cancellation points.
-Tools that produce incremental output can call
-`tool_execution_update_callback` with partial `ToolResult` values.
-High-frequency producers should throttle updates so they do not flood engine
-events or terminal renders. Emit an initial update when work begins and a final
-update matching the returned result.
+## Streaming and Cancellation
+
+Long-running tools should check `signal.is_set()` at safe cancellation points and return early with `ToolResult.error`.
+
+Tools that produce incremental output call `tool_execution_update_callback` with partial `ToolResult` values. Emit an initial update when work begins and a final update matching the returned result. Throttle high-frequency producers — the built-in `terminal` tool caps updates at one per 100 milliseconds — so they do not flood engine events or terminal renders.
 
 ## Register the Tool
 
+Tau supports three registration paths. All three converge on the same `ToolRegistry`, tagged with a different source.
+
 ### Project or Global Extension
 
-Create `.tau/extensions/word_count.py` for one project, or
-`~/.tau/extensions/word_count.py` for all projects:
+Create `.tau/extensions/word_count.py` for one project, or `~/.tau/extensions/word_count.py` for every project:
 
 ```python
 from tau.extensions import ExtensionAPI
@@ -155,11 +205,11 @@ def register(tau: ExtensionAPI) -> None:
     tau.register_tool(WordCountTool())
 ```
 
-Run `/reload` after changing an extension.
+Run `/reload` after editing an extension — tools sync to the live engine without restarting the session. Project extensions load only after the project is trusted; see [Project Context Files](project-context.md#trust-and-security).
 
 ### Python Runtime
 
-Pass tool instances through `RuntimeConfig`:
+Pass instances through `RuntimeConfig.tools`. They register under the `runtime` source:
 
 ```python
 from pathlib import Path
@@ -174,7 +224,7 @@ config = RuntimeConfig(
 
 ### Standalone Engine
 
-Supply tools to both `Engine` and `EngineContext`:
+Supply tools to both the `Engine` constructor and the `EngineContext` for a run:
 
 ```python
 from pathlib import Path
@@ -194,7 +244,41 @@ await engine.run(
 )
 ```
 
-See [Engine](engine.md) for standalone lifecycle and event handling.
+## Standalone Usage
+
+A tool is an ordinary object. You can execute one with no model, no engine, and no session — useful for scripting and for driving a tool from your own code.
+
+```python
+import asyncio
+from pathlib import Path
+
+from tau.tool.types import ToolContext, ToolInvocation
+
+
+async def main() -> None:
+    tool = WordCountTool()
+    cwd = Path.cwd()
+
+    result = await tool.execute(
+        ToolInvocation(
+            id="call-1",
+            name=tool.name,
+            cwd=cwd,
+            params={"path": "README.md"},
+        ),
+        context=ToolContext(cwd=cwd),
+    )
+
+    print(result.content)          # /repo/README.md: 412 words
+    print(result.metadata)         # {'path': '...', 'word_count': 412}
+    print(tool.to_json())          # Provider-facing schema
+    print(tool.validate({}))       # (False, ['path: Field required'])
+
+
+asyncio.run(main())
+```
+
+Executing a tool directly performs **no** schema validation, applies no execution-mode scheduling, and emits no engine events — those are the engine's responsibilities. Call `tool.validate(params)` yourself if you need the check. For the full loop, see [Engine](engine.md).
 
 ## Test the Tool
 
@@ -228,15 +312,20 @@ async def test_word_count(tmp_path: Path) -> None:
     assert result.metadata["word_count"] == 3
 ```
 
-Also test invalid parameters, missing resources, cancellation, and concurrent
-execution when the tool declares parallel safety.
+Also cover invalid parameters (`tool.validate`), missing resources, cancellation via a set `AbortSignal`, and concurrent execution when the tool declares `Parallel`.
 
 ## Checklist
 
-- Parameter types and constraints are expressed in the Pydantic schema.
-- The description explains when the model should call the tool.
-- Side effects match `ToolKind` and `ToolExecutionMode`.
-- Errors are returned as `ToolResult.error`, not leaked as raw tracebacks.
-- Paths are resolved against `ToolContext.cwd`.
-- Cancellation is checked during long operations.
-- Unit tests cover success and failure paths.
+- Parameter types, defaults, and constraints live in the Pydantic schema, each with a `description`.
+- The `description` explains *when* the model should call the tool, not just what it does.
+- `kind` describes the side effect; `execution_mode` is `Parallel` only when concurrent calls are genuinely safe.
+- Failures return `ToolResult.error` — raw tracebacks never leak to the model.
+- Relative paths resolve against `ToolContext.cwd`, with a fallback when context is absent.
+- Long operations check `signal.is_set()` and stream through the update callback.
+- Unit tests cover the success path, the failure path, and cancellation.
+
+## Next Steps
+
+- [Tools](tools.md) — Built-in tool reference and execution model
+- [Extensions](extensions.md) — Package tools with commands, hooks, and UI
+- [Engine](engine.md) — Standalone lifecycle and event handling

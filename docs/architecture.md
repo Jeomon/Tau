@@ -1,369 +1,361 @@
 # Architecture
 
-This page explains the design and structure of tau at a high level.
+Tau is a layered system. Each layer depends only on the layers beneath it, and
+the three lowest layers — `tau.tui`, `tau.engine`, `tau.inference` — are usable
+on their own. This page describes the layering, the data flow through one turn,
+and the boundaries that keep the layers separable.
 
-## Core Components
+For the file-by-file inventory, see [Project Structure](project-structure.md).
 
-Tau is built around a modular architecture with clear separation of concerns:
+## Table of Contents
+
+- [Layers](#layers)
+- [Layer Responsibilities](#layer-responsibilities)
+- [Dependency Rules](#dependency-rules)
+- [Turn Data Flow](#turn-data-flow)
+- [Agent Phases](#agent-phases)
+- [Context Building](#context-building)
+- [Tool Execution](#tool-execution)
+- [Hooks and Events](#hooks-and-events)
+- [Resource Loading](#resource-loading)
+- [Runtime Composition](#runtime-composition)
+- [Provider Abstraction](#provider-abstraction)
+- [Security Boundaries](#security-boundaries)
+
+## Layers
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│           Console (CLI Entry Point)                 │
-└──────────────────┬──────────────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────────────┐
-│           TUI (Terminal User Interface)             │
-│  ┌────────────┬──────────────┬──────────┬──────────┐
-│  │ Renderer   │ Input Editor │ Theme    │ Bindings │
-│  └────────────┴──────────────┴──────────┴──────────┘
-└──────────────────┬──────────────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────────────┐
-│      Runtime (Agent Execution Engine)              │
-│  ┌────────────┬──────────────┬──────────┬──────────┐
-│  │ Agent      │ Messages     │ Sessions │ Hooks    │
-│  └────────────┴──────────────┴──────────┴──────────┘
-└──────────────────┬──────────────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────────────┐
-│         Engine (Tool Execution)                    │
-│  ┌────────────┬──────────────┬──────────┬──────────┐
-│  │ Builtins   │ Extensions   │ Commands │ Skills   │
-│  └────────────┴──────────────┴──────────┴──────────┘
-└──────────────────┬──────────────────────────────────┘
-                   │
-┌──────────────────▼──────────────────────────────────┐
-│    Inference (LLM Provider Abstraction)            │
-│  ┌────────────┬──────────────┬──────────┬──────────┐
-│  │ Anthropic  │ OpenAI       │ Google   │ Others   │
-│  └────────────┴──────────────┴──────────┴──────────┘
-└──────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│ console/                       CLI entry, mode resolution         │
+│   tau … → interactive | print | json | rpc                        │
+└───────────────────────────────┬───────────────────────────────────┘
+                                │ constructs
+┌───────────────────────────────▼───────────────────────────────────┐
+│ modes/                         One driver per run mode            │
+│   interactive/  App, input handler, agent_hooks, components       │
+│   rpc/          JSON-RPC over stdio                               │
+│   (print/json run from console/cli.py)                            │
+└───────────────────────────────┬───────────────────────────────────┘
+                                │ drives
+┌───────────────────────────────▼───────────────────────────────────┐
+│ runtime/                       Application wiring                 │
+│   Runtime.create() → sessions, extensions, tools, hooks, model    │
+│   user_input · steer · follow_up · set_model · navigate_tree      │
+└──┬──────────────┬──────────────┬──────────────┬───────────────────┘
+   │              │              │              │
+   │ resources/   │ extensions/  │ session/     │ owns an
+   │ trust/       │ commands/    │ settings/    │
+   │ packages/    │ hooks/       │ auth/        │
+   │              │              │              ▼
+   │              │              │  ┌────────────────────────────────┐
+   │              │              │  │ agent/     One session-aware   │
+   │              │              └──┤            turn                │
+   │              │                 │ invoke · compact · persist ·   │
+   │              │                 │ retry · context building       │
+   │              │                 └──────────────┬─────────────────┘
+   │              │                                │ owns an
+   │              │                 ┌──────────────▼─────────────────┐
+   │              └────hooks────────┤ engine/    Stream + tool loop  │
+   │                                │ run · run_continue · steer ·   │
+   │                                │ tool dispatch · abort          │
+   │                                └──────┬───────────────┬─────────┘
+   │                                       │               │
+   │                          ┌────────────▼────┐  ┌───────▼────────┐
+   │                          │ inference/      │  │ tool/          │
+   │                          │ TextLLM, APIs,  │  │ Tool ABC,      │
+   │                          │ providers,      │  │ ToolRegistry   │
+   │                          │ models, OAuth   │  │ builtins/tools │
+   │                          └─────────────────┘  └────────────────┘
+   │
+   │  ┌──────────────────────────────────────────────────────────────┐
+   └──┤ message/  Shared vocabulary — every layer above speaks these  │
+      └──────────────────────────────────────────────────────────────┘
+
+      ┌──────────────────────────────────────────────────────────────┐
+      │ tui/      Standalone terminal framework. Knows nothing about  │
+      │           agents. Consumed only by modes/interactive/.        │
+      └──────────────────────────────────────────────────────────────┘
 ```
 
-## Data Flow
+## Layer Responsibilities
 
-User input flows through these stages:
+| Layer | Owns | Explicitly does not own |
+|-------|------|-------------------------|
+| `console/` | Argument parsing, mode resolution, print/json runners | Anything about turns |
+| `modes/` | Per-mode drivers and Tau-specific UI composition | Turn mechanics, persistence |
+| `runtime/` | Wiring, session lifecycle, extension reload, model switching | Streaming, tool dispatch |
+| `agent/` | Context building, compaction, persistence, retry, phase tracking | Streaming, tool dispatch |
+| `engine/` | Streaming, tool validation and dispatch, steering/follow-up queues | Sessions, extensions, UI |
+| `inference/` | Auth, endpoints, request shaping, normalized event stream | Tool execution, history |
+| `tool/` | `Tool` contract and registry | Scheduling — that is the engine's |
+| `message/` | Message and content-block vocabulary | Persistence, transport |
+| `tui/` | Terminal rendering, components, input, keybindings | Agents, sessions, models |
 
-1. **Input** - User types a prompt in the TUI editor
-2. **Session** - Message added to the current session
-3. **Agent** - Agent processes message and tool outputs
-4. **Inference** - Agent calls the LLM provider
-5. **Tools** - LLM requests tools; engine executes them
-6. **Render** - Results rendered in the TUI
-7. **Save** - Session and context updated and persisted
+## Dependency Rules
 
-## Module Organization
+Three packages are hard boundaries and are enforced as such:
 
-### Core Modules (Request/Response)
+| Package | May import | Must not import |
+|---------|-----------|-----------------|
+| `tau.tui` | Standard library, rendering deps | Any other `tau.*` application package |
+| `tau.engine` | `inference`, `message`, `tool`, `hooks`, optionally `settings` | `session`, `extensions`, `tui`, `runtime`, `agent` |
+| `tau.inference` | `message`, `auth`, `settings`, `utils` | `engine`, `agent`, `session`, `runtime`, `tui` |
 
-| Module | Purpose |
-|--------|---------|
-| `console/` | CLI entry point, argument parsing |
-| `runtime/` | Orchestrates agent, session, engine, extensions |
-| `agent/` | Processes message turns, calls inference |
-| `engine/` | Standalone inference and tool-execution loop |
-| `inference/` | Unified interface to LLM providers |
+This is what makes each of them independently testable and embeddable. See
+[Engine](engine.md#dependency-boundary), [Inference](inference.md), and
+[Terminal UI](tui.md) for the standalone usage of each.
 
-### Data & State
+`agent/` imports `engine/` (it constructs and owns one). `engine/` never imports
+`agent/`. Communication upward happens through events on the shared `Hooks` bus
+and through the `EngineOptions` callbacks the agent installs.
 
-| Module | Purpose |
-|--------|---------|
-| `session/` | Session JSONL persistence, compaction, branching |
-| `settings/` | Configuration from JSON files |
-| `resources/` | Unified discovery of extensions, skills, prompts, and themes |
-| `auth/` | Credential storage and resolution |
-| `message/` | Message type definitions |
-| `trust/` | Trust and permission checks |
+## Turn Data Flow
 
-### UI & Extensions
+One interactive turn, end to end:
 
-| Module | Purpose |
-|--------|---------|
-| `tui/` | Standalone terminal rendering and component framework |
-| `extensions/` | Plugin system API |
-| `hooks/` | Event system for extensions |
-| `commands/` | Slash command registry |
-| `tool/` | Tool registry and abstractions |
-
-### Built-in Content
-
-| Module | Purpose |
-|--------|---------|
-| `builtins/` | Pre-installed tools, commands, themes, skills |
-| `themes/` | Theme loading and registry |
-| `skills/` | Skill loading and injection |
-| `prompts/` | Prompt template loading and substitution |
-
-### Specialized
-
-| Module | Purpose |
-|--------|---------|
-| `packages/` | Installed package and dependency management |
-| `rpc/` | JSON-RPC protocol for IDE integration |
-
-## Agent Execution State Machine
-
-The agent has four observable phases:
-
-```
-IDLE ──user input──> TURN ──no more tool calls──> IDLE
-  ├── manual/auto compact ──> COMPACTION ──> previous phase
-  └── tree navigation ──────> BRANCH_SUMMARY ──> IDLE
+```text
+ 1. modes/interactive/input_handler.py   user submits text
+ 2. Runtime.user_input()                 emit InputEvent (extensions may rewrite)
+ 3. Agent.invoke()                       phase IDLE → TURN
+ 4. SessionManager                       append UserMessage as a MessageEntry
+ 5. session.utils.to_llm_messages()      AgentMessage[] → LLMMessage[]
+ 6. agent/prompt/builder.py              build system prompt + project context
+ 7. hooks: BeforeAgentStartEvent         handlers may override the system prompt
+ 8. Agent → Engine.run(EngineContext)    hand off system prompt, messages, tools
+ 9. EngineOptions.transform_context      last rewrite before the request
+10. hooks: ContextEvent                  handlers may rewrite the message list
+11. inference: TextLLM.stream()          provider request; normalized LLMEvent stream
+12. engine: MessageStart/Update/End      AssistantMessage accumulates and commits
+13. assistant.tool_calls()               engine schedules the batch
+14. tool/: Tool.execute()                results become ToolResultContent
+15. engine: ToolExecutionStart/End       per call
+16. engine: TurnEndEvent                 assistant message + all tool results
+17. loop to step 11 if tools ran         otherwise AgentEndEvent
+18. Agent                                persist messages, update token usage
+19. modes/interactive/agent_hooks.py     project events onto UI state; render
+20. Agent                                post-turn compaction check, drain queues
+21. hooks: SettledEvent                  phase TURN → IDLE
 ```
 
-| State | Meaning |
-|-------|---------|
-| `IDLE` | No active inference; waiting for user input |
-| `TURN` | Processing a turn: calling inference, executing tools |
-| `COMPACTION` | Generating or applying a context compaction summary |
-| `BRANCH_SUMMARY` | Generating or applying a branch-navigation summary |
+Steps 11–17 are entirely inside `tau.engine` and run identically when the engine
+is embedded without a runtime.
 
-The state is exposed via `AgentPhase` enum in `agent/types.py` and accessible to extensions via hooks.
+## Agent Phases
 
-## Execution Phases in a Turn
+`AgentPhase` in `agent/types.py` is a `StrEnum` with four members.
 
-Each agent turn follows this sequence:
-
-```
-1. Capture user input (TUI)
-2. Add message to session
-3. Call inference (LLM API)
-4. Collect tool calls from response
-5. Execute tools concurrently only when every call in the batch is marked parallel
-6. Add tool results to context
-7. Call inference again (only if tools were called)
-8. Render all messages and results (TUI)
-9. Save session to disk
-10. Run post-turn compaction and drain messages queued by lifecycle handlers
-11. Fire the settled hook
+```text
+IDLE ──user input──────────► TURN ──no more tool calls──► IDLE
+  ├── manual or auto compact ──► COMPACTION ──► previous phase
+  └── tree navigation ─────────► BRANCH_SUMMARY ──► IDLE
 ```
 
-TUI overlays participate in focus lifecycle. Hiding or closing a capturing
-overlay restores the next visible overlay or its previous focus target.
-Components exposing `dispose()` are disposed when their overlay closes.
-The reusable renderer, terminal, input, and component APIs are documented in
-[Terminal UI](tui.md); runtime-aware composition lives in
-`modes/interactive/`.
+| Phase | Value | Meaning |
+|-------|-------|---------|
+| `IDLE` | `idle` | No active inference; waiting for input |
+| `TURN` | `turn` | Calling inference and executing tools |
+| `COMPACTION` | `compaction` | Generating or applying a context compaction summary |
+| `BRANCH_SUMMARY` | `branch_summary` | Generating or applying a branch-navigation summary |
 
-Slash commands declare whether they require an idle agent. Idle-only commands
-are deferred until the current turn settles; UI-only and read-only commands may
-opt into immediate dispatch during a turn. Normal Enter input remains steering,
-and Alt+Enter remains a post-turn follow-up message.
-
-## Message Types and Context
-
-Messages in sessions are typed:
-
-- `user` - User prompt
-- `assistant` - LLM response (may contain tool calls)
-- `tool` - Tool execution result
-- `compaction` - Session compaction marker
-- `branch_summary` - Summary when branching away
-
-Each message includes metadata (timestamp, turn index, etc.) and is persisted to the session JSONL file.
+Read the current phase with `Agent.phase`, or `Agent.is_idle` for the common
+case. Slash commands declare whether they require an idle agent: idle-only
+commands are deferred until the turn settles, while UI-only and read-only
+commands may opt into immediate dispatch mid-turn.
 
 ## Context Building
 
-Before each inference call, the runtime builds the context:
+Before each request the agent assembles context in this order:
 
-```
-1. Load session from disk (JSONL)
-2. Apply branching (load only messages on current branch)
-3. Apply compaction (if context was summarized)
-4. Inject skills (append skill markdown)
-5. Inject prompts (template substitution)
-6. Build system prompt (model-specific)
-7. Add message history
-8. Count tokens
-```
+1. Load the active branch from the session tree (JSONL on disk).
+2. Apply compaction — replace summarized history with a `CompactionSummaryMessage`.
+3. Project `AgentMessage[]` to `LLMMessage[]` via `session.utils.to_llm_messages()`.
+4. Build the system prompt: environment detection, git status, project context files.
+5. Inject skills and expanded prompt templates.
+6. Apply `EngineOptions.ephemeral_injection` for single-turn messages.
+7. Estimate token usage against the model's context window.
 
-Automatic compaction summarizes older messages when context approaches the limit. It is checked before sending a turn (pre-flight) and after each turn, and — as a reactive backstop — a request that still fails with a provider context-overflow error triggers a compact-and-retry (bounded to one attempt). See [Context Compaction](sessions.md#context-compaction).
+Projection rules — which persisted messages reach the model and how — are in
+[Messages](messages.md#context-projection).
 
-## Hook & Event System
+Compaction is checked at three points:
 
-Extensions can react to lifecycle events:
+| Trigger | When | Reason value |
+|---------|------|--------------|
+| Pre-flight | Before sending a turn | `threshold` |
+| Post-turn | After a turn completes | `threshold` |
+| Reactive | A request fails with a provider context-overflow error | `overflow` |
+| Explicit | `/compact` | `manual` |
 
-- `session_start` - Session begins
-- `turn_start` - New inference turn starts
-- `turn_end` - Turn completes (before rendering)
-- `tool_call` - Tool call can be inspected, rewritten, or blocked
-- `tool_result` - Tool result can be inspected or rewritten
-- `tool_execution_start` / `tool_execution_end` - Tool handler lifecycle
-- `tui_ready` - TUI is ready for input
-- `tui_exit` - TUI is exiting
-- `compaction_start` - Compaction begins
-- `compaction_end` - Compaction finishes
+The reactive path is a backstop: it compacts and retries once, bounded to a
+single attempt. See [Context Compaction](sessions.md#context-compaction).
 
-Hooks allow extensions to inspect state, modify messages, or react to events.
+## Tool Execution
 
-## Provider Abstraction
-
-Providers describe authentication, endpoints, and the API adapter used for a
-request. Adapters stream normalized `LLMEvent` objects:
-
-```python
-class BaseAPI:
-    async def stream(self, context, model, options) -> AsyncIterator[LLMEvent]:
-        ...
-```
-
-The inference module handles provider-specific details (API keys, endpoints,
-format conversions) and can also be used independently of the agent runtime.
-See [Inference](inference.md) for its package boundaries and public clients.
-
-## Tool Execution Model
-
-Tools are executed in a sandboxed environment:
-
-```
-1. Tool call arrives from LLM
-2. Trust/permission check (if enabled)
-3. Tool execution starts (sync or async)
-4. Tool streams partial results (optional)
-5. Tool completes with final result
-6. Result is serialized and added to context
+```text
+ToolCallContent from the model
+   │
+   ├─ hooks: ToolCallEvent            handlers may block or rewrite params
+   ├─ EngineOptions.should_skip_tool_calls   returns a result without executing
+   ├─ EngineOptions.before_tool_call  rewrite the invocation, or short-circuit
+   ├─ trust/ check                    for tools requiring project trust
+   │
+   ├─ schedule by ToolExecutionMode   Sequential | Parallel | Batch
+   │    └─ timeout + abort boundary   EngineOptions.tool_timeout_seconds
+   │
+   ├─ Tool.execute(invocation)        may stream ToolExecutionUpdateEvent
+   ├─ EngineOptions.after_tool_call   inspect or replace the result
+   ├─ hooks: ToolResultEvent          handlers may override the content
+   │
+   ▼
+ToolResultContent (id matches the call) → ToolMessage → next turn
 ```
 
-Built-in tools (terminal, read, write, edit, glob, grep, ls) are enabled by default.
-`RuntimeConfig` can allow or exclude tools by name. Custom tools are registered
-via extensions or passed directly to the runtime.
+Batch scheduling is all-or-nothing: a batch runs concurrently only when every
+tool in it declares `Parallel`. One sequential tool is an ordering barrier for
+the whole batch, because parallel tools running around it could reorder
+observable side effects. Results are always returned in source order.
 
-The engine can also be embedded without the session-aware agent or runtime.
-See [Engine](engine.md) for its public API and dependency boundary.
+Failures are contained per call. A tool that raises produces an error result for
+that call only; siblings continue. Full detail in
+[Engine](engine.md#tool-execution).
 
-Programmatic runtimes can replace constructed services through
-`RuntimeDependencies`. Typed factories cover settings, LLM/model/auth wiring,
-session storage, hooks, and the tool registry. Session-bound factories run
-again when the active session is replaced.
+Built-in tools (`read`, `write`, `edit`, `glob`, `grep`, `ls`, `terminal`) are
+enabled by default. `RuntimeConfig` narrows that set with `tool_allowlist`
+(`set[str] | None`) and `exclude_tools` (`set[str]`), and accepts extra tools
+directly via its `tools` field. Custom tools are also registered by extensions — see
+[Creating Tools](creating-tools.md).
 
-`Runtime.create_with_result()` returns the initialized runtime together with
-resource diagnostics, extension errors, and requested-versus-selected
-model/provider resolution. `Runtime.create()` remains the convenience API when
-the caller does not need startup details.
+## Hooks and Events
 
-Extension reloads pass through a serialized coordinator. Callback-triggered or
-mid-turn requests wait until extension dispatch and the agent lifecycle settle.
-Runtime generations invalidate contexts captured before reload, session
-replacement, or shutdown, and shutdown detaches the extension runtime from its
-hook bus.
+`tau/hooks/` is one bus, `Hooks`, with events split across domain modules. The
+`HookEvent` union in `hooks/types.py` aggregates all of them.
 
-## Extension Points
+| Module | Domain | Representative events |
+|--------|--------|----------------------|
+| `hooks/engine.py` | Turn lifecycle | `before_agent_start`, `agent_start`, `agent_end`, `agent_error`, `turn_start`, `turn_end`, `message_start`, `message_update`, `message_end`, `message_rollback`, `context`, `tool_call`, `tool_result`, `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, `tool_execution_failure`, `save_point`, `settled`, `before_compaction`, `compaction_start`, `compaction_end`, `compaction_failure`, `compaction_cancelled` |
+| `hooks/session.py` | Session lifecycle | `session_start`, `session_before_switch`, `session_before_fork`, `session_before_tree`, `session_tree`, `session_shutdown`, `branch_summary_start`, `branch_summary_end`, `branch_summary_failure`, `branch_summary_cancelled` |
+| `hooks/runtime.py` | Application lifecycle | `runtime_start`, `runtime_ready`, `runtime_stop`, `input`, `project_trust`, `resources_discover`, `terminal_execution`, `terminal_output`, `user_terminal` |
+| `hooks/inference.py` | Provider boundary | `before_provider_request`, `after_provider_response` |
+| `hooks/tui.py` | Interface | `tui_start`, `tui_ready`, `tui_exit`, `queue_update`, `model_select`, `thinking_level_select` |
 
-Tau is designed to be extended without modifying core code. Key extension points via the `tau` parameter in `register()`:
-
-Resource discovery is centralized behind the replaceable `ResourceLoader`
-protocol. `DefaultResourceLoader` supports per-resource overrides. Startup and
-`/reload` consume one `ResourceSnapshot`, keeping extensions, skills, prompts,
-themes, context files, and structured diagnostics consistent. Diagnostics
-identify invalid configured paths, package manifests/resources, hook paths, and
-context read failures without preventing valid resources from loading.
-
-### Tools
-
-Register custom tools that the agent can call:
-
-```python
-from tau.tool.types import Tool, ToolInvocation, ToolResult
-from pydantic import BaseModel, Field
-
-class MySchema(BaseModel):
-    path: str = Field(..., description="File path")
-
-class MyTool(Tool):
-    name = "my_tool"
-    description = "My custom tool"
-    schema = MySchema
-    
-    async def execute(self, invocation: ToolInvocation, **kwargs) -> ToolResult:
-        # Implement tool logic
-        return ToolResult.ok(invocation.id, "result")
-
-def register(tau):
-    tau.register_tool(MyTool())
-```
-
-### Commands
-
-Add slash commands (`/command`):
-
-```python
-def register(tau):
-    async def my_command(ctx, args):
-        ctx.notify("Hello!")
-    tau.register_command("my", "My command", my_command)
-```
-
-### Hooks
-
-React to lifecycle events:
+Two kinds of handler exist. **Observational** handlers just react.
+**Mutating** handlers return a typed result object — `ContextEventResult`,
+`ToolCallEventResult`, `ToolResultEventResult`, `MessageEndEventResult`,
+`BeforeCompactionResult` — which the emitter reduces into the ongoing operation.
 
 ```python
 def register(tau):
     async def on_tool_end(event, ctx):
-        print(f"Tool {event.tool_name} finished")
+        print(f"{event.tool_result.tool_name} finished")
+
     tau.on("tool_execution_end", on_tool_end)
 ```
 
-### Dialogs
+`Hooks.emit()` accepts a per-emit timeout. Handlers that exceed it are logged
+and abandoned so a slow extension cannot stall the turn. The complete event
+table is in [Extensions](extensions.md#event-hooks).
 
-Show modal dialogs to users:
+## Resource Loading
 
-```python
-def register(tau):
-    async def my_command(ctx, args):
-        choice = await ctx.select("Pick one", ["A", "B", "C"])
+Resource discovery sits behind the replaceable `ResourceLoader` protocol in
+`resources/loader.py`. `DefaultResourceLoader` supports per-resource overrides.
+
+Startup and `/reload` each consume exactly one immutable `ResourceSnapshot`,
+which keeps extensions, skills, prompts, themes, and context files consistent
+with each other. Sources merge in priority order:
+
+```text
+builtin  →  global (~/.tau/)  →  project (.tau/)  →  installed packages
+                                                  →  hook-provided
 ```
 
-### Themes
+Structured diagnostics report invalid configured paths, bad package manifests,
+unreadable hook paths, and context-file read failures without preventing valid
+resources from loading. Read them from
+`Runtime.resource_diagnostics` or `RuntimeStartupResult`.
 
-Add custom terminal color themes:
+## Runtime Composition
+
+`Runtime` has two constructors:
+
+| Constructor | Returns | Use when |
+|-------------|---------|----------|
+| `Runtime.create(config)` | `Runtime` | Startup details are not needed |
+| `Runtime.create_with_result(config)` | `RuntimeStartupResult` | You need diagnostics, extension errors, and requested-versus-selected model/provider resolution |
+
+`RuntimeDependencies` replaces constructed services with typed factories,
+covering settings, LLM/model/auth wiring, session storage, hooks, and the tool
+registry. Session-bound factories run again whenever the active session is
+replaced.
+
+Extension reloads pass through a serialized coordinator: callback-triggered or
+mid-turn requests wait until extension dispatch and the agent lifecycle settle.
+Runtime generations invalidate contexts captured before a reload, session
+replacement, or shutdown, and shutdown detaches the extension runtime from the
+hook bus.
+
+See [Python API](python-api.md) for programmatic embedding.
+
+## Provider Abstraction
+
+Providers describe authentication, endpoints, and the API adapter used for a
+request. Adapters stream normalized `LLMEvent` objects, so the engine is written
+once against one event shape.
 
 ```python
-# Save to ~/.tau/themes/my-theme.yaml
-colors:
-  primary: "#FF6B6B"
-  secondary: "#4ECDC4"
-  background: "#1A1A2E"
-  text: "#EAEAEA"
+class BaseAPI:
+    async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:
+        """Yield LLMEvent objects as the provider streams its response."""
+
+    async def invoke(self, context: LLMContext, model: Model) -> list[LLMEvent]:
+        """Collect the full response without streaming."""
 ```
 
-See [Extensions](extensions.md) for detailed guides and more examples.
+| Concern | Owner |
+|---------|-------|
+| Wire format per API | `inference/api/<modality>/*.py` |
+| Which provider serves a model | `inference/provider/registry.py` |
+| Model metadata, limits, cost | `inference/model/registry.py`, `builtins/models/` |
+| Dynamic model discovery | `inference/model/catalog.py` (models.dev) |
+| Local model discovery | `inference/model/local/` (llama.cpp, LM Studio, Ollama, vLLM) |
+| Credentials | `auth/manager.py` and `inference/provider/oauth/` |
+| Failure classification | `inference/utils.py` → `ErrorKind` |
+
+`ErrorKind` drives recovery: `rate_limit` and `overloaded` back off and retry,
+`billing` and `auth_permanent` abort immediately, and a context-overflow
+classification triggers compact-and-retry.
+
+Text, image, audio, and video are separate modalities with their own registries
+and client services. See [Inference](inference.md) and
+[Inference Providers](inference-providers.md).
+
+## Security Boundaries
+
+| Boundary | Mechanism |
+|----------|-----------|
+| Project trust | `trust/manager.py` persists per-directory decisions to `~/.tau/trust.json`. Context files, extensions, and project settings load only for trusted projects. |
+| Credentials | Resolved by `auth/manager.py` from environment variables or the credential store; `utils/secrets.py` resolves `$VAR` references in settings. |
+| Package resolution | `packages/manager.py` rejects path traversal and symlink escape when resolving a package declaration. |
+| Tool execution | Tools declare a `ToolKind`; the trust system gates the ones that write or execute. |
+| Session logs | One log file per run under the global logs directory, named by session id. |
+
+> **Security:** Extensions execute arbitrary Python in-process, and skills can
+> instruct the model to take any action. Review third-party code before
+> installing it.
 
 ## Design Principles
 
-1. **Separation of Concerns** - Each module has a single responsibility
-2. **Provider Abstraction** - LLM providers hidden behind a unified `Provider` interface
-3. **Extensibility First** - Extensions are first-class; everything can be customized
-4. **Lazy Loading** - Modules loaded only when needed
-5. **Type Safety** - Full type hints for IDE autocomplete and error checking
-6. **Persistence** - Sessions and settings saved to disk for recovery and resumption
-7. **Composability** - Modules compose cleanly; can be used independently
-
-## Performance Characteristics
-
-- **Startup**: ~0.5s (lazy loaded modules)
-- **Message processing**: Depends on LLM (typically 1-30s)
-- **Tool execution**: Sandbox overhead ~10ms per tool
-- **Context window**: Automatic compaction when approaching limit
-- **Memory**: ~50 MB baseline, grows with session size
-
-## Security
-
-- **Tool Execution**: Sandboxed, with optional permission prompts (trust system)
-- **Credentials**: Encrypted credential storage (OS keychain or file)
-- **Session Files**: Written to `~/.tau/sessions/` with 0600 permissions
-- **Extensions**: Loaded from user-writable directories only
-
-## Testing Strategy
-
-- Unit tests for core logic (agent, inference, session)
-- Integration tests for end-to-end flows
-- Test fixtures for mocking providers and tools
-- All modules have type hints for static analysis
+1. **Strict layering** — each layer depends only downward; upward communication is via events.
+2. **Standalone cores** — `tui`, `engine`, and `inference` are independently usable.
+3. **One vocabulary** — every layer speaks `tau.message` types.
+4. **Replaceable seams** — `ResourceLoader`, `RuntimeDependencies`, and the hook bus are the extension points.
+5. **Contained failure** — a failing tool, handler, or resource degrades one unit of work, not the turn.
+6. **Explicit phase** — `AgentPhase` gates structural operations rather than ad-hoc busy flags.
 
 ## Next Steps
 
-- [Project Structure](project-structure.md) - Detailed module breakdown
-- [Usage Guide](usage.md) - Interactive mode and commands
-- [Extensions Guide](extensions.md) - Building custom extensions
-- [Python API](python-api.md) - Programmatic usage
+- [Project Structure](project-structure.md) - module-by-module inventory
+- [Engine](engine.md) - the embeddable loop
+- [Messages](messages.md) - the shared type vocabulary
+- [Extensions](extensions.md) - building on the hook bus
+- [Python API](python-api.md) - programmatic runtime usage

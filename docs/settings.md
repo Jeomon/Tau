@@ -1,248 +1,211 @@
 # Settings
 
-This page documents tau's configuration system and all available settings.
-
-## Configuration Locations
-
-Settings files are JSON, with project settings overriding global settings:
+Tau uses JSON settings files with project settings overriding global settings. Every key is `snake_case` and maps directly onto a field of the `Settings` dataclass in `tau/settings/types.py`.
 
 | Location | Scope |
 |----------|-------|
 | `~/.tau/settings.json` | Global — defaults for all projects |
-| `.tau/settings.json` | Project — overrides for this project |
+| `.tau/settings.json` | Project — overrides for the current directory |
 
-Settings are merged at startup (project wins). Edit files directly; changes take effect on the next session start or after `/reload`.
+Edit the files directly, or use `/settings` for an interactive panel. Changes take effect on the next session start or after `/reload`.
 
----
+## Table of Contents
 
-## `/settings` TUI Panel
+- [Precedence and Merging](#precedence-and-merging)
+- [The `/settings` Panel](#the-settings-panel)
+- [Model & Thinking](#model--thinking)
+- [UI & Display](#ui--display)
+- [Message Delivery](#message-delivery)
+- [Sessions](#sessions)
+- [Compaction](#compaction)
+- [Branch Summary](#branch-summary)
+- [Retry](#retry)
+- [Images](#images)
+- [Network](#network)
+- [Terminal & Execution](#terminal--execution)
+- [Startup & Telemetry](#startup--telemetry)
+- [Project Trust](#project-trust)
+- [Extensions](#extensions)
+- [Packages](#packages)
+- [Full Example](#full-example)
+- [Recovering a Corrupt Settings File](#recovering-a-corrupt-settings-file)
 
-Run `/settings` to open a full interactive settings panel — no need to edit JSON manually for most settings.
+## Precedence and Merging
 
-### Navigation
+Global and project settings are deep-merged at startup. A non-`null` project value wins; nested objects merge field by field rather than replacing wholesale.
+
+```json
+// ~/.tau/settings.json (global)
+{
+  "theme": "dark",
+  "compaction": { "enabled": true, "reserve_tokens": 16384 }
+}
+
+// .tau/settings.json (project)
+{
+  "compaction": { "reserve_tokens": 8192 }
+}
+
+// Merged result
+{
+  "theme": "dark",
+  "compaction": { "enabled": true, "reserve_tokens": 8192 }
+}
+```
+
+Three rules govern the merge:
+
+1. Project settings are only merged when the project is **trusted**. An untrusted project contributes nothing — see [Project Trust](#project-trust).
+2. `telemetry` is read from the **global scope only**, so a project can never re-enable telemetry a user has turned off.
+3. Every setter on `SettingsManager` writes to the **global** file. The only exception is `set_project_extension_list()`, which writes `.tau/settings.json`. `/settings` therefore always edits global settings.
+
+Writes are field-scoped: only the keys you changed are re-serialized and merged back into whatever is on disk, so a concurrent editor's unrelated keys survive.
+
+### LLM Option Precedence
+
+Model options reach a provider through `TextLLM._merge_options()` (`tau/inference/api/text/service.py`), which merges layer by layer:
+
+```text
+provider base options  (tau/builtins/providers/*)
+  └─ model.base_url override        (per-model, when the model declares one)
+      └─ caller-supplied LLMOptions (settings, CLI flags, extensions)
+```
+
+An override field only wins when it is **both** non-`None` **and** explicitly set by the caller. `LLMOptions` tracks assignment in `_explicit_fields` (`tau/inference/types.py`), so a field left at its dataclass default — `temperature`, `max_retries`, `timeout` — does not clobber the provider's own configured value. This is why passing a bare `LLMOptions()` is a no-op rather than a reset.
+
+Settings feed this layer at runtime: when `retry.enabled` is true, `max_retries` and `retry_base_delay_ms` are assigned onto the live `llm.api.options` (`tau/runtime/types.py`).
+
+## The `/settings` Panel
+
+Run `/settings` for an interactive panel over most of the reference below.
 
 | Key | Action |
 |-----|--------|
-| ↑ / ↓ | Move between items |
-| Enter | Toggle a boolean, cycle an enum, or open a sub-panel |
-| Escape | Go back to the parent panel (or close if at the top level) |
+| ↑ / ↓ | Move between rows |
+| Enter / Space | Cycle a value, open a sub-panel, or enter text-edit mode |
+| Tab | Cycle tabs |
+| Escape | Cancel text edit, close a sub-panel, or close the panel |
+| Backspace | Delete a search character (or an edit character while editing) |
+| *(type)* | Fuzzy-search rows |
 
-### Sub-panels
+These groups open as nested sub-panels: **Proxy**, **Retry**, **Compaction**, **Branch summary**, **Terminal**, plus one panel per extension that registers settings. See [Extension Settings](extension-settings.md).
 
-The following settings groups open as **nested sub-panels** (press Enter on the group heading, navigate, press Escape to return):
+Integer and string settings use inline text editing: press Enter to edit, Enter again to confirm, Escape to discard.
 
-- **Proxy** — `url`, `no_proxy`, `headers` (JSON)
-- **Retry** — `enabled`, `max_retries`, `base_delay_ms`
-- **Compaction** — `enabled`, `reserve_tokens`, `keep_recent_tokens`
-- **Branch Summary** — `enabled`, `skip_prompt`, `reserve_tokens`
-- **Terminal** — `shell_path`, `shell_command_prefix`
-- **Extensions** — each extension that registers settings items (see [Extension settings panel](#extension-settings-panel))
+## Model & Thinking
 
-### Text input mode
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `model` | object | – | Per-modality model selection; see below |
+| `thinking_level` | string | – | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` |
+| `thinking_budgets` | object | – | Per-level token budgets; see below |
+| `transport` | string | `"auto"` | Wire transport: `"auto"`, `"http"`, `"websocket"`, `"sse"` |
+| `enabled_models` | string[] | – | Restrict the model picker to these model IDs |
 
-Integer settings (timeouts, token counts, padding values, etc.) use **inline text editing**:
+### model
 
-1. Navigate to the item and press Enter to enter edit mode.
-2. Type the new value.
-3. Press Enter to confirm, or Escape to cancel without saving.
-
-### Settings exposed in the panel
-
-All settings documented in the reference below are editable from the TUI. Settings that were previously JSON-only and are now accessible in the panel include:
-
-| Setting | Panel location |
-|---------|----------------|
-| `project_trust` | Top level — cycles `"ask"` / `"always"` / `"never"` |
-| `telemetry` | Top level — boolean toggle |
-| `double_escape_action` | Top level — cycles `"clear"` / `"fork"` / `"tree"` / `"none"` |
-| `tree_filter_mode` | Top level — cycles all five modes |
-| `show_hardware_cursor` | Top level — boolean toggle |
-| `cursor_blink` | Top level — boolean toggle |
-| `http_idle_timeout_ms` | Top level — text input |
-| `picker_max_visible` | Top level — text input |
-| `autocomplete_max_visible` | Top level — text input |
-| `editor_padding_x` | Top level — text input |
-| All retry sub-settings | Retry sub-panel |
-| All compaction sub-settings | Compaction sub-panel |
-| All branch summary sub-settings | Branch Summary sub-panel |
-| All proxy sub-settings | Proxy sub-panel |
-
-### Extension settings panel
-
-Extensions can register their own settings items that appear at the bottom of the `/settings` list as named sub-panels. See [Extension Settings](extension-settings.md#exposing-settings-in-the-settings-panel) for details.
-
----
-
-## Settings Reference
-
-All field names use `snake_case`.
-
-### Model & Provider
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `model` | object | Per-modality model selections: `text`, `voice`, `speak`, `image`, and `video` |
-| `thinking_level` | string | Extended thinking budget level (see below) |
-| `transport` | string | Transport preference: `"auto"`, `"http"`, `"websocket"`, or `"sse"` |
-| `enabled_models` | list[string] | Restrict the model picker to these model IDs |
-| `session_dir` | string | Override the directory used to store and discover sessions |
+`model` is an object of per-modality `{id, provider, voice}` references. `text` is the chat model; `voice` is speech-to-text, `speak` is text-to-speech.
 
 ```json
 {
   "model": {
-    "text": {
-      "id": "claude-sonnet-4-6",
-      "provider": "anthropic"
-    },
-    "speak": {
-      "id": "tts-1",
-      "provider": "openai",
-      "voice": "coral"
-    }
-  },
-  "thinking_level": "low"
+    "text":  { "id": "claude-sonnet-4-6", "provider": "anthropic" },
+    "voice": { "id": "whisper-1", "provider": "openai" },
+    "speak": { "id": "tts-1", "provider": "openai", "voice": "nova" }
+  }
 }
 ```
 
-Each model reference contains `id` and `provider`. The `speak` reference may
-also contain `voice`; `/model` prompts for it after selecting a text-to-speech
-model that declares supported voices.
+| Slot | Modality | Aliases accepted by the API |
+|------|----------|------------------------------|
+| `text` | Chat / completion | – |
+| `voice` | Speech-to-text (input) | `stt`, `audio` |
+| `speak` | Text-to-speech (output) | `tts` |
+| `image` | Image generation | – |
+| `video` | Video generation | – |
 
-#### Extended thinking
+`voice` inside a `ModelRef` is the provider's named TTS voice, not a model slot.
 
-Extended thinking gives the model a private scratchpad — a reasoning trace it works through before producing its response. It trades token budget (and cost) for accuracy on complex tasks like multi-step reasoning, planning, and math.
+> **Legacy format:** a flat `"model": "<id>"` with a sibling `"provider"` key still loads — it is folded into `model.text` and rewritten in nested form on the next save.
 
-| Level | Token budget | When to use |
-|-------|-------------|-------------|
-| `none` / `off` | 0 | Everyday tasks, fast responses |
-| `minimal` | ~1 024 | Light reasoning, quick sanity checks |
-| `low` | ~4 096 | Moderate reasoning |
-| `medium` | ~8 192 | Multi-step problems |
-| `high` | ~16 384 | Complex analysis |
-| `xhigh` | ~32 768 | Hard reasoning tasks |
-| `max` | ~65 536 | Most demanding tasks |
+### thinking_budgets
 
-Token budgets are approximate defaults. Override per-level with `thinking_budgets` (see below). Not all providers support extended thinking — it is silently ignored when unsupported.
+Token budgets per thinking level, used by providers that map a level to `budget_tokens`. Unset levels fall back to the defaults below.
 
-Toggle during a session with `/effort` or the effort picker.
+| Level | Default budget |
+|-------|----------------|
+| `minimal` | `1024` |
+| `low` | `2048` |
+| `medium` | `4096` |
+| `high` | `8192` |
+| `xhigh` | `16384` |
+| `max` | `32768` |
 
-### UI & Display
+```json
+{
+  "thinking_budgets": {
+    "medium": 8192,
+    "high": 24576
+  }
+}
+```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `theme` | string | `"dark"` | Theme name: `"dark"`, `"light"`, `"auto"`, or an installed custom name |
+`off` and `ultra` are valid `thinking_level` values but have no budget entry: `off` disables thinking, `ultra` is provider-defined.
+
+## UI & Display
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `theme` | string | `"dark"` | Theme name, or `"auto"` to pick light/dark from the terminal background. See [Themes](themes.md) |
 | `show_thinking` | boolean | `true` | Show extended-thinking blocks in the message list |
-| `show_tool_calls` | boolean | `true` | Show tool call / result blocks in the message list |
-| `show_images` | boolean | `true` | Render image content in the message list |
-| `picker_max_visible` | integer | `8` | Max visible rows in the model / theme picker |
-| `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown |
-| `tool_result_preview_lines` | integer | `5` | Lines shown before thinking or default-shell tool results collapse; values below 1 are clamped |
-| `show_hardware_cursor` | boolean | `false` | Keep the terminal cursor visible while it is repositioned (aids IME input) |
-| `cursor_blink` | boolean | `true` | Blink the input cursor when idle and the terminal window is focused |
-| `editor_padding_x` | integer | `0` | Horizontal padding (spaces) added inside the input editor |
-| `double_escape_action` | string | `"clear"` | What happens when Escape is pressed twice while idle: `"clear"` clears TUI messages, `"fork"` clones the current branch, `"tree"` opens the branch navigator, `"none"` does nothing |
-| `tree_filter_mode` | string | `"default"` | Default message filter when `/tree` opens: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
-
-### Telemetry
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `telemetry` | boolean | `true` | Send one anonymous version-only install/update count |
-
-Telemetry sends only the installed Tau version to Tau's PostHog project once
-per version, as a single `tau` event on a shared anonymous distinct ID. When
-enabled, Tau also reports uncaught exceptions (type, message, and traceback)
-to the same PostHog project so crashes can be diagnosed. Tau does not persist
-per-user identifiers and does not send prompts, paths, models, authentication
-state, session data, or tool activity. As with any HTTP request, PostHog
-necessarily processes the source IP under its own privacy policy. Failed
-requests are ignored and never block startup or shutdown.
-
-This is a global preference: project settings cannot enable telemetry after it
-has been disabled globally. Disable it in `/settings` or in
-`~/.tau/settings.json`:
+| `show_tool_calls` | boolean | `true` | Show tool call and result blocks |
+| `show_images` | boolean | `true` | Render image content inline |
+| `picker_max_visible` | integer | `8` | Max visible rows in pickers; clamped to a minimum of 1 |
+| `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown; minimum 1 |
+| `tool_result_preview_lines` | integer | `5` | Lines shown before a shell tool result collapses; minimum 1 |
+| `editor_padding_x` | integer | `0` | Horizontal padding inside the input editor; minimum 0 |
+| `cursor_blink` | boolean | `true` | Blink the input cursor while idle and focused |
+| `show_hardware_cursor` | boolean | `false` | Keep the terminal cursor visible while it is repositioned (helps IME input) |
+| `double_escape_action` | string | `"clear"` | Action on double-Escape while idle: `"clear"`, `"fork"`, `"tree"`, `"none"` |
+| `tree_filter_mode` | string | `"default"` | Default `/tree` filter: `"default"`, `"no-tools"`, `"user-only"`, `"labeled-only"`, `"all"` |
 
 ```json
 {
-  "telemetry": false
+  "theme": "tokyo-night",
+  "show_thinking": true,
+  "editor_padding_x": 1,
+  "double_escape_action": "tree"
 }
 ```
 
-#### Hardware Cursor & Editor Padding
+## Message Delivery
 
-**`show_hardware_cursor`** — Enable this if you're using IME (input method editor) for CJK, Arabic, or other languages. When enabled, the terminal cursor remains visible as it's repositioned for text input, improving the IME experience. Default is `false` for standard keyboard input.
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `steering_mode` | string | `"one_at_a_time"` | Queued steering messages drained per turn: `"one_at_a_time"` or `"all"` |
+| `follow_up_mode` | string | `"one_at_a_time"` | Queued follow-up messages drained per turn: `"one_at_a_time"` or `"all"` |
 
-**`cursor_blink`** — Whether the input cursor blinks after a short idle period while the terminal window is focused; it stays solid while actively typing regardless of this setting. Set to `false` for a permanently solid cursor. Default is `true`.
+Note the underscores: `"one_at_a_time"`, not `"one-at-a-time"`.
 
-**`editor_padding_x`** — Add horizontal spacing inside the text input area. Useful if you prefer visual breathing room around your typing. Each unit equals one space character. Default is `0` (no padding).
+## Sessions
 
-Example with both enabled:
-```json
-{
-  "theme": "dark",
-  "show_thinking": false,
-  "show_tool_calls": true,
-  "show_hardware_cursor": true,
-  "cursor_blink": false,
-  "editor_padding_x": 2
-}
-```
-
-### Message Delivery
-
-Tau maintains two internal queues for messages that arrive while the agent is already running:
-
-- **Steering queue** — high-priority messages that redirect the current turn (e.g. "stop, do this instead")
-- **Follow-up queue** — messages that queue behind the current turn (e.g. "after that, also do X")
-
-| Field | Type | Values | Description |
-|-------|------|--------|-------------|
-| `steering_mode` | string | `"one_at_a_time"` / `"all"` | How many queued steering messages to drain per turn |
-| `follow_up_mode` | string | `"one_at_a_time"` / `"all"` | How many queued follow-up messages to drain per turn |
-
-`"one_at_a_time"` (default) — processes one queued message per agent turn. The agent completes its response, then picks up the next queued message. This gives the model a chance to acknowledge each instruction before moving on.
-
-`"all"` — drains the entire queue at once, concatenating all pending messages into a single user turn. Use this when you want to batch several follow-up instructions without the model stopping between them.
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `session_dir` | string | `~/.tau/sessions` | Directory for session storage. Accepts absolute or relative paths, and a leading `~` |
 
 ```json
-{
-  "steering_mode": "one_at_a_time",
-  "follow_up_mode": "all"
-}
+{ "session_dir": "~/work/tau-sessions" }
 ```
 
-### Session
+A bare `"~"` resolves to the home directory; `"~/..."` expands against it; anything else is resolved to an absolute path. See [Sessions](sessions.md).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `session_dir` | string | Custom session storage directory (default `~/.tau/sessions`) |
+## Compaction
 
-### Context Compaction
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable automatic context compaction |
-| `compaction.reserve_tokens` | integer | `16384` | Tokens reserved for LLM response before compaction triggers |
-| `compaction.keep_recent_tokens` | integer | `20000` | Recent message tokens to preserve verbatim (not summarized) |
-
-#### How Compaction Works
-
-When your conversation grows long, tau automatically summarizes older messages to free up context space. The settings control this behavior:
-
-- **`enabled`**: Turn compaction on/off entirely. When `false`, the `/compact` command prints `"Compaction is disabled. Enable it in /settings → Compaction."` instead of running.
-- **`reserve_tokens`**: How many tokens to keep available for the LLM's response (default 16,384 ≈ 4K-5K words)
-- **`keep_recent_tokens`**: How many recent message tokens to preserve word-for-word before summarization kicks in (default 20,000 ≈ 5K-6K words)
-
-The active values are resolved live, so changes made through `/settings` apply
-without restarting Tau. For models with smaller input limits, Tau clamps both
-budgets and reserves additional space for the generated summary. Automatic and
-overflow-triggered compaction are both disabled when `enabled` is `false`.
-
-#### Mid-turn (threshold) compaction
-
-In addition to compaction triggered at the start of a turn, tau can compact **mid-turn** when context usage reaches `input_limit - reserve_tokens` while the agent is already running. When this happens the engine stops cleanly so you can review the compacted context and continue — no partial output is lost. Tool output lines are truncated before sending to the LLM to help prevent hitting the threshold in the first place.
-
-Example configurations:
+| `compaction.reserve_tokens` | integer | `16384` | Tokens reserved for the model's response before compaction triggers; minimum 1 |
+| `compaction.keep_recent_tokens` | integer | `20000` | Recent message tokens kept verbatim rather than summarized; minimum 1 |
 
 ```json
 {
@@ -254,201 +217,126 @@ Example configurations:
 }
 ```
 
-More aggressive compaction (smaller context window):
-```json
-{
-  "compaction": {
-    "reserve_tokens": 8192,
-    "keep_recent_tokens": 10000
-  }
-}
-```
+## Branch Summary
 
-Disable compaction (for unlimited context models):
-```json
-{
-  "compaction": {
-    "enabled": false
-  }
-}
-```
+Controls the summary offered when navigating between branches in `/tree`.
 
-See [Sessions](sessions.md#context-compaction) for a full explanation of the compaction algorithm.
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `branch_summary.enabled` | boolean | `true` | Enable branch summarization. When `false`, the selector is never shown |
+| `branch_summary.skip_prompt` | boolean | `false` | Skip the "Summarize branch?" prompt and navigate without a summary |
+| `branch_summary.reserve_tokens` | integer | `16384` | Headroom reserved when generating the summary; minimum 1 |
 
-### Branch Summary
+## Retry
 
-When you use `/tree` to navigate to a different branch, tau asks whether to generate a
-summary of the branch you're leaving.  These settings control that behaviour.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `branch_summary.enabled` | boolean | `true` | Enable branch summarisation entirely. When `false`, the summarisation selector is never shown when switching branches in `/tree` |
-| `branch_summary.skip_prompt` | boolean | `false` | Skip the "Summarize branch?" picker and navigate without a summary |
-| `branch_summary.reserve_tokens` | integer | `16384` | Output/headroom budget reserved when generating the branch summary; clamped to the active model's input limit |
-
-Disable branch summarization entirely:
-```json
-{
-  "branch_summary": {
-    "enabled": false
-  }
-}
-```
-
-Enable summarization but skip the confirmation prompt:
-```json
-{
-  "branch_summary": {
-    "enabled": true,
-    "skip_prompt": true
-  }
-}
-```
-
-### Images
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `image.auto_resize` | boolean | `true` | Resize images to 2000×2000 max before sending to the LLM |
-| `image.block_images` | boolean | `false` | Prevent all images from being sent to the LLM |
-
-```json
-{
-  "image": {
-    "auto_resize": true,
-    "block_images": false
-  }
-}
-```
-
-### Retry
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `retry.enabled` | boolean | Enable automatic retry on transient errors |
-| `retry.max_retries` | integer | Maximum retry attempts |
-| `retry.base_delay_ms` | integer | Base delay between retries in milliseconds |
-| `retry.provider.timeout_ms` | integer | Per-provider request timeout override |
-| `retry.provider.max_retries` | integer | Per-provider retry limit |
-| `retry.provider.max_retry_delay_ms` | integer | Per-provider max retry delay |
-
-These settings are applied to the LLM client at startup:
-
-- Setting `retry.enabled = false` sets `max_retries = 0` on the LLM client, disabling all automatic retries.
-- `retry.max_retries` and `retry.base_delay_ms` are passed directly to the client when enabled.
-
-Changes take effect on the next session start or after `/reload`.
-
-#### Adaptive retry delay
-
-When a provider responds with a `Retry-After` or `Retry-After-Ms` header (common on rate-limit responses), tau uses that value as the retry delay instead of the configured `base_delay_ms`. The delay is capped at **60 seconds** so a provider that returns an extreme value (e.g. "retry in 16 days") doesn't stall the agent indefinitely. When no header is present, `base_delay_ms` is used.
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `retry.enabled` | boolean | `false` | Enable automatic retry on transient LLM errors |
+| `retry.max_retries` | integer | `3` | Maximum retry attempts; minimum 0 |
+| `retry.base_delay_ms` | integer | `1000` | Base delay for exponential backoff, in milliseconds; minimum 1 |
 
 ```json
 {
   "retry": {
     "enabled": true,
     "max_retries": 5,
-    "base_delay_ms": 500
+    "base_delay_ms": 2000
   }
 }
 ```
 
-### Thinking Budgets
+Retry is **off by default**. When enabled, the values are applied to the live LLM options at session start.
 
-Override token budgets for each thinking level:
+## Images
 
-```json
-{
-  "thinking_budgets": {
-    "minimal": 1024,
-    "low": 4096,
-    "medium": 8192,
-    "high": 16384,
-    "xhigh": 32768,
-    "max": 65536
-  }
-}
-```
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `image.auto_resize` | boolean | `true` | Resize images to 2000×2000 max before sending to the LLM |
+| `image.block_images` | boolean | `false` | Prevent all images from being sent to the LLM |
 
-### Network
+`image.block_images` controls what is *sent*; `show_images` controls what is *rendered* locally.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `http_idle_timeout_ms` | integer | `60000` | Idle timeout for LLM HTTP streams in milliseconds |
-| `websocket_connect_timeout_ms` | integer | — | WebSocket connect/open handshake timeout in milliseconds |
-| `http_proxy.url` | string | — | Proxy URL for both HTTP and HTTPS (overrides env vars) |
-| `http_proxy.no_proxy` | string | — | Comma-separated hosts to exclude from proxying |
-| `http_proxy.headers` | object | — | Custom headers for proxy authentication |
+## Network
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `http_idle_timeout_ms` | integer | `60000` | Idle timeout for LLM HTTP streams, in milliseconds; minimum 0 |
+| `websocket_connect_timeout_ms` | integer | – | WebSocket connect/open handshake timeout, in milliseconds |
+| `http_proxy.url` | string | – | Proxy URL used for both HTTP and HTTPS; overrides environment variables |
+| `http_proxy.no_proxy` | string | – | Comma-separated hosts excluded from proxying |
+| `http_proxy.headers` | object | – | Extra headers sent to the proxy, e.g. for authentication |
 
 ```json
 {
-  "http_idle_timeout_ms": 120000,
   "http_proxy": {
-    "url": "http://proxy.example.com:8080",
-    "no_proxy": "localhost,127.0.0.1,internal.corp",
-    "headers": {
-      "Proxy-Authorization": "Basic dXNlcjpwYXNz"
-    }
+    "url": "http://127.0.0.1:7890",
+    "no_proxy": "localhost,127.0.0.1,.internal",
+    "headers": { "Proxy-Authorization": "$PROXY_TOKEN" }
   }
 }
 ```
 
-### Terminal
+`http_proxy.url` and every value in `http_proxy.headers` support secret indirection: a literal value, `$ENV_VAR` to read an environment variable, or `!command` to run a command and use its output. Each is resolved once and cached. See [HTTP Proxy](http-proxy.md).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `terminal.shell_path` | string | Shell binary for command execution (default: system shell) |
-| `terminal.shell_command_prefix` | string | Lines prepended inside the shell before each command |
+## Terminal & Execution
 
-`terminal.shell_path` switches the shell binary. `terminal.shell_command_prefix` is prepended as script lines before every command — useful for sourcing environments or enabling shell options:
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `terminal.shell_path` | string | system shell | Shell binary used for command execution |
+| `terminal.shell_command_prefix` | string | – | Lines prepended inside the shell before each command |
+| `tool_timeout_seconds` | number | `120.0` | Per-tool-call timeout. `null` disables the timeout |
+| `max_parallel_tool_calls` | integer | `10` | Maximum tool calls executed concurrently. Must be ≥ 1, or `null` for unlimited |
+| `event_handler_timeout_seconds` | number | `10.0` | Timeout for a single event/hook handler. `null` disables the timeout |
 
 ```json
 {
   "terminal": {
-    "shell_path": "/bin/zsh",
-    "shell_command_prefix": "source ~/.zshrc"
-  }
+    "shell_path": "/opt/homebrew/bin/bash",
+    "shell_command_prefix": "shopt -s expand_aliases"
+  },
+  "tool_timeout_seconds": 300,
+  "max_parallel_tool_calls": 4
 }
 ```
 
-### Startup
+The three engine-level keys leave the corresponding `EngineOptions` default in place when unset. See [Engine](engine.md).
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
+## Startup & Telemetry
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
 | `quiet_startup` | boolean | `false` | Suppress the startup notice |
+| `telemetry` | boolean | `true` | Send one anonymous, version-only install/update count. **Global scope only** |
 
-### Project Trust
+## Project Trust
 
-When tau detects project-local configuration (a `.tau/` directory, `.agents/skills/`, or `AGENTS.md`/`CLAUDE.md`), it asks before loading it. This prevents a checked-out repository from silently overriding your global tools, prompts, settings, or injecting unwanted instructions.
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `project_trust` | string | `"ask"` | Trust policy: `"ask"`, `"always"`, or `"never"` |
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `project_trust` | string | `"ask"` | Global trust policy: `"ask"` prompts on first use, `"always"` trusts all projects automatically, `"never"` always blocks project config |
+Trust gates everything a project directory can contribute: `.tau/settings.json`, project extensions, project context files (`AGENTS.md`, `CLAUDE.md`), and project skills. Until a project is trusted, `SettingsManager` merges an empty `Settings()` for the project scope — the file is not even read.
 
-**Trust policy options:**
-- `"ask"` (default) — Prompt the first time project files are discovered
-- `"always"` — Automatically load all project files (extensions, settings, context files)
-- `"never"` — Never load project files without explicit `--approve` flag
+Granting trust mid-session re-reads `.tau/settings.json` and recomputes the merged view immediately; revoking it discards the project scope.
 
-Trust decisions are stored in `~/.tau/trust.json` — once you approve a directory, tau remembers it. Trusting a parent directory implicitly trusts all subdirectories.
+> **Security:** Project settings can load and execute project-local extension code. Only trust directories you control.
 
-**Override for a single run:**
-```bash
-tau --approve              # Trust project files for this run
-tau --no-approve           # Don't trust project files for this run
-tau --no-context-files     # Disable only context file (AGENTS.md/CLAUDE.md) loading
-```
+## Extensions
 
-See [Project Context Files](project-context.md) for details on AGENTS.md/CLAUDE.md configuration.
-
-### Extensions
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `extensions.enabled` | boolean | Global on/off switch for all extensions |
-| `extensions.list` | list | Per-extension entries (see [Extensions](extensions.md)) |
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `extensions.enabled` | boolean | `true` | Global on/off switch for all extensions |
+| `extensions.list` | array | – | Per-extension entries |
 
 Each entry in `extensions.list`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *required* | Path to the extension file or directory |
+| `name` | string | – | Display name |
+| `enabled` | boolean | `true` | Enable this specific extension |
+| `source` | string | – | Where the extension came from (`builtin`, `project`, `global`, `package`, …) |
+| `author` | string | – | Author metadata |
+| `settings` | object | – | Extension-specific configuration, exposed to the extension as `tau.config` |
 
 ```json
 {
@@ -457,87 +345,89 @@ Each entry in `extensions.list`:
     "list": [
       {
         "path": "~/.tau/extensions/my_ext.py",
+        "name": "My Extension",
         "enabled": true,
-        "settings": { "api_key": "sk-..." }
+        "settings": { "api_key": "$MY_API_KEY", "verbose": true }
       }
     ]
   }
 }
 ```
 
----
+An entry missing a `path` is dropped on load. Unlike other settings, the extension list is read from **both** scopes at runtime rather than only the merged view, so global and project extensions both load. See [Extension Settings](extension-settings.md) and [Extensions](extensions.md).
 
-## Implementation Status
+## Packages
 
-### Hardware Cursor & Editor Padding
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `packages.list` | array | – | Packages installed into the tau-managed venv |
 
-Both `show_hardware_cursor` and `editor_padding_x` settings are **fully implemented and working**:
+Each entry in `packages.list`:
 
-- **`show_hardware_cursor`**: When enabled in settings, the terminal cursor is displayed during IME text input, improving the experience for users typing in CJK, Arabic, or other languages requiring input method editors. The cursor is repositioned as you type and shows at the current input position.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `source` | string | *required* | Install source, e.g. `"pypi:name==1.0"`, `"git+https://…"`, or a local path |
+| `name` | string | *required* | Normalized package name |
+| `version` | string | – | Installed version, if known |
+| `installed_path` | string | – | Path to the package directory inside the venv |
+| `enabled` | boolean | `true` | Load resources from this package |
+| `extensions` | string[] | – | Restrict which extensions to load from the package |
+| `skills` | string[] | – | Restrict which skills to load |
+| `prompts` | string[] | – | Restrict which prompts to load |
+| `themes` | string[] | – | Restrict which themes to load |
+| `index_url` | string | – | Custom package index URL |
+| `extra_index_urls` | string[] | – | Additional index URLs |
 
-- **`editor_padding_x`**: Adds horizontal spacing (in spaces) around the text input area. When set to `2`, for example, you get 2 spaces of padding on the left and right of the editor. This is a visual preference setting for those who like more breathing room while typing.
+Entries missing `source` or `name` are dropped on load. This block is normally managed by tau's package commands rather than edited by hand.
 
-### Compaction Settings
+## Full Example
 
-All compaction settings are **fully implemented and configurable**:
-
-- **`compaction.enabled`**: Toggle automatic context compaction on/off
-- **`compaction.reserve_tokens`**: Control how many tokens to keep available for LLM responses
-- **`compaction.keep_recent_tokens`**: Control how many recent message tokens to preserve before summarization
-
-Settings take effect immediately when you change them in `~/.tau/settings.json` and reload the session or restart Tau.
-
-### Retry Settings
-
-All retry settings are **fully implemented and wired to the LLM client at startup**:
-
-- **`retry.enabled`**: Toggle automatic retry on transient errors (default: `false`). Setting this to `false` sets `max_retries=0` on the LLM client.
-- **`retry.max_retries`**: Maximum number of retry attempts (default: `3`). Applied to the LLM client when `retry.enabled` is `true`.
-- **`retry.base_delay_ms`**: Base delay between retries in milliseconds (default: `1000`). Applied to the LLM client when `retry.enabled` is `true`.
-- **`retry.provider`**: Per-provider overrides for `timeout_ms`, `max_retries`, and `max_retry_delay_ms`
-
-### Thinking Budgets
-
-All thinking budget settings are **fully implemented and configurable**:
-
-- **`thinking_budgets.minimal`**: Token budget for "minimal" level (default: `1024`)
-- **`thinking_budgets.low`**: Token budget for "low" level (default: `4096`)
-- **`thinking_budgets.medium`**: Token budget for "medium" level (default: `8192`)
-- **`thinking_budgets.high`**: Token budget for "high" level (default: `16384`)
-- **`thinking_budgets.xhigh`**: Token budget for "xhigh" level (default: `32768`)
-- **`thinking_budgets.max`**: Token budget for "max" level (default: `65536`)
-
-Override these to customize extended thinking token allocations for your workflow.
-
----
-
-## Configuration Inheritance
-
-Settings are resolved in this order (later wins):
-
-1. Built-in defaults
-2. Global `~/.tau/settings.json`
-3. Project `.tau/settings.json`
-
----
-
-## Resetting to Defaults
-
-Delete the relevant settings file:
-
-```bash
-rm .tau/settings.json        # remove project overrides
-rm ~/.tau/settings.json      # remove global settings
+```json
+{
+  "model": {
+    "text": { "id": "claude-sonnet-4-6", "provider": "anthropic" }
+  },
+  "thinking_level": "medium",
+  "thinking_budgets": { "medium": 8192 },
+  "theme": "tokyo-night",
+  "show_thinking": true,
+  "picker_max_visible": 12,
+  "steering_mode": "one_at_a_time",
+  "session_dir": "~/work/tau-sessions",
+  "compaction": {
+    "enabled": true,
+    "reserve_tokens": 16384,
+    "keep_recent_tokens": 20000
+  },
+  "retry": { "enabled": true, "max_retries": 5 },
+  "image": { "auto_resize": true, "block_images": false },
+  "http_idle_timeout_ms": 60000,
+  "terminal": { "shell_path": "/opt/homebrew/bin/bash" },
+  "tool_timeout_seconds": 300,
+  "project_trust": "ask",
+  "quiet_startup": false,
+  "telemetry": true,
+  "extensions": { "enabled": true }
+}
 ```
 
-Or remove individual keys from the JSON.
+## Recovering a Corrupt Settings File
 
----
+A malformed file does not stop tau from starting. Two failure modes are handled separately:
+
+1. **Total parse failure** — invalid JSON, or a root that is not an object. The whole scope loads as defaults.
+2. **Partial failure** — the file parses, but one field has the wrong shape (a string where an object was expected). Only that field resets to its default; every other field survives, and the issue is recorded.
+
+Run `tau doctor` to list what was dropped, and `tau doctor --fix` to heal. Healing backs up the original alongside itself as `settings.json.corrupt-<timestamp>` before rewriting, so nothing is lost.
+
+Unknown keys are ignored silently — an old key left in the file is harmless.
 
 ## Next Steps
 
-- [Sessions](sessions.md) — Session management and compaction
-- [Themes](themes.md) — Customize appearance
-- [Extensions](extensions.md) — Extension configuration
-- [Extension Settings](extension-settings.md) — Typed configuration for extensions with nested structure support
-- [HTTP Proxy](http-proxy.md) — HTTP proxy configuration via environment variables
+- [Extension Settings](extension-settings.md) — per-extension configuration and `/settings` integration
+- [Themes](themes.md) — theme format and color tokens
+- [Keybindings](keybindings.md) — keyboard shortcuts
+- [Sessions](sessions.md) — session storage and resumption
+- [HTTP Proxy](http-proxy.md) — proxy configuration in depth
+</content>
+</invoke>

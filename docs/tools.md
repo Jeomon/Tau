@@ -1,23 +1,58 @@
 # Tools
 
-This page documents the built-in tools available to the agent and how the tool system works.
+Tools are the typed, schema-validated operations a model can request. This page is the reference for the tools Tau ships with and the execution model the engine applies to them. To build your own, see [Creating Tools](creating-tools.md).
+
+## Table of Contents
+
+- [Built-In Tools](#built-in-tools)
+- [Bundled Extension Tools](#bundled-extension-tools)
+- [How Tools Work](#how-tools-work)
+- [Tool Kinds](#tool-kinds)
+- [Execution Modes](#execution-modes)
+- [Result Rendering](#result-rendering)
+- [The Tool Registry](#the-tool-registry)
+- [Constraining Tool Use](#constraining-tool-use)
+- [Next Steps](#next-steps)
 
 ## Built-In Tools
 
-Tau ships with seven built-in tools covering file I/O, search, and shell execution.
+Tau ships seven built-in tools covering file I/O, search, and shell execution. They are defined in `tau/builtins/tools/` and registered under the `builtin` source.
+
+| Tool | Kind | Execution Mode | Purpose |
+|------|------|----------------|---------|
+| [`read`](#read) | `read` | `parallel` | Read a UTF-8 text file with hashline anchors |
+| [`write`](#write) | `write` | `sequential` | Create or overwrite a file |
+| [`edit`](#edit) | `edit` | `sequential` | Replace an anchored line range |
+| [`terminal`](#terminal) | `execute` | `sequential` | Run a non-interactive shell command |
+| [`glob`](#glob) | `read` | `parallel` | Find files by glob pattern |
+| [`grep`](#grep) | `read` | `parallel` | Search file contents by regex |
+| [`ls`](#ls) | `read` | `parallel` | List a directory's immediate contents |
 
 ### read
 
-Read a UTF-8 text file. Invalid byte sequences are replaced during decoding.
-Every returned line is prefixed with a content-based hashline anchor in the form
-`<line>:<hash>|<content>`. Duplicate content, including blank lines, receives
-distinct anchors so `edit` can target the exact displayed line.
+Read a UTF-8 text file. Invalid byte sequences are replaced during decoding. Every returned line is prefixed with a content-based hashline anchor in the form `<line>:<hash>|<content>`, where `<hash>` is four hex characters. Duplicate content — including blank lines — receives distinct anchors, so `edit` can target the exact displayed line.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Absolute path to the file to read |
+| `path` | string | Yes | — | Path to the file. Prefer absolute; a relative value resolves from the agent's working directory |
 | `offset` | integer | No | `0` | Number of lines to skip; `0` starts at the first line |
 | `limit` | integer | No | `2000` | Maximum number of lines to return |
+
+Example call and result:
+
+```json
+{"path": "/repo/a.txt"}
+```
+
+```text
+1:2c17|alpha
+2:8798|
+3:987b|beta
+4:478b|
+5:f09f|beta
+```
+
+The result `metadata` carries `file_path`, `total_lines`, `lines_returned`, `offset`, and `truncated`.
 
 ### write
 
@@ -25,128 +60,73 @@ Create a new file or overwrite an existing file entirely.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | string | Yes | Absolute path to write |
-| `content` | string | Yes | Exact complete UTF-8 text content |
+| `path` | string | Yes | Path to write. Prefer absolute; a relative value resolves from the agent's working directory |
+| `content` | string | Yes | Exact complete UTF-8 text content, replacing anything already there |
 
 ### edit
 
-Replace an inclusive line range using hashline anchors returned by `read`.
-The content hash can let an anchor survive line insertions or deletions elsewhere
-in the file; when content occurs more than once, its original line number is
-used as a proximity hint and the closest occurrence is selected. An empty
-`new_content` deletes the selected range. Because the complete file is rewritten,
-an edit may normalize line endings. Edit-result diffs also display hashline anchors:
-removed lines use their old hashes, while added and context lines use current hashes.
-If an anchor hash is stale or invalid, the model-visible error includes current
-nearby hashline-anchored file content and asks the agent to re-read before retrying.
-Edit diffs always show every changed line. By default they include three unchanged
-lines around each change and collapse larger unchanged gaps into `… (+N lines)`;
-Ctrl+O expands those gaps to show the complete file context.
+Replace an inclusive line range using the hashline anchors returned by `read`. The content hash lets an anchor survive insertions or deletions elsewhere in the file. When the same content occurs more than once, the anchor's line number acts as a proximity hint and the closest occurrence is selected. An empty `new_content` deletes the range.
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Absolute path to the file |
-| `start_anchor` | string | Yes | — | First line to replace, formatted `<line>:<hash>` |
-| `end_anchor` | string | Yes | — | Last line to replace; use the start anchor for a single-line edit |
-| `new_content` | string | Yes | — | UTF-8 text replacing the range; empty text deletes it |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `path` | string | Yes | Path to the file. Prefer absolute; a relative value resolves from the agent's working directory |
+| `start_anchor` | string | Yes | Anchor for the first line to replace, formatted `<line>:<hash>` |
+| `end_anchor` | string | Yes | Anchor for the last line to replace. Use the start anchor for a single-line edit |
+| `new_content` | string | Yes | New UTF-8 content for the anchored range. Empty content deletes the range |
+
+To replace line 3 of the `read` example above:
+
+```json
+{
+  "path": "/repo/a.txt",
+  "start_anchor": "3:987b",
+  "end_anchor": "3:987b",
+  "new_content": "gamma"
+}
+```
+
+Because the complete file is rewritten, an edit may normalize line endings. Edit-result diffs also display hashline anchors: removed lines use their old hashes, while added and context lines use current hashes. If an anchor hash is stale or invalid, the model-visible error includes current nearby hashline-anchored content and asks the agent to re-read before retrying.
+
+Diffs always show every changed line. By default they include three unchanged lines around each change and collapse larger gaps into `… (+N lines)`; Ctrl+O expands the gaps.
 
 ### terminal
 
-Execute a non-interactive shell command and return the combined stdout + stderr
-tail. At most 50 KiB or 2,000 lines are retained in the result. When output is
-truncated, the complete output is saved to a temporary file and its path is
-included in the result and metadata.
+Execute a non-interactive shell command in the agent's working directory and return the combined stdout + stderr tail. At most 50 KiB or 2,000 lines are retained. When output is truncated, the complete output is written to a temporary file whose path appears in the result and in `metadata`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `cmd` | string | Yes | — | Non-interactive shell command to execute |
-| `timeout` | integer | No | `30` | Timeout in seconds (max 600) |
+| `timeout` | integer | No | `30` | Timeout in seconds; minimum `1`, no upper bound |
 
-Commands run in the agent's current working directory.
+Output streams through tool-update events while the command runs. Updates are throttled to at most once every 100 milliseconds, with guaranteed initial and final updates. The interactive TUI refreshes the existing result block on each update; when a long result is collapsed, its newest lines stay visible while the command runs.
 
-Output is streamed through tool-update events while the command runs. Updates
-are throttled to at most once every 100 milliseconds, with guaranteed initial
-and final updates. The interactive TUI refreshes the existing result block for
-each update; when a long result is collapsed, its newest lines remain visible
-while the command is running. Timeout and cancellation terminate the command's
-complete process tree. Programs may still buffer their own output; use an
-unbuffered mode such as `python -u` when immediate output is required.
+Timeout and cancellation terminate the command's complete process tree. Programs may still buffer their own output — use an unbuffered mode such as `python -u` when you need immediate output.
+
+> **Note:** Commands that require interactive input are unsupported and will hang until the timeout fires.
 
 ### glob
 
-Find files matching a glob pattern. Patterns are evaluated relative to `path`.
-Ripgrep's default filtering excludes hidden files and files matched by ignore
-rules.
-
-Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
+Find files matching a glob pattern, evaluated relative to `path`. Ripgrep's default filtering excludes hidden files and files matched by ignore rules.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `pattern` | string | Yes | — | Glob pattern, e.g. `src/**/*.py` |
-| `path` | string | No | cwd | Base directory; relative values use Tau's process working directory |
+| `path` | string | No | `""` | Base directory. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
+
+Requires `rg` (ripgrep) on `PATH`; the tool returns an error when `rg` is unavailable.
 
 ### grep
 
-Search for a regular expression across files. Directory searches are recursive.
-Ripgrep's default filtering excludes hidden files and files matched by ignore
-rules.
-
-Requires `rg` (ripgrep); the tool returns an error when `rg` is unavailable.
-
-Set `ast: true` to search with [ast-grep](https://ast-grep.github.io) instead,
-matching code structurally (via `$VAR`-style meta-variables) rather than by
-regex. This is useful for finding a code shape regardless of formatting or
-naming, e.g. pattern `$A && $A()`. In this mode `pattern` must be an ast-grep
-pattern, not a regex, `case_sensitive` is ignored, and the target language is
-inferred per-file from its extension. Requires `ast-grep` (install via the
-`tools` optional dependency group); the tool returns an error when it's
-unavailable.
-
-Compound statements (`for`/`if`/`while`/`def`/etc.) need their body included
-as `$$$BODY` (e.g. `for $ITEM in $LIST:\n    $$$BODY`) — an incomplete
-pattern fails to parse and silently returns no matches rather than an error.
-If a search unexpectedly finds nothing, run
-`ast-grep run --pattern '<pattern>' --lang <lang> --debug-query=pattern`
-directly to see how ast-grep parsed the pattern before assuming the code
-isn't there.
-
-Metavariable names must be uppercase (`$ARG`, `$MY_VAR`); lowercase,
-digit-leading, or kebab-case names are not valid metavariable syntax and are
-matched literally. A metavariable must also be the entire content of its AST
-node — partial substitution like `obj.on$EVENT` doesn't work.
-
-For queries a single pattern can't express — relational (`has`/`inside`/
-`precedes`/`follows`, usually combined with `stopBy: end`), composite
-(`all`/`any`/`not`), or matching by node `kind` — pass a `rule` (an ast-grep
-YAML rule run via `ast-grep scan --inline-rules`) instead of `pattern`.
-`rule` must include a top-level `language` key and takes precedence over
-`pattern` when both are set. Example, finding functions that `await` without
-a surrounding `try`/`except`:
-
-```yaml
-language: python
-rule:
-  all:
-    - kind: function_definition
-    - has:
-        pattern: await $EXPR
-        stopBy: end
-    - not:
-        has:
-            kind: try_statement
-            stopBy: end
-```
+Search for a regular expression across files. Directory searches are recursive. Ripgrep's default filtering excludes hidden files and files matched by ignore rules.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pattern` | string | No\* | `""` | Regular expression to search for (an ast-grep pattern when `ast` is true) |
-| `path` | string | No | cwd | File or directory; relative values use Tau's process working directory |
-| `include` | string | No | `""` | Glob filter for files, e.g. `*.py` (only applies when `path` is a directory) |
-| `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive (ignored when `ast` is true) |
-| `ast` | boolean | No | `false` | Use ast-grep structural matching instead of ripgrep regex |
-| `rule` | string | No | `""` | ast-grep YAML rule for structural queries beyond a single pattern; only used when `ast` is true, and takes precedence over `pattern` |
+| `pattern` | string | No | `""` | Regular expression to search for |
+| `path` | string | No | `""` | File or directory. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
+| `include` | string | No | `""` | Glob filter for files, e.g. `*.py` |
+| `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive |
 
-\* Either `pattern` or (when `ast` is true) `rule` is required.
+Requires `rg` (ripgrep) on `PATH`; the tool returns an error when `rg` is unavailable.
 
 ### ls
 
@@ -154,93 +134,115 @@ List a directory's immediate contents without recursing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | No | cwd | Directory; relative values use Tau's process working directory |
+| `path` | string | No | `""` | Directory to list. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
 
----
+## Bundled Extension Tools
+
+These tools ship with Tau but are provided by built-in extensions rather than the core tool set, so they register under the `extension` source and are present only when their extension is active. See [Extensions](extensions.md).
+
+| Tool | Kind | Execution Mode | Extension | Purpose |
+|------|------|----------------|-----------|---------|
+| `todo` | `read` | `sequential` | `todo` | Maintain the session's task list |
+| `web_search` | `web` | `parallel` | `web` | Search the web through a configured search engine |
+| `web_fetch` | `web` | `parallel` | `web` | Fetch and extract the contents of a URL |
+
+`web_search` accepts `query` (required), plus `mode` (`text`, `news`, `images`, `videos`, or `books`; default `text`), `max_results` (default `10`), and an optional site/region filter. `web_fetch` accepts `url` (required), an optional extraction hint, and `timeout` (default `10` seconds).
 
 ## How Tools Work
 
-1. The agent decides to use a tool and emits a tool call with parameters.
-2. The engine validates the parameters against the tool's schema.
-3. The tool executes and returns a `ToolResult` containing text content and a `metadata` dict.
-4. The result is returned to the model, which decides what to do next.
+1. The model emits a tool call with a name and a parameter object.
+2. The engine looks the name up in its tool table and validates the parameters against the tool's Pydantic `schema`.
+3. The engine schedules the call according to the tool's [execution mode](#execution-modes).
+4. `execute()` runs and returns a `ToolResult` carrying text `content`, a `metadata` dict, and an `is_error` flag.
+5. The result is appended to the conversation in the model's original call order, and the model decides what to do next.
 
-If a tool call fails (invalid parameters, execution error), the agent receives the error message and can retry or choose a different approach.
+Invalid parameters and execution failures both come back to the model as an error result rather than raising, so it can correct itself and retry.
 
----
+> **Security:** Tau has no tool approval prompt and no built-in sandbox. Every tool runs with the full permissions of the user account that started Tau. `ToolKind` is descriptive metadata, not a permission boundary. Run untrusted work in a container or VM.
 
-## Tool Kinds and Execution Modes
+## Tool Kinds
 
-Each tool has a `kind` that signals its semantic category and an `execution_mode` that controls scheduling:
+`ToolKind` labels a tool's semantic category. It is carried on the tool call for rendering, telemetry, and hook logic — it does **not** gate execution.
 
-**Kinds**: `read`, `edit`, `write`, `execute`, `web`
+| Kind | Meaning |
+|------|---------|
+| `read` | Observes state without modifying it |
+| `edit` | Modifies part of an existing file |
+| `write` | Creates or replaces a file wholesale |
+| `execute` | Runs an external process or command |
+| `web` | Reaches the network |
 
-**Execution modes**:
-- `sequential` — an ordering barrier; if any call in a model-produced batch is
-  sequential, the complete batch runs one at a time in source order
-- `parallel` — runs concurrently only when every call in the batch is parallel
-- `batch` — engine-level safe mixed scheduling; equivalent to the default
+## Execution Modes
 
-Tau preserves the model's tool-call order in the resulting tool message.
-Parallel completion events may arrive in completion order, but result messages
-remain in source order.
+`ToolExecutionMode` controls how the engine schedules a batch of tool calls the model emitted together.
 
-For tools using `render_shell="default"`, the TUI owns result collapsing and
-the Ctrl+O hint. Thinking and results at or below `tool_result_preview_lines` render in full
-without a hint. Tools can set `result_preview_lines` to override the global
-threshold or `result_expandable=False` to always show their complete rendered
-output. Custom renderers should return their complete semantic output and must
-not add expand/collapse hints.
+| Mode | Behavior |
+|------|----------|
+| `sequential` | An ordering barrier. If any call in a batch is sequential, the whole batch runs one at a time in source order |
+| `parallel` | Runs concurrently, but only when *every* call in the batch is parallel |
+| `batch` | Engine-level safe mixed scheduling; this is the default policy |
 
-Tool results render as plain text by default. A tool can opt an individual
-successful result into Markdown rendering with
-`metadata={"_render_format": "markdown"}`. Tau renders the Markdown before
-applying the standard preview/collapse shell. Error results remain plain text.
+The engine's own `EngineOptions.execution_mode` selects the top-level policy. `Batch` (the default) inspects each batch and downgrades to sequential execution the moment a non-parallel tool appears, because running parallel tools around a sequential one could reorder observable side effects. Setting the engine to `Sequential` forces one-at-a-time execution regardless of what the tools declare.
 
-Extensions that enrich model-facing result text can keep the original TUI text
-in `_display_content`. They can append structured UI sections through
-`_extra_blocks`, where each block contains `lines` and can optionally set its
-own `preview_lines` collapse threshold.
+Tau always preserves the model's tool-call order in the resulting tool message. Completion events may arrive out of order during parallel execution, but result messages stay in source order.
 
----
+## Result Rendering
 
-## Adding Custom Tools
+For tools using `render_shell="default"`, the TUI owns result collapsing and the Ctrl+O hint. Results at or below `tool_result_preview_lines` render in full without a hint.
 
-Extensions, Python runtimes, and the standalone engine can register custom
-tools. See [Creating Tools](creating-tools.md) for a complete typed example,
-registration options, and testing guidance.
+| Attribute | Effect |
+|-----------|--------|
+| `render_shell` | `"self"` (default) uses renderer output as-is; `"default"` applies the standard `└ first_line` shell with central collapse handling |
+| `result_expandable` | `False` disables central collapsing; the complete rendered output always shows |
+| `result_preview_lines` | Overrides the global preview threshold for this tool |
+| `render_call` | Callback rendering the invocation line |
+| `render_result` | Callback rendering the result body |
 
-The `ToolRegistry` tracks all registered tools by source (`"builtin"`, `"extension"`, `"runtime"`). After `/reload`, extension tools are synced to the live engine immediately without restarting the session.
+Custom renderers should return their complete semantic output and must not add their own expand/collapse hints.
 
-Terminal output is bounded to a 50 KiB / 2,000-line display tail. Grep and glob
-stream bounded ripgrep results and terminate the subprocess when cancelled or
-when their result cap is reached. Writes and edits are serialized per resolved
-path and committed with an atomic replacement.
+Results render as plain text by default. A tool can opt an individual successful result into Markdown with `metadata={"_render_format": "markdown"}`; Tau renders the Markdown before applying the preview/collapse shell. Error results stay plain text.
 
----
+Extensions that enrich model-facing result text can keep the original TUI text in `_display_content`, and append structured UI sections through `_extra_blocks`, where each block carries `lines` and may set its own `preview_lines` threshold.
 
-## Tool Constraints
+## The Tool Registry
 
-Add an `AGENTS.md` file to your project to give the agent standing instructions about tool usage:
+`ToolRegistry` is the single source of truth for registered tools. Each tool is tagged with a source so a whole group can be queried or replaced without disturbing the others.
 
-```markdown
-# Project Instructions
+| Source | Origin |
+|--------|--------|
+| `builtin` | `tau.builtins.tools.TOOLS` |
+| `extension` | Tools registered by loaded extensions |
+| `mcp` | Tools provided by MCP servers |
+| `runtime` | Tools passed via `RuntimeConfig.tools` at session start |
 
-- Always run tests after making changes
-- Do not run database migrations
-- Prefer `grep` over `bash grep` for searching
-- Use `edit` for small changes, `write` for new files
+```python
+from tau.tool.registry import ToolRegistry
+
+registry = ToolRegistry()
+registry.register(MyTool(), source="extension")
+registry.replace_source("extension", new_extension_tools)  # Atomic swap
+registry.sync_to_engine(engine)                            # Push to a live engine
+
+registry.get("web_search")        # Tool | None
+registry.list(source="builtin")   # list[Tool]
+registry.names()                  # set[str]
+"terminal" in registry            # True
 ```
 
-Tau searches case-insensitively for `AGENTS.md` or `CLAUDE.md` from the Git
-repository root through the current directory. See
-[Project Context Files](project-context.md) for precedence and trust behavior.
+When a name is registered from several sources, the most recently registered layer wins; removing that layer restores the one beneath it. After `/reload`, extension tools sync to the live engine without restarting the session.
 
----
+Resource bounds are enforced per tool: terminal output is capped at 50 KiB / 2,000 lines, `grep` and `glob` stream bounded ripgrep results and terminate the subprocess on cancellation or when the result cap is reached, and writes and edits are serialized per resolved path and committed with an atomic replacement.
+
+## Constraining Tool Use
+
+To give the agent standing instructions about which tools to use and when, add an `AGENTS.md` or `CLAUDE.md` file to your project. Tau discovers these case-insensitively from the Git repository root down to the current directory and injects them into the system prompt.
+
+See [Project Context Files](project-context.md) for the full precedence, trust, and formatting rules.
 
 ## Next Steps
 
-- [Creating Tools](creating-tools.md) - Implement and test custom tools
-- [Extensions](extensions.md) - Package tools with other extension features
-- [Usage Guide](usage.md) - How to work with the agent
-- [Architecture](architecture.md) - How the tool system works internally
+- [Creating Tools](creating-tools.md) — Implement, register, and test a custom tool
+- [Extensions](extensions.md) — Package tools alongside commands, hooks, and UI
+- [Project Context Files](project-context.md) — Standing instructions for tool use
+- [Engine](engine.md) — The loop that schedules and executes tool calls
+- [Architecture](architecture.md) — How the tool system fits together internally

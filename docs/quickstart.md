@@ -1,144 +1,169 @@
 # Quickstart
 
-This page gets you from install to a working first tau session in five minutes.
+This page takes you from an empty shell to a working Tau session. For the full install matrix, credential precedence, and troubleshooting, see [Installation](installation.md).
 
 ## Install
 
-Tau requires Python 3.12 or higher. Clone the repository and install:
+Tau requires Python 3.12 or 3.13 and installs the `tau` command:
 
 ```bash
-cd /path/to/tau
-pip install -e .
+pip install tau-coding-agent
 ```
 
-The `-e` flag installs tau in editable mode, allowing you to modify the code and see changes immediately.
+Or from a clone, in editable mode:
 
-## Set Up Authentication
+```bash
+git clone https://github.com/jeomon/tau.git
+cd tau
+pip install -e .                  # code changes take effect without reinstalling
+```
 
-Tau supports multiple inference providers. Choose one and set its API key:
+Verify:
 
-### Anthropic
+```bash
+tau --version
+```
+
+## Authenticate
+
+Set an API key for one provider. The variable name is the provider id in uppercase plus `_API_KEY`:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### OpenAI
+Other common choices:
 
 ```bash
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY=sk-...       # then: tau --provider openai
+export GOOGLE_API_KEY=...          # then: tau --model google/gemini-2.5-flash
+export GROQ_API_KEY=gsk_...        # then: tau --provider groq
 ```
 
-### Google Gemini
+Alternatively store the key so you do not need the export each time:
 
 ```bash
-export GOOGLE_API_KEY=...
-tau --model google/gemini-2.5-flash
+tau auth set anthropic sk-ant-...  # writes ~/.tau/auth.json
+tau auth status                    # confirm what Tau resolves
 ```
 
-### Other Providers
-
-See [Inference Providers](inference-providers.md) for all supported providers and environment variables.
+Stored credentials take precedence over environment variables. See [Authentication](auth.md) for OAuth subscription logins, and [Inference Providers](inference-providers.md) for the full provider list.
 
 ## First Session
 
-Run tau in a project directory:
+Run Tau from the directory you want it to work in:
 
 ```bash
 cd /path/to/your/project
 tau
 ```
 
-You will be prompted to select a model from your configured providers. By default, tau gives the agent these tools:
-
-- `read` - read files
-- `write` - create or overwrite files
-- `edit` - patch files
-- `terminal` - run shell commands
-- `glob` - find files by pattern
-- `grep` - search file contents
-- `ls` - list directory contents
-
-Type a prompt and press Enter:
+Tau starts on `anthropic/claude-sonnet-4-6` unless a different model is saved in settings or passed on the command line. Type a request and press Enter:
 
 ```text
 Summarize this repository and tell me how to run its checks.
 ```
 
-The agent will read files, run commands, and respond with a summary.
+By default the agent has seven tools:
 
-Markdown responses support terminal-readable inline and display LaTeX math.
-Long-running terminal tools update their existing output block while streaming
-instead of printing a new block for every chunk.
+| Tool | Purpose |
+|------|---------|
+| `read` | Read files |
+| `write` | Create or overwrite files |
+| `edit` | Patch files |
+| `terminal` | Run shell commands |
+| `glob` | Find files by pattern |
+| `grep` | Search file contents |
+| `ls` | List directory contents |
 
-### Media Support
+Tau runs in your working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
 
-Tau can process multiple file types. Reference them with `@` during input:
+Restrict the toolset for a read-only run:
 
-- **Images** — `.jpg`, `.png`, `.gif`, `.webp`
-- **Audio** — `.mp3`, `.wav`, `.m4a`, `.ogg`
-- **Video** — `.mp4`, `.webm`, `.mov`, `.mkv`
-- **Text** — `.py`, `.js`, `.md`, `.txt`, and more
-
-You can also paste files directly or drag them from your clipboard.
+```bash
+tau --tools read,grep,glob,ls      # allowlist; the agent cannot write or run commands
+```
 
 ## Common Things to Try
 
-### Reference Files
+### Reference files
 
-Type `@` while typing your prompt to fuzzy-search project files and insert them:
+Type `@` in the editor to fuzzy-search project files and insert a reference. Browse with the arrow keys and press Tab to select.
 
-```bash
-cd /path/to/your/project
-tau
-# Then in the editor, type @ to open file picker
-```
-
-In non-interactive mode, attach files with `@path`:
+On the command line, `@path` arguments attach file contents to the prompt:
 
 ```bash
-tau --print --prompt "Explain this file" @src/main.py
+tau --print "Explain this file" @src/main.py
+tau --print "Compare these" @src/old.py @src/new.py
 ```
 
-### Continue a Past Session
+Images, audio, and video files pasted into the editor are attached as media rather than text. Recognized extensions include `.png`, `.jpg`, `.gif`, `.webp`, `.heic` for images; `.mp3`, `.wav`, `.m4a`, `.flac`, `.opus` for audio; and `.mp4`, `.mov`, `.mkv`, `.webm` for video.
 
-Sessions are saved automatically to `~/.tau/sessions/`. Resume the most recent:
+### Run a shell command
+
+Prefix input with `!` to run a command immediately without involving the model:
+
+```text
+!pytest -q
+```
+
+### Switch models
+
+Use `/model` inside a session, or set one at startup:
 
 ```bash
-tau --resume
+tau --model claude-sonnet-4-6           # model id alone
+tau --model openai/gpt-4o               # provider/model shorthand
+tau --provider groq                     # provider only; model comes from settings
+tau --effort high                       # raise reasoning effort for this run
 ```
 
-Inside a running session, `/resume` opens the interactive session browser.
-Use `/tree` to navigate the current session history.
+### Continue later
 
-### Use a Different Model
-
-During a session, press `/` to open the command palette, then select `/model` to change models.
-
-Or set a model when starting:
+Sessions save automatically to `~/.tau/sessions/`, organized by working directory:
 
 ```bash
-tau --model claude-sonnet-4-6
-tau --model openai/gpt-4o
+tau --resume                       # continue the most recent session
+tau --resume abc123                # resume a specific session by ID
+tau --ephemeral                    # do not save this session at all
+tau --name "release audit"         # set the session display name at startup
 ```
 
-### One-Shot Mode
+Inside a session, use `/resume`, `/new`, `/tree`, `/fork`, and `/clone` to manage sessions. See [Sessions](sessions.md).
 
-For a single prompt without opening the TUI:
+### Non-interactive mode
+
+For one-shot prompts:
 
 ```bash
-tau --print "Summarize this repository"
+tau --print "Summarize this codebase"          # print the reply and exit
+cat README.md | tau --print "Summarize this"   # piped stdin is merged into the prompt
+tau --prompt "Audit this repo" -f json         # structured JSON event stream
 ```
 
-With a file reference:
+Piped stdin, `@file` contents, and the explicit prompt are combined in that order. Use `--mode rpc` for bidirectional process integration — see [CLI Reference](cli-reference.md).
 
-```bash
-tau --print --prompt "Explain this file" @README.md
+## Give Tau Project Instructions
+
+Tau loads context files at startup so the agent has standing instructions. Add an `AGENTS.md` (or `CLAUDE.md`) to your project:
+
+```markdown
+# Project Instructions
+
+- This is a Python CLI framework project.
+- All code must have type hints.
+- Run `pytest` before suggesting changes.
 ```
+
+Tau walks from the Git repository root down to the current directory, loading at most one context file per directory and preferring `AGENTS.md` over `CLAUDE.md`. Files closer to the current directory take precedence. Outside a Git repository it checks only the current directory.
+
+Run `/reload` after editing a context file, or disable discovery entirely with `--no-context-files`.
 
 ## Next Steps
 
-- [Installation](installation.md) - Detailed provider setup and configuration
-- [Usage Guide](usage.md) - Interactive mode, slash commands, and features
-- [Settings](settings.md) - Global and project configuration options
-- [Inference Providers](inference-providers.md) - All supported providers
+- [Usage Guide](usage.md) — interactive mode, slash commands, and sessions
+- [CLI Reference](cli-reference.md) — every flag, subcommand, and run mode
+- [Installation](installation.md) — credential precedence and troubleshooting
+- [Settings](settings.md) — persistent configuration
+- [Keybindings](keybindings.md) — shortcuts and customization
+- [Extensions](extensions.md) — add custom tools and commands

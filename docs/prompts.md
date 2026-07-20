@@ -1,172 +1,185 @@
 # Prompt Templates
 
-Prompt templates are reusable Markdown files that expand into user messages. They let you define frequently-used instructions once and invoke them with a short slash command, optionally passing arguments.
+Prompt templates are Markdown files that expand into a user message. Type `/name` in the editor, where `name` is the filename without `.md`, and the expanded body is sent to the model.
 
-## File Locations
+Use a template when you want to inject a fixed instruction on demand. Use a [skill](skills.md) when the model should decide for itself that a body of instructions applies.
 
-Templates are loaded from three sources:
+## Table of Contents
 
-| Priority | Location | Scope |
-|----------|----------|-------|
-| Highest | `.tau/prompts/` in the project root | Project-only |
-| | `~/.tau/prompts/` | Global (all projects) |
-| Lowest | `tau/builtins/prompts/` | Built-in templates |
+- [Locations](#locations)
+- [Format](#format)
+- [Frontmatter](#frontmatter)
+- [Invoking a Template](#invoking-a-template)
+- [Argument Substitution](#argument-substitution)
+- [Built-In Templates](#built-in-templates)
+- [Loading Rules](#loading-rules)
+- [Next Steps](#next-steps)
 
-Higher-priority templates override lower-priority ones with the same name.
+## Locations
 
-## Creating a Template
+Tau loads templates from four sources, each overriding the previous when names collide:
 
-Save a `.md` file in a prompts directory. The filename (minus extension) becomes the template name:
+| Precedence | Source | Location |
+|------------|--------|----------|
+| Lowest | Built-in | `tau/builtins/prompts/` |
+| | Global | `~/.tau/prompts/*.md` |
+| | Project | `.tau/prompts/*.md` relative to cwd |
+| Highest | Packages and settings | Paths contributed by installed packages and the `prompts` settings array |
 
-```text
-~/.tau/prompts/
-    explain.md       # invoked as /explain
-    review.md        # invoked as /review
-    summarise.md     # invoked as /summarise
+Template names are compared case-insensitively, so a project `review.md` replaces the built-in `review` template.
+
+Add extra directories in `settings.json`:
+
+```json
+{
+  "prompts": ["~/team-prompts"]
+}
 ```
 
-### Template format
+Project templates load only after the project is trusted. See [Project Context Files](project-context.md#trust-and-security).
+
+## Format
+
+A template is frontmatter plus a body. The filename determines the command name — `explain.md` becomes `/explain`.
 
 ```markdown
 ---
-description: Explain this code in plain English
-argument-hint: [symbol or file path]
+description: Explain code or a concept clearly
+argument-hint: <file or topic>
 ---
-
-Explain the following code clearly and concisely. Assume the reader knows
-programming but is unfamiliar with this codebase:
+Explain the following clearly and concisely. Use plain language and give a concrete example if it helps.
 
 $@
 ```
 
-### Frontmatter fields
+## Frontmatter
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `description` | Recommended | One-line description shown in the template picker |
-| `argument-hint` | No | Hint shown in the UI for what arguments to pass, e.g. `[file path]` |
+| `description` | No | One-line description shown in the `/` autocomplete. Falls back to the body's first non-empty line, stripped of leading `#` and truncated to 120 characters |
+| `argument-hint` | No | Expected arguments, shown before the description in autocomplete. `argument_hint` is accepted as an alias |
 
-If `description` is omitted, tau uses the first non-empty line of the template body (up to 120 characters).
+Use `<angle brackets>` for required arguments and `[square brackets]` for optional ones:
+
+```markdown
+---
+description: Review code or changes for issues
+argument-hint: <files or description>
+---
+```
+
+> **Note:** Frontmatter is parsed line by line, not as full YAML. Keep each field on a single line; nested structures and lists are not supported.
+
+A template with an empty body fails to load and is reported as a load error.
 
 ## Invoking a Template
 
-```text
-/explain path/to/file.py
-/review src/auth.py focus on security
-/summarise
+Type `/` followed by the template name. Autocomplete lists available templates with their hints and descriptions.
+
+```bash
+/explain                          # No arguments
+/explain src/auth.py              # One argument
+/review src/auth.py "focus on session handling"   # Quoted multi-word argument
 ```
 
-The template body is expanded with your arguments and sent as a user message.
+Arguments are split shell-style with `shlex`, so quotes group words into a single argument. If the argument string has unbalanced quotes, Tau falls back to splitting on whitespace rather than failing.
+
+If a name matches a built-in command, the command wins — templates are only consulted when no command matches.
 
 ## Argument Substitution
 
-Templates support shell-style argument placeholders:
-
 | Pattern | Meaning |
 |---------|---------|
-| `$1`, `$2`, … | Positional argument (1-based) |
+| `$1` … `$9` | Positional argument, 1-based |
+| `${1}` … `${N}` | Same, brace form; supports indices above 9 |
 | `$@` or `$ARGUMENTS` | All arguments joined with spaces |
-| `${1:-default}` | Positional argument with fallback default |
-| `${@:N}` | Arguments from index N onwards (1-based) |
-| `${@:N:L}` | Arguments from index N, length L |
+| `${1:-default}` | Positional argument, or `default` when absent |
+| `${@:N}` | Arguments from index N onward, joined |
+| `${@:N:L}` | `L` arguments starting at index N, joined |
+
+A referenced argument that was not supplied expands to an empty string. Braced forms are substituted first, then `$@`/`$ARGUMENTS`, then bare `$1`–`$9`.
+
+> **Note:** The bare `$1`–`$9` form only covers single digits. For a tenth argument or beyond, use the brace form `${10}`. There is no `${@:-default}` form — defaults are only available for positional arguments.
 
 ### Examples
+
+Positional argument with a hint:
 
 ```markdown
 ---
 description: Explain a symbol from the codebase
 argument-hint: <symbol-name>
 ---
-
-Find and explain `$1` in this codebase. Include:
-- Where it's defined
-- What it does
-- Where it's used
+Find and explain `$1` in this codebase. Include where it's defined, what it does, and where it's used.
 ```
+
+`/explain-symbol PromptBuilder` expands `$1` to `PromptBuilder`.
+
+Fixed first argument plus a remainder:
 
 ```markdown
 ---
 description: Translate text to a target language
 argument-hint: <language> <text...>
 ---
-
 Translate the following to ${1}:
 
 ${@:2}
 ```
 
+`/translate French "good morning" everyone` sets `${1}` to `French` and `${@:2}` to `good morning everyone`.
+
+Optional argument with a default:
+
 ```markdown
 ---
-description: Run a code review with optional focus area
+description: Run a code review with an optional focus area
 argument-hint: [focus-area]
 ---
-
 Review the most recent changes.
 ${1:-Check for correctness, style, and security.}
 ```
 
-## Listing Templates
+`/quick-review` uses the default sentence; `/quick-review "error handling"` replaces it.
 
-Loaded templates appear in the `/` command palette. There is no separate
-`/prompts` command.
+## Built-In Templates
 
-## Built-in Templates
+Tau ships seven templates. Override any of them by creating a file with the same name in `~/.tau/prompts/` or `.tau/prompts/`.
 
-Tau ships with a small set of built-in templates. They serve as starting points — copy and modify them in `~/.tau/prompts/` to override.
+| Command | Argument Hint | Description |
+|---------|---------------|-------------|
+| `/commit` | `[context]` | Write a commit message for staged changes |
+| `/docs` | `<file or function>` | Write or improve documentation |
+| `/explain` | `<file or topic>` | Explain code or a concept clearly |
+| `/fix` | `<error or description>` | Fix a bug or error |
+| `/refactor` | `<file or description>` | Refactor code for clarity or performance |
+| `/review` | `<files or description>` | Review code or changes for issues |
+| `/test` | `<file or function>` | Write tests for the given code |
 
-## Example Templates
+The bundled `commit.md` is a complete worked example of the default pattern:
 
-### Code explainer
-
-```markdown
+````markdown
 ---
-description: Explain code in plain English, suitable for onboarding
-argument-hint: [file or symbol]
+description: Write a commit message for staged changes
+argument-hint: [context]
 ---
+Write a concise git commit message for the staged changes. Follow conventional commit style (type: short summary). If context is provided, use it to inform the message.
 
-Explain $@ clearly:
-- What problem it solves
-- How it works at a high level
-- Any non-obvious design decisions
-- Gotchas a new contributor should know
-```
+${1:-no additional context}
+````
 
-### PR description generator
+Running `/commit "part of the auth refactor"` sends the body with `${1:-…}` replaced by `part of the auth refactor`. Running bare `/commit` substitutes `no additional context`.
 
-```markdown
----
-description: Generate a pull request description from recent changes
----
+## Loading Rules
 
-1. Run `git log main..HEAD --oneline` to see commits.
-2. Run `git diff main..HEAD --stat` for a file summary.
-3. Write a PR description with:
-   - A one-line summary (under 72 chars)
-   - A "What changed" section with bullet points
-   - A "Why" section explaining the motivation
-   - A "How to test" checklist
-```
-
-### Debug helper
-
-```markdown
----
-description: Help debug an error or unexpected behaviour
-argument-hint: <error message or description>
----
-
-I'm seeing this issue:
-
-$@
-
-Help me debug it:
-1. Identify the most likely causes
-2. Suggest diagnostic steps
-3. Propose a fix once the cause is confirmed
-```
+- Discovery is **non-recursive** — only `*.md` files directly inside a prompts directory are loaded. Subdirectories are ignored.
+- The template name is the filename stem, lowercased.
+- Files are loaded in sorted order within each directory.
+- Templates appear in the `/` command palette. There is no separate `/prompts` command.
 
 ## Next Steps
 
-- [Skills](skills.md) — Longer instruction sets the model loads automatically
-- [Extensions](extensions.md) — Register prompt templates programmatically
+- [Skills](skills.md) — Instruction sets the model loads on its own
+- [Extensions](extensions.md) — Register templates and commands programmatically
+- [Settings](settings.md) — The `prompts` path array and other configuration
 - [Usage Guide](usage.md) — Interactive mode commands

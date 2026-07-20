@@ -1,39 +1,61 @@
 # Usage Guide
 
-This page covers day-to-day usage of tau in interactive mode.
+This page covers day-to-day work in Tau's interactive mode. For flags, subcommands, and the non-interactive modes, see [CLI Reference](cli-reference.md).
+
+## Table of Contents
+
+- [Interactive Mode](#interactive-mode)
+- [Editor Features](#editor-features)
+- [Slash Commands](#slash-commands)
+- [Command Details](#command-details)
+- [Message Queue](#message-queue)
+- [Sessions](#sessions)
+- [Context Files](#context-files)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
 
 ## Interactive Mode
 
-Run `tau` to open the terminal UI. The interface has three areas:
+Run `tau` to open the terminal UI. The screen is composed of stacked zones, top to bottom:
 
-- **Header** — current session info, model, token usage
-- **Messages** — conversation history, tool calls, results
-- **Editor** — where you type prompts
+```text
+┌─ header ──────────────  # session, model, and startup info
+│  messages               # conversation, tool calls, tool results
+│  spinner                # shown while the agent is working
+│  pending queue          # queued steering / follow-up messages
+│  status                 # extension status slots
+├─ divider ─────────────
+│  editor                 # where you type
+├─ divider ─────────────
+│  pickers / palette      # file picker, command palette, selectors
+└─ footer ──────────────  # working directory, token usage, model
+```
 
-Named Markdown links display their label without repeating the destination URL.
-In terminals with OSC 8 support, use the terminal's link gesture (commonly
-Alt+click or Cmd+click) to open the destination. Autolinks remain visible as URLs.
-Markdown images render as linked placeholders when inline image display is not
-available; local image paths link through an absolute `file://` URI.
+Extensions can add their own widgets above or below the editor, and inline selectors temporarily replace the picker zone.
+
+Markdown responses render with terminal-readable inline and display LaTeX math. Named links show their label rather than repeating the URL; in terminals with OSC 8 support, use the terminal's link gesture (commonly Alt+click or Cmd+click) to open them. Markdown images render as linked placeholders when inline image display is unavailable; local image paths link through an absolute `file://` URI. Long-running terminal tools update their existing output block while streaming instead of printing a new block per chunk.
 
 ## Editor Features
 
 | Feature | How |
 |---------|-----|
-| Submit message | Press **Enter** |
-| New line in editor | Press **Shift+Enter** |
-| File reference | Type `@` to browse and insert file paths |
-| Paste text | **Ctrl+V** |
+| Submit message | **Enter** |
+| New line | **Shift+Enter**, or `\` followed by Enter |
+| File reference | Type `@` to browse and insert a file path (↑↓ to browse, Tab to select) |
+| Slash command | Type `/` to open the command palette |
+| Prompt template | `/name [args]` expands a template and sends it |
+| Shell command | `!command` runs immediately without involving the model |
+| Paste | Use the terminal's own paste gesture; bracketed paste is decoded automatically |
+| Large pastes | Collapsed into a placeholder reference rather than filling the editor |
+| History | **Up** / **Down** at the first/last line browses previous inputs |
+| Undo / redo | **Ctrl+Z** / **Ctrl+Y** (word-level grouping) |
+
+Pasting an image, audio, or video file attaches it as media instead of text.
 
 ## Slash Commands
 
-Commands that change agent, session, model, tool, or extension state wait until
-the active turn finishes. UI-only and read-only commands such as `/theme`,
-`/settings`, `/session`, `/copy`, and `/help` can run while the agent is busy.
-This command dispatch is separate from Enter steering and Alt+Enter follow-up
-messages.
-
 Type `/` to open the command palette. Commands are fuzzy-searchable — type a few characters to filter.
+
+Most commands wait until the active turn finishes. UI-only and read-only commands — `/theme`, `/settings`, `/session`, `/copy`, `/help` — run immediately even while the agent is busy. This dispatch is separate from Enter steering and Alt+Enter follow-up messages.
 
 ### Session
 
@@ -41,139 +63,140 @@ Type `/` to open the command palette. Commands are fuzzy-searchable — type a f
 |---------|-------------|
 | `/new` | Start a fresh session |
 | `/resume` | Browse and resume a past session interactively |
-| `/fork [entry-id]` | Branch the session tree at a specific entry |
+| `/fork <entry_id>` | Branch the session tree at a given entry ID (argument required) |
 | `/tree` | Navigate the session tree and switch to a different branch |
 | `/clone` | Duplicate the current session at the current position |
-| `/compact` | Summarise and compact the current context |
-| `/session` | Show session info, message counts, and stats |
+| `/compact [instruction]` | Summarize and compact the current session context |
+| `/session` | Show session info and stats |
 
-### Model & Appearance
+### Model and Appearance
 
 | Command | Description |
 |---------|-------------|
-| `/model` | Pick a model by modality; Speak models with declared voices open a second voice picker |
-| `/theme` | Open the theme picker |
-| `/effort` | Set the thinking effort level |
+| `/model [modality]` | Switch models for any modality: `text`, `voice`, `speak`, `image`, `video` |
+| `/effort` | Set the thinking effort level for the current model |
+| `/theme` | Change the UI theme (interactive picker) |
+| `/settings` | Show current settings |
 
 ### Authentication
 
 | Command | Description |
 |---------|-------------|
-| `/login` | Save credentials for a provider (API key or OAuth subscription) |
+| `/login` | Save an API key for a provider |
 | `/logout` | Remove stored credentials for a provider |
 
 ### Other
 
-| Command | Description |
-|---------|-------------|
-| `/clear` | Clear all messages from the current session |
-| `/copy` | Copy the last assistant message to the clipboard |
-| `/reload` | Reload extensions, skills, prompts, and settings |
-| `/settings` | Show current settings |
-| `/extensions` | Enable or disable extensions by scope |
-| `/watch <url> [question]` | Load public video metadata and captions using `yt-dlp` |
-| `/help` or `/?` | List all commands and keyboard shortcuts |
-| `/quit` or `/q` or `/exit` | Exit tau |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/clear` | | Clear the message list |
+| `/copy` | | Copy the last assistant message to the clipboard |
+| `/reload` | | Reload extensions, themes, and prompt appends |
+| `/extensions` | | Enable or disable extensions by scope |
+| `/help` | `/?` | List all commands and keyboard shortcuts |
+| `/quit` | `/q`, `/exit` | Exit Tau |
 
-Extensions and prompts also appear in the command palette. Type `/` and browse to see everything available.
-
-`/watch` requires `yt-dlp` on `PATH`. It reads metadata and English captions
-from public URLs supported by `yt-dlp`; it does not download or inspect video
-frames. When captions are unavailable, the agent receives metadata only.
-
----
+Extensions, skills, and prompt templates also register commands and appear in the palette. Type `/` and browse to see everything available in your install.
 
 ## Command Details
 
+### `/model`
+
+Opens a model picker for the given modality, defaulting to `text`. Speak models that declare voices open a second voice picker after model selection.
+
+```text
+/model              # pick a text model
+/model image        # pick an image-generation model
+```
+
 ### `/resume`
 
-Opens a searchable session picker showing all past sessions for the current directory, sorted by last modified. Each row shows the session filename, timestamp, message count, and working directory. Type to filter, arrow keys to navigate, Enter to switch.
+Opens a searchable session picker showing past sessions for the current directory, sorted by last modified. Each row shows filename, timestamp, message count, and working directory. Type to filter, arrows to navigate, Enter to switch.
 
 ### `/tree`
 
-Opens the session tree navigator showing every message node in the current session, indented by depth. Entry ID prefix and the first 60 characters of the message are shown. `(current)` marks the active leaf. Enter navigates to the selected branch point.
+Opens the session tree navigator showing every message node in the current session, indented by depth. Each row shows the entry ID prefix and the start of the message; `(current)` marks the active leaf. Enter navigates to the selected branch point.
 
-### `/fork [entry-id]`
+### `/fork <entry_id>`
 
-Branches the session tree at a specific entry ID. Creates a new branch from that point while preserving the original. Useful when you want to explore a different direction from a past message. Entry IDs are shown in `/tree`.
+Branches the session tree at a specific entry ID, creating a new branch from that point while preserving the original. The entry ID argument is required — Tau reports a missing-argument error without it. Entry IDs are shown in `/tree`.
 
 ### `/clone`
 
-Duplicates the entire current branch into a new session file and switches into it. Both sessions start identical — changes in one do not affect the other. Useful for running parallel explorations from the same starting point.
+Duplicates the current branch into a new session file and switches into it. Both sessions start identical; changes in one do not affect the other. Useful for parallel explorations from a shared starting point.
 
 ### `/session`
 
-Prints session info inline in the chat. Shows:
+Prints session info inline in the chat:
 
-- **Session Info** — Name (if set), File path, ID
-- **Messages** — User, Assistant, Tool calls, Tool results, Total
-- **Tokens** — Input, Output, Cache read (if any), Cache write (if any), Total — counts use human-readable suffixes (e.g. `1.2K`, `3.4M`); each line shows an inline cost estimate in USD
-- **Cost** — Total USD cost with inline estimate (only shown if non-zero)
+- **Session Info** — name (if set), file path, ID
+- **Messages** — user, assistant, tool calls, tool results, total
+- **Tokens** — input, output, cache read/write if any, total, with human-readable suffixes (`1.2K`, `3.4M`) and an inline USD cost estimate per line
+- **Cost** — total USD cost, shown only when non-zero
+
+### `/compact [instruction]`
+
+Runs context compaction immediately: summarizes older messages with the LLM and replaces them with a compact summary. Pass an optional instruction to steer what the summary preserves. Useful when approaching the context limit or before a large task.
 
 ### `/copy`
 
-Finds the last assistant message on the current branch and copies its text content to the system clipboard. Uses `pbcopy` on macOS, `wl-copy` / `xclip` / `xsel` on Linux.
+Copies the text of the last assistant message on the current branch to the system clipboard.
 
 ### `/login`
 
-If both OAuth and API key providers are available, first asks which authentication type to use:
+If both OAuth and API-key providers are available, first asks which authentication type to use:
 
-- **Subscription** — OAuth flow (GitHub Copilot, OpenAI Codex). Opens the browser automatically and prompts for any required input (device code, redirect URL) inside the TUI. Credentials are saved to `~/.tau/auth.json`.
-- **API key** — Shows a list of API-key providers. Select one and paste the key into the secure input overlay (displayed as `***`). Key is saved to `~/.tau/auth.json`.
+- **Subscription** — OAuth flow. Opens the browser and prompts for any required input inside the TUI.
+- **API key** — lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
+
+Either way, credentials are saved to `~/.tau/auth.json`.
 
 ### `/logout`
 
-Shows a list of providers that have credentials stored in `~/.tau/auth.json`. Select one to remove it. Environment variables and CLI flags are not affected.
-
-### `/compact`
-
-Immediately runs context compaction on the current session: summarises old messages with the LLM and replaces them with a compact summary. Useful when you are approaching the context limit or want to free up space before a large task.
+Lists providers with credentials stored in `~/.tau/auth.json`. Select one to remove it. Environment variables and CLI flags are unaffected.
 
 ### `/reload`
 
-Reloads extensions, themes, skills, prompts, and keybindings without restarting the session. Useful after editing an extension or adding a new skill file. The session itself (messages, history) is unchanged.
+Reloads extensions, themes, and prompt appends without restarting. Useful after editing an extension or adding a skill file. Session messages and history are unchanged.
 
 ### `/clear`
 
-Clears all messages from the current session, starting fresh while staying in the same session file. Unlike `/new`, this does not create a new session — just empties the message history.
-
----
+Empties the message list while staying in the same session file. Unlike `/new`, this does not create a new session.
 
 ## Message Queue
 
-While the agent is working you can queue new messages:
+You can submit messages while the agent is still working:
 
-| Action | How |
-|--------|-----|
-| Queue a steering message | Press **Enter** (delivered after the current tool round-trip) |
-| Queue a follow-up message | Press **Alt+Enter** (delivered when the agent goes fully idle) |
-| Restore queued messages to editor | Press **Ctrl+Up** |
-| Abort the current turn | Press **Escape** or **Ctrl+C** |
+| Action | Key | Delivery |
+|--------|-----|----------|
+| Queue a steering message | **Enter** | After the current assistant turn finishes its tool calls |
+| Queue a follow-up message | **Alt+Enter** | Only once the agent goes fully idle |
+| Restore queued messages to editor | **Ctrl+Up** | Immediate |
+| Abort the current turn | **Escape** or **Ctrl+C** | Immediate; queued messages are restored |
+
+On macOS, Tau displays `alt` as `option` in help text and hints.
 
 ## Sessions
 
-Sessions are saved automatically to `~/.tau/sessions/`, organised by working directory.
+Sessions save automatically to `~/.tau/sessions/`, organized by working directory.
 
 ```bash
-tau                  # new session
-tau --resume         # continue most recent session
-tau --resume abc123  # resume specific session by ID
-tau --ephemeral      # temporary session, nothing saved
+tau                        # new session
+tau --resume               # continue the most recent session
+tau --resume abc123        # resume a specific session by ID
+tau --fork abc123          # fork a session by ID into a new session
+tau --ephemeral            # temporary session, nothing written to disk
+tau --name "release audit" # set the session display name at startup
+tau --session-dir ./tmp    # store sessions somewhere else
 ```
+
+`--resume` and `--fork` cannot be combined. See [Sessions](sessions.md) for the file format and branching model.
 
 ## Context Files
 
-Tau loads context files at startup to give the agent standing instructions. It searches for:
+Tau loads context files at startup to give the agent standing instructions. It looks for `AGENTS.md` or `CLAUDE.md`, matched case-insensitively, in every directory from the Git repository root through the current directory.
 
-1. `AGENTS.md` or `CLAUDE.md`, matched case-insensitively
-2. Every directory from the Git repository root through the current directory
-
-Outside a Git repository, Tau checks only the current directory. It loads at most
-one context file per directory, preferring `AGENTS.md` over `CLAUDE.md`. Files
-closer to the current directory take precedence over files closer to the repository
-root.
-
-Use context files to provide system-level instructions:
+Outside a Git repository, Tau checks only the current directory. It loads at most one context file per directory, preferring `AGENTS.md` over `CLAUDE.md`. Files closer to the current directory take precedence over files closer to the repository root.
 
 ```markdown
 # Agent Instructions
@@ -181,40 +204,59 @@ Use context files to provide system-level instructions:
 - This is a Python CLI framework project
 - All code must have type hints
 - Run tests before suggesting changes
-- Follow PEP 8 style guide
 ```
 
-These instructions are automatically injected into every turn, helping the agent understand your project conventions and constraints.
-
-## File References
-
-Type `@` in the editor to fuzzy-search for a file and insert a reference. The file's contents are prepended to your message when you submit.
+These instructions are injected into every turn. Disable discovery entirely with `--no-context-files` (`-nc`). See [Project Context](project-context.md).
 
 ## Keyboard Shortcuts
 
+These are Tau's default bindings. Every action can be rebound — see [Keybindings](keybindings.md).
+
+### Messages and Agent
+
 | Shortcut | Action |
 |----------|--------|
-| Enter | Submit message |
+| Enter | Submit, or steer mid-task when the agent is busy |
 | Shift+Enter | Insert newline |
-| Alt+Enter | Queue follow-up message |
-| Ctrl+Up | Restore queued messages |
-| Ctrl+V | Paste |
-| Ctrl+U | Clear input |
-| Ctrl+W | Delete previous word |
-| Ctrl+A / Home | Move to line start |
-| Ctrl+E / End | Move to line end |
-| Ctrl+K | Delete to end of line |
-| Ctrl+C | Abort turn (double-press to quit) |
-| Ctrl+D | Quit (on empty input) |
-| Escape | Abort turn / dismiss picker |
-| Ctrl+O | Toggle expand/collapse for thinking and tool-result blocks |
-| Ctrl+E | Toggle expand/collapse for template and skill blocks |
+| Alt+Enter | Queue as follow-up |
+| Ctrl+Up | Restore queued messages into editor |
+| Escape | Abort the running agent; double-press runs the configured double-escape action |
+| Ctrl+C | Abort the running agent; double-press within 0.5s quits |
+| Ctrl+D | Quit |
 
-See [Keybindings](keybindings.md) for how to customise shortcuts.
+### Editing
+
+| Shortcut | Action |
+|----------|--------|
+| Home / Ctrl+A | Move to line start |
+| End / Ctrl+E | Move to line end |
+| Alt+Left / Alt+Right | Move by word |
+| Ctrl+W | Delete previous word |
+| Ctrl+K | Kill from cursor to end of line |
+| Ctrl+U | Kill from start of line to cursor |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+
+### Navigation and Display
+
+| Shortcut | Action |
+|----------|--------|
+| Page Up | Enter scroll mode (Escape or End to exit) |
+| Page Down | Scroll down |
+| Home / End | Scroll to top / bottom |
+| Up / Ctrl+P | Move selection up in pickers and lists |
+| Down / Ctrl+N | Move selection down in pickers and lists |
+| Enter / Tab | Confirm selection in a picker |
+| Escape | Dismiss a picker |
+| Ctrl+O | Toggle expand/collapse for thinking and tool-result blocks |
+| Ctrl+E | Toggle expand/collapse for template and skill invocation blocks |
+
+> **Note:** Ctrl+E is bound both to "move to line end" inside the text editor and to the invocation toggle at the app level. The editor binding applies while typing; the app binding applies otherwise.
 
 ## Next Steps
 
-- [Keybindings](keybindings.md) — Customise keyboard shortcuts
-- [Settings](settings.md) — Configure tau behaviour
-- [Sessions](sessions.md) — Session management
-- [Extensions](extensions.md) — Add custom tools and commands
+- [CLI Reference](cli-reference.md) — flags, subcommands, and run modes
+- [Keybindings](keybindings.md) — customize keyboard shortcuts
+- [Settings](settings.md) — configure Tau behavior
+- [Sessions](sessions.md) — session management and branching
+- [Extensions](extensions.md) — add custom tools and commands
+- [Skills](skills.md) — reusable on-demand capabilities

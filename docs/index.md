@@ -1,70 +1,74 @@
 # Tau Documentation
 
-Tau is a Python CLI framework for building interactive agent applications. It provides a terminal chat interface backed by any supported LLM provider, extensible tool execution, persistent session management, and a comprehensive plugin system.
+Tau is a self-extensible agent CLI: a terminal chat interface backed by any supported LLM provider, with tool execution, branching session history, and a plugin system for tools, commands, themes, and skills. Its core layers — inference, engine, session, and TUI — are also usable standalone as Python libraries.
 
-## What is Tau?
+## Quick start
 
-Tau allows you to:
-- Chat with LLMs (Claude, GPT, Gemini, Mistral, Ollama) in a terminal UI
-- Execute tools (terminal commands, file operations, search) within conversations
-- Save and resume sessions with branching and forking
-- Extend Tau with custom tools, commands, themes, and skills
-- Embed Tau in Python applications as a library
-- Integrate with IDEs via JSON-RPC
+Install Tau with pip:
 
-## Getting Started
+```bash
+pip install tau-coding-agent      # installs the `tau` command
+```
 
-**New to Tau?** Start here:
+Tau requires Python `>=3.12,<3.14`. `uv tool install tau-coding-agent --python 3.13` also works; see [Installation](installation.md) for why the `--python` pin matters.
 
-1. [Quickstart](quickstart.md) - Get started in 5 minutes
-2. [Installation](installation.md) - Set up providers and credentials
-3. [Usage Guide](usage.md) - Learn interactive mode and slash commands
-4. [Architecture](architecture.md) - Understand how components fit together
+Then run it in a project directory:
 
-## Core Concepts
+```bash
+tau
+```
 
-- [Inference](inference.md) - Standalone inference clients, types, and architecture
-- [Engine](engine.md) - Standalone inference and tool-execution loop
-- [Terminal UI](tui.md) - Standalone terminal rendering and component framework
-- [Messages & Context](messages.md) - How messages flow and context is managed
-- [Sessions](sessions.md) - Session persistence, branching, compaction, JSONL format
-- [Inference Providers](inference-providers.md) - Supported LLMs and provider setup
-- [Tools](tools.md) - Tool registry, built-in tools, execution model
-- [Creating Tools](creating-tools.md) - Implement, register, and test custom tools
-- [Project Context Files](project-context.md) - Repository-specific agent instructions
-- [CLI Reference](cli-reference.md) - All command-line options and run modes
+Authenticate with `/login` for subscription providers, or set an API key such as `ANTHROPIC_API_KEY` before starting. For the full first-run flow, see [Quickstart](quickstart.md).
 
-## Configuration & Customization
+## Start here
 
-- [Settings](settings.md) - Configuration files, all available settings
-- [Authentication](auth.md) - Credential storage and resolution
-- [Themes](themes.md) - Terminal color themes (YAML format)
-- [Skills](skills.md) - Reusable instruction sets with frontmatter
-- [Prompts](prompts.md) - Prompt templates with argument substitution
-- [Keybindings](keybindings.md) - Keyboard shortcuts and customization
+- [Quickstart](quickstart.md) - install, authenticate, and run a first session.
+- [Installation](installation.md) - Python requirements, providers, credentials, and troubleshooting.
+- [Usage](usage.md) - interactive mode, slash commands, editor features, and shortcuts.
+- [CLI Reference](cli-reference.md) - every flag, subcommand, and run mode.
 
-## Building Extensions
+## Core concepts
 
-- [Extensions Guide](extensions.md) - Complete guide to extending Tau
-  - Custom tools
-  - Slash commands
-  - Hooks and events
-  - UI dialogs and overlays
-  - Hot-reload for development
-- [Python API](python-api.md) - Programmatic usage, `RuntimeConfig`, `Runtime` class
+- [Architecture](architecture.md) - how runtime, agent, engine, and inference layer together.
+- [Engine](engine.md) - the standalone inference and tool-execution loop.
+- [Inference](inference.md) - `TextLLM`, streaming events, retries, and thinking support.
+- [Inference Providers](inference-providers.md) - all supported providers and their setup.
+- [Messages](messages.md) - message types, content blocks, and context projection.
+- [Sessions](sessions.md) - storage, branching with `/tree`, compaction, and the JSONL format.
+- [Tools](tools.md) - built-in tools, their schemas, kinds, and execution modes.
+- [Project Context Files](project-context.md) - repository-specific agent instructions.
+- [Authentication](auth.md) - credential storage, resolution order, and OAuth.
 
-## For Contributors
+## Configuration and customization
 
-- [Project Structure](project-structure.md) - Codebase organization and module breakdown
-- [Development Setup](development.md) - Local development environment and testing
+- [Settings](settings.md) - every setting key, type, and default; precedence and merging.
+- [Themes](themes.md) - the 17 bundled themes and the YAML theme format.
+- [Keybindings](keybindings.md) - default shortcuts per context and how to rebind them.
+- [Skills](skills.md) - reusable on-demand instruction sets.
+- [Prompts](prompts.md) - prompt templates with argument substitution.
+- [Packages](packages.md) - install and share extensions, skills, prompts, and themes.
+
+## Extending Tau
+
+- [Extensions](extensions.md) - tools, commands, hooks, custom UI, and hot reload.
+- [Extension Settings](extension-settings.md) - typed settings schemas for extensions.
+- [Creating Tools](creating-tools.md) - implement, register, and test a custom tool.
+
+## Programmatic usage
+
+- [Python API](python-api.md) - embed the full runtime via `Runtime` and `RuntimeConfig`.
+- [RPC Mode](rpc.md) - drive Tau over stdio JSON for IDE integrations.
+- [TUI Components](tui.md) - build terminal UI components and widgets.
+
+Several modules run standalone, without the rest of Tau. Each of these docs has a
+**Standalone Usage** section with a self-contained script:
+[Inference](inference.md#standalone-usage), [Engine](engine.md#standalone-usage),
+[Sessions](sessions.md#standalone-usage), [TUI](tui.md#standalone-usage), and
+[Creating Tools](creating-tools.md#standalone-usage).
 
 ## Reference
 
-- [CLI Reference](cli-reference.md) - All flags, modes (interactive/print/json/rpc)
-- [Settings Reference](settings.md) - Complete settings schema
-- [Session Format](sessions.md) - JSONL file format and structure
-- [Hooks & Events](extensions.md#event-hooks) - All available hooks and events
-
----
-
-**Can't find what you're looking for?** Check [the full documentation index](index.md) or the [project structure guide](project-structure.md) for module-by-module documentation.
+- [Project Structure](project-structure.md) - module-by-module codebase map.
+- [Security](security.md) - project trust, what it does and does not gate, and telemetry.
+- [HTTP Proxy](http-proxy.md) - proxy configuration and what is currently wired.
+- [Development](development.md) - local setup, tests, linting, `tau doctor`, and profiling.

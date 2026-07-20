@@ -1,217 +1,257 @@
 # Installation
 
-This page covers installation and authentication setup for Tau and its inference providers.
+This page covers installing Tau, authenticating with an inference provider, and verifying the result. For a guided first session once install succeeds, see [Quickstart](quickstart.md).
 
-## Prerequisites
+## Requirements
 
-- Python 3.12 or higher
-- pip, uv, or another Python package manager
-- An API key or subscription from at least one inference provider
+| Requirement | Value |
+|-------------|-------|
+| Python | `>=3.12,<3.14` (declared in `pyproject.toml`) |
+| Package name | `tau-coding-agent` |
+| Command installed | `tau` |
+| Credentials | An API key or OAuth subscription for at least one provider |
+
+> **Python 3.14 is not supported.** The `requires-python` bound stops at `<3.14`. See [Troubleshooting](#uv-tool-install-fails-building-pyxclip) if your installer picks 3.14 anyway.
 
 ## Install Tau
 
 ### From PyPI
 
 ```bash
-pip install tau-coding-agent
+pip install tau-coding-agent      # installs the `tau` command
 ```
 
-### From Source
-
-Clone the repository and install in editable mode:
+### With uv
 
 ```bash
-git clone https://github.com/Jeomon/Tau.git
-cd Tau
-pip install -e .
+uv tool install tau-coding-agent --python 3.13
 ```
 
-### Verify Installation
+Pin the interpreter explicitly — uv otherwise defaults to its newest managed Python, which may exceed Tau's supported range.
 
-Check that Tau is installed:
+### From source
 
 ```bash
-tau --version
-tau --help
+git clone https://github.com/jeomon/tau.git
+cd tau
+pip install -e .                  # editable install; code changes take effect immediately
 ```
 
-## Inference Provider Setup
-
-Tau supports multiple LLM providers. Each requires API credentials.
-
-### Anthropic
-
-Set the environment variable:
+### Verify
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+tau --version                     # prints the version string and exits
+tau --help                        # lists all global options and subcommands
+tau doctor                        # full configuration/credential/model health check
 ```
 
-To obtain an API key, visit [Anthropic's console](https://console.anthropic.com) and create a new key.
+`tau doctor` is the fastest way to confirm a working install — it checks settings and auth file integrity, credential status, model and provider resolution, extensions, session storage, logs, and installed packages in one pass.
 
-### OpenAI
+## Authentication
 
-```bash
-export OPENAI_API_KEY=sk-...
-```
+Tau resolves an API key for a provider in this order, stopping at the first hit:
 
-Get your API key from [OpenAI's platform](https://platform.openai.com/account/api-keys).
+1. A runtime override supplied for the current process.
+2. The credential stored for that provider in `~/.tau/auth.json`.
+3. The environment variable `<PROVIDER_ID>_API_KEY`.
 
-### Google Gemini
+The auth file therefore **wins over** the environment variable. Both are implemented in `tau/auth/manager.py`.
 
-```bash
-export GOOGLE_API_KEY=...
-tau --model google/gemini-2.5-flash
-```
+### Environment variables
 
-Create a key at [Google AI Studio](https://aistudio.google.com). The `google`
-provider uses the Gemini Developer API and is separate from the Google Vertex
-AI provider.
-
-### Mistral AI
+The env var name is derived mechanically from the provider id: uppercase it and append `_API_KEY`. There is no hand-maintained list of names.
 
 ```bash
-export MISTRAL_API_KEY=...
-```
-
-Get your key from [Mistral's console](https://console.mistral.ai).
-
-### Ollama (Local)
-
-Ollama uses `http://localhost:11434` by default and does not require an API
-key. Configure a different endpoint through a provider extension.
-
-## Configure Authentication
-
-### Environment Variables
-
-The simplest method. Set provider keys as environment variables before launching Tau:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...    # provider id: anthropic
+export OPENAI_API_KEY=sk-...           # provider id: openai
+export GOOGLE_API_KEY=...              # provider id: google
+export GROQ_API_KEY=gsk_...            # provider id: groq
 tau
 ```
 
-### Configuration File
+Common providers and their default endpoints:
 
-Store credentials in `~/.tau/auth.json`:
+| Provider id | Env var | Default base URL |
+|-------------|---------|------------------|
+| `anthropic` | `ANTHROPIC_API_KEY` | SDK default |
+| `openai` | `OPENAI_API_KEY` | SDK default |
+| `google` | `GOOGLE_API_KEY` | SDK default (Gemini Developer API) |
+| `mistral` | `MISTRAL_API_KEY` | SDK default |
+| `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` |
+| `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `xai` | `XAI_API_KEY` | `https://api.x.ai/v1` |
+| `nvidia` | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1` |
+| `deepseek` | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` |
+| `cerebras` | `CEREBRAS_API_KEY` | `https://api.cerebras.ai/v1` |
+| `fireworks` | `FIREWORKS_API_KEY` | `https://api.fireworks.ai/inference/v1` |
+| `ollama` | none required | `http://localhost:11434` |
+| `lmstudio` | none required | `http://localhost:1234/v1` |
+| `vllm` | none required | `http://localhost:8000/v1` |
+| `llamacpp` | none required | `http://localhost:8080/v1` |
+
+See [Inference Providers](inference-providers.md) for the complete provider list, and [Authentication](auth.md) for OAuth subscription providers.
+
+### Google Vertex AI
+
+The Vertex providers (`google-vertex`, `anthropic-vertex`, `openai-vertex`) use Google Cloud credentials rather than a `*_API_KEY` variable:
+
+| Variable | Purpose |
+|----------|---------|
+| `GOOGLE_CLOUD_PROJECT` | Project id |
+| `GCLOUD_PROJECT` | Fallback project id |
+| `GOOGLE_CLOUD_LOCATION` | Region |
+| `GOOGLE_CLOUD_API_KEY` | API key when not using Application Default Credentials |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to a service-account JSON file |
+
+### Credential file
+
+Store credentials in `~/.tau/auth.json`. The file is always global — there is no project-local auth file.
 
 ```json
 {
   "anthropic": { "type": "api_key", "key": "sk-ant-..." },
-  "openai": { "type": "api_key", "key": "sk-..." },
-  "google": { "type": "api_key", "key": "..." }
+  "openai":    { "type": "api_key", "key": "sk-..." },
+  "google":    { "type": "api_key", "key": "..." }
 }
 ```
 
-The file is created with restricted permissions (`0600`). Credentials in the auth file take priority over environment variables.
+Manage it from the CLI instead of editing by hand:
 
-### Key Resolution
+```bash
+tau auth list                       # list stored credentials with masked keys
+tau auth status                     # per-provider credential state, including env fallbacks
+tau auth set anthropic sk-ant-...   # store an API key
+tau auth unset anthropic            # remove stored credentials
+tau auth login github-copilot       # run an OAuth subscription login flow
+tau auth logout github-copilot      # remove an OAuth credential
+```
 
-The `key` field supports:
+Inside an interactive session, `/login` and `/logout` do the same thing through a picker.
 
-- **Literal values**: directly used
-- **Environment variables**: `"$MY_KEY"` or `"${MY_KEY}"`
-- **Shell commands**: `"!security find-generic-password -ws 'anthropic'"` (executed once, cached for the process lifetime)
+### Indirect key values
 
-Examples:
+The `key` field is resolved through `tau/utils/secrets.py`, which supports three forms:
+
+| Form | Example | Behavior |
+|------|---------|----------|
+| Literal | `"sk-ant-..."` | Used as-is |
+| Environment reference | `"$MY_KEY"` or `"${MY_KEY}"` | Read from the environment at use time |
+| Shell command | `"!op read 'op://vault/item/key'"` | Executed once, cached for the process lifetime |
 
 ```json
 {
   "anthropic": { "type": "api_key", "key": "$ANTHROPIC_API_KEY" },
-  "openai": { "type": "api_key", "key": "!op read 'op://vault/item/key'" }
+  "openai":    { "type": "api_key", "key": "!op read 'op://vault/item/key'" }
 }
+```
+
+This keeps plaintext keys out of the file while still letting `tau auth` manage entries.
+
+## Where Tau Stores Things
+
+All paths are fixed relative to `~/.tau/` and `<cwd>/.tau/`. **No environment variable relocates them** — use the `--session-dir` flag if you need session files elsewhere.
+
+```text
+~/.tau/                    # global config directory
+├── settings.json          # global settings
+├── auth.json              # credentials (0600); always global
+├── sessions/              # session JSONL files, organized by working directory
+├── logs/                  # per-session logs: <session_id>.log
+├── extensions/            # installed extensions
+├── themes/                # installed themes
+├── skills/                # installed skills
+└── venv/                  # global package virtualenv
+
+<project>/.tau/            # project config directory
+├── settings.json          # project settings (loaded only when the project is trusted)
+└── venv/                  # project-scoped package virtualenv (`tau install --local`)
 ```
 
 ## Test Your Setup
 
-Test with a simple one-shot prompt to verify credentials work:
+Run a single prompt end-to-end. If a response prints, credentials and model resolution both work:
 
 ```bash
-tau --print "Say exactly: hello"
+tau --print "Say exactly: hello"    # one-shot; prints the reply and exits
 ```
 
-This runs Tau once, sends a prompt, prints the response, and exits. If you see a response, authentication is working.
-
-For interactive mode, just run:
+Then open the full terminal UI:
 
 ```bash
+cd /path/to/your/project
 tau
 ```
 
-When you start Tau, it will load your models. Press `/model` to see all available models for your configured providers.
+Tau starts on `anthropic/claude-sonnet-4-6` unless a different model is saved in settings or passed on the command line. Use `/model` inside the session to switch.
 
 ## Uninstall
 
-To remove Tau:
-
 ```bash
-pip uninstall tau-coding-agent
+pip uninstall tau-coding-agent      # or: uv tool uninstall tau-coding-agent
 ```
 
-This removes the tau command but leaves configuration and session data in `~/.tau/`.
+This removes the `tau` command but leaves settings, credentials, and sessions in `~/.tau/`. Delete that directory to remove them too.
 
 ## Troubleshooting
 
-Run `tau doctor` first — it checks settings/auth file integrity, credential
-status (including whether stored OAuth tokens are still valid), model/provider
-resolution, extensions, session storage, logs, and installed packages in one
-pass. Add `--fix` to auto-repair the safe, reversible cases (expired OAuth
-tokens, dangling extension entries, corrupt session files).
+Start with `tau doctor`. It reports every check as pass/warn/fail and exits non-zero if anything failed.
 
 ```bash
-tau doctor
-tau doctor --fix
+tau doctor              # report only
+tau doctor --json       # machine-readable output
+tau doctor --fix        # apply safe, reversible repairs
 ```
 
-### No Models Found
+`--fix` handles only reversible cases: refreshing expired OAuth tokens, removing dangling extension entries, and quarantining corrupt session files into a `.corrupt/` subdirectory. It never rewrites `settings.json` or `auth.json` directly and never reinstalls packages.
 
-Check that your API key is set correctly:
+### No models found
+
+Confirm the key is exported under the exact derived name:
 
 ```bash
-env | grep -i "api_key\|key"
+env | grep -i api_key       # check which provider keys are visible
+tau auth status             # check what Tau itself resolves, env fallbacks included
 ```
 
-Verify the key matches your provider's requirements. Some providers (e.g., Anthropic) have specific key formats.
+The variable must be `<PROVIDER_ID>_API_KEY` in uppercase — `ANTHROPIC_API_KEY`, not `ANTHROPIC_KEY`.
 
-### Provider Connection Errors
+### Provider connection errors
 
-If Tau cannot connect to a provider, check:
+1. **Network** — can you reach the provider endpoint from this machine?
+2. **Key validity** — is the key expired or revoked?
+3. **Region** — is your location or IP blocked by the provider?
+4. **Proxy** — Tau honors `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` (either case). Settings in `settings.json` take precedence over these. See [HTTP Proxy](http-proxy.md).
 
-1. **Network connectivity**: Can you reach the provider's endpoint?
-2. **API key validity**: Is your key expired or revoked?
-3. **Regional restrictions**: Is your location or IP blocked by the provider?
+### Ollama connection issues
 
-### Ollama Connection Issues
-
-If using Ollama, ensure the service is running:
+Ollama needs no API key but the service must be running at `http://localhost:11434`:
 
 ```bash
 ollama serve
+tau --provider ollama
 ```
 
-Tau currently expects the service at `http://localhost:11434`.
+Point at a different endpoint for one run with `--base-url`:
 
-### `uv tool install` fails building `pyxclip` on Python 3.14
-
-`pyxclip` (used for clipboard support) ships prebuilt wheels only up to
-Python 3.13 — its `pyo3` bindings don't yet support 3.14. `uv tool install`
-picks uv's newest managed Python by default (currently 3.14) regardless of
-this project's `requires-python` bound, so the install falls back to a source
-build that fails with an error like:
-
+```bash
+tau --provider ollama --base-url http://gpu-box.local:11434
 ```
+
+### `uv tool install` fails building `pyxclip`
+
+`pyxclip` (clipboard support) ships prebuilt wheels only up to Python 3.13 — its `pyo3` bindings do not yet support 3.14. `uv tool install` picks uv's newest managed Python by default, regardless of this project's `requires-python` bound, so the install falls back to a source build that fails:
+
+```text
 error: The configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)
 ```
 
-Work around it by pinning the interpreter for the install:
+Pin the interpreter for the install:
 
 ```bash
-uv tool install . --python 3.13
+uv tool install tau-coding-agent --python 3.13
 ```
 
-Or set it once for your shell so future installs don't need the flag:
+Or set it once for your shell:
 
 ```bash
 # macOS/Linux
@@ -220,12 +260,15 @@ export UV_PYTHON=3.13
 # Windows (PowerShell), current session
 $env:UV_PYTHON = "3.13"
 
-# Windows (PowerShell), persisted for future sessions
+# Windows (PowerShell), persisted
 [Environment]::SetEnvironmentVariable("UV_PYTHON", "3.13", "User")
 ```
 
 ## Next Steps
 
-- [Quickstart](quickstart.md) - Run your first session
-- [Inference Providers](inference-providers.md) - Detailed provider reference
-- [Settings](settings.md) - Configuration options
+- [Quickstart](quickstart.md) — run your first session
+- [Usage Guide](usage.md) — interactive mode, slash commands, and sessions
+- [CLI Reference](cli-reference.md) — every flag, subcommand, and run mode
+- [Inference Providers](inference-providers.md) — full provider reference
+- [Authentication](auth.md) — OAuth subscription logins
+- [Settings](settings.md) — persistent configuration

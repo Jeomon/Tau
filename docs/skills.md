@@ -1,168 +1,293 @@
+> Tau can create skills. Run `/skill:skill-creator` and describe your use case.
+
 # Skills
 
-Skills are reusable instruction sets that the model can load on demand. They let you encode project-specific workflows, conventions, or multi-step procedures in plain Markdown files — without writing any Python.
+Skills are self-contained instruction packages the model loads on demand. A skill encodes a project-specific workflow, convention, or multi-step procedure in plain Markdown — no Python required.
+
+Use a skill when the model should decide for itself that a body of instructions is relevant. Use a [prompt template](prompts.md) when *you* want to inject a fixed instruction with a slash command.
+
+## Table of Contents
+
+- [Locations](#locations)
+- [How Skills Work](#how-skills-work)
+- [Skill Commands](#skill-commands)
+- [Skill Structure](#skill-structure)
+- [Frontmatter](#frontmatter)
+- [Validation](#validation)
+- [Example](#example)
+- [Built-In Skills](#built-in-skills)
+- [Next Steps](#next-steps)
+
+## Locations
+
+> **Security:** A skill can instruct the model to take any action, and may ship scripts the model executes. Review skill content before use.
+
+Tau loads skills from four sources, each overriding the previous when names collide:
+
+| Precedence | Source | Location |
+|------------|--------|----------|
+| Lowest | Built-in | `tau/builtins/skills/` |
+| | Global | `~/.tau/skills/` |
+| | Project | `.tau/skills/` relative to cwd |
+| Highest | Packages and settings | Paths contributed by installed packages and the `skills` settings array |
+
+Skill names are compared case-insensitively and stored lowercased, so a project `deploy` skill replaces a global `Deploy` skill.
+
+To add skill directories from other harnesses, list them in `settings.json`:
+
+```json
+{
+  "skills": [
+    "~/.claude/skills",
+    "~/.agents/skills"
+  ]
+}
+```
+
+Project skills load only after the project is trusted. See [Project Context Files](project-context.md#trust-and-security).
 
 ## How Skills Work
 
-When a session starts, tau scans the skill directories and injects an `<available_skills>` block into the system prompt listing each skill's name, description, and file path. When a user's request matches a skill's description, the model reads the skill file and follows its instructions.
+1. At startup Tau scans every skill location and extracts each skill's name, description, and file path.
+2. The system prompt gains an `<available_skills>` block listing those three fields — never the skill body.
+3. When a request matches a skill's description, the model calls `read` on the listed location to load the full instructions.
+4. The model follows the instructions, resolving relative paths against the skill's own directory.
 
-Skills are loaded lazily — the model reads the file only when it decides the skill is relevant, which keeps the system prompt short regardless of how many skills you have.
+This is progressive disclosure: descriptions are always in context, bodies load only when needed, so the prompt cost stays flat as you add skills.
 
-## File Locations
+The injected block looks like this:
 
-Skills are loaded from three sources:
+```xml
+<available_skills>
+  <skill>
+    <name>git-commit</name>
+    <description>Stage and commit changes with a well-formed commit message</description>
+    <location>/path/to/tau/builtins/skills/git-commit/SKILL.md</location>
+  </skill>
+</available_skills>
+```
 
-| Priority | Location | Scope |
-|----------|----------|-------|
-| Highest | `.tau/skills/` in the project root | Project-only |
-| | `~/.tau/skills/` | Global (all projects) |
-| Lowest | `tau/builtins/skills/` | Built-in skills |
+Models do not always load a skill on their own. Prompt explicitly, or force it with `/skill:name`.
 
-Higher-priority skills override lower-priority ones with the same name.
+## Skill Commands
 
-## Built-in Skills
+Every skill registers a `/skill:<name>` command that loads it immediately, bypassing the model's matching:
 
-Tau includes these skills:
+```bash
+/skill:git-commit                  # Load and follow the skill
+/skill:debug the failing auth test # Load with trailing arguments
+```
 
-| Skill | Purpose |
-|-------|---------|
-| `code-review` | Review code for correctness, security, and maintainability |
-| `debug` | Diagnose failures systematically and verify fixes |
-| `git-commit` | Prepare focused commits with conventional messages |
-| `skill-creator` | Create or update Tau skills and reusable resources |
+The invoked skill is wrapped for the model as:
 
-## Creating a Skill
+```xml
+<skill name="git-commit" location="/path/to/SKILL.md">
+References are relative to /path/to.
 
-### Single-file skill
+...skill body...
+</skill>
+```
 
-A `.md` file at the root of a skills directory becomes a skill. The filename (minus extension) is the skill name:
+Arguments after the name are appended verbatim after the closing tag.
+
+> **Note:** Skills do **not** perform argument substitution. `$1`, `$@`, and `${1:-default}` are inert inside a skill body — they are passed through as literal text. Only [prompt templates](prompts.md#argument-substitution) substitute arguments.
+
+Skills appear in the `/` command palette as `/skill:<name>`. There is no `/skills` listing command.
+
+## Skill Structure
+
+A skill is either a single Markdown file or a directory containing `SKILL.md`.
+
+### Single-File Skill
+
+A `.md` file at the **root** of a skills directory becomes a skill named after its filename stem:
 
 ```text
 ~/.tau/skills/
-    refactor.md          # skill name: "refactor"
-    write-tests.md       # skill name: "write-tests"
+├── refactor.md            # Skill name: "refactor"
+└── write-tests.md         # Skill name: "write-tests"
 ```
 
-### Directory skill
+Root-level `.md` files are only discovered at the top level of a skills directory, not in subdirectories.
 
-A subdirectory containing `SKILL.md` is loaded as a single skill. The directory name becomes the skill name:
+### Directory Skill
+
+A subdirectory containing `SKILL.md` loads as one skill named after the directory. Everything else in the directory is freeform:
 
 ```text
 ~/.tau/skills/
-    deploy/
-        SKILL.md         # skill name: "deploy"
-        helpers.sh       # referenced from SKILL.md
-        checklist.md
+└── deploy/
+    ├── SKILL.md           # Required: frontmatter + instructions
+    ├── scripts/
+    │   └── release.sh     # Helper script the model can run
+    ├── references/
+    │   └── runbook.md     # Detail loaded on demand
+    └── assets/
+        └── config.tmpl
 ```
 
-Use this layout when your skill needs to reference other files (scripts, templates, checklists).
-
-## Skill File Format
-
-Skills use a YAML frontmatter block at the top:
+Use this layout whenever the skill references other files. Tau tells the model that relative paths resolve against the skill's directory, so link them relatively:
 
 ```markdown
----
-name: refactor
-description: Refactor Python code for clarity, following project conventions
----
-
-## Refactoring Guidelines
-
-1. Prefer small, focused functions (< 30 lines).
-2. Use dataclasses instead of plain dicts for structured data.
-3. Add type annotations to all public functions.
-4. Check `docs/style-guide.md` for project-specific conventions.
-
-## Steps
-
-1. Read the target file first to understand context.
-2. Identify the refactoring opportunities.
-3. Apply changes incrementally, explaining each decision.
-4. Run tests after: `pytest -x`
+See [the deploy runbook](references/runbook.md) before proceeding.
 ```
 
-### Frontmatter fields
+Tau recurses into subdirectories that do **not** contain `SKILL.md`, so you can group skills into categories:
+
+```text
+~/.tau/skills/
+└── backend/               # No SKILL.md — just a grouping folder
+    ├── migrations/
+    │   └── SKILL.md       # Skill name: "migrations"
+    └── profiling/
+        └── SKILL.md       # Skill name: "profiling"
+```
+
+## Frontmatter
+
+Frontmatter is a `---`-delimited block of `key: value` lines at the top of the file. Keys are lowercased; values are read as plain strings.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | No | Skill name (defaults to filename stem or directory name) |
-| `description` | **Yes** | One-line description shown to the model — this determines when the skill is loaded |
-| `disable-model-invocation` | No | Set to `true` to hide from the model (skill still loads but isn't listed in the prompt) |
+| `name` | No | Skill name, lowercased on load. Defaults to the directory name for `SKILL.md`, or the filename stem for a root `.md` file |
+| `description` | **Yes** | What the skill does and when to use it. This is the only text the model sees before loading the skill |
+| `disable-model-invocation` | No | `true`, `1`, or `yes` hides the skill from the system prompt. It stays available via `/skill:name` |
 
-The `description` field is critical — write it so the model can match it against user intent:
+Unknown fields are parsed but ignored.
 
-```markdown
----
-description: Deploy the application to staging or production environments
----
+> **Note:** Tau uses a simple line-based parser, not a full YAML parser. Nested structures, multi-line values, and lists are not supported — keep every field on one line. A value containing `:` is preserved, since only the first `:` splits the pair.
+
+### Description Best Practices
+
+The description is the model's only basis for deciding whether to load the skill. Be specific about both capability and trigger.
+
+Good:
+```yaml
+description: Create or update Tau skills with effective triggering metadata, focused instructions, and optional reusable scripts, references, or assets. Use when a user asks to create, scaffold, revise, validate, or improve a skill.
 ```
 
-## Invoking a Skill Explicitly
-
-You can invoke a skill directly by name, bypassing the model's matching:
-
-```text
-/skill:refactor
-/skill:deploy staging
+Poor:
+```yaml
+description: Helps with skills.
 ```
 
-Arguments after the skill name are available inside the skill as `$1`, `$2`, `$@` — the same substitution syntax as [Prompt Templates](prompts.md#argument-substitution).
-
-## Skill Discovery
-
-Invokable skills appear in the `/` command palette as `/skill:<name>`. There
-is no separate `/skills` command.
-
-## Disabling a Skill
-
-To hide a skill from the model while keeping it available for `/skill:` invocation:
+### Hiding a Skill from the Model
 
 ```markdown
 ---
 name: internal-notes
-description: Internal notes not meant for the model
+description: Internal release checklist, run manually only
 disable-model-invocation: true
 ---
+
+1. Confirm the changelog is current.
+2. Tag the release.
 ```
 
-## Example Skills
+This skill never appears in `<available_skills>`, but `/skill:internal-notes` still works.
 
-### Code review
+## Validation
 
-```markdown
----
-description: Review code for bugs, style issues, and security vulnerabilities
----
+Tau's skill validation is deliberately minimal. A skill fails to load — and is reported as a load error — in exactly these cases:
 
-Review the code at $1 (or the files mentioned in the conversation if no argument).
+| Condition | Outcome |
+|-----------|---------|
+| Missing or empty `description` | Not loaded; error `missing 'description' field` |
+| Empty body after frontmatter | Not loaded; error `skill body is empty` |
+| File cannot be read | Not loaded; error `read error: <detail>` |
 
-Check for:
-- Logic errors and off-by-one bugs
-- Unhandled edge cases and error conditions
-- Security issues: injection, path traversal, credential exposure
-- Style: naming, function length, unnecessary complexity
+There are no length limits on `name` or `description`, no character-set restrictions on names, and no requirement that `name` match its parent directory. Name collisions do not warn — the higher-precedence location silently wins.
 
-For each issue, cite the exact line and suggest a fix.
+## Example
+
+The bundled `git-commit` skill is a complete minimal skill:
+
+```text
+tau/builtins/skills/git-commit/
+└── SKILL.md
 ```
 
-### Commit helper
+**SKILL.md:**
 
-```markdown
+````markdown
 ---
-description: Write a conventional commit message for the current staged changes
+name: git-commit
+description: Stage and commit changes with a well-formed commit message
 ---
+Stage the relevant files, write a conventional commit message based on the diff, and create the commit. Follow the format `type: short summary` (e.g. `feat:`, `fix:`, `refactor:`). Keep the subject under 72 characters. If there are staged changes already, use them as-is.
+````
 
-1. Run `git diff --staged` to see what's changing.
-2. Summarise in a conventional commit format: `type(scope): short description`
-3. Types: feat, fix, refactor, docs, test, chore
-4. Keep the subject under 72 characters.
-5. Add a body if the change needs explanation.
-6. Output only the commit message — no commentary.
+Invoke it explicitly:
+
+```bash
+/skill:git-commit
 ```
+
+Or simply ask the agent to commit your changes — the description matches, so the model loads the skill on its own.
+
+### A Larger Skill
+
+To create a project skill that references a helper script:
+
+1. Create the directory:
+
+   ```bash
+   mkdir -p .tau/skills/deploy/scripts
+   ```
+
+2. Write `.tau/skills/deploy/SKILL.md`:
+
+   ````markdown
+   ---
+   name: deploy
+   description: Deploy the service to staging or production. Use when asked to ship, release, or roll back a deployment.
+   ---
+
+   # Deploy
+
+   ## Preflight
+
+   Confirm the working tree is clean and tests pass:
+
+   ```bash
+   git status --porcelain && pytest -x
+   ```
+
+   ## Deploy
+
+   ```bash
+   ./scripts/release.sh <staging|production>
+   ```
+
+   Consult [the rollback runbook](references/rollback.md) if the health check fails.
+   ````
+
+3. Add the helper script and mark it executable:
+
+   ```bash
+   chmod +x .tau/skills/deploy/scripts/release.sh
+   ```
+
+4. Start Tau in the project and trust it, then confirm the skill is available:
+
+   ```bash
+   /skill:deploy staging
+   ```
+
+## Built-In Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `code-review` | Review code changes for bugs, clarity, and correctness |
+| `debug` | Diagnose and fix a bug or unexpected behaviour |
+| `git-commit` | Stage and commit changes with a well-formed commit message |
+| `skill-creator` | Create or update Tau skills, including scripts, references, and assets |
+
+Override any of them by defining a skill with the same name in `~/.tau/skills/` or `.tau/skills/`.
 
 ## Next Steps
 
-- [Prompts](prompts.md) — Reusable prompt templates with argument substitution
-- [Extensions](extensions.md) — Register skills programmatically from Python
-- [Settings](settings.md) — Session configuration
+- [Prompt Templates](prompts.md) — Slash commands with argument substitution
+- [Extensions](extensions.md) — Register skills and tools programmatically from Python
+- [Project Context Files](project-context.md) — Always-on project instructions and trust
+- [Settings](settings.md) — The `skills` path array and other configuration

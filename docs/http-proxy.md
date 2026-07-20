@@ -1,27 +1,96 @@
-# HTTP Proxy Support
+# HTTP Proxy
 
-Tau supports HTTP proxy configuration for all HTTP/HTTPS traffic via **settings.json** or **environment variables**. This is essential for corporate environments, restricted networks, and API gateway routing.
+Tau routes outbound HTTP/HTTPS traffic through a proxy using the standard proxy
+environment variables. A settings-based configuration and a resolver API also
+exist for embedding applications and extensions.
 
-## Use Cases
+> **Read this first:** the built-in inference adapters do **not** call Tau's
+> proxy resolver. Proxying works today because every HTTP client Tau creates is
+> `httpx`-based, and httpx reads `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` /
+> `NO_PROXY` from the environment itself. The `http_proxy` settings block and
+> `tau.utils.http_proxy` are a resolver library for code that opts into them —
+> they do not currently affect built-in provider requests. See
+> [Current Wiring](#current-wiring).
 
-### Corporate and Enterprise Environments
-Many organizations require all HTTP/HTTPS traffic to route through corporate proxies for security monitoring, compliance, and access control. The `http_proxy` setting allows tau to work in these restricted environments without manual environment variable configuration.
+## Table of Contents
 
-### Network Restrictions
-Some networks block direct access to external LLM provider APIs (Anthropic, OpenAI, Google, Bedrock, etc.). Proxy support enables routing through approved servers that have whitelist access.
+- [Quick Start](#quick-start)
+- [Environment Variables](#environment-variables)
+- [NO_PROXY Exclusions](#no_proxy-exclusions)
+- [Settings](#settings)
+- [Current Wiring](#current-wiring)
+- [Resolver API](#resolver-api)
+- [TLS and Certificates](#tls-and-certificates)
+- [Troubleshooting](#troubleshooting)
 
-### API Gateways and Custom Endpoints
-Proxies enable routing through API gateways that provide rate limiting, authentication, logging, and request transformation. This is particularly relevant for Amazon Bedrock, which supports custom VPC proxy endpoints for secure internal network access.
+## Quick Start
 
-## Configuration Priority
+Export the standard variables before running Tau:
 
-1. **settings.json** (highest priority) — `http_proxy` section
-2. **Environment variables** (fallback) — standard proxy env vars
-3. **No proxy** (default)
+```bash
+export HTTPS_PROXY=http://proxy.example.com:8080     # proxy for HTTPS targets
+export HTTP_PROXY=http://proxy.example.com:8080      # proxy for HTTP targets
+export NO_PROXY=localhost,127.0.0.1                  # bypass list
+tau
+```
 
-## Settings Configuration (Recommended)
+An authenticated proxy takes credentials in the URL — this is the only way to
+supply proxy credentials to built-in provider requests today:
 
-Configure HTTP proxy in `~/.tau/settings.json` or `.tau/settings.json`. **Note:** HTTP proxy settings are configured via JSON only (not available in the interactive `/settings` command) since they support custom headers for authentication.
+```bash
+export HTTPS_PROXY=http://username:password@proxy.example.com:8080
+tau
+```
+
+Windows PowerShell:
+
+```powershell
+$env:HTTPS_PROXY="http://proxy.example.com:8080"
+tau
+```
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `HTTP_PROXY` / `http_proxy` | Proxy for targets with an `http://` scheme |
+| `HTTPS_PROXY` / `https_proxy` | Proxy for targets with an `https://` scheme |
+| `ALL_PROXY` / `all_proxy` | Fallback when no scheme-specific variable is set |
+| `NO_PROXY` / `no_proxy` | Hosts that bypass the proxy |
+
+Lookups are case-insensitive: Tau's resolver checks the lowercase name first,
+then the uppercase one. The scheme-specific variable is selected from the
+**target** URL's scheme, then `ALL_PROXY` is used as a fallback.
+
+Only `http://` and `https://` proxy URLs are supported. A SOCKS or PAC URL
+raises a `ValueError` from Tau's resolver. A proxy value with no `://` prefix is
+given the target's scheme.
+
+## NO_PROXY Exclusions
+
+```bash
+export NO_PROXY=localhost                         # single host
+export NO_PROXY=localhost,127.0.0.1,internal.example.com
+export NO_PROXY=*.internal.example.com            # wildcard subdomains
+export NO_PROXY=internal.example.com:8443         # host with port
+export NO_PROXY=*                                 # bypass the proxy entirely
+```
+
+Matching rules in Tau's resolver:
+
+- The list is split on **commas only**. Whitespace around entries is trimmed,
+  so `a, b` works, but a space-separated list without commas does not.
+- `*` alone disables proxying for every host.
+- `*.example.com` matches any host ending in `.example.com`.
+- Any other entry must match the hostname exactly.
+- An entry of the form `host:port` only applies when the port also matches;
+  a non-numeric portion after the colon is treated as part of the hostname.
+- Comparison is case-insensitive.
+
+## Settings
+
+`~/.tau/settings.json` (or a project `.tau/settings.json`) accepts an
+`http_proxy` block:
 
 ```json
 {
@@ -36,349 +105,214 @@ Configure HTTP proxy in `~/.tau/settings.json` or `.tau/settings.json`. **Note:*
 }
 ```
 
-**Fields:**
-- `url` (required) — Proxy URL for both HTTP and HTTPS requests
-- `no_proxy` (optional) — Comma-separated hosts to bypass the proxy
-- `headers` (optional) — Custom headers for proxy authentication
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | `string \| null` | `null` | Proxy URL for both HTTP and HTTPS |
+| `no_proxy` | `string \| null` | `null` | Comma-separated hosts to bypass |
+| `headers` | `object \| null` | `null` | Custom headers for proxy authentication |
 
-Settings here override corresponding environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
-
-### Custom Proxy Headers
-
-Some corporate proxies require custom authentication headers:
+`url` and every value in `headers` support the same secret references as API
+keys — a literal, `$ENV_VAR`, or `!command`. See
+[Authentication](auth.md#credential-references).
 
 ```json
 {
   "http_proxy": {
     "url": "http://proxy.example.com:8080",
     "headers": {
-      "Proxy-Authorization": "Basic dXNlcm5hbWU6cGFzc3dvcmQ=",
-      "X-Proxy-Token": "secret-token"
+      "Proxy-Authorization": "!op read op://vault/proxy/token"
     }
   }
 }
 ```
 
-Alternatively, embed credentials directly in the proxy URL:
+These fields are also editable from the interactive `/settings` command, under
+**Proxy Settings** (URL, No-proxy hosts, Headers as a JSON object). Edits made
+there are written to global settings.
 
-```json
-{
-  "http_proxy": {
-    "url": "http://username:password@proxy.example.com:8080"
-  }
-}
-```
+When Tau's resolver is used, settings take precedence over environment
+variables; `http_proxy.no_proxy` replaces `NO_PROXY` rather than merging with it.
 
-## Environment Variables
+## Current Wiring
 
-Tau respects the following proxy environment variables (case-insensitive):
+Understanding what is actually connected matters when a proxy does not take
+effect.
 
-| Variable | Purpose |
-|----------|---------|
-| `HTTP_PROXY` / `http_proxy` | Proxy for HTTP requests |
-| `HTTPS_PROXY` / `https_proxy` | Proxy for HTTPS requests |
-| `ALL_PROXY` / `all_proxy` | Fallback proxy for all requests |
-| `NO_PROXY` / `no_proxy` | Comma/space-separated list of hosts to exclude from proxying |
-| `npm_config_http_proxy` | npm config variant for HTTP proxy |
-| `npm_config_https_proxy` | npm config variant for HTTPS proxy |
-| `npm_config_proxy` | npm config variant for fallback proxy |
+| Mechanism | Affects built-in provider requests? |
+|-----------|-------------------------------------|
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` env vars | **Yes** — via httpx's own environment handling |
+| `http_proxy.url` in settings | No |
+| `http_proxy.no_proxy` in settings | No |
+| `http_proxy.headers` in settings | No |
 
-## Quick Start
+Every HTTP client Tau constructs — the direct `httpx` clients used by the media,
+Codex, Antigravity, model-catalog, and local-discovery paths, and the httpx
+clients inside the OpenAI, Anthropic, Mistral, Ollama, and Google SDKs — is
+built with a base URL, credentials, and headers only. None is given a proxy,
+`mounts`, or a custom transport, and none disables httpx's environment
+handling. So the env vars are honored, and the settings block is not consulted.
 
-Set environment variables before running tau:
+Practical consequences:
 
-```bash
-# Using an HTTP proxy
-export HTTPS_PROXY=http://proxy.example.com:8080
-tau --help
+- Setting only `http_proxy.url` in `settings.json` will not proxy anything.
+  Export `HTTPS_PROXY` instead.
+- Custom proxy headers such as `Proxy-Authorization` have no path to built-in
+  requests. Embed the credentials in the proxy URL instead.
+- Tau's richer `NO_PROXY` semantics (`host:port` entries, `*.domain` wildcards)
+  apply only to code that calls the resolver; httpx applies its own rules to
+  built-in requests.
 
-# Exclude internal hosts from proxying
-export NO_PROXY=*.internal.example.com,localhost
-tau --help
+Extensions and embedding applications that build their own HTTP clients can opt
+in with the [Resolver API](#resolver-api).
 
-# Windows PowerShell
-$env:HTTPS_PROXY="http://proxy.example.com:8080"
-tau --help
-```
+## Resolver API
 
-## Usage in Code
+`tau.utils.http_proxy` resolves a proxy for a target URL from settings, then
+from the environment. It is pure resolution — it never mutates the environment
+and never configures a client for you.
 
-### Basic Usage
+### `get_proxy_url_for_target(target_url, settings_manager=None) -> str | None`
+
+Returns the proxy URL for a target, or `None` when the target should be reached
+directly. Raises `ValueError` for a SOCKS or PAC proxy URL. Without a
+`settings_manager`, only environment variables are consulted.
+
+### `get_proxies_for_client(api_base_url, settings_manager=None) -> dict[str, str] | None`
+
+Returns `{"http://": url, "https://": url}` for building httpx mounts, or
+`None` when no proxy applies.
+
+### `get_proxy_headers(settings_manager=None) -> dict[str, str] | None`
+
+Returns the configured proxy headers with secret references resolved. Requires a
+`settings_manager`; returns `None` without one.
+
+### Example
 
 ```python
-from tau.utils.http_proxy import get_proxy_url_for_target
+"""Build an httpx client that honors Tau's proxy settings."""
 
-# Get proxy URL (checks settings first, then env vars)
-proxy = get_proxy_url_for_target("https://api.anthropic.com", settings_manager)
-if proxy:
-    print(f"Using proxy: {proxy}")
-```
+import asyncio
+from pathlib import Path
 
-### With httpx Client
-
-```python
 import httpx
+
+from tau.settings.manager import SettingsManager
 from tau.utils.http_proxy import get_proxies_for_client, get_proxy_headers
+from tau.utils.ssl_context import get_shared_ssl_context
 
-api_base = "https://api.example.com"
-proxies = get_proxies_for_client(api_base, settings_manager)
-headers = get_proxy_headers(settings_manager)
 
-mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
-async with httpx.AsyncClient(mounts=mounts, headers=headers) as client:
-    response = await client.get(f"{api_base}/v1/models")
-```
+async def main() -> None:
+    api_base = "https://api.example.com"
+    settings = SettingsManager.create(Path.cwd())
 
-With custom proxy headers:
-
-```python
-import httpx
-from tau.utils.http_proxy import get_proxies_for_client, get_proxy_headers
-
-api_base = "https://api.example.com"
-proxies = get_proxies_for_client(api_base, settings_manager)
-proxy_headers = get_proxy_headers(settings_manager) or {}
-
-# Merge with any other default headers
-headers = {
-    "User-Agent": "tau/1.0",
-    **proxy_headers,  # Include custom proxy headers
-}
-
-mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
-async with httpx.AsyncClient(mounts=mounts, headers=headers) as client:
-    response = await client.get(f"{api_base}/v1/models")
-```
-
-### With Existing httpx Client
-
-```python
-import httpx
-from tau.utils.http_proxy import get_proxy_url_for_target
-
-api_base = "https://api.example.com"
-proxy_url = get_proxy_url_for_target(api_base)
-
-client_kwargs = {}
-if proxy_url:
-    client_kwargs["mounts"] = {
-        "http://": httpx.AsyncHTTPTransport(proxy=proxy_url),
-        "https://": httpx.AsyncHTTPTransport(proxy=proxy_url),
+    proxies = get_proxies_for_client(api_base, settings)
+    mounts = (
+        {scheme: httpx.AsyncHTTPTransport(proxy=url) for scheme, url in proxies.items()}
+        if proxies
+        else None
+    )
+    headers = {
+        "User-Agent": "tau",
+        **(get_proxy_headers(settings) or {}),
     }
 
-async with httpx.AsyncClient(**client_kwargs) as client:
-    response = await client.get(f"{api_base}/v1/models")
+    async with httpx.AsyncClient(
+        mounts=mounts,
+        headers=headers,
+        verify=get_shared_ssl_context(),
+    ) as client:
+        response = await client.get(f"{api_base}/v1/models")
+        print(response.status_code)
+
+
+asyncio.run(main())
 ```
 
-## NO_PROXY Exclusions
+Checking a single target:
 
-`NO_PROXY` controls which hosts bypass the proxy:
+```python
+from tau.utils.http_proxy import get_proxy_url_for_target
 
-```bash
-# Single host
-export NO_PROXY=localhost
-
-# Multiple hosts (comma or space-separated)
-export NO_PROXY=localhost, 127.0.0.1, internal.example.com
-
-# Wildcard domains (*.example.com matches sub.example.com)
-export NO_PROXY=*.internal.example.com
-
-# Disable proxying entirely
-export NO_PROXY=*
+proxy = get_proxy_url_for_target("https://api.anthropic.com")
+print(f"via {proxy}" if proxy else "direct")
 ```
 
-## Protocol Support
+## TLS and Certificates
 
-✅ **Supported:**
-- `http://` proxy URLs
-- `https://` proxy URLs (secure proxy)
+Tau builds one SSL context per process — `httpx.create_ssl_context()` behind an
+`lru_cache` in `tau.utils.ssl_context.get_shared_ssl_context()` — and passes it
+to every httpx client it creates directly. This avoids re-parsing the CA bundle
+off disk for each of the many short-lived clients Tau opens.
 
-❌ **Not Supported:**
-- SOCKS proxies (`socks5://`)
-- PAC proxies (`pac+http://`)
+| Property | Behavior |
+|----------|----------|
+| Certificate verification | Always on. There is no setting or flag to disable it |
+| Custom CA bundle | Only whatever OpenSSL picks up from `SSL_CERT_FILE` / `SSL_CERT_DIR`; Tau reads no CA-bundle variables of its own |
+| Timing | The context is built once per process, so environment changes after the first HTTPS request have no effect |
 
-Attempting to use unsupported proxy types will raise a `ValueError` with a helpful message.
-
-## Proxy URL Format
-
-Proxy URLs can be specified with or without a protocol prefix:
-
-```bash
-# With protocol (preferred)
-export HTTPS_PROXY=http://proxy.example.com:8080
-export HTTPS_PROXY=https://secure-proxy.example.com:8443
-
-# Without protocol (will use same protocol as target)
-export HTTPS_PROXY=proxy.example.com:8080
-```
-
-## Examples
-
-### Corporate Proxy
-
-```bash
-export HTTP_PROXY=http://corp-proxy.mycompany.com:3128
-export HTTPS_PROXY=http://corp-proxy.mycompany.com:3128
-export NO_PROXY=*.mycompany.com,localhost,127.0.0.1
-tau
-```
-
-### Authenticated Proxy
-
-```bash
-# Include credentials in URL (URL-encoded if needed)
-export HTTPS_PROXY=http://username:password@proxy.example.com:8080
-tau
-```
-
-### Secure Proxy Connection
-
-```bash
-# Use HTTPS to connect to proxy (more secure)
-export HTTPS_PROXY=https://secure-proxy.example.com:8443
-tau
-```
-
-### Local Development
-
-```bash
-# Route through local proxy/gateway for debugging/inspection
-export HTTPS_PROXY=http://localhost:8888
-export NO_PROXY=*
-# Then run with mitmproxy or similar on localhost:8888
-tau
-```
+A TLS-intercepting corporate proxy therefore needs its CA in the system trust
+store, or exported through `SSL_CERT_FILE` before Tau starts.
 
 ## Troubleshooting
 
-### Proxy not being used
+### Proxy is not being used
 
-1. Check that env vars are exported (not just set):
+1. Confirm the variables are **exported**, not just set for one command:
+
    ```bash
-   export HTTPS_PROXY=http://proxy.example.com:8080  # Correct
-   HTTPS_PROXY=http://proxy.example.com:8080 tau     # Wrong (not exported)
+   export HTTPS_PROXY=http://proxy.example.com:8080   # correct
+   HTTPS_PROXY=http://proxy.example.com:8080 tau      # also works, but only for that run
    ```
 
-2. Verify NO_PROXY isn't excluding the target:
+2. Confirm you are not relying on `settings.json` alone — see
+   [Current Wiring](#current-wiring). Export `HTTPS_PROXY`.
+
+3. Check `NO_PROXY` is not excluding the target:
+
    ```bash
-   echo $NO_PROXY  # Check current value
+   echo "$NO_PROXY"
    ```
 
-3. Test proxy connectivity manually:
+4. Test the proxy directly:
+
    ```bash
-   curl -v -x http://proxy.example.com:8080 https://api.example.com
+   curl -v -x http://proxy.example.com:8080 https://api.anthropic.com/v1/models
    ```
 
 ### Proxy connection fails
 
-1. Verify proxy URL is correct (host, port, protocol)
-2. Check firewall rules allow outbound to proxy
-3. Try with `http://` instead of `https://` (some proxies don't support HTTPS)
-4. Check proxy authentication requirements (add credentials to URL if needed)
+1. Verify host, port, and scheme.
+2. Check outbound firewall rules to the proxy.
+3. Try `http://` to reach the proxy rather than `https://`; many proxies do not
+   terminate TLS on their listener.
+4. For an authenticated proxy, put the credentials in the URL and URL-encode any
+   reserved characters in the password.
+
+### Certificate verification fails
+
+The proxy is likely intercepting TLS. Install its CA in the system trust store,
+or point OpenSSL at it before launching Tau:
+
+```bash
+export SSL_CERT_FILE=/path/to/corp-ca-bundle.pem
+tau
+```
 
 ### "Unsupported proxy protocol"
 
-If you see: `Unsupported proxy protocol. SOCKS and PAC proxy URLs are not supported`
-
-This means your `HTTPS_PROXY` or `ALL_PROXY` env var is set to a SOCKS or PAC URL. Change it to HTTP or HTTPS:
+Tau's resolver accepts only `http://` and `https://`:
 
 ```bash
-# Wrong
-export HTTPS_PROXY=socks5://proxy.example.com:1080
-
-# Correct
-export HTTPS_PROXY=http://proxy.example.com:8080
+export HTTPS_PROXY=socks5://proxy.example.com:1080   # rejected
+export HTTPS_PROXY=http://proxy.example.com:8080     # supported
 ```
 
----
-
-## API Reference
-
-### `get_proxy_url_for_target(target_url: str) → Optional[str]`
-
-Get HTTP proxy URL for a specific target from environment variables.
-
-**Args:**
-- `target_url`: Target URL (e.g., `"https://api.anthropic.com"`)
-
-**Returns:**
-- Proxy URL string (e.g., `"http://proxy.example.com:8080"`) or `None`
-
-**Raises:**
-- `ValueError`: If proxy URL uses unsupported protocol (SOCKS, PAC)
-
-**Example:**
-```python
-from tau.utils.http_proxy import get_proxy_url_for_target
-
-proxy = get_proxy_url_for_target("https://api.example.com")
-if proxy:
-    print(f"Using: {proxy}")
-```
-
-### `get_proxies_for_client(api_base_url: str) → Optional[dict[str, str]]`
-
-Get proxy configuration dict for httpx or requests libraries.
-
-**Args:**
-- `api_base_url`: Base URL of the API (e.g., `"https://api.example.com"`)
-
-**Returns:**
-- Dict with `"http://"` and `"https://"` keys pointing to proxy URL, or `None`
-
-**Raises:**
-- `ValueError`: If proxy URL uses unsupported protocol
-
-**Example:**
-```python
-from tau.utils.http_proxy import get_proxies_for_client
-import httpx
-
-proxies = get_proxies_for_client("https://api.example.com")
-mounts = {s: httpx.AsyncHTTPTransport(proxy=u) for s, u in proxies.items()} if proxies else None
-async with httpx.AsyncClient(mounts=mounts) as client:
-    response = await client.get("...")
-```
-
-## Implementation Details
-
-### Startup Application
-
-The HTTP proxy settings are applied during tau initialization, before any HTTP requests are made to LLM providers or external services. This ensures all requests respect the configured proxy.
-
-### Environment Variable Handling
-
-Tau respects existing proxy environment variables and doesn't override them if already set, allowing for:
-- Per-session overrides via environment variables
-- Per-command overrides via shell exports
-- Global configuration via settings.json (takes precedence)
-
-Priority: **settings.json** > **environment variables** > **defaults**
-
-### Proxy Resolution
-
-Tau handles protocol-specific proxies:
-- `http_proxy` or `HTTP_PROXY` — used for HTTP requests
-- `https_proxy` or `HTTPS_PROXY` — used for HTTPS requests  
-- `all_proxy` or `ALL_PROXY` — fallback for all requests
-- `no_proxy` or `NO_PROXY` — hostname exclusions (comma/space-separated, supports wildcards)
-
-### OAuth and Authentication
-
-OAuth login/refresh operations (e.g., GitHub Copilot, OpenAI, Anthropic) also respect HTTP proxy settings, ensuring authenticated flows work through corporate proxies.
-
-### Notes
-
-- The `http_proxy` setting can be set globally (`~/.tau/settings.json`) or per-project (`.tau/settings.json`); project settings are merged over global settings
-- Different providers may have additional proxy-related configuration options (e.g., Amazon Bedrock VPC endpoints)
-- Proxy validation occurs at startup — invalid proxy URLs will raise an error before any requests are made
-- SOCKS and PAC proxies are not supported; only HTTP/HTTPS proxies are allowed
-
----
+SOCKS and PAC proxies are not supported.
 
 ## See Also
 
-- [Settings](settings.md) — Main settings reference
-- [Extensions](extensions.md) — Extensions can also use proxy settings via SettingsManager
-- [Inference Providers](inference-providers.md) — Model provider configuration
+- [Settings](settings.md) — the full settings reference
+- [Inference Providers](inference-providers.md) — provider endpoints to allowlist
+- [Authentication](auth.md) — `$ENV_VAR` and `!command` secret references
+- [Extensions](extensions.md) — extensions can use the resolver via `SettingsManager`

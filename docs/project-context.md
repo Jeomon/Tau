@@ -1,103 +1,156 @@
 # Project Context Files
 
-Tau automatically discovers and includes project-specific instructions from `AGENTS.md` or `CLAUDE.md` in the agent's system prompt. This lets you provide project-level guidance without modifying tool configuration or global settings.
+Tau discovers `AGENTS.md` and `CLAUDE.md` files in your project and injects them into the system prompt. This gives the agent standing, version-controlled instructions without touching global settings or tool configuration.
 
-## Overview
+## Table of Contents
 
-When you run Tau in a project directory, it:
+- [File Names and Precedence](#file-names-and-precedence)
+- [Discovery Rules](#discovery-rules)
+- [Writing a Context File](#writing-a-context-file)
+- [System Prompt Integration](#system-prompt-integration)
+- [Trust and Security](#trust-and-security)
+- [Choosing an Approach](#choosing-an-approach)
+- [Troubleshooting](#troubleshooting)
+- [Next Steps](#next-steps)
 
-1. Looks for `AGENTS.md` or `CLAUDE.md` (case-insensitive)
-2. Walks from the Git repository root through the current directory
-3. If the project is trusted, includes one context file from each directory
-4. Prioritizes the closest file above parent files, general Tau rules, and tool guidelines
+## File Names and Precedence
 
-Outside a Git repository, Tau checks only the current directory.
+Tau recognizes exactly two names, matched case-insensitively:
 
-This is useful for:
-- **Coding standards** — Define how the agent should write code
-- **Project conventions** — Specify naming patterns, directory structure expectations
-- **Tools & workflows** — Document project-specific development workflows
-- **Context** — Provide background on architecture, constraints, decisions
+| Order | Name | Notes |
+|-------|------|-------|
+| 1 | `AGENTS.md` | Checked first |
+| 2 | `CLAUDE.md` | Used only when no `AGENTS.md` is present in that directory |
 
-## Usage
+Within a directory, the first match wins — Tau loads **one** context file per directory, never both. When several case variants exist (`AGENTS.md` and `agents.md`), the fully uppercase spelling is preferred.
 
-### Creating a project context file
+## Discovery Rules
 
-Create an `AGENTS.md` file in your project root:
+1. Tau walks up from the current directory to find the Git repository root.
+2. It collects one context file from each directory on the path from that root down to the current directory.
+3. Files are ordered **root first**, so the closest file appears last and takes precedence when the model reads top to bottom.
+4. Outside a Git repository, only the current directory is checked.
 
-```markdown
+Additional details:
+
+- **Empty files are ignored.** A file whose content is blank after stripping is treated as absent — `CLAUDE.md` is not consulted as a fallback in that directory.
+- **Symlinks are skipped.** Only regular files are considered.
+- **Duplicates are removed.** Files resolving to the same inode are loaded once.
+- **Unreadable files are skipped**, not fatal.
+
+For a repository laid out like this:
+
+```text
+myrepo/                    # Git root
+├── AGENTS.md              # Loaded first (lowest precedence)
+├── CLAUDE.md              # Ignored — AGENTS.md wins in this directory
+└── services/
+    └── api/
+        ├── AGENTS.md      # Loaded last (highest precedence)
+        └── src/
+```
+
+Running Tau from `myrepo/services/api/src/` loads `myrepo/AGENTS.md` then `myrepo/services/api/AGENTS.md`. The `services/` directory contributes nothing, since it has no context file.
+
+## Writing a Context File
+
+Create `AGENTS.md` in your project root. There is no required schema — the content is injected as-is, so write whatever the agent should always know.
+
+````markdown
 # Project Guidelines
 
 ## Code Style
-- Use type hints for all functions
-- Follow PEP 8 naming conventions
+- Type hints on all public functions
 - Keep functions under 50 lines
+- No wildcard imports
 
-## File Organization
+## Layout
 ```
 src/
-├── models/       # Database models
-├── handlers/     # Request handlers
-├── utils/        # Utility functions
-└── tests/        # Test files
+├── models/       # SQLAlchemy models
+├── handlers/     # FastAPI request handlers
+└── utils/        # Shared helpers
 ```
-
-## Architecture Notes
-- We use FastAPI for the REST API
-- Pydantic for data validation
-- SQLAlchemy for database access
 
 ## Common Tasks
 - Run tests: `pytest tests/`
-- Format code: `black src/`
+- Format: `ruff format src/`
 - Type check: `mypy src/`
+
+## Tool Use
+- Prefer the `grep` tool over `terminal` with `grep`
+- Use `edit` for changes, `write` only for new files
+- Never run database migrations
+````
+
+Keep it short and imperative. Everything here occupies context on every request, so prefer standing rules over background prose the agent can read on demand — put that in a [skill](skills.md) instead.
+
+## System Prompt Integration
+
+Context files land in a `# Project Instructions` section of the system prompt, after the tool list and before skills. Each file is wrapped in a `<project_instructions>` tag carrying its path, so the model knows which directory each rule set governs:
+
+```xml
+# Project Instructions
+
+Project-specific guidelines. Files are ordered from the repository root toward the current directory; later files take precedence:
+
+<project_context>
+
+<project_instructions path="/myrepo/AGENTS.md">
+...content...
+</project_instructions>
+
+<project_instructions path="/myrepo/services/api/AGENTS.md">
+...content...
+</project_instructions>
+
+</project_context>
 ```
 
-Or use `CLAUDE.md` for the same purpose (they're equivalent).
+The complete prompt is assembled in this order:
 
-### File priority
+| Layer | Source |
+|-------|--------|
+| Identity | `SYSTEM.md` if present, else the built-in identity |
+| Guidelines | General behavior and precedence rules |
+| Available Tools | Generated from the active tool list |
+| Tau docs | Framework documentation and examples |
+| **Project Instructions** | **`AGENTS.md` / `CLAUDE.md`** |
+| Skills | The `<available_skills>` block |
+| Git snapshot | Branch, redacted remote, status, recent commits |
+| Environment | cwd, OS, architecture, shell, date |
+| Appended | `APPEND_SYSTEM.md`, verbatim and last |
 
-Tau checks for these names case-insensitively, in this order:
+Passing `--system` or setting `RuntimeConfig.system_prompt` bypasses this builder entirely — tools, project context, skills, Git, and environment sections are all dropped.
 
-1. `AGENTS.md`
-2. `CLAUDE.md`
+## Trust and Security
 
-The first one found in each directory is used. When multiple directories provide
-instructions, Tau orders them from the repository root to the current directory.
-The closest file takes precedence if instructions conflict.
+Project context is injected only when both conditions hold:
 
-## Trust & Security
+1. Context loading is not disabled with `--no-context-files`.
+2. The project is trusted.
 
-Project context files are only loaded if:
-1. **Not disabled** via `--no-context-files` flag
-2. **Project is trusted** (via CLI flags, trust store, or settings policy)
+Trust is a loading guard, not a sandbox. It stops a repository from silently changing Tau's behavior before you approve it; it does not make the repository's contents safe. Instructions inside a context file are prompt input the model will follow, so review them the way you would review code.
 
-### Trust decisions
+### Trust Inputs
 
-By default, Tau's behavior is "ask" — it will ask if the project should be trusted the first time you run it (if there are trust decisions to make).
+Tau asks for a trust decision when the current directory or an ancestor contains any of:
 
-**Control trust behavior with:**
+- A project-local `.tau/` directory
+- An `.agents/skills/` directory
+- An `AGENTS.md` or `CLAUDE.md` anywhere from the Git root down to cwd
 
-#### CLI Flags (one-time)
+### CLI Flags
 
-**Always trust this project for this run:**
 ```bash
-tau --approve
+tau --approve            # Trust this project for this run (-a)
+tau --no-approve         # Do not trust this project for this run
+tau --no-context-files   # Load no AGENTS.md / CLAUDE.md at all this run
 ```
 
-**Never trust this project for this run:**
-```bash
-tau --no-approve
-```
+### Persistent Policy
 
-**Disable project context for this run:**
-```bash
-tau --no-context-files
-```
-
-#### Settings (persistent)
-
-Configure the default project trust policy in `~/.tau/settings.json`:
+Set the default in `~/.tau/settings.json`:
 
 ```json
 {
@@ -105,159 +158,53 @@ Configure the default project trust policy in `~/.tau/settings.json`:
 }
 ```
 
-**Options:**
-- `"ask"` (default) — Ask each time (stored in `~/.tau/trust.json`)
-- `"always"` — Always trust all projects
-- `"never"` — Never trust any project
+| Value | Behavior |
+|-------|----------|
+| `"ask"` | Prompt on first use in a project; the answer is saved (default) |
+| `"always"` | Trust every project without asking |
+| `"never"` | Never trust project resources |
 
-Example configurations:
+Saved per-directory decisions live in `~/.tau/trust.json`.
 
-```json
-{
-  "project_trust": "always"
-}
-```
+## Choosing an Approach
 
-For teams using Tau, you can:
-- Set global policy to `"ask"` — Users decide per project
-- Set global policy to `"always"` — Auto-load all context files
-- Set global policy to `"never"` — Require explicit `--approve` flag
+| Approach | Best for | Trade-off |
+|----------|----------|-----------|
+| `AGENTS.md` / `CLAUDE.md` | Team-wide project rules | Always in context; costs tokens on every request |
+| [Skills](skills.md) | Deep workflows the model loads when relevant | Only the description is always in context |
+| [Prompt templates](prompts.md) | Instructions you invoke deliberately | Requires you to type `/name` |
+| `.tau/SYSTEM.md` | Replacing the agent's identity for a project | Overrides the default identity layer |
+| `.tau/APPEND_SYSTEM.md` | Appending verbatim text last | No structure; easy to bloat |
+| `--system` | A one-off, fully custom prompt | Bypasses tools, context, skills, Git, and environment |
+| [Settings](settings.md) | User preferences across projects | Not project-specific |
 
-## System Prompt Integration
+For team projects `AGENTS.md` is the recommended default: it travels with the codebase, is reviewable in pull requests, and needs no configuration.
 
-Project context is included in the system prompt in the "# Project Instructions" section:
+## Troubleshooting
 
-```
-You are a coding agent...
+**Context does not appear in the prompt**
 
-## How to work
-- Always use absolute paths...
+- Confirm the file sits between the Git root and your current directory.
+- Confirm the name is `AGENTS.md` or `CLAUDE.md` in any letter case.
+- Confirm the file is not empty and is not a symlink.
+- Confirm the project is trusted — rerun with `tau --approve`.
+- Confirm you are not running with `--no-context-files`.
 
-# Available Tools
-- **read** — Read files...
+**Only one file loads in a monorepo**
 
-Tau documentation
-- README: ...
+Tau takes one file per directory. If both `AGENTS.md` and `CLAUDE.md` exist side by side, only `AGENTS.md` is used. Directories with no context file contribute nothing.
 
-# Project Instructions
+**Trust decisions do not persist**
 
-Project-specific guidelines and rules (from AGENTS.md):
+Check `~/.tau/trust.json` for the stored decision. A `project_trust` value of `"never"` in settings blocks project resources regardless of saved decisions.
 
-[Content of AGENTS.md here]
+**Inspecting the effective prompt**
 
-Files are ordered from the repository root toward the current directory; later
-files take precedence.
-```
+There is no slash command for this. Build the prompt through the Python API or read it from an extension context — see [Python API](python-api.md).
 
-The agent sees this and prioritizes project instructions when making decisions.
+## Next Steps
 
-## Examples
-
-### Example 1: Python project
-
-**AGENTS.md:**
-```markdown
-# Python Project Rules
-
-## Style
-- Type annotations required
-- Use f-strings for formatting
-- No wildcard imports
-- Docstrings for all public functions
-
-## Testing
-- Run `pytest` before committing
-- Keep test coverage above 80%
-- Use fixtures for common setup
-
-## Code Review
-- Explain the "why" in docstrings
-- Use descriptive variable names
-- Keep functions focused and small
-```
-
-### Example 2: JavaScript/TypeScript project
-
-**CLAUDE.md:**
-```markdown
-# TypeScript Conventions
-
-## Setup
-- Node.js 18+
-- Pnpm for package management
-- ESLint + Prettier for formatting
-
-## Code Rules
-- Strict TypeScript mode enabled
-- No `any` types without justification
-- Async/await preferred over promises
-- Use named exports, not default
-
-## Build & Test
-- Build: `pnpm run build`
-- Test: `pnpm test`
-- Lint: `pnpm run lint`
-```
-
-### Example 3: Monorepo
-
-**AGENTS.md:**
-```markdown
-# Monorepo Structure
-
-## Packages
-- `packages/core/` — Core library
-- `packages/cli/` — CLI interface
-- `packages/web/` — Web UI
-- `packages/docs/` — Documentation
-
-## Development
-- Each package has its own test suite
-- Root `test` script runs all tests
-- Use `npm` workspaces
-
-## Deployment
-- Build: `npm run build` from root
-- Core: Publish to npm
-- Web: Deploy to Vercel
-- CLI: GitHub releases
-```
-
-## Common Issues
-
-**Project context not appearing**
-
-- Check the file exists between the repository root and current directory
-- Verify the filename is `AGENTS.md` or `CLAUDE.md`, in any letter case
-- Check project trust: `tau --approve` or `/trust` command
-- Use `--no-context-files` to confirm it's being loaded
-
-**Want to see if it's loaded**
-
-- Inspect the effective system prompt through the Python API or an extension context
-
-**Trust decisions not persisting**
-- By default, trust decisions are stored in `~/.tau/trust.json`
-- Use `--approve` to explicitly trust for that run
-- Check `~/.tau/trust.json` to see stored decisions
-
-## Comparison with other approaches
-
-| Approach | When to use | Pros | Cons |
-|----------|-----------|------|------|
-| **AGENTS.md/CLAUDE.md** | Team project guidelines | Lightweight, auto-discovered, version-controlled | Limited to per-project |
-| **Custom prompt (`--system`)** | Complete one-off prompt replacement | Flexible | Bypasses generated tools, project context, skills, Git, environment, and append sections |
-| **settings.json** | User/global preferences | Persistent | Not project-specific |
-| **Environment variables** | Sensitive data, deployment-specific | Secure, flexible | Not human-readable |
-
-For team projects, **AGENTS.md/CLAUDE.md is recommended** because:
-- Stays with the codebase (Git history)
-- Clear intent and discoverability
-- Auto-loaded without configuration
-- Can be reviewed in PRs
-
-## See Also
-
-- [Usage Guide](usage.md) — Interactive commands and modes
-- [Settings](settings.md) — Configuration and preferences
-- [Extensions](extensions.md) — Custom tools and commands
+- [Skills](skills.md) — On-demand instruction sets that keep the prompt small
+- [Prompt Templates](prompts.md) — Slash commands with argument substitution
+- [Settings](settings.md) — `project_trust` and other configuration
+- [Tools](tools.md) — What the agent can actually do
