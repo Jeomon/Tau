@@ -142,13 +142,12 @@ Note that lint and format commands target `tau/` only, not `tests/`.
 
 ## Continuous Integration
 
-Three workflows live in `.github/workflows/`.
+Two workflows live in `.github/workflows/`.
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `ci.yml` | Push and PR to `main` | Format, lint, type check, test |
 | `cd.yml` | Push of a `v*` tag | Build, publish to PyPI, cut a GitHub release |
-| `pr-review.yml` | PR opened / synchronized / reopened | Automated review, run by Tau itself |
 
 **`ci.yml`** runs one job, `check-and-test`, on `ubuntu-latest` with a single-entry matrix of Python `3.12`:
 
@@ -162,8 +161,6 @@ uv run pytest
 ```
 
 **`cd.yml`** runs `uv build`, publishes via PyPI trusted publishing (no token), slices the matching version section out of `CHANGELOG.md` into release notes, and attaches the wheel and sdist to the release. Update `CHANGELOG.md` with a `## <version>` heading or the release notes come out empty.
-
-**`pr-review.yml`** dogfoods Tau: it installs `tau-coding-agent` from PyPI, writes the PR diff to `pr.diff`, and runs Tau read-only (`--tools read,grep,glob,ls --approve --ephemeral --quiet --output-format text`) with the system prompt from `.github/tau/pr-reviewer-system.md`, posting the output as a PR comment. It is skipped on forks.
 
 ## Diagnostics
 
