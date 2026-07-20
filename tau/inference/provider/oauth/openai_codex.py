@@ -10,9 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import os
 import secrets
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -31,6 +29,7 @@ from tau.inference.provider.oauth.types import (
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
     get_oauth_ssl_context,
+    is_headless_environment,
     parse_authorization_input,
     start_oauth_callback_server,
 )
@@ -288,20 +287,6 @@ def read_codex_file_credential() -> OAuthCredential | None:
         return None
 
 
-def _is_headless() -> bool:
-    """Best-effort guess at whether a browser-based login is unreachable.
-
-    A remote/SSH session or a Linux host with no display server can't open the
-    loopback authorization URL, so the device-code flow is the only usable path.
-    macOS and Windows are assumed to have a GUI unless we're on SSH.
-    """
-    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
-        return True
-    if sys.platform.startswith("linux"):
-        return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-    return False
-
-
 def _start_codex_device_auth() -> dict:
     """Request a device/user code pair from the Codex device-auth endpoint."""
     status, data = _post_device_json(DEVICE_USER_CODE_URL, {"client_id": CLIENT_ID})
@@ -425,7 +410,7 @@ async def login_openai_codex(
     if file_cred is not None:
         return file_cred
 
-    if _is_headless():
+    if is_headless_environment():
         return await login_openai_codex_device_code(callbacks)
 
     verifier, challenge = generate_pkce()

@@ -1,7 +1,7 @@
 """Tests for the Codex device-code login flow and headless auto-fallback.
 
 Covers tau/inference/provider/oauth/openai_codex.py:
-  - _is_headless() environment detection
+  - is_headless_environment() gating (see test_oauth_utils.py)
   - login_openai_codex_device_code() poll → exchange happy path
   - login_openai_codex() auto-falls back to the device flow when headless
 """
@@ -15,6 +15,16 @@ import pytest
 
 import tau.inference.provider.oauth.openai_codex as codex
 from tau.inference.provider.oauth.types import OAuthLoginCallbacks
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    """Keep the poll loop's backoff from adding real wall-clock time to tests."""
+
+    async def _instant(_seconds):
+        return None
+
+    monkeypatch.setattr(codex.asyncio, "sleep", _instant)
 
 
 def _make_callbacks() -> tuple[OAuthLoginCallbacks, list]:
@@ -38,33 +48,6 @@ def _access_token_with_account_id(account_id: str = "acct_123") -> str:
     header = b64({"alg": "none", "typ": "JWT"})
     payload = b64({codex.JWT_CLAIM_PATH: {"chatgpt_account_id": account_id}})
     return f"{header}.{payload}.sig"
-
-
-class TestIsHeadless:
-    def test_ssh_connection_is_headless(self, monkeypatch):
-        monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")
-        assert codex._is_headless() is True
-
-    def test_linux_without_display_is_headless(self, monkeypatch):
-        monkeypatch.setattr(codex.sys, "platform", "linux")
-        monkeypatch.delenv("SSH_CONNECTION", raising=False)
-        monkeypatch.delenv("SSH_TTY", raising=False)
-        monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
-        assert codex._is_headless() is True
-
-    def test_linux_with_display_is_not_headless(self, monkeypatch):
-        monkeypatch.setattr(codex.sys, "platform", "linux")
-        monkeypatch.delenv("SSH_CONNECTION", raising=False)
-        monkeypatch.delenv("SSH_TTY", raising=False)
-        monkeypatch.setenv("DISPLAY", ":0")
-        assert codex._is_headless() is False
-
-    def test_macos_is_not_headless(self, monkeypatch):
-        monkeypatch.setattr(codex.sys, "platform", "darwin")
-        monkeypatch.delenv("SSH_CONNECTION", raising=False)
-        monkeypatch.delenv("SSH_TTY", raising=False)
-        assert codex._is_headless() is False
 
 
 @pytest.mark.asyncio
@@ -114,7 +97,7 @@ async def test_device_flow_polls_then_exchanges(monkeypatch):
 async def test_login_auto_falls_back_to_device_when_headless(monkeypatch):
     """login_openai_codex() routes to the device flow on a headless host."""
     monkeypatch.setattr(codex, "read_codex_file_credential", lambda: None)
-    monkeypatch.setattr(codex, "_is_headless", lambda: True)
+    monkeypatch.setattr(codex, "is_headless_environment", lambda: True)
 
     called = {"device": False, "server": False}
 
@@ -141,7 +124,7 @@ async def test_login_auto_falls_back_to_device_when_headless(monkeypatch):
 async def test_login_falls_back_when_callback_server_cannot_bind(monkeypatch):
     """A bind failure (OSError) on the loopback server also triggers the device flow."""
     monkeypatch.setattr(codex, "read_codex_file_credential", lambda: None)
-    monkeypatch.setattr(codex, "_is_headless", lambda: False)
+    monkeypatch.setattr(codex, "is_headless_environment", lambda: False)
 
     async def fake_server(*args, **kwargs):
         raise OSError("address already in use")

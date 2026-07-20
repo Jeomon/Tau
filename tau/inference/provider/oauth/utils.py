@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import ssl
+import sys
 import urllib.parse
 from functools import lru_cache
 
@@ -19,7 +21,25 @@ __all__ = [
     "parse_authorization_input",
     "start_oauth_callback_server",
     "await_oauth_code",
+    "is_headless_environment",
 ]
+
+
+def is_headless_environment() -> bool:
+    """Best-effort guess at whether a browser-based OAuth login is unreachable.
+
+    A remote/SSH session or a Linux host with no display server can't open a
+    loopback authorization URL, so a device-code flow is the only usable path.
+    macOS and Windows are assumed to have a GUI unless we're on SSH.
+
+    Shared by the device-code fallbacks in the OpenAI Codex and xAI Grok
+    providers so they agree on what "headless" means.
+    """
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return True
+    if sys.platform.startswith("linux"):
+        return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return False
 
 
 @lru_cache(maxsize=1)

@@ -1,8 +1,10 @@
-"""Tests for tau/inference/provider/oauth/utils.py — parse_authorization_input."""
+"""Tests for tau/inference/provider/oauth/utils.py — parse_authorization_input,
+is_headless_environment."""
 
 from __future__ import annotations
 
-from tau.inference.provider.oauth.utils import parse_authorization_input
+import tau.inference.provider.oauth.utils as utils
+from tau.inference.provider.oauth.utils import is_headless_environment, parse_authorization_input
 
 
 class TestParseAuthorizationInputEmpty:
@@ -87,3 +89,35 @@ class TestParseAuthorizationInputBareCode:
         code, state = parse_authorization_input("  mytoken  ")
         assert code == "mytoken"
         assert state is None
+
+
+class TestIsHeadlessEnvironment:
+    def test_ssh_connection_is_headless(self, monkeypatch):
+        monkeypatch.setenv("SSH_CONNECTION", "1.2.3.4 5 6.7.8.9 22")
+        assert is_headless_environment() is True
+
+    def test_ssh_tty_is_headless(self, monkeypatch):
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setenv("SSH_TTY", "/dev/pts/0")
+        assert is_headless_environment() is True
+
+    def test_linux_without_display_is_headless(self, monkeypatch):
+        monkeypatch.setattr(utils.sys, "platform", "linux")
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.delenv("SSH_TTY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+        assert is_headless_environment() is True
+
+    def test_linux_with_display_is_not_headless(self, monkeypatch):
+        monkeypatch.setattr(utils.sys, "platform", "linux")
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.delenv("SSH_TTY", raising=False)
+        monkeypatch.setenv("DISPLAY", ":0")
+        assert is_headless_environment() is False
+
+    def test_macos_is_not_headless(self, monkeypatch):
+        monkeypatch.setattr(utils.sys, "platform", "darwin")
+        monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.delenv("SSH_TTY", raising=False)
+        assert is_headless_environment() is False
