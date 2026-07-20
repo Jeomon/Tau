@@ -318,19 +318,47 @@ def get_builtins_dir() -> Path:
     return Path(__file__).parent.parent / "builtins"
 
 
+def _resolve_distributed_path(name: str) -> Path:
+    """Resolve a doc asset shipped alongside the code, preferring one that exists.
+
+    Two layouts are possible:
+
+    * source checkout / editable install — the asset sits next to the ``tau``
+      package at the repository root (``<repo>/docs``)
+    * wheel install — the asset would sit inside the package (``tau/docs``)
+
+    The candidate that exists wins. When neither does, the repository-root
+    candidate is returned so callers get a stable, meaningful path to report.
+
+    Existence must be checked explicitly: ``files("tau").joinpath(name)`` happily
+    returns a path for something that was never packaged, so the previous
+    ``try``/``except`` fallback was unreachable and every caller received the
+    in-package path even in a source checkout, where it does not exist.
+    """
+    candidates: list[Path] = []
+
+    try:
+        from importlib.resources import files
+
+        candidates.append(Path(str(files("tau").joinpath(name))))
+    except (TypeError, ModuleNotFoundError, AttributeError):
+        pass
+
+    repo_root_candidate = Path(__file__).parent.parent.parent / name
+    candidates.append(repo_root_candidate)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return repo_root_candidate
+
+
 def get_docs_dir() -> Path:
     """Get the docs directory path.
 
     Works both when tau is installed via pip and when running from source.
     """
-    try:
-        from importlib.resources import files
-
-        docs_ref = files("tau").joinpath("docs")
-        return Path(str(docs_ref))
-    except (TypeError, ModuleNotFoundError, AttributeError):
-        package_root = Path(__file__).parent.parent.parent
-        return package_root / "docs"
+    return _resolve_distributed_path("docs")
 
 
 def get_readme_path() -> Path:
@@ -338,14 +366,7 @@ def get_readme_path() -> Path:
 
     Works both when tau is installed via pip and when running from source.
     """
-    try:
-        from importlib.resources import files
-
-        readme_ref = files("tau").joinpath("README.md")
-        return Path(str(readme_ref))
-    except (TypeError, ModuleNotFoundError, AttributeError):
-        package_root = Path(__file__).parent.parent.parent
-        return package_root / "README.md"
+    return _resolve_distributed_path("README.md")
 
 
 def get_examples_path() -> Path:
@@ -353,11 +374,4 @@ def get_examples_path() -> Path:
 
     Works both when tau is installed via pip and when running from source.
     """
-    try:
-        from importlib.resources import files
-
-        examples_ref = files("tau").joinpath("examples")
-        return Path(str(examples_ref))
-    except (TypeError, ModuleNotFoundError, AttributeError):
-        package_root = Path(__file__).parent.parent.parent
-        return package_root / "examples"
+    return _resolve_distributed_path("examples")

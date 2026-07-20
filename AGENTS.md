@@ -5,7 +5,7 @@
 **Tau** is a Python CLI framework for building interactive agent applications. It provides:
 
 - **Terminal UI**: Multi-line editor, message history, inline pickers, markdown rendering
-- **Multi-provider**: Anthropic, OpenAI, Google Gemini, Mistral, Ollama, Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Z.ai, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code, Hugging Face, Subconscious, and Vertex AI variants
+- **Multi-provider**: 27 built-in text providers — hosted APIs (Anthropic, OpenAI, Gemini, Mistral, Groq, xAI, Bedrock, and more), Vertex variants, and local runtimes (Ollama, llama.cpp, LM Studio, vLLM). See `tau/builtins/providers/text.py`
 - **Session management**: Persistent JSONL-based sessions with branching, forking, resumption
 - **Tool execution**: Built-in tools (terminal, read, write, edit, glob, grep, ls) + extensible custom tools
 - **Plugin system**: Custom tools, slash commands (`/model`, `/theme`, etc.), hooks, themes, skills, prompts
@@ -178,23 +178,22 @@ Users can extend tau through:
 - **Commands**: Slash commands (`/command`)
 - **Hooks**: React to events (session_start, tool_execute, before_compaction, etc.)
 - **Themes**: Custom terminal color schemes (YAML files in `~/.tau/themes/`)
-- **Skills**: Instruction sets the model loads automatically (Markdown in `~/.tau/skills/`)
+- **Skills**: On-demand instruction sets — descriptions sit in the system prompt, and the model reads the full `SKILL.md` when a task matches (Markdown in `~/.tau/skills/`)
 - **Prompts**: Reusable prompt templates with argument substitution (`~/.tau/prompts/`)
 
 See `docs/extensions.md` for implementation details.
 
 ## Inference Providers
 
-Tau supports multiple LLM providers:
+Tau registers 27 built-in text providers, including hosted APIs (Anthropic, OpenAI, Google
+Gemini, Mistral, Groq, xAI, Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Z.ai,
+Fireworks, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code, Hugging Face, Subconscious, Tinker),
+the Vertex variants (`anthropic-vertex`, `google-vertex`, `openai-vertex`), and local
+runtimes (Ollama, llama.cpp, LM Studio, vLLM).
 
-- Anthropic (Claude)
-- OpenAI (GPT)
-- Google Gemini (incl. Vertex AI)
-- Mistral AI
-- Ollama (local)
-- Groq, xAI, AWS Bedrock, OpenRouter, Perplexity, Cerebras, DeepSeek, Z.ai, Fireworks AI, NVIDIA, Kimi/Moonshot, MiniMax, Kilo Code
-
-All providers are abstracted behind `tau.inference.api.text.service.TextLLM`. See `docs/inference-providers.md` for setup.
+`tau/builtins/providers/text.py` is the source of truth — read it rather than this list
+when the exact set matters. All providers are abstracted behind
+`tau.inference.api.text.service.TextLLM`. See `docs/inference-providers.md` for setup.
 
 ## Sessions
 
@@ -214,7 +213,7 @@ Settings files are JSON only (not YAML) — they are both read and written by ta
 
 ## Themes
 
-Themes are YAML files (`.yaml` / `.yml`) stored in `~/.tau/themes/` or `.tau/themes/`. Tau ships two built-in themes, `dark` and `light`, which can be extended or overridden. See `docs/themes.md`.
+Themes are YAML files (`.yaml` / `.yml`) stored in `~/.tau/themes/` or `.tau/themes/`. Tau ships 17 built-in themes (`dark`, `light`, `tokyo-night`, `catppuccin`, `dracula`, `gruvbox`, `nord`, `one-dark`, and others), which can be extended or overridden. See `docs/themes.md`.
 
 ## Tool Sources
 

@@ -182,3 +182,31 @@ class TestGetDocsDirReadmePath:
         from tau.settings.paths import get_examples_path
 
         assert get_examples_path().name == "examples"
+
+
+class TestDistributedPathsResolveToRealFiles:
+    """The previous implementation anchored these at ``files("tau")`` — the import
+    package — while the assets live at the repository root. ``joinpath`` does not
+    raise for a missing target, so the ``except`` fallback was unreachable and every
+    caller got ``<repo>/tau/docs``, which does not exist. The existing tests only
+    asserted ``.name``, so the broken paths passed."""
+
+    def test_docs_dir_exists_in_source_checkout(self):
+        from tau.settings.paths import get_docs_dir
+
+        assert get_docs_dir().is_dir()
+
+    def test_readme_exists_in_source_checkout(self):
+        from tau.settings.paths import get_readme_path
+
+        assert get_readme_path().is_file()
+
+    def test_examples_dir_exists_in_source_checkout(self):
+        from tau.settings.paths import get_examples_path
+
+        assert get_examples_path().is_dir()
+
+    def test_docs_dir_contains_index(self):
+        from tau.settings.paths import get_docs_dir
+
+        assert (get_docs_dir() / "index.md").is_file()

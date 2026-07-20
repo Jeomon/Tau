@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import platform
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from tau.agent.prompt.builder import (
 from tau.agent.prompt.types import PromptOptions
 from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.write import WriteTool
+from tau.settings.paths import get_docs_dir
 
 
 def _opts(cwd: Path, **kwargs) -> PromptOptions:
@@ -326,3 +328,198 @@ class TestRemoteUrlRedaction:
             _redact_remote_url("https://example.com/org/repo.git?token=secret")
             == "https://example.com/org/repo.git?***"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression coverage for prompt-content correctness
+# ---------------------------------------------------------------------------
+
+
+class _DescTool(ReadTool):
+    """A tool with an arbitrary description, for tools-section rendering tests."""
+
+    def __init__(self, name: str, description: str) -> None:
+        super().__init__()
+        self.name = name
+        self.description = description
+
+
+class TestToolsSectionDescriptionHandling:
+    """`description.splitlines()[0]` raised IndexError on an empty description,
+    which failed the entire prompt build — an extension registering a tool
+    without a description took down startup."""
+
+    def test_empty_description_does_not_crash(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, tools=[_DescTool("noop", "")])).build()
+        assert "- **noop**" in prompt
+
+    def test_leading_blank_line_uses_first_real_line(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, tools=[_DescTool("t", "\n\nActual text")])).build()
+        assert "- **t** — Actual text" in prompt
+
+    def test_whitespace_only_description_does_not_crash(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, tools=[_DescTool("ws", "   \n  \n")])).build()
+        assert "- **ws**" in prompt
+
+
+class TestEmptyContextFileFallback:
+    """An empty AGENTS.md must not suppress a populated CLAUDE.md. The empty-content
+    check used to `return None` from inside the candidate loop, ending the search."""
+
+    def test_empty_agents_falls_back_to_claude(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("   \n")
+        (tmp_path / "CLAUDE.md").write_text("claude content")
+
+        result = load_project_context_file(tmp_path)
+
+        assert result is not None
+        content, path = result
+        assert path.name == "CLAUDE.md"
+        assert content == "claude content"
+
+    def test_empty_agents_falls_back_in_multi_dir_loader(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("")
+        (tmp_path / "CLAUDE.md").write_text("claude content")
+
+        results = load_project_context_files(tmp_path)
+
+        assert [p.name for _content, p in results] == ["CLAUDE.md"]
+
+    def test_populated_agents_still_wins(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("agents content")
+        (tmp_path / "CLAUDE.md").write_text("claude content")
+
+        result = load_project_context_file(tmp_path)
+
+        assert result is not None
+        assert result[1].name == "AGENTS.md"
+
+    def test_all_empty_still_returns_none(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("  ")
+        (tmp_path / "CLAUDE.md").write_text("")
+
+        assert load_project_context_file(tmp_path) is None
+
+
+class TestDocsAndSkillsRequireReadTool:
+    """Both sections tell the model to open files on disk. Without a read tool
+    they advertise capabilities it cannot reach."""
+
+    def test_docs_section_omitted_without_read_tool(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, tools=[WriteTool()])).build()
+        assert "Tau documentation" not in prompt
+        assert "Read .md files completely" not in prompt
+
+    def test_docs_section_present_with_read_tool(self, tmp_path):
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+        assert "Tau documentation" in prompt
+
+    def test_docs_section_omitted_when_docs_absent(self, tmp_path, monkeypatch):
+        """Wheel installs ship no docs/ — the section must not name unreachable paths."""
+        monkeypatch.setattr(
+            "tau.agent.prompt.builder.get_docs_dir", lambda: tmp_path / "definitely-absent"
+        )
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+        assert "Tau documentation" not in prompt
+        assert "definitely-absent" not in prompt
+
+
+class TestDocsSectionCuratedTopics:
+    """The doc list was hardcoded and named 17 of 30 real files. It is now driven by
+    ``agentTopics`` in docs.json — a deliberately narrow, extend/embed-oriented set with
+    topic labels the model can route on, mirroring how pi names 10 of its 29 docs."""
+
+    def _docs(self, tmp_path, monkeypatch, *, index: str | None, names: list[str]):
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        for name in names:
+            (docs / name).write_text("x")
+        if index is not None:
+            (docs / "docs.json").write_text(index)
+        monkeypatch.setattr("tau.agent.prompt.builder.get_docs_dir", lambda: docs)
+        return docs
+
+    def _index(self, items, topics):
+        return json.dumps(
+            {
+                "navigation": [{"title": "Section", "items": items}],
+                "agentTopics": topics,
+            }
+        )
+
+    def test_lists_curated_topics_with_titles(self, tmp_path, monkeypatch):
+        index = self._index([{"title": "Terminal UI", "path": "tui.md"}], ["tui.md"])
+        self._docs(tmp_path, monkeypatch, index=index, names=["tui.md"])
+
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+
+        assert "Terminal UI (docs/tui.md)" in prompt
+
+    def test_omits_docs_not_in_agent_topics(self, tmp_path, monkeypatch):
+        """A doc existing on disk and in the nav is still not named unless opted in."""
+        index = self._index(
+            [
+                {"title": "Terminal UI", "path": "tui.md"},
+                {"title": "Usage Guide", "path": "usage.md"},
+            ],
+            ["tui.md"],
+        )
+        self._docs(tmp_path, monkeypatch, index=index, names=["tui.md", "usage.md"])
+
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+
+        assert "tui.md" in prompt
+        assert "usage.md" not in prompt
+
+    def test_points_elsewhere_for_uncurated_topics(self, tmp_path, monkeypatch):
+        """Curation must not imply the other docs are unreachable."""
+        index = self._index([{"title": "Terminal UI", "path": "tui.md"}], ["tui.md"])
+        self._docs(tmp_path, monkeypatch, index=index, names=["tui.md"])
+
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+
+        assert "For any other Tau topic" in prompt
+
+    def test_skips_topic_whose_file_is_missing(self, tmp_path, monkeypatch):
+        index = self._index(
+            [{"title": "Ghost", "path": "ghost.md"}, {"title": "Real", "path": "real.md"}],
+            ["ghost.md", "real.md"],
+        )
+        self._docs(tmp_path, monkeypatch, index=index, names=["real.md"])
+
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+
+        assert "Real (docs/real.md)" in prompt
+        assert "ghost.md" not in prompt
+
+    def test_section_dropped_when_index_malformed(self, tmp_path, monkeypatch):
+        self._docs(tmp_path, monkeypatch, index="{not json", names=["alpha.md"])
+
+        prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
+
+        assert "Tau documentation" not in prompt
+
+    def test_real_agent_topics_are_valid(self):
+        """Every curated topic must exist on disk and in the navigation."""
+        docs = get_docs_dir()
+        raw = json.loads((docs / "docs.json").read_text())
+        nav = {item["path"] for s in raw["navigation"] for item in s["items"]}
+        topics = raw["agentTopics"]
+
+        assert topics, "agentTopics must not be empty"
+        assert set(topics) <= nav
+        for path in topics:
+            assert (docs / path).is_file(), path
+
+    def test_real_docs_json_covers_every_shipped_doc(self):
+        """Guards the AGENTS.md rule that a new doc is added to docs.json."""
+        docs = get_docs_dir()
+        listed = {
+            item["path"]
+            for section in json.loads((docs / "docs.json").read_text())["navigation"]
+            for item in section["items"]
+        }
+        on_disk = {p.name for p in docs.iterdir() if p.suffix == ".md"}
+
+        assert on_disk - listed == set()
+        assert listed - on_disk == set()

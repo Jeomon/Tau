@@ -94,6 +94,10 @@
           "path": "prompts.md"
         },
         {
+          "title": "Packages",
+          "path": "packages.md"
+        },
+        {
           "title": "Keybindings",
           "path": "keybindings.md"
         },
@@ -115,6 +119,10 @@
           "path": "python-api.md"
         },
         {
+          "title": "RPC Mode",
+          "path": "rpc.md"
+        },
+        {
           "title": "CLI Reference",
           "path": "cli-reference.md"
         }
@@ -130,9 +138,26 @@
         {
           "title": "Project Structure",
           "path": "project-structure.md"
+        },
+        {
+          "title": "Security",
+          "path": "security.md"
         }
       ]
     }
   ],
-  "redirects": []
+  "redirects": [],
+  "agentTopics": [
+    "extensions.md",
+    "extension-settings.md",
+    "creating-tools.md",
+    "skills.md",
+    "prompts.md",
+    "themes.md",
+    "keybindings.md",
+    "packages.md",
+    "tui.md",
+    "python-api.md",
+    "rpc.md"
+  ]
 }

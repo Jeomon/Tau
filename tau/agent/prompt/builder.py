@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -47,9 +48,12 @@ def load_project_context_file(cwd: Path) -> tuple[str, Path] | None:
     for path in _context_file_paths(cwd):
         try:
             content = path.read_text(encoding="utf-8").strip()
-            return (content, path) if content else None
         except OSError:
-            pass
+            continue
+        # An empty AGENTS.md must not suppress a populated CLAUDE.md: keep
+        # looking rather than returning None from inside the loop.
+        if content:
+            return (content, path)
     return None
 
 
@@ -91,10 +95,14 @@ def load_project_context_files(
             seen_files.add(identity)
             try:
                 content = path.read_text(encoding="utf-8").strip()
-                return (content, path) if content else None
             except OSError as exc:
                 if on_error is not None:
                     on_error(path, exc)
+                continue
+            # An empty AGENTS.md must not suppress a populated CLAUDE.md in the
+            # same directory: keep looking rather than returning None here.
+            if content:
+                return (content, path)
         return None
 
     resolved = cwd.resolve()
@@ -170,7 +178,7 @@ _GENERAL_GUIDELINES = [
         "active request or add to it — judge from intent. If it replaces, drop the "
         "prior work; if it adds, address both; if it's just a status question, answer "
         "it and keep going."
-    )
+    ),
 ]
 
 _PRECEDENCE_GUIDELINES = """\
@@ -186,6 +194,39 @@ _PRECEDENCE_GUIDELINES = """\
 
 _GIT_STATUS_MAX_LINES = 30
 _GIT_LOG_COUNT = 5
+
+
+def _docs_topics(docs_dir: Path) -> list[tuple[str, str]]:
+    """Return the curated ``[(title, filename), ...]`` the prompt routes the model to.
+
+    Driven by ``agentTopics`` in ``docs/docs.json``: an explicit allowlist of the docs
+    worth naming in every request, with titles read from the navigation so each entry
+    reads as a subject ("Themes (themes.md)") rather than a filename the model has to
+    guess at.
+
+    The set is deliberately narrow — extending and embedding Tau, not using it. Usage,
+    settings, sessions, and installation are reachable via the docs directory when they
+    are genuinely needed, and naming all 30 files spent tokens on routing the model
+    rarely acts on. pi curates the same way, naming 10 of its 29 docs.
+
+    Adding a doc does not implicitly enlarge the prompt: opting in is an explicit edit
+    to ``agentTopics``. Entries missing from disk are skipped. Returns ``[]`` when the
+    index is absent or unreadable, which drops the section entirely.
+    """
+    try:
+        raw = json.loads((docs_dir / "docs.json").read_text(encoding="utf-8"))
+        titles = {
+            str(item["path"]): str(item["title"])
+            for section in raw["navigation"]
+            for item in section["items"]
+        }
+        return [
+            (titles.get(path, path.removesuffix(".md")), path)
+            for path in (str(p) for p in raw.get("agentTopics", []))
+            if (docs_dir / path).is_file()
+        ]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
 
 
 def _detect_os() -> str:
@@ -394,10 +435,21 @@ class PromptBuilder:
         lines: list[str] = []
         guidelines: list[str] = []
         for t in sorted(tools, key=lambda t: t.name):
-            desc = t.description.splitlines()[0].strip().rstrip(".")
+            # First non-blank line: a tool may have an empty description (which
+            # used to raise IndexError here and take down the whole prompt build)
+            # or lead with a blank line, which rendered an empty bullet.
+            summary = next(
+                (line.strip() for line in (t.description or "").splitlines() if line.strip()),
+                "",
+            )
+            desc = summary.rstrip(".")
             snippet = getattr(t, "prompt_snippet", None)
             if snippet:
-                desc = f"{desc}. {snippet.strip()}"
+                desc = f"{desc}. {snippet.strip()}" if desc else snippet.strip()
+            if not desc:
+                # Nothing useful to say about this tool; the name alone is the entry.
+                lines.append(f"- **{t.name}**")
+                continue
             lines.append(f"- **{t.name}** — {desc}")
             guideline = getattr(t, "prompt_guidelines", None)
             if guideline:
@@ -444,35 +496,71 @@ class PromptBuilder:
             "<project_context>\n\n" + blocks + "</project_context>"
         )
 
+    def _has_read_tool(self) -> bool:
+        """Whether a tool named ``read`` is available this run.
+
+        Sections that tell the model to open files on disk are pointless — and
+        actively misleading — without it (e.g. ``--tools terminal``).
+        """
+        return any(tool.name == "read" for tool in self._opts.tools)
+
     def _docs_section(self) -> str:
-        readme = get_readme_path()
+        """Point the model at Tau's own documentation, when it is actually reachable.
+
+        Emitted only when the docs directory exists on disk *and* a read tool is
+        available. Wheel installs do not ship ``docs/``/``examples/``, and without
+        this guard every session paid for a list of paths that could not be opened.
+        """
+        if not self._has_read_tool():
+            return ""
+
         docs = get_docs_dir()
+        if not docs.is_dir():
+            return ""
+
+        topics = _docs_topics(docs)
+        if not topics:
+            return ""
+
+        readme = get_readme_path()
         examples = get_examples_path()
-        return (
-            "\n\nTau documentation (read only when the user asks about Tau itself, its"
-            " settings, extensions, themes, skills, tools, sessions, or keybindings):\n"
-            f"- README: {readme}\n"
-            f"- Docs directory: {docs}\n"
-            f"- Examples directory: {examples} (extensions, custom tools, themes, skills)\n"
-            "- When asked about: quickstart (docs/quickstart.md),"
-            " installation (docs/installation.md),"
-            " usage (docs/usage.md), CLI flags (docs/cli-reference.md),"
-            " architecture (docs/architecture.md),"
-            " settings (docs/settings.md), tools (docs/tools.md),"
-            " extensions (docs/extensions.md), themes (docs/themes.md),"
-            " skills (docs/skills.md), prompts (docs/prompts.md),"
-            " keybindings (docs/keybindings.md),"
-            " sessions (docs/sessions.md), messages (docs/messages.md),"
-            " Python API (docs/python-api.md),"
-            " inference providers (docs/inference-providers.md),"
-            " auth (docs/auth.md)\n"
-            "- Resolve all doc paths under the Docs directory above,"
-            " not the current working directory\n"
-            "- Resolve all example paths under the Examples directory above\n"
-            "- Read .md files completely and follow cross-references before answering"
+
+        lines = [
+            "\n\nTau documentation (read only when the user asks about Tau itself — how to"
+            " extend it, embed it, or configure its resources):",
+        ]
+        if readme.is_file():
+            lines.append(f"- README: {readme}")
+        lines.append(f"- Docs directory: {docs}")
+        if examples.is_dir():
+            lines.append(f"- Examples directory: {examples} (extensions, custom tools, skills)")
+        lines.append(
+            "- When asked about: " + ", ".join(f"{title} (docs/{name})" for title, name in topics)
         )
+        lines.append(
+            "- For any other Tau topic — usage, settings, sessions, installation, CLI flags,"
+            " providers, architecture — list the docs directory above and read the relevant file"
+        )
+        lines.append(
+            "- Resolve all doc paths under the Docs directory above,"
+            " not the current working directory"
+        )
+        if examples.is_dir():
+            lines.append("- Resolve all example paths under the Examples directory above")
+        lines.append("- Read .md files completely and follow cross-references before answering")
+        return "\n".join(lines)
 
     def _skills_section(self) -> str:
+        """Advertise available skills, which the model loads by reading SKILL.md.
+
+        Skills are progressive disclosure: only the descriptions live in the prompt
+        and the full instructions are fetched on demand with the read tool. Without
+        that tool the listing advertises capabilities the model cannot reach, so it
+        is omitted entirely.
+        """
+        if not self._has_read_tool():
+            return ""
+
         from tau.skills.registry import skill_registry
 
         block = skill_registry.format_for_system_prompt(self._opts.skills)
