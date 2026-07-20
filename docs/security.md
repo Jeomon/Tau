@@ -52,13 +52,19 @@ Non-interactive modes (`--mode print`, `--mode json`, `--mode rpc`) never show t
 
 ## What Trusting a Project Permits
 
-Trust is consumed at three points, all verified in the runtime:
+Trust is consumed at these points, all verified in the runtime:
 
 | Granted by trust | Mechanism |
 |------------------|-----------|
 | Project settings are merged | `.tau/settings.json` is only exposed when the project is trusted; otherwise project settings are empty |
 | Project context files reach the system prompt | `AGENTS.md` / `CLAUDE.md` discovery is enabled only when trusted |
 | The git snapshot reaches the system prompt | The `git status` section is skipped when the project is untrusted |
+| Project skills, prompts, and themes load | `.tau/skills/`, `.tau/prompts/`, and `.tau/themes/` load only when trusted. Skills and prompts are model-executable instructions, so an untrusted project contributes none |
+| Project extensions load | `.tau/extensions/` is included in the resource snapshot only when trusted. Extensions are arbitrary Python executed in-process |
+
+Builtin and global resources are unaffected: an untrusted project still gets the bundled skills, your `~/.tau/skills/`, and every globally configured extension. Only the project tier is withheld.
+
+Granting trust mid-session takes effect immediately — accepting the trust prompt reloads settings, resources, and the system prompt without a restart.
 
 Because project settings are the carrier for several other things, trusting a project transitively enables everything they configure:
 
@@ -70,14 +76,7 @@ Extensions can participate in the decision. `await ctx.is_project_trusted()` con
 
 ## What Trust Does Not Cover
 
-Trust gates the inputs listed above and nothing else. In the current implementation the following are loaded regardless of the trust decision:
-
-- `.tau/skills/`, `.tau/prompts/`, and `.tau/themes/` in the project directory — the skill, prompt, and theme registries reload from the working directory unconditionally
-- the project `.tau/extensions/` directory, which is included in the resource snapshot whenever extensions are enabled globally
-
-In interactive mode this rarely matters, because the presence of a `.tau/` directory is itself a trust input and declining exits the process. It does matter for non-interactive runs started with `--no-approve` against an untrusted checkout.
-
-Trust also does not constrain the model or its tools. Once a session is running, built-in tools read files, write files, and run shell commands with the full permissions of the Tau process. Prompt injection from repository files, comments, documentation, dependency source, or build output is expected local-agent risk and cannot be reliably prevented.
+Trust gates which project-local files Tau loads. It does **not** constrain the model or its tools. Once a session is running, built-in tools read files, write files, and run shell commands with the full permissions of the Tau process. Prompt injection from repository files, comments, documentation, dependency source, or build output is expected local-agent risk and cannot be reliably prevented.
 
 ## The Trust File
 

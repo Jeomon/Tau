@@ -216,6 +216,9 @@ class DefaultResourceLoader:
                     )
 
         extensions_enabled = settings.is_extensions_enabled()
+        # Project extensions are arbitrary Python executed in-process, so they load
+        # only from a trusted project. Global extensions are unaffected.
+        project_extensions_enabled = extensions_enabled and settings.is_project_trusted()
         context_files: tuple[ContextFile, ...] = ()
         if context.load_context_files:
             from tau.agent.prompt.builder import load_project_context_files
@@ -280,7 +283,7 @@ class DefaultResourceLoader:
 
         return ResourceSnapshot(
             builtins_extension_dir=get_builtins_dir() / "extensions",
-            project_extension_dir=get_extensions_dir(cwd) if extensions_enabled else None,
+            project_extension_dir=get_extensions_dir(cwd) if project_extensions_enabled else None,
             global_extension_dir=get_extensions_dir() if extensions_enabled else None,
             extension_entries=discovered_extensions,
             extension_sources=extension_sources if extensions_enabled else {},
@@ -470,20 +473,32 @@ class DefaultResourceLoader:
         *,
         context: ResourceContext,
     ) -> None:
-        """Reload skills, prompts, and themes from the same snapshot."""
+        """Reload skills, prompts, and themes from the same snapshot.
+
+        Project-local resources load only when the project is trusted. Skills and
+        prompts are model-executable instructions, so an untrusted project must not
+        contribute them. Passing ``cwd=None`` makes each registry skip its project
+        tier while still loading builtins, global, and ``extra_paths``.
+
+        Trust is read from the settings manager rather than
+        ``RuntimeContext.project_trusted``, which is fixed at construction and stays
+        stale after an in-session grant.
+        """
         from tau.prompts.registry import prompt_registry
         from tau.skills.registry import skill_registry
         from tau.themes.registry import theme_registry
 
+        project_cwd = context.cwd if context.settings.is_project_trusted() else None
+
         skill_registry.reload(
-            cwd=context.cwd,
+            cwd=project_cwd,
             extra_paths=[str(path) for path in snapshot.skill_paths],
         )
         prompt_registry.reload(
-            cwd=context.cwd,
+            cwd=project_cwd,
             extra_paths=[str(path) for path in snapshot.prompt_paths],
         )
         theme_registry.reload_external(
-            cwd=context.cwd,
+            cwd=project_cwd,
             extra_paths=list(snapshot.theme_paths),
         )
