@@ -11,6 +11,7 @@ Tau is a local agent. It runs as the user account that starts it and can read, w
 - [The Trust File](#the-trust-file)
 - [Default Trust Policy](#default-trust-policy)
 - [Overriding Trust for One Run](#overriding-trust-for-one-run)
+- [Trust in Subcommands](#trust-in-subcommands)
 - [No Built-in Sandbox](#no-built-in-sandbox)
 - [Telemetry](#telemetry)
 - [Reporting Security Issues](#reporting-security-issues)
@@ -142,6 +143,21 @@ tau --mode rpc --approve           # Non-interactive modes never prompt; be expl
 Neither flag writes to `~/.tau/trust.json`; both apply only to the process they start. If both are passed, `--approve` wins.
 
 Related flags: `--no-context-files` / `-nc` disables `AGENTS.md` and `CLAUDE.md` loading independently of trust, and `--system` / `-s` replaces the generated system prompt entirely. See [CLI Reference](cli-reference.md).
+
+## Trust in Subcommands
+
+`tau doctor`, `tau list`, `tau install`, `tau remove`, and `tau update` also honour project trust. None of them can prompt, so they resolve the decision the same way non-interactive modes do: a directory with no trust inputs needs none, otherwise the `project_trust` policy decides, with `"ask"` falling back to the stored decision and to untrusted when none exists.
+
+An untrusted project contributes no `.tau/settings.json`, which means its package entries are invisible to these commands:
+
+| Command | Behaviour in an untrusted project |
+|---------|-----------------------------------|
+| `tau update --all`, `tau update NAME --local` | Project packages are not in the update set |
+| `tau install --local`, `tau remove --local` | Refused with an error; run tau in the directory and approve first |
+| `tau list --local`, `tau list --all` | Project packages are omitted, with a note saying so |
+| `tau doctor` | Project settings and project package entries are not reported |
+
+This matters because a package entry carries its own `index_url` and `extra_index_urls`, which are passed to `pip install` when the package is updated. Honouring those from a repository you have not trusted would let it choose the index that code is fetched from. Global packages are unaffected.
 
 ## No Built-in Sandbox
 
