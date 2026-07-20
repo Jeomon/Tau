@@ -342,6 +342,8 @@ class OpenAIResponsesAPI(BaseAPI):
         instructions, input_items = _messages_to_input(
             context.messages, supports_thinking=bool(model.thinking)
         )
+        if context.system_prompt:
+            instructions = context.system_prompt
         params = self._build_params(model, instructions, input_items, tools=context.tools or None)
         text_format = _text_format(context.response_format)
         if text_format is not None:

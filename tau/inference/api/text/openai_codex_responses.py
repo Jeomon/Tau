@@ -687,6 +687,8 @@ class OpenAICodexResponsesAPI(BaseAPI):
         token = self.options.api_key or ""
         account_id = _extract_account_id(token)
         instructions, input_items = _messages_to_input(context.messages)
+        if context.system_prompt:
+            instructions = context.system_prompt
         body = _build_body(
             model, instructions, input_items, self.options, tools=context.tools or None
         )

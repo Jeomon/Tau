@@ -138,42 +138,33 @@ def _billing_header_value(messages: list[dict[str, Any]], entrypoint: str) -> st
 def _build_system_blocks(
     system_text: str | None, messages: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split the system prompt for OAuth requests.
+    """Assemble the system[] array for OAuth requests.
 
-    Anthropic's API validates the system[] array for OAuth-authenticated
-    requests: only the billing header and the Claude Code identity string may
-    live there. Any other system content triggers a 400 ("out of extra
-    usage"). Everything else is relocated to the front of the first user
-    message, which is functionally equivalent for the model.
+    system[] leads with the two blocks Claude Code OAuth requires — the billing
+    header and the Claude Code identity — and then carries Tau's own system prompt
+    as a further block. Keeping Tau's prompt in system[] (rather than relocating it
+    into the first user message) is what lets the model treat that prompt, including
+    the pointer to Tau's docs, as its own. The billing header is retained; only the
+    identity leads it, matching the pattern the opencode-claude-auth plugin uses to
+    inject a custom system prompt under Claude Code OAuth.
 
-    Returns (system_blocks, patched_messages).
+    The ephemeral cache breakpoint sits on the last block so the whole system prefix
+    is cached; the billing header is stable within a session (it hashes the first
+    user message), so the prefix stays cacheable across turns.
+
+    Returns (system_blocks, messages). Messages are returned unchanged — nothing is
+    relocated.
     """
     entrypoint = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     system_blocks: list[dict[str, Any]] = [
         {"type": "text", "text": _billing_header_value(messages, entrypoint)},
-        {"type": "text", "text": _SYSTEM_IDENTITY, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": _SYSTEM_IDENTITY},
     ]
+    if system_text:
+        system_blocks.append({"type": "text", "text": system_text})
 
-    if not system_text:
-        return system_blocks, messages
-
-    patched = list(messages)
-    prefix = system_text
-    for i, message in enumerate(patched):
-        if message.get("role") != "user":
-            continue
-        content = message.get("content")
-        if isinstance(content, str):
-            patched[i] = {**message, "content": f"{prefix}\n\n{content}"}
-        elif isinstance(content, list):
-            patched[i] = {
-                **message,
-                "content": [{"type": "text", "text": prefix}, *content],
-            }
-        else:
-            patched[i] = {**message, "content": prefix}
-        break
-    return system_blocks, patched
+    system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return system_blocks, messages
 
 
 class AnthropicClaudeCodeAPI(BaseAPI):

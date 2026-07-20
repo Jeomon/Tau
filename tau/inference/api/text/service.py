@@ -13,7 +13,7 @@ from tau.inference.model.registry import ModelRegistry
 from tau.inference.provider.registry import ProviderRegistry, TextProviderRegistry
 from tau.inference.provider.types import OAuthProvider
 from tau.inference.types import LLMContext, LLMEvent, LLMOptions, ThinkingLevel
-from tau.message.types import LLMMessage, SystemMessage
+from tau.message.types import LLMMessage
 
 _log = logging.getLogger(__name__)
 
@@ -262,18 +262,20 @@ class TextLLM:
         return merged
 
     def _resolve_messages(self, context: LLMContext) -> list[LLMMessage]:
-        """Resolve messages for the LLM call, prepending system prompt if needed.
+        """Resolve the message list for the LLM call.
+
+        The system prompt is carried on the context (``context.system_prompt``)
+        and forwarded to the API adapter as a first-class field, matching how
+        every provider injects it into its native system slot. It is no longer
+        folded into the message list here, so messages pass through unchanged.
 
         Args:
             context: The LLMContext with messages and optional system prompt.
 
         Returns:
-            A list of LLMMessages with system message injected if needed.
+            The context's message list, unchanged.
         """
-        messages = context.messages
-        if context.system_prompt and (not messages or not isinstance(messages[0], SystemMessage)):
-            messages = [SystemMessage.text(context.system_prompt)] + messages
-        return messages
+        return context.messages
 
     async def stream(self, context: LLMContext) -> AsyncGenerator[LLMEvent, None]:
         """Stream LLM events from the configured provider API.
@@ -316,6 +318,7 @@ class TextLLM:
         messages = self._resolve_messages(context)
         api_context = LLMContext(
             messages=messages,
+            system_prompt=context.system_prompt,
             tools=context.tools,
             response_format=context.response_format,
             ephemeral_message_count=context.ephemeral_message_count,
@@ -461,6 +464,7 @@ class TextLLM:
         messages = self._resolve_messages(context)
         api_context = LLMContext(
             messages=messages,
+            system_prompt=context.system_prompt,
             tools=context.tools,
             response_format=context.response_format,
             ephemeral_message_count=context.ephemeral_message_count,
