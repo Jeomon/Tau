@@ -7,6 +7,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
+from tau.tui.utils import rule
 from tau.tui.widgets.list import List, ListItem, ListState
 from tau.tui.widgets.tabs import Tabs
 from tau.utils.format import format_number
@@ -245,7 +246,7 @@ class ModelSelector:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text("─" * area.width, self._border)
+            text(rule(area.width), self._border)
 
         sec = self._section
         if sec is None:

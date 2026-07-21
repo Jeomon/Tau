@@ -861,3 +861,47 @@ class TestTabCycling:
         self._tab(seq)
 
         assert 1 not in seq._answers
+
+
+class TestDividers:
+    """Question / answers / key hints are separated by full-width rules,
+    matching the title-divider-list-divider-hint layout of the pickers."""
+
+    def _rows(self, width=72, **kwargs):
+        c, _ = _component(**kwargs)
+        buf = Buffer.empty(Rect(0, 0, width, 26))
+        rows = c.render_cells(Rect(0, 0, width, 26), buf)
+        return [
+            "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)
+        ]
+
+    def _rule_rows(self, rows, width=72):
+        return [i for i, r in enumerate(rows) if r == "─" * width]
+
+    def test_one_rule_under_the_question_and_one_above_the_hints(self):
+        rows = self._rows()
+        rules = self._rule_rows(rows)
+
+        assert len(rules) == 2
+        question_row = next(i for i, r in enumerate(rows) if "Pick one" in r)
+        hint_row = next(i for i, r in enumerate(rows) if "Esc cancel" in r)
+        assert rules[0] == question_row + 1
+        assert rules[1] == hint_row - 1
+
+    def test_options_sit_between_the_rules(self):
+        rows = self._rows()
+        first, second = self._rule_rows(rows)
+        between = "\n".join(rows[first + 1 : second])
+
+        assert "Alpha" in between and "Beta" in between
+
+    def test_rules_span_the_full_width(self):
+        rows = self._rows(width=50)
+        assert self._rule_rows(rows, width=50)
+
+    def test_the_editor_gets_the_same_treatment(self):
+        rows = self._rows(options=[], multiline=True)
+        rules = self._rule_rows(rows)
+
+        assert len(rules) == 2
+        assert "Enter to submit" in rows[rules[1] + 1]

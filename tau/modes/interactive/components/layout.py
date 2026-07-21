@@ -25,8 +25,9 @@ from tau.tui.input import (
     PasteEvent,
     get_keybindings,
 )  # MouseEvent kept for type narrowing
-from tau.tui.style import Style, apply_style
+from tau.tui.style import Style
 from tau.tui.theme import LayoutTheme
+from tau.tui.utils import rule
 
 if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
@@ -379,7 +380,7 @@ class Layout(Component):
         else:
             _divider_style = self._theme.divider
 
-        divider_line = apply_style(_divider_style, "─" * area.width)
+        divider_line = rule(area.width, _divider_style)
         write_lines([divider_line])
 
         if any_modal:

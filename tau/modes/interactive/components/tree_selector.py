@@ -9,7 +9,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import fuzzy_filter
+from tau.tui.utils import fuzzy_filter, rule
 
 T = TypeVar("T")
 
@@ -516,7 +516,7 @@ class TreeSelectList[T]:
             )
         else:
             write([Span("  Type to search:", self._dim_style)])
-        write([Span("─" * area.width, self._dim_style)])
+        write([Span(rule(area.width), self._dim_style)])
         write([])
 
         # Label-editing sub-mode: replace tree items with input prompt

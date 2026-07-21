@@ -12,7 +12,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import is_window_focused
+from tau.tui.utils import is_window_focused, rule
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -86,7 +86,7 @@ class ListSelector:
         if self._subtitle:
             write([Span("  "), Span(self._subtitle, t.muted)])
 
-        write([Span("─" * area.width, t.border)])
+        write([Span(rule(area.width), t.border)])
 
         if not self._items:
             write([Span("  "), Span("(no items)", t.muted)])
@@ -107,7 +107,7 @@ class ListSelector:
                     spans.extend([Span(" "), Span("✓", t.success)])
                 write(spans)
 
-        write([Span("─" * area.width, t.border)])
+        write([Span(rule(area.width), t.border)])
         write([Span("  "), Span("↑/↓ move  ·  enter select  ·  esc cancel", t.muted)])
 
         return row - area.y
@@ -356,7 +356,7 @@ class SettingsSelector:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text("─" * area.width, t.border)
+            text(rule(area.width), t.border)
 
         # ── Tab bar ────────────────────────────────────────────────────────────
         if self._tabs:

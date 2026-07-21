@@ -13,6 +13,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
+from tau.tui.utils import rule
 from tau.utils.format import human_size
 
 if TYPE_CHECKING:
@@ -299,7 +300,7 @@ class ResumeSelector:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text("─" * area.width, t.border)
+            text(rule(area.width), t.border)
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
         write(

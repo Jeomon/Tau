@@ -7,6 +7,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from tau.tui.style import Style, apply_style
+from tau.tui.widgets.symbols import PLAIN, BorderSet
+
 # ── Regex to strip all ANSI escape sequences ─────────────────────────────────
 _ANSI_RE = re.compile(
     r"\x1b(?:"
@@ -258,6 +261,29 @@ def pad(text: str, width: int, char: str = " ", align: str = "left") -> str:
         right = deficit - left
         return char * left + text + char * right
     return text + char * deficit
+
+
+# ── Rules ─────────────────────────────────────────────────────────────────────
+
+
+def rule(width: int, style: Style | None = None, border_set: BorderSet = PLAIN) -> str:
+    """A horizontal rule ``width`` columns wide.
+
+    Every selector and picker draws these to separate a title, its content and
+    its key hints. They each hardcoded ``"─" * area.width``; taking the glyph
+    from a ``BorderSet`` instead is what lets a theme swap in ``DOUBLE`` or
+    ``THICK`` without editing each call site.
+
+    Pass ``style`` to get the rule pre-styled as an ANSI string; omit it when
+    the caller carries the style itself (a ``Span``, or a ``text(...)`` helper
+    that takes the style separately).
+
+    Ratatui has no divider widget — its equivalent is a ``Block`` with only a
+    top border. That form needs a ``Rect`` to render into, which most of these
+    call sites do not have; they build styled strings.
+    """
+    line = border_set.horizontal * max(0, width)
+    return apply_style(style, line) if style is not None else line
 
 
 # ── Wrapping ──────────────────────────────────────────────────────────────────

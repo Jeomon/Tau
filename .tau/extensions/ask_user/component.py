@@ -14,6 +14,7 @@ from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import RESET, Style
 from tau.tui.text import Line, Span
 from tau.tui.theme import LayoutTheme
+from tau.tui.utils import rule
 from tau.tui.widgets.block import Block, Borders, Padding
 from tau.tui.widgets.tabs import Tabs
 
@@ -160,6 +161,10 @@ class _AskUserComponent(Component):
         else:
             self._freeform_value = seed
 
+    def _divider(self, width: int) -> str:
+        """A full-width rule, matching the pickers' title/list/hint layout."""
+        return rule(max(width, 1), self._theme.border)
+
     # ── Render ────────────────────────────────────────────────────────────
 
     def _has_preview_capable_options(self) -> bool:
@@ -181,7 +186,7 @@ class _AskUserComponent(Component):
                 header.append(f"  {t.muted.sgr()}{line}{RESET}")
             header.append("")
         header.append(f"  {t.accent.sgr()}{self._question}{RESET}")
-        header.append("")
+        header.append(self._divider(area.width))
 
         header_rows = _write(header, area.x, area.y, area.width)
         body_y = area.y + header_rows
@@ -192,6 +197,10 @@ class _AskUserComponent(Component):
 
         left_width = min(46, max(30, area.width // 3)) if show_preview else area.width
         content_lines, footer_lines = self._build_body_lines(left_width)
+
+        # A rule separates the answer area from the key hints, mirroring the one
+        # under the question.
+        footer_lines = [self._divider(area.width), *footer_lines]
 
         if not show_preview:
             body_rows = _write(content_lines, area.x, body_y, area.width)
@@ -264,17 +273,14 @@ class _AskUserComponent(Component):
             inner.append("")
         back = "Esc to cancel" if not self._options else "Esc to go back"
         commit = "Enter to save" if self._saves_freeform() else "Enter to submit"
-        footer = [
-            "",
-            f"  {muted}{commit}  ·  \\+Enter or Shift+Enter for newline  ·  {back}{RESET}",
-        ]
+        footer = [f"  {muted}{commit}  ·  \\+Enter or Shift+Enter for newline  ·  {back}{RESET}"]
         return inner, footer
 
     def _build_singleline_body(self) -> tuple[list[str], list[str]]:
         back = "Esc to cancel" if not self._options else "Esc to go back"
         commit = "Enter to save" if self._saves_freeform() else "Enter to submit"
         content = [f"  {self._freeform_value}█"]
-        footer = ["", f"  {self._theme.muted.sgr()}{commit}  ·  {back}{RESET}"]
+        footer = [f"  {self._theme.muted.sgr()}{commit}  ·  {back}{RESET}"]
         return content, footer
 
     # Left margin + hanging indent for wrapped description lines beneath a
@@ -353,7 +359,7 @@ class _AskUserComponent(Component):
             hints.insert(1, "Space toggle")
         if self._saves_freeform():
             hints.insert(-1, "Space adds text")
-        footer = ["", f"  {muted}" + "  ·  ".join(hints) + RESET]
+        footer = [f"  {muted}" + "  ·  ".join(hints) + RESET]
         return inner, footer
 
     def _render_preview(self, preview: str | None, area: Rect, buf: Buffer) -> None:

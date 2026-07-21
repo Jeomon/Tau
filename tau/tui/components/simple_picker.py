@@ -89,7 +89,7 @@ def render_picker_cells(
     ``ListState`` instance each call) so scroll position carries over.
     """
     from tau.tui.ansi_bridge import parse_ansi_into
-    from tau.tui.utils import visible_width, wrap
+    from tau.tui.utils import rule, visible_width, wrap
 
     y = area.y
 
@@ -106,7 +106,7 @@ def render_picker_cells(
     for h in header:
         write(h)
 
-    divider = apply_style(border_style, "─" * area.width)
+    divider = rule(area.width, border_style)
     write(divider)
 
     if not rows:

@@ -13,6 +13,7 @@ from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
+from tau.tui.utils import rule
 from tau.tui.widgets.list import List, ListItem, ListState
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ class ConfigSelector(Component):
                 y += 1
 
         write("  " + apply_style(t.emphasis, "Extensions"))
-        divider = apply_style(t.border, "─" * area.width)
+        divider = rule(area.width, t.border)
         write(divider)
 
         if self._search:
