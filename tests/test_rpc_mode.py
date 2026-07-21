@@ -4,11 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import enum
 import json
 import sys
 from io import StringIO
+from pathlib import Path
 
-from tau.modes.rpc.mode import RpcExtensionUIContext, _serialize_event, _write
+import pytest
+
+import tau.modes.rpc.mode as mode
+from tau.modes.rpc.mode import (
+    RpcExtensionUIContext,
+    _extension_error_payload,
+    _json_default,
+    _serialize_event,
+    _start_prompt,
+    _write,
+)
 
 
 def capture_write(fn, *args, **kwargs):
@@ -83,6 +95,208 @@ class TestSerializeEvent:
     def test_plain_string_is_not_dataclass(self):
         result = _serialize_event("hello")
         assert result == {"type": "str"}
+
+
+class TestSerializeEventRobustness:
+    def test_non_dataclass_keeps_payload(self):
+        class Evt:
+            def __init__(self):
+                self.type = "custom_event"
+                self.count = 3
+                self._private = "hidden"
+
+        assert _serialize_event(Evt()) == {"type": "custom_event", "count": 3}
+
+    def test_non_dataclass_without_type_attr_uses_class_name(self):
+        class Evt:
+            def __init__(self):
+                self.count = 1
+
+        assert _serialize_event(Evt()) == {"type": "Evt", "count": 1}
+
+    def test_undeepcopyable_dataclass_degrades_to_shallow_dict(self):
+        class NoCopy:
+            def __deepcopy__(self, memo):
+                raise TypeError("cannot copy")
+
+        payload = NoCopy()
+
+        @dataclasses.dataclass
+        class Evt:
+            type: str
+            blob: object
+
+        result = _serialize_event(Evt(type="e", blob=payload))
+        assert result["type"] == "e"
+        assert result["blob"] is payload  # shallow: kept by reference, not dropped
+
+
+class TestJsonSafety:
+    def test_default_encodes_exotic_values(self):
+        class Colour(enum.Enum):
+            RED = "red"
+
+        assert _json_default(Colour.RED) == "red"
+        assert _json_default(Path("/tmp/x")) == "/tmp/x"
+        assert _json_default(b"ab") == "YWI="
+        assert _json_default({1, 2}) in ([1, 2], [2, 1])
+
+    def test_write_survives_unserializable_field(self):
+        class Weird:
+            def __repr__(self):
+                return "<weird>"
+
+        _, lines = capture_write(_write, {"type": "e", "value": Weird()})
+        assert json.loads(lines[0]) == {"type": "e", "value": "<weird>"}
+
+
+class TestExtensionErrorPayload:
+    def test_shape_matches_protocol(self):
+        @dataclasses.dataclass
+        class Err:
+            extension_path: str = "/x/ext.py"
+            event: str = "agent_start"
+            error: str = "boom"
+            stack: str = "Traceback…"
+
+        assert _extension_error_payload(Err()) == {
+            "type": "extension_error",
+            "extensionPath": "/x/ext.py",
+            "event": "agent_start",
+            "error": "boom",
+            "stack": "Traceback…",
+        }
+
+
+class _FakeHooks:
+    def __init__(self) -> None:
+        self.handlers: dict[str, list] = {}
+
+    def register(self, name, callback):
+        self.handlers.setdefault(name, []).append(callback)
+
+        def _unsub() -> None:
+            self.handlers[name].remove(callback)
+
+        return _unsub
+
+    async def emit(self, name):
+        for cb in list(self.handlers.get(name, [])):
+            await cb(object())
+
+
+class TestStartPrompt:
+    """The prompt ack means 'accepted and started', not 'turn finished'."""
+
+    @pytest.mark.asyncio
+    async def test_acks_once_the_turn_starts_while_it_still_runs(self):
+        hooks = _FakeHooks()
+        finished = asyncio.Event()
+        acked: list = []
+
+        class _Runtime:
+            def __init__(self):
+                self.hooks = hooks
+                self.done = False
+
+            async def invoke(self, text, options=None):
+                await hooks.emit("agent_start")
+                await finished.wait()
+                self.done = True
+
+        rt = _Runtime()
+        await _start_prompt(rt, "hi", None, lambda: acked.append("ok"), lambda e: acked.append(e))
+
+        assert acked == ["ok"]
+        assert rt.done is False  # ack arrived mid-turn
+        assert hooks.handlers.get("agent_start") == []  # hook cleaned up
+
+        finished.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert rt.done is True
+
+    @pytest.mark.asyncio
+    async def test_failure_before_start_is_reported_on_the_response(self):
+        errors: list = []
+
+        class _Runtime:
+            def __init__(self):
+                self.hooks = _FakeHooks()
+
+            async def invoke(self, text, options=None):
+                raise RuntimeError("no model configured")
+
+        await _start_prompt(_Runtime(), "hi", None, lambda: errors.append("ok"), errors.append)
+
+        assert errors == ["no model configured"]
+
+    @pytest.mark.asyncio
+    async def test_runtime_without_hooks_stays_synchronous(self):
+        calls: list = []
+
+        class _Runtime:
+            hooks = None
+
+            async def invoke(self, text, options=None):
+                calls.append(text)
+
+        await _start_prompt(_Runtime(), "hi", None, lambda: calls.append("ok"), lambda e: None)
+        assert calls == ["hi", "ok"]
+
+
+class TestDialogTimeoutAndCancel:
+    @pytest.mark.asyncio
+    async def test_timeout_resolves_to_none_and_is_advertised(self, monkeypatch):
+        sent: list = []
+        monkeypatch.setattr(mode, "_write", sent.append)
+        ctx = RpcExtensionUIContext({})
+
+        result = await ctx.select("Pick", ["a"], timeout=0.01)
+
+        assert result is None
+        assert sent[0]["timeout"] == 10  # milliseconds
+        assert ctx._pending == {}  # no leaked waiter
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_unblocks_waiting_dialogs(self, monkeypatch):
+        monkeypatch.setattr(mode, "_write", lambda obj: None)
+        ctx = RpcExtensionUIContext({})
+
+        task = asyncio.ensure_future(ctx.select("Pick", ["a"]))
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if ctx._pending:
+                break
+
+        ctx.cancel_pending()
+        assert await task is None
+
+    @pytest.mark.asyncio
+    async def test_confirm_maps_cancellation_to_false(self, monkeypatch):
+        monkeypatch.setattr(mode, "_write", lambda obj: None)
+        ctx = RpcExtensionUIContext({})
+
+        task = asyncio.ensure_future(ctx.confirm("Sure?"))
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if ctx._pending:
+                break
+
+        ctx.cancel_pending()
+        assert await task is False
+
+
+class TestForwardedEvents:
+    def test_transcript_critical_events_are_forwarded(self):
+        # A client mirroring the session drifts without these.
+        for name in (
+            "message_rollback",
+            "tool_execution_failure",
+            "compaction_cancelled",
+            "compaction_failure",
+        ):
+            assert name in mode._FORWARDED_EVENTS
 
 
 class TestRpcExtensionUIContextIds:

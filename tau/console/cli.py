@@ -311,6 +311,14 @@ async def _start(opts: dict) -> None:
         project_trusted=project_trusted,
     )
 
+    if opts["mode"] == "rpc":
+        # Claim stdout before anything else can write to it — extensions load
+        # (and may print) during Runtime.create, which would otherwise land
+        # non-JSON lines in the protocol stream before RPC mode even starts.
+        from tau.modes.rpc.mode import install_output_guard
+
+        install_output_guard()
+
     runtime = await Runtime.create(config)
 
     from tau.utils import timing

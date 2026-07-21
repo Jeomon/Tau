@@ -78,6 +78,16 @@ class ExtensionRuntime:
                     wrapped = self._make_interceptable_handler(ext, handler)
                     self._interceptable_unsubs.append(hooks.register(event_type, wrapped))
 
+    # ── Errors ────────────────────────────────────────────────────────────────
+
+    def _record_error(self, error: ExtensionError) -> None:
+        """Append an error and let the host mode observe it (RPC surfaces these)."""
+        self._errors.append(error)
+        runtime = self.runtime_ref.runtime
+        report = getattr(runtime, "report_extension_error", None)
+        if callable(report):
+            report(error)
+
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
     def _make_interceptable_handler(self, ext: Extension, handler: Callable) -> Callable:
@@ -106,7 +116,7 @@ class ExtensionRuntime:
                     getattr(event, "type", "unknown"),
                     tb.strip().splitlines()[-1],
                 )
-                self._errors.append(
+                self._record_error(
                     ExtensionError(
                         extension_path=ext.path,
                         event=getattr(event, "type", "unknown"),
@@ -156,7 +166,7 @@ class ExtensionRuntime:
                         event_type,
                         tb.strip().splitlines()[-1],
                     )
-                    self._errors.append(
+                    self._record_error(
                         ExtensionError(
                             extension_path=ext.path,
                             event=event_type,

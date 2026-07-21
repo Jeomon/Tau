@@ -82,6 +82,9 @@ class Runtime:
         self.commands = CommandRegistry(runtime=self)
         self._layout: Layout | None = None
         self._extension_ui_refresh: Callable[[], None] | None = None
+        self._extension_ui_bridge: object | None = None
+        self._on_extension_error: Callable[[object], None] | None = None
+        self._shutdown_handler: Callable[[], None] | None = None
         self._stopped: bool = False
         self._extension_generation: int = 0
         self._extension_callback_depth: int = 0
@@ -285,6 +288,50 @@ class Runtime:
     def set_extension_ui_refresh(self, callback: Callable[[], None]) -> None:
         """Register the interactive-mode extension UI refresh callback."""
         self._extension_ui_refresh = callback
+
+    def set_extension_ui_bridge(self, bridge: object | None) -> None:
+        """Install a non-TUI dialog backend for ``ctx.select``/``ctx.confirm``.
+
+        RPC mode installs one so extension dialogs reach the client instead of
+        silently returning ``None`` the way they do in a headless run.
+        """
+        self._extension_ui_bridge = bridge
+
+    @property
+    def extension_ui_bridge(self) -> object | None:
+        """The installed non-TUI dialog backend, if any."""
+        return self._extension_ui_bridge
+
+    def set_extension_error_callback(self, callback: Callable[[object], None] | None) -> None:
+        """Observe extension load/dispatch errors as they are recorded."""
+        self._on_extension_error = callback
+
+    def report_extension_error(self, error: object) -> None:
+        """Forward one extension error to the observer (no-op when unset)."""
+        callback = self._on_extension_error
+        if callback is None:
+            return
+        try:
+            callback(error)
+        except Exception:
+            _log.debug("extension error callback failed", exc_info=True)
+
+    def set_shutdown_handler(self, handler: Callable[[], None] | None) -> None:
+        """Register a cooperative shutdown handler used by ``ctx.shutdown()``.
+
+        Modes that need to unwind cleanly (RPC: flush the protocol stream, stop
+        the read loop) install one; without it ``ctx.shutdown()`` falls back to
+        ``sys.exit(0)``.
+        """
+        self._shutdown_handler = handler
+
+    def request_shutdown(self) -> bool:
+        """Ask the host mode to shut down. Returns False when it cannot."""
+        handler = self._shutdown_handler
+        if handler is None:
+            return False
+        handler()
+        return True
 
     def notify(self, message: str) -> None:
         """Post a system status note to the active TUI, if attached."""

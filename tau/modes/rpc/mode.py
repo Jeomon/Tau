@@ -11,11 +11,15 @@ Commands are dispatched via :func:`run_rpc_mode`.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import dataclasses
+import enum
 import json
 import logging
+import os
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 _log = logging.getLogger(__name__)
@@ -29,15 +33,182 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+class _ProtocolOutput:
+    """Owns the real stdout so the JSON-lines stream cannot be corrupted.
+
+    Two jobs:
+
+    * **Guard** — ``install()`` dups fd 1 aside for protocol writes and points
+      fd 1 at stderr, so a stray ``print`` from a tool, an extension, or a
+      subprocess lands on stderr instead of in the middle of a JSON line.
+    * **Backpressure** — once :meth:`start_async` has run, writes go through an
+      ``asyncio`` pipe writer. :meth:`write` stays synchronous and never blocks
+      the event loop; async callers ``await drain()`` to wait for a slow client
+      to catch up instead of stalling the agent inside a blocking ``write``.
+
+    When neither is installed (unit tests, unsupported platforms) writes fall
+    back to the current ``sys.stdout``.
+    """
+
+    def __init__(self) -> None:
+        self._raw: Any = None  # binary file object on the dup'd stdout fd
+        self._restore_fd: int | None = None  # separate dup, kept for restore()
+        self._saved_stdout: Any = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._installed = False
+
+    # ── Guard ────────────────────────────────────────────────────────────────
+
+    def install(self) -> None:
+        """Redirect fd 1 → fd 2 and keep the original stdout for protocol writes."""
+        if self._installed:
+            return
+        try:
+            dup_fd = os.dup(1)
+            restore_fd = os.dup(1)
+        except OSError:
+            _log.warning("rpc: cannot duplicate stdout; protocol stream is unguarded")
+            return
+        try:
+            raw = os.fdopen(dup_fd, "wb", buffering=0)
+            os.dup2(2, 1)
+        except OSError:
+            _log.warning("rpc: cannot redirect stdout; protocol stream is unguarded")
+            for fd in (dup_fd, restore_fd):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+            return
+        self._raw = raw
+        self._restore_fd = restore_fd
+        # Python-level writes hold their own buffer on the old fd 1; point them
+        # at stderr too so nothing is flushed into the protocol stream later.
+        self._saved_stdout = sys.stdout
+        sys.stdout = sys.stderr
+        self._installed = True
+
+    def restore(self) -> None:
+        """Undo :meth:`install` (best effort — called on the way out)."""
+        if not self._installed:
+            return
+        self._installed = False
+        if self._saved_stdout is not None:
+            sys.stdout = self._saved_stdout
+            self._saved_stdout = None
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            with contextlib.suppress(Exception):
+                writer.close()
+        raw, self._raw = self._raw, None
+        if raw is not None and writer is None:
+            # With a writer attached the transport owns (and closed) this fd.
+            with contextlib.suppress(Exception):
+                raw.close()
+        restore_fd, self._restore_fd = self._restore_fd, None
+        if restore_fd is not None:
+            with contextlib.suppress(OSError):
+                os.dup2(restore_fd, 1)
+            with contextlib.suppress(OSError):
+                os.close(restore_fd)
+
+    # ── Backpressure ─────────────────────────────────────────────────────────
+
+    async def start_async(self) -> None:
+        """Attach an asyncio writer to the protocol fd (enables :meth:`drain`)."""
+        if self._raw is None or self._writer is not None:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            transport, protocol = await loop.connect_write_pipe(
+                asyncio.streams.FlowControlMixin, self._raw
+            )
+            self._writer = asyncio.StreamWriter(transport, protocol, None, loop)
+        except (NotImplementedError, OSError, ValueError):
+            # Windows Proactor loop and odd stdout targets (a regular file) do
+            # not support pipe transports — keep the blocking path.
+            _log.debug("rpc: async stdout writer unavailable", exc_info=True)
+            self._writer = None
+
+    async def drain(self) -> None:
+        """Wait until the client has consumed what we buffered."""
+        writer = self._writer
+        if writer is None:
+            return
+        with contextlib.suppress(Exception):
+            await writer.drain()
+
+    # ── Writing ──────────────────────────────────────────────────────────────
+
+    def write_line(self, line: str) -> None:
+        if self._writer is not None:
+            self._writer.write(line.encode("utf-8"))
+        elif self._raw is not None:
+            self._raw.write(line.encode("utf-8"))
+        else:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+
+_OUTPUT = _ProtocolOutput()
+
+
+def install_output_guard() -> None:
+    """Claim stdout for the protocol as early as possible.
+
+    The CLI calls this the moment it knows the run is RPC — before the runtime
+    (and its extensions) is built, since anything they print would otherwise
+    corrupt the stream. Idempotent: ``run_rpc_mode`` calls it again.
+    """
+    _OUTPUT.install()
+
+
+def _json_default(value: object) -> Any:
+    """Last-resort encoder so an exotic field can never kill the stream."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        with contextlib.suppress(Exception):
+            return dataclasses.asdict(value)
+    if isinstance(value, enum.Enum):
+        return value.value
+    if isinstance(value, bytes | bytearray):
+        return base64.b64encode(bytes(value)).decode("ascii")
+    if isinstance(value, set | frozenset | tuple):
+        return list(value)
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
+
+
 def _write(obj: dict) -> None:
     """Write a JSON line to stdout immediately."""
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+    _OUTPUT.write_line(json.dumps(obj, default=_json_default) + "\n")
+
+
+def _shallow_asdict(event: object) -> dict:
+    """``dataclasses.asdict`` without the deep copy (used when that one fails)."""
+    return {f.name: getattr(event, f.name, None) for f in dataclasses.fields(event)}  # type: ignore[arg-type]
 
 
 def _serialize_event(event: object) -> dict:
+    """Turn an event object into the dict that goes on the wire.
+
+    Field names stay Python ``snake_case`` — see docs/rpc.md. Non-dataclass
+    events keep their payload (``vars``) instead of collapsing to a bare type,
+    and a dataclass whose fields resist deep-copying degrades to a shallow dict
+    rather than raising and dropping the event entirely.
+    """
     if dataclasses.is_dataclass(event) and not isinstance(event, type):
-        return dataclasses.asdict(event)
+        try:
+            return dataclasses.asdict(event)
+        except Exception:
+            _log.debug("rpc: asdict failed for %s; using shallow dict", type(event).__name__)
+            return _shallow_asdict(event)
+    payload = getattr(event, "__dict__", None)
+    event_type = getattr(event, "type", None)
+    if isinstance(payload, dict) and payload:
+        out = {k: v for k, v in payload.items() if not k.startswith("_")}
+        out["type"] = event_type if isinstance(event_type, str) else type(event).__name__
+        return out
+    if isinstance(event_type, str):
+        return {"type": event_type}
     return {"type": type(event).__name__}
 
 
@@ -64,38 +235,77 @@ class RpcExtensionUIContext:
         self._next_id += 1
         return f"ui_{self._next_id}"
 
-    async def _dialog(self, payload: dict) -> Any:
-        """Emit a dialog request and wait for the client response."""
+    async def _dialog(self, payload: dict, timeout: float | None = None) -> Any:
+        """Emit a dialog request and wait for the client response.
+
+        ``timeout`` is in seconds; it is advertised to the client in
+        milliseconds (matching the protocol's ``timeout`` field) and enforced
+        here, so a client that never answers cannot wedge the extension
+        forever. A timeout resolves to ``None`` — the same value as a cancel.
+        """
         req_id = self._new_req_id()
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[req_id] = fut
-        _write({"type": "extension_ui_request", "id": req_id, **payload})
+        request = {"type": "extension_ui_request", "id": req_id, **payload}
+        if timeout is not None:
+            request["timeout"] = int(timeout * 1000)
+        _write(request)
         try:
-            return await fut
+            if timeout is None:
+                return await fut
+            return await asyncio.wait_for(fut, timeout)
+        except TimeoutError:
+            _log.debug("rpc: extension UI request %s timed out", req_id)
+            return None
         finally:
             self._pending.pop(req_id, None)
+
+    def cancel_pending(self) -> None:
+        """Resolve every waiting dialog with ``None`` (the client went away).
+
+        Without this, an extension awaiting ``ctx.select`` blocks shutdown
+        forever when the client disconnects mid-dialog.
+        """
+        for req_id, fut in list(self._pending.items()):
+            self._pending.pop(req_id, None)
+            if not fut.done():
+                fut.set_result(None)
 
     def _fire(self, payload: dict) -> None:
         """Emit a fire-and-forget notification (no client response expected)."""
         req_id = self._new_req_id()
         _write({"type": "extension_ui_request", "id": req_id, **payload})
 
-    async def select(self, title: str, options: list[str]) -> str | None:
-        return await self._dialog({"method": "select", "title": title, "options": options})
+    async def select(
+        self, title: str, options: list[str], timeout: float | None = None
+    ) -> str | None:
+        return await self._dialog(
+            {"method": "select", "title": title, "options": options}, timeout
+        )
 
-    async def confirm(self, title: str, message: str = "") -> bool:
-        result = await self._dialog({"method": "confirm", "title": title, "message": message})
+    async def confirm(self, title: str, message: str = "", timeout: float | None = None) -> bool:
+        result = await self._dialog(
+            {"method": "confirm", "title": title, "message": message}, timeout
+        )
         if isinstance(result, dict):
             if result.get("cancelled"):
                 return False
             return bool(result.get("confirmed", False))
         return bool(result)
 
-    async def input(self, title: str, placeholder: str = "") -> str | None:
-        return await self._dialog({"method": "input", "title": title, "placeholder": placeholder})
+    async def input(
+        self, title: str, placeholder: str = "", timeout: float | None = None
+    ) -> str | None:
+        return await self._dialog(
+            {"method": "input", "title": title, "placeholder": placeholder}, timeout
+        )
 
-    async def editor(self, title: str, prefill: str = "") -> str | None:
-        return await self._dialog({"method": "editor", "title": title, "prefill": prefill})
+    async def editor(
+        self, title: str, prefill: str = "", timeout: float | None = None
+    ) -> str | None:
+        return await self._dialog(
+            {"method": "editor", "title": title, "prefill": prefill}, timeout
+        )
 
     def notify(self, message: str, notify_type: str = "info") -> None:
         self._fire({"method": "notify", "message": message, "notifyType": notify_type})
@@ -167,6 +377,92 @@ def _resolve_attachments(
 
 
 # ---------------------------------------------------------------------------
+# Prompt dispatch
+# ---------------------------------------------------------------------------
+
+# Holds references to in-flight turns so the event loop cannot garbage-collect
+# a task that nobody is awaiting any more.
+_BACKGROUND: set[asyncio.Task] = set()
+
+
+def _is_streaming(agent: Any) -> bool:
+    """True when a turn is in flight.
+
+    The agent exposes ``is_idle()``, not a ``_running`` flag — reading the
+    latter silently reported "never streaming", which made ``streamingBehavior``
+    inert and ``get_state.isStreaming`` always false.
+    """
+    if agent is None:
+        return False
+    is_idle = getattr(agent, "is_idle", None)
+    if callable(is_idle):
+        try:
+            return not bool(is_idle())
+        except Exception:
+            _log.debug("rpc: is_idle() failed", exc_info=True)
+    return bool(getattr(agent, "_running", False))
+
+
+async def _start_prompt(
+    runtime: Runtime,
+    text: str,
+    options: Any,
+    ok: Any,
+    err: Any,
+) -> None:
+    """Start a turn and respond as soon as it is under way, not when it ends.
+
+    The ``prompt`` response means "accepted and started" — the client gets its
+    ack immediately and follows the turn through the event stream. Anything
+    that fails before the turn starts (no model, no session) is reported on the
+    response instead; failures after that arrive as ``agent_error`` events.
+    """
+    invoke = runtime.invoke(text, options) if options is not None else runtime.invoke(text)
+
+    hooks = getattr(runtime, "hooks", None)
+    if hooks is None:
+        # No event bus to tell us when the turn starts — stay synchronous.
+        await invoke
+        ok()
+        return
+
+    started: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+
+    async def _on_start(event: object) -> None:
+        if not started.done():
+            started.set_result(None)
+
+    unsub = hooks.register("agent_start", _on_start)
+    task = asyncio.ensure_future(invoke)
+    _BACKGROUND.add(task)
+
+    def _finished(t: asyncio.Task) -> None:
+        _BACKGROUND.discard(t)
+        # Consume the exception so asyncio does not report it as unretrieved;
+        # the client already saw it as an agent_error event.
+        if not t.cancelled() and t.exception() is not None:
+            _log.error("rpc prompt turn failed", exc_info=t.exception())
+
+    task.add_done_callback(_finished)
+
+    try:
+        await asyncio.wait({task, started}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        unsub()
+
+    if started.done():
+        ok()
+        return
+
+    # The turn ended without ever starting — report it on the response.
+    exc = task.exception() if task.done() and not task.cancelled() else None
+    if exc is not None:
+        err(str(exc))
+    else:
+        ok()
+
+
+# ---------------------------------------------------------------------------
 # Command dispatcher
 # ---------------------------------------------------------------------------
 
@@ -209,7 +505,7 @@ async def _handle_command(
                     return
                 streaming_behavior = cmd.get("streamingBehavior")
                 agent = runtime.agent
-                is_streaming = agent is not None and getattr(agent, "_running", False)
+                is_streaming = _is_streaming(agent)
 
                 if is_streaming and streaming_behavior is None:
                     _err("Agent is streaming; specify streamingBehavior: 'steer' or 'followUp'")
@@ -229,15 +525,16 @@ async def _handle_command(
                         text, images or None, audio or None, video or None, file or None
                     )
                     await agent._engine.follow_up(msg)  # type: ignore[union-attr]
-                elif has_media:
-                    from tau.agent.types import PromptOptions
-
-                    await runtime.invoke(
-                        text,
-                        PromptOptions(images=images, audio=audio, video=video, file=file),
-                    )
                 else:
-                    await runtime.invoke(text)
+                    prompt_options = None
+                    if has_media:
+                        from tau.agent.types import PromptOptions
+
+                        prompt_options = PromptOptions(
+                            images=images, audio=audio, video=video, file=file
+                        )
+                    await _start_prompt(runtime, text, prompt_options, _ok, _err)
+                    return
                 _ok()
 
             case "steer":
@@ -305,7 +602,7 @@ async def _handle_command(
 
             case "get_state":
                 agent = runtime.agent
-                is_streaming = agent is not None and getattr(agent, "_running", False)
+                is_streaming = _is_streaming(agent)
                 sm = runtime.session_manager
 
                 llm = agent._engine.llm if agent is not None else None
@@ -819,41 +1116,83 @@ async def _handle_command(
 # ---------------------------------------------------------------------------
 
 
+# Events forwarded to the client. Every engine event a client needs to mirror
+# the session must be here — `message_rollback` in particular, or a client that
+# replays the transcript silently drifts after an interrupted tool turn.
+_FORWARDED_EVENTS = (
+    "agent_start",
+    "agent_end",
+    "turn_start",
+    "turn_end",
+    "message_start",
+    "message_update",
+    "message_end",
+    "message_rollback",
+    "tool_execution_start",
+    "tool_execution_update",
+    "tool_execution_end",
+    "tool_execution_failure",
+    "agent_error",
+    "compaction_start",
+    "compaction_end",
+    "compaction_cancelled",
+    "compaction_failure",
+    "queue_update",
+    "settled",
+    # Without these the `terminal` command is a black box: success: true and
+    # no way to see what the command printed.
+    "terminal_execution",
+    "terminal_output",
+)
+
+
+def _extension_error_payload(error: object) -> dict:
+    """Envelope for one extension load/dispatch failure."""
+    return {
+        "type": "extension_error",
+        "extensionPath": str(getattr(error, "extension_path", "") or ""),
+        "event": getattr(error, "event", "") or "",
+        "error": getattr(error, "error", "") or "",
+        "stack": getattr(error, "stack", "") or "",
+    }
+
+
 async def run_rpc_mode(runtime: Runtime) -> None:
     """Run the RPC mode loop — reads JSON lines from stdin, writes to stdout."""
 
+    # Take stdout over before anything can write to it: from here on fd 1 is
+    # ours alone and every stray print goes to stderr.
+    _OUTPUT.install()
+    await _OUTPUT.start_async()
+
     # Pending extension UI futures keyed by request id
     ui_pending: dict[str, asyncio.Future] = {}
+    ui_context = RpcExtensionUIContext(ui_pending)
+    runtime.set_extension_ui_bridge(ui_context)
 
     # ── Subscribe to agent events and stream them out ────────────────────────
 
-    hook_names = [
-        "agent_start",
-        "agent_end",
-        "turn_start",
-        "turn_end",
-        "message_start",
-        "message_update",
-        "message_end",
-        "tool_execution_start",
-        "tool_execution_update",
-        "tool_execution_end",
-        "agent_error",
-        "compaction_start",
-        "compaction_end",
-        "queue_update",
-        "settled",
-    ]
-
     async def on_event(event: object) -> None:
         _write(_serialize_event(event))
+        # Let a slow client apply backpressure here rather than inside a
+        # blocking write that would stall the whole event loop.
+        await _OUTPUT.drain()
 
     hooks = runtime.hooks
-    unsubs = [hooks.register(name, on_event) for name in hook_names if True]
+    unsubs = [hooks.register(name, on_event) for name in _FORWARDED_EVENTS]
 
-    # ── Signal handling (SIGTERM / SIGHUP) ──────────────────────────────────
+    # ── Surface extension failures ───────────────────────────────────────────
+
+    runtime.set_extension_error_callback(lambda error: _write(_extension_error_payload(error)))
+
+    # ── Shutdown plumbing ────────────────────────────────────────────────────
+
     loop = asyncio.get_event_loop()
     shutdown_event = asyncio.Event()
+
+    def _request_shutdown() -> None:
+        """Cooperative stop — used by signals and by ``ctx.shutdown()``."""
+        shutdown_event.set()
 
     def _on_signal() -> None:
         agent = runtime.agent
@@ -861,14 +1200,18 @@ async def run_rpc_mode(runtime: Runtime) -> None:
             cancel_fn = getattr(agent, "cancel", None) or getattr(agent, "abort", None)
             if callable(cancel_fn):
                 cancel_fn()
-        shutdown_event.set()
+        _request_shutdown()
+
+    # An extension calling ctx.shutdown() unwinds through here instead of
+    # sys.exit(0), so buffered protocol output still gets flushed.
+    runtime.set_shutdown_handler(_request_shutdown)
 
     import signal as _signal
 
     # SIGHUP does not exist on Windows (AttributeError), and add_signal_handler
     # is unsupported on the Proactor loop (NotImplementedError). Skip whatever the
     # platform lacks instead of failing.
-    for _sig_name in ("SIGTERM", "SIGHUP"):
+    for _sig_name in ("SIGTERM", "SIGHUP", "SIGINT"):
         _sig = getattr(_signal, _sig_name, None)
         if _sig is None:
             continue
@@ -886,76 +1229,81 @@ async def run_rpc_mode(runtime: Runtime) -> None:
         }
     )
 
-    # ── Stdin reader ─────────────────────────────────────────────────────────
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
-    try:
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-    except Exception:
-        # Fallback for environments that don't support connect_read_pipe
-        async def _stdin_loop() -> None:
-            import concurrent.futures
+    # Extensions that failed to load did so before the callback was installed.
+    ext_runtime = getattr(runtime, "extension_runtime", None)
+    for error in getattr(ext_runtime, "errors", ()) or ():
+        _write(_extension_error_payload(error))
 
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    # ── Stdin reader ─────────────────────────────────────────────────────────
+
+    def _dispatch_line(line: str) -> None:
+        """Parse one stdin line and start handling it."""
+        if not line:
+            return
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            _write(
+                {
+                    "type": "response",
+                    "command": "parse",
+                    "success": False,
+                    "error": f"Failed to parse command: {exc}",
+                }
+            )
+            return
+        task = asyncio.ensure_future(_handle_command(obj, runtime, ui_pending))
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
+
+    read_task: asyncio.Task | None = None
+    try:
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        try:
+            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+        except Exception:
+            # Fallback for environments that don't support connect_read_pipe
+            async def _stdin_loop() -> None:
+                import concurrent.futures
+
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                while not shutdown_event.is_set():
+                    try:
+                        raw = await loop.run_in_executor(executor, sys.stdin.readline)
+                    except Exception:
+                        break
+                    if not raw:
+                        shutdown_event.set()
+                        break
+                    _dispatch_line(raw.rstrip("\r\n"))
+
+            await _stdin_loop()
+            return
+
+        async def _read_loop() -> None:
             while not shutdown_event.is_set():
                 try:
-                    raw = await loop.run_in_executor(executor, sys.stdin.readline)
+                    raw = await reader.readline()
                 except Exception:
                     break
                 if not raw:
                     shutdown_event.set()
                     break
-                line = raw.rstrip("\r\n")
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError as exc:
-                    _write(
-                        {
-                            "type": "response",
-                            "command": "parse",
-                            "success": False,
-                            "error": f"Failed to parse command: {exc}",
-                        }
-                    )
-                    continue
-                asyncio.ensure_future(_handle_command(obj, runtime, ui_pending))
+                _dispatch_line(raw.decode(errors="replace").rstrip("\r\n"))
 
-        await _stdin_loop()
+        read_task = asyncio.ensure_future(_read_loop())
+        await shutdown_event.wait()
+    finally:
+        if read_task is not None:
+            read_task.cancel()
+        # An extension blocked on a dialog would otherwise wait for a client
+        # that is never going to answer.
+        ui_context.cancel_pending()
         for unsub in unsubs:
             unsub()
-        return
-
-    async def _read_loop() -> None:
-        while not shutdown_event.is_set():
-            try:
-                raw = await reader.readline()
-            except Exception:
-                break
-            if not raw:
-                shutdown_event.set()
-                break
-            line = raw.decode(errors="replace").rstrip("\r\n")
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
-                _write(
-                    {
-                        "type": "response",
-                        "command": "parse",
-                        "success": False,
-                        "error": f"Failed to parse command: {exc}",
-                    }
-                )
-                continue
-            asyncio.ensure_future(_handle_command(obj, runtime, ui_pending))
-
-    read_task = asyncio.ensure_future(_read_loop())
-    await shutdown_event.wait()
-    read_task.cancel()
-
-    for unsub in unsubs:
-        unsub()
+        runtime.set_extension_error_callback(None)
+        runtime.set_shutdown_handler(None)
+        runtime.set_extension_ui_bridge(None)
+        await _OUTPUT.drain()
+        _OUTPUT.restore()

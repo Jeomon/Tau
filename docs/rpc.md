@@ -74,6 +74,12 @@ See [CLI Reference](cli-reference.md) for the complete flag list.
 
 Because framing is strictly newline-delimited, a client must split on `\n` only. Do not use a line reader that also breaks on Unicode separators such as `U+2028` and `U+2029` — those are legal inside JSON strings and will corrupt records.
 
+**stdout belongs to the protocol.** On entry, RPC mode duplicates the real stdout for its own use and points file descriptor 1 at stderr. A `print` from a tool, an extension, or a subprocess therefore lands on stderr and cannot appear in the middle of a JSON line. Clients should read stderr separately (or discard it) — it carries diagnostics only, never protocol records.
+
+**Backpressure.** Outgoing lines go through an asyncio pipe writer, and the event forwarder waits for the pipe to drain between events. A client that reads slowly slows the event stream instead of stalling the agent's event loop inside a blocking write. A client that stops reading entirely will eventually stop the agent's progress — read continuously, even if you discard.
+
+Values that are not JSON-native are coerced rather than dropped: enums become their value, `bytes` become base64, sets and tuples become arrays, paths become strings, and anything else becomes its `str()`. A single odd field can never break the stream.
+
 Commands are dispatched concurrently. Each parsed line is handed to a fire-and-forget task, so responses are **not** guaranteed to arrive in the order the commands were sent, and events for an in-flight prompt interleave freely with responses to later commands. Always correlate with the `id` field.
 
 ## Lifecycle
@@ -170,11 +176,15 @@ Send a user prompt. `message` is required; an empty or missing message is an err
 {"id": "req-1", "type": "response", "command": "prompt", "success": true}
 ```
 
-The response is written after the prompt call returns. Events for the run stream out around it. The prompt text is passed through the `input` hook first, so an extension may transform or suppress it.
+The response means **accepted and started**, not finished. It is written as soon as the turn is under way, so a client can act on the ack while events for the run stream out behind it. Wait for `settled` to know a turn is complete. A failure that happens before the turn starts (no model, no session) is reported on the response instead; anything that fails after it starts arrives as an `agent_error` event. The prompt text is passed through the `input` hook first, so an extension may transform or suppress it.
 
-The optional `streamingBehavior` field takes `"steer"` or `"followUp"` and only applies when the agent is mid-run. See [Known Gaps](#known-gaps) — the streaming check does not currently fire, so this field is effectively inert and `prompt` always goes through the normal invoke path.
+The optional `streamingBehavior` field takes `"steer"` or `"followUp"` and only applies when the agent is mid-run. Sending `prompt` while a turn is in flight **without** it is an error:
 
-Unlike some other JSON agent protocols, `prompt` carries no `images` field. RPC prompts are text only.
+```json
+{"id": "req-2", "type": "response", "command": "prompt", "success": false, "error": "Agent is streaming; specify streamingBehavior: 'steer' or 'followUp'"}
+```
+
+`prompt` also accepts `attachments` — see [Attachments](#attachments) below.
 
 #### steer
 
@@ -201,6 +211,25 @@ Queue a message to be delivered after the current run finishes.
 ```json
 {"type": "response", "command": "follow_up", "success": true}
 ```
+
+#### Attachments
+
+`prompt`, `steer`, and `follow_up` all accept an `attachments` array alongside (or instead of) `message` — a request with attachments and no text is valid.
+
+```json
+{"id": "req-3", "type": "prompt", "message": "What is in this screenshot?",
+ "attachments": [{"kind": "image", "path": "/tmp/shot.png"}]}
+```
+
+| Field | Values |
+|-------|--------|
+| `kind` | `image`, `audio`, `video`, `file` — required |
+| `data` | base64-encoded bytes |
+| `path` | server-side path, read into bytes by Tau |
+| `url` | remote URL — **images only** |
+| `mimeType`, `name` | optional metadata |
+
+Exactly one of `data`, `path`, or `url` must be present per attachment. Violations fail the whole command with `"invalid attachment: …"` and nothing is sent to the model.
 
 #### abort
 
@@ -491,7 +520,7 @@ Runs a shell command through the runtime's terminal path: extensions can interce
 
 `command` is required. Set `excludeFromContext` (alias `exclude_from_context`) to `true` to run it without adding it to the model's context.
 
-Output is not returned. The response carries no `data`, and the runtime's terminal events are not among the fifteen hooks RPC mode subscribes to, so a client sees nothing but `success: true`. To read the output, either read the session file, or run the command yourself and send the result as a `prompt`.
+The response carries no `data` — output arrives as events instead. `terminal_execution` fires at start (`streaming: true`) and at completion (`streaming: false`), with `terminal_output` events carrying each chunk in between.
 
 #### abort_terminal
 
@@ -636,9 +665,9 @@ Resolution rules, in order: `cancelled` truthy resolves to `null`; otherwise a p
 
 ## Events
 
-Tau subscribes to fifteen hook events and writes each one as a JSON line. Events never carry an `id`.
+Tau subscribes to the hook events below and writes each one as a JSON line. Events never carry an `id`.
 
-Serialization is mechanical: the event dataclass is converted to a dict, so field names are the Python `snake_case` names, not `camelCase`. Anything that is not a dataclass is emitted as `{"type": "<ClassName>"}`.
+Serialization is mechanical: the event dataclass is converted to a dict, so field names are the Python `snake_case` names, not `camelCase`. A non-dataclass event keeps its attributes too (private `_`-prefixed ones are stripped) and uses its `type` attribute, falling back to the class name. Response and `extension_error` payloads are hand-built and stay `camelCase`.
 
 | Event | Payload fields |
 |-------|----------------|
@@ -650,13 +679,24 @@ Serialization is mechanical: the event dataclass is converted to a dict, so fiel
 | `message_start` | `message` |
 | `message_update` | `message` |
 | `message_end` | `message` |
+| `message_rollback` | `count` |
 | `tool_execution_start` | `tool_call` |
 | `tool_execution_update` | `partial_tool_result` |
 | `tool_execution_end` | `tool_result` |
+| `tool_execution_failure` | `tool_name`, … |
 | `compaction_start` | `manual`, `reason`, `will_retry` |
 | `compaction_end` | `manual`, `tokens_before`, `summary_length`, `from_extension`, `reason`, `will_retry` |
+| `compaction_cancelled` | — |
+| `compaction_failure` | — |
+| `terminal_execution` | `message`, `streaming` |
+| `terminal_output` | `message` |
 | `queue_update` | `queue`, `message`, `messages` |
 | `settled` | — |
+| `extension_error` | `extensionPath`, `event`, `error`, `stack` |
+
+`message_rollback` retracts the last `count` committed messages — an interrupted tool turn persists an assistant tool-call message and its result before the abort lands, and both must be dropped. A client that mirrors the transcript and ignores this event drifts out of sync with the session file.
+
+`extension_error` reports an extension that failed to load or whose handler raised. Extensions that failed at startup are reported once, right after `ready`. The agent keeps running either way.
 
 Enumerated values:
 
@@ -786,9 +826,9 @@ Fire-and-forget methods expect no reply:
 {"type": "extension_ui_response", "id": "ui_1", "value": "Allow"}
 ```
 
-The `timeout` field appears on the `select`, `confirm`, and `input` request types but is never populated by the implementation — a dialog waits indefinitely for the client's reply.
+`timeout`, when present on a request, is the number of **milliseconds** Tau will wait before giving up on that dialog. A timeout resolves the same way a cancel does (`null`, or `false` for `confirm`). Dialogs sent without a `timeout` wait indefinitely — but not past the end of the session: when the client disconnects or the process shuts down, every pending dialog is resolved as cancelled so nothing blocks the exit.
 
-> **Note:** The `RpcExtensionUIContext` class that emits these requests is defined in `tau/modes/rpc/mode.py` but is not attached to the extension runtime. In RPC mode `ctx.ui` is `None` and `ctx.has_ui` is `False`, so no `extension_ui_request` is emitted in practice. The `extension_ui_response` command is handled, so a client can implement this half safely today. Guard extension code with `ctx.has_ui` rather than assuming dialogs are available.
+> **Extension reach.** RPC mode installs `RpcExtensionUIContext` as the runtime's dialog bridge, so `ctx.select(...)` and `ctx.confirm(...)` from an extension emit real `extension_ui_request` lines and `ctx.has_ui` is `True`. The rich TUI surface (`ctx.ui` — widgets, footers, themes) stays `None` in RPC mode; the fire-and-forget methods above are part of the protocol but are not yet reachable from `ctx`. Guard extension code with `ctx.has_ui` for dialogs and with `ctx.ui is not None` for TUI customization.
 
 ## Error Handling
 
@@ -817,8 +857,6 @@ Verified against the implementation. These commands accept input and answer `suc
 
 | Command / field | Behaviour | Cause |
 |-----------------|-----------|-------|
-| `prompt.streamingBehavior` | Never used; prompts always take the normal invoke path | The streaming check reads an `_running` attribute the agent does not define, so `is_streaming` is always `false` |
-| `get_state.isStreaming` | Always `false` | Same |
 | `set_thinking_level` / `cycle_thinking_level` | No effect on the model | The handler calls `set_thinking_level` on the LLM object, which does not define it |
 | `set_steering_mode` / `set_follow_up_mode` | No effect | The queues live on `engine.state`, not on `engine` where the handler looks |
 | `set_session_name` | No effect | The session manager has no `set_name` method |
@@ -827,7 +865,6 @@ Verified against the implementation. These commands accept input and answer `suc
 | `get_session_stats.contextUsage` | Always `null` | The handler reads `context_usage` off the engine; the real accessor is the agent's `get_context_usage()` |
 | `get_available_models[].contextWindow` | Always `null` | The handler reads `context_length`; the field is `context_window` |
 | `set_model` | Reports `success: true` even when the switch failed | The handler ignores the boolean result and reads the (unchanged) active model back |
-| `terminal` | Command runs, but no output reaches the client | Terminal events are not among the subscribed hooks |
 | `export_html` | Always fails | Not implemented |
 
 Use `abort` (which does work, via the agent's `abort()`), the `compaction_end` event, and launch flags such as `--effort` and `--name` as the reliable alternatives.

@@ -4,7 +4,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from tau.agent.types import AgentPhase
 
@@ -252,9 +252,18 @@ class ExtensionContext:
 
     @property
     def has_ui(self) -> bool:
-        """True when dialog-capable UI is available (TUI mode)."""
+        """True when dialog-capable UI is available.
+
+        That means a TUI, or an RPC client that answers ``extension_ui_request``.
+        ``ctx.ui`` (the rich TUI customization API) is still TUI-only.
+        """
         self._assert_active()
-        return self._layout is not None
+        return self._layout is not None or self._ui_bridge is not None
+
+    @property
+    def _ui_bridge(self) -> Any | None:
+        """Non-TUI dialog backend installed by the host mode (RPC), if any."""
+        return getattr(self._runtime_instance, "extension_ui_bridge", None)
 
     # ── Agent state ───────────────────────────────────────────────────────────
 
@@ -314,7 +323,17 @@ class ExtensionContext:
             cancel_fn()
 
     def shutdown(self) -> None:
-        """Gracefully shut down tau and exit."""
+        """Gracefully shut down tau and exit.
+
+        Modes that need to unwind cleanly (RPC flushes its protocol stream)
+        register a handler and get a cooperative shutdown; everything else
+        exits immediately.
+        """
+        runtime = self._runtime_instance
+        request = getattr(runtime, "request_shutdown", None)
+        if callable(request) and request():
+            return
+
         import sys
 
         sys.exit(0)
@@ -624,7 +643,10 @@ class ExtensionContext:
 
         layout = self._layout
         if layout is None:
-            return None
+            bridge = self._ui_bridge
+            if bridge is None:
+                return None
+            return await bridge.select(title, options)
         open_fn = getattr(layout, "open_extension_selector", None)
         if open_fn is None:
             return None
@@ -651,6 +673,10 @@ class ExtensionContext:
             if await ctx.confirm("Delete branch?", "This cannot be undone."):
                 ctx.notify("Branch deleted.")
         """
+        if self._layout is None:
+            bridge = self._ui_bridge
+            if bridge is not None:
+                return await bridge.confirm(title, message)
         prompt = f"{title}\n{message}" if message else title
         result = await self.select(prompt, ["Yes", "No"])
         return result == "Yes"
