@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
 
-def _backends() -> tuple[Callable[[], Awaitable[int]], ...]:
+def _backends() -> tuple[Callable[[], Coroutine[Any, Any, int]], ...]:
     # Imported lazily so importing this package doesn't eagerly pull in every
     # backend module (mirrors the lazy-adapter-loading convention elsewhere
     # in tau.inference).

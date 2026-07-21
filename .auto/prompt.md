@@ -90,10 +90,55 @@ Likely areas worth investigating (not yet measured/tried):
    unsupported platforms still skip registration. Verified: `pytest -q`
    (2653 passed) and a manual check that `Quartz` isn't in `sys.modules`
    until `.open()` is called.
+4. **lazy web-search-engine imports** (2168b39): 0.5552s (measured this
+   pass, within noise of #3 — system load had risen; real fix confirmed by
+   profiling regardless). `tau/builtins/extensions/web/engines/__init__.py`
+   eagerly imported all 4 search backends (ddgs/exa/jina/tavily) though only
+   one is ever configured. Deferred each into its own `_build_*` function +
+   a module `__getattr__` (PEP 562) for back-compat attribute access.
+   Confirmed via profiling: jina's `h2`/`hpack` (HTTP/2) import chain no
+   longer appears at all. `pytest -k 'web or search or fetch or engine'`
+   passes (102 passed).
+5. **memoize `PackageManager.site_packages()`** (dd9edbf): 0.5436s. Every
+   extension/resource with declared dependencies (`computer_use`, `sandbox`
+   in this repo) independently spawned a fresh `python -c "import site；..."`
+   subprocess to locate the *same* shared venv's site-packages dir, even on
+   a pure dependency-cache hit. Memoized per venv per process (module-level
+   dict). `site_packages()`'s subprocess cost dropped out of the top-40
+   profile entirely; `_ensure_dependencies` call count dropped from 5/4 to
+   5/2. `pytest -q` passes (2653 passed).
+6. **thread each local-model-discovery backend** (fe0ae03): 0.4286s
+   (-50% vs baseline!). `Runtime._start_local_model_discovery()` fires
+   `register_all()` (ollama/lmstudio/vllm/llamacpp scans) via
+   `asyncio.ensure_future` — fire-and-forget in *intent*, but as a bare
+   asyncio task on the *caller's* event loop, so each backend's
+   `httpx.AsyncClient()` construction (connection pool/transport setup,
+   ~90-100ms each despite the SSL context already being shared/cached) ran
+   inline on the same thread driving `Runtime.create`/`App.create`, i.e. the
+   TUI's own startup. Changed to `asyncio.to_thread(asyncio.run, backend())`
+   per backend — each now gets its own OS thread + its own fresh event loop,
+   mirroring the existing git-status/LSP-warmup threading pattern. Confirmed
+   via profiling: all 4 `httpx.AsyncClient.__init__` calls gone from the
+   main-thread profile. `pytest -q` passes (2653 passed, incl.
+   `tests/test_local_model_discovery.py`, whose `monkeypatch.setattr(httpx,
+   "AsyncClient", ...)` still applies fine across threads since it mutates
+   the shared module object).
+7. **lazy builtin theme parsing** (c6bd75c): 0.3848s (-55% vs baseline!).
+   `ThemeRegistry._ensure_builtins()` eagerly parsed+validated all 17
+   builtin theme YAML files (~80ms of YAML parsing/color validation) on
+   *every* startup via `App.create()`'s theme resolution, even though
+   exactly one theme is ever selected. Changed to register one lazy,
+   memoizing factory per file, keyed by filename stem — verified 1:1 against
+   every builtin theme's declared `name:` field, so this is a pure fast
+   path with no behavior change for any shipped theme. Only
+   `load_external`/`load_paths` (global/project themes, rarely present)
+   still parse eagerly — not yet touched, lower priority since most users
+   have none. `pytest -q` passes (2653 passed) + manual check all 17
+   builtins still resolve correctly through the lazy path.
 
-Current best: 0.5206s (was 0.8552s before any real profiling — remember the
-`bench` fix commit is a measurement correction, not an app change; the real
-app-level win so far is computer_use, ~26% on top of the corrected number).
+Current best: **0.3848s**, down from the original 0.8552s baseline (~55%
+faster). Remember commit #2 (benchmark fix) is a measurement correction,
+not an app change — the real, stacked app-level wins are #3, #4, #5, #6, #7.
 
 
 ## Ideas not yet tried / next up
