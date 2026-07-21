@@ -70,7 +70,31 @@ Likely areas worth investigating (not yet measured/tried):
   setup during startup.
 
 ## Tried so far
-(baseline only — see log via `/autoresearch status` or `.auto/log.jsonl`)
+1. **baseline** (9e6fdbd): 0.8552s.
+2. **benchmark fix** (d83fc14): 0.7056s (-17.5%). `bench_tui_startup.py` was
+   using `asyncio.run()`, whose cleanup waits for `shutdown_default_executor`
+   — including the `.tau/extensions/lsp` eager-warmup thread (a full project
+   `os.walk`) fired fire-and-forget via `asyncio.ensure_future` on
+   `runtime_ready`. That thread never actually blocks real TUI readiness, so
+   counting it was a benchmark bug, not a real perf win. Fixed by using a
+   bare event loop + `os._exit` instead. Keep this fix; don't revert it.
+3. **lazy computer_use Desktop backend** (ba0278f): 0.5206s (-26.2% further,
+   -39.1% vs original baseline). `.tau/extensions/computer_use/__init__.py`
+   called `get_desktop_class()()` eagerly in `register()`, which on macOS
+   imports PyObjC/Quartz/AppKit (~400ms) even though the tool is opt-in and
+   most sessions never call it. Replaced with `_LazyDesktop`, a duck-typed
+   proxy that defers the real backend's import/construction to the first
+   `action='open'` call; `is_open` reports `False` cheaply until then. The
+   platform-support check (previously implicit in the eager
+   `except RuntimeError`) is kept via the cheap `get_platform_name()` call so
+   unsupported platforms still skip registration. Verified: `pytest -q`
+   (2653 passed) and a manual check that `Quartz` isn't in `sys.modules`
+   until `.open()` is called.
+
+Current best: 0.5206s (was 0.8552s before any real profiling — remember the
+`bench` fix commit is a measurement correction, not an app change; the real
+app-level win so far is computer_use, ~26% on top of the corrected number).
+
 
 ## Ideas not yet tried
 - Profile actual import cost: `.venv/bin/python -X importtime .auto/bench_tui_startup.py 2> /tmp/importtime.txt`
