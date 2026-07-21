@@ -385,6 +385,117 @@ def _resolve_attachments(
 _BACKGROUND: set[asyncio.Task] = set()
 
 
+def _last_compaction(session_manager: Any) -> dict:
+    """Details of the most recent compaction, read back from the session."""
+    if session_manager is None:
+        return {}
+    try:
+        from tau.session.types import CompactionEntry
+
+        for entry in reversed(session_manager.get_branch()):
+            if isinstance(entry, CompactionEntry):
+                return {
+                    "summary": entry.summary,
+                    "firstKeptEntryId": entry.first_kept_entry_id,
+                    "tokensBefore": entry.tokens_before,
+                }
+    except Exception:
+        _log.debug("rpc: reading the compaction entry failed", exc_info=True)
+    return {}
+
+
+def _context_usage(agent: Any) -> dict | None:
+    """Current context usage, or None when it is not known yet.
+
+    The accessor is the agent's ``get_context_usage()`` — the engine has no
+    ``context_usage`` attribute, so reading that always yielded ``None``.
+    """
+    if agent is None:
+        return None
+    getter = getattr(agent, "get_context_usage", None)
+    if not callable(getter):
+        return None
+    try:
+        usage = getter()
+    except Exception:
+        _log.debug("rpc: get_context_usage failed", exc_info=True)
+        return None
+    if usage is None:
+        return None
+    tokens = getattr(usage, "tokens", None)
+    window = getattr(usage, "context_window", 0) or 0
+    percent = getattr(usage, "percent", None)
+    if percent is None and tokens and window:
+        percent = tokens / window * 100
+    return {"tokens": tokens, "contextWindow": window, "percent": percent}
+
+
+def _queue_mode(engine_state: Any, queue_attr: str) -> str | None:
+    """Report a queue's delivery mode in the protocol's hyphenated spelling."""
+    queue = getattr(engine_state, queue_attr, None)
+    mode = getattr(queue, "mode", None)
+    if mode is None:
+        return None
+    return str(getattr(mode, "value", mode)).replace("_", "-")
+
+
+def _set_queue_mode(
+    runtime: Runtime,
+    queue_attr: str,
+    mode_enum: Any,
+    cmd: dict,
+    ok: Any,
+    err: Any,
+) -> None:
+    """Set the delivery mode on a steering / follow-up queue.
+
+    The queues hang off ``engine.state``, not off the engine itself, and the
+    wire values are hyphenated (``one-at-a-time``) while the enum is not.
+    """
+    raw = cmd.get("mode", "one-at-a-time")
+    try:
+        mode = mode_enum(str(raw).replace("-", "_"))
+    except ValueError:
+        err(f"Unknown mode: '{raw}'")
+        return
+    agent = runtime.agent
+    if agent is None:
+        err("No active agent")
+        return
+    queue = getattr(getattr(agent._engine, "state", None), queue_attr, None)
+    if queue is None or not hasattr(queue, "mode"):
+        err("Queue is not available")
+        return
+    queue.mode = mode
+    ok({"mode": str(raw)})
+
+
+def _supports_level(llm: Any, level: Any) -> bool:
+    """True when this model advertises ``level`` (or advertises nothing at all)."""
+    levels = getattr(getattr(llm, "model", None), "thinking_levels", None)
+    if not levels:
+        return True  # unconfirmed model metadata — every level is provisionally valid
+    return level in levels
+
+
+def _apply_thinking_level(llm: Any, level: Any) -> Any:
+    """Set the effort level on the live LLM and return what was actually applied.
+
+    There is no ``llm.set_thinking_level``; the level lives on the API options,
+    with ``Off`` represented as ``None``. Clamped against the model's supported
+    levels so an unsupported value is never sent to the backend.
+    """
+    from tau.inference.types import ThinkingLevel
+
+    model = getattr(llm, "model", None)
+    clamp = getattr(model, "clamp_thinking_level", None)
+    applied = clamp(level) if callable(clamp) else level
+    options = getattr(getattr(llm, "api", None), "options", None)
+    if options is not None:
+        options.thinking_level = None if applied == ThinkingLevel.Off else applied
+    return applied if applied is not None else ThinkingLevel.Off
+
+
 def _is_streaming(agent: Any) -> bool:
     """True when a turn is in flight.
 
@@ -640,17 +751,29 @@ async def _handle_command(
                     if compaction_cfg is not None:
                         auto_compact = bool(getattr(compaction_cfg, "enabled", True))
 
+                from tau.agent.types import AgentPhase
+
+                queued = getattr(agent, "queued_messages", None) if agent is not None else None
+                pending = (
+                    len(queued.get("steering", [])) + len(queued.get("followup", []))
+                    if isinstance(queued, dict)
+                    else 0
+                )
+                engine_state = getattr(getattr(agent, "_engine", None), "state", None)
                 _ok(
                     {
                         "model": model_info,
                         "thinkingLevel": thinking_level,
                         "isStreaming": is_streaming,
-                        "isCompacting": False,
+                        "isCompacting": getattr(agent, "phase", None) is AgentPhase.COMPACTION,
+                        "steeringMode": _queue_mode(engine_state, "steering_queue"),
+                        "followUpMode": _queue_mode(engine_state, "follow_up_queue"),
                         "sessionFile": session_file,
                         "sessionId": session_id,
+                        "sessionName": sm.get_session_name() if sm is not None else None,
                         "autoCompactionEnabled": auto_compact,
                         "messageCount": msg_count,
-                        "pendingMessageCount": 0,
+                        "pendingMessageCount": pending,
                     }
                 )
 
@@ -662,7 +785,13 @@ async def _handle_command(
                 if not model_id:
                     _err("'modelId' is required")
                     return
-                await runtime.set_model(model_id, provider)
+                if not await runtime.set_model(model_id, provider):
+                    _err(
+                        f"Could not switch to '{model_id}'"
+                        f"{f' on {provider}' if provider else ''}"
+                        " — unknown model, missing credentials, or no active agent"
+                    )
+                    return
                 agent = runtime.agent
                 model_info = None
                 if agent is not None:
@@ -712,7 +841,7 @@ async def _handle_command(
                                 "id": getattr(m, "id", str(m)),
                                 "provider": getattr(m, "provider", ""),
                                 "name": getattr(m, "name", "") or getattr(m, "id", ""),
-                                "contextWindow": getattr(m, "context_length", None),
+                                "contextWindow": getattr(m, "context_window", None),
                             }
                         )
                 except Exception:
@@ -724,101 +853,79 @@ async def _handle_command(
             case "set_thinking_level":
                 level = cmd.get("level", "")
                 agent = runtime.agent
-                if agent is not None:
-                    try:
-                        from tau.inference.types import ThinkingLevel
+                if agent is None:
+                    _err("No active agent")
+                    return
+                try:
+                    from tau.inference.types import ThinkingLevel
 
-                        tl = ThinkingLevel(level)
-                        llm = agent._engine.llm
-                        set_fn = getattr(llm, "set_thinking_level", None)
-                        if callable(set_fn):
-                            set_fn(tl)
-                    except Exception as exc:
-                        _err(str(exc))
-                        return
-                _ok()
+                    tl = ThinkingLevel(level)
+                except ValueError:
+                    _err(f"Unknown thinking level: '{level}'")
+                    return
+                llm = agent._engine.llm
+                if llm is None:
+                    _err("No active model")
+                    return
+                applied = _apply_thinking_level(llm, tl)
+                _ok({"level": getattr(applied, "value", str(applied))})
 
             case "cycle_thinking_level":
                 agent = runtime.agent
-                new_level = None
-                if agent is not None:
-                    try:
-                        from tau.inference.types import ThinkingLevel
+                llm = agent._engine.llm if agent is not None else None
+                if llm is None:
+                    _err("No active model")
+                    return
+                from tau.inference.types import ThinkingLevel
 
-                        llm = agent._engine.llm
-                        opts = getattr(getattr(llm, "api", None), "options", None)
-                        if opts is not None:
-                            levels = list(ThinkingLevel)
-                            cur = getattr(opts, "thinking_level", ThinkingLevel.Off)
-                            try:
-                                idx = levels.index(cur)
-                                next_tl = levels[(idx + 1) % len(levels)]
-                            except ValueError:
-                                next_tl = levels[0]
-                            set_fn = getattr(llm, "set_thinking_level", None)
-                            if callable(set_fn):
-                                set_fn(next_tl)
-                            new_level = getattr(next_tl, "value", str(next_tl))
-                    except Exception:
-                        _log.debug("rpc cycle_thinking_level failed", exc_info=True)
-                _ok({"level": new_level} if new_level is not None else None)
+                # Cycle within what this model actually supports, not the full
+                # enum — otherwise the next step can be an unsupported level
+                # that clamps straight back to where it started.
+                levels = [lvl for lvl in ThinkingLevel if _supports_level(llm, lvl)]
+                if not levels:
+                    _err("Model does not support thinking levels")
+                    return
+                opts = getattr(getattr(llm, "api", None), "options", None)
+                current = getattr(opts, "thinking_level", None) or ThinkingLevel.Off
+                try:
+                    next_tl = levels[(levels.index(current) + 1) % len(levels)]
+                except ValueError:
+                    next_tl = levels[0]
+                applied = _apply_thinking_level(llm, next_tl)
+                _ok({"level": getattr(applied, "value", str(applied))})
 
             # ── Queue modes ──────────────────────────────────────────────────
 
             case "set_steering_mode":
-                mode = cmd.get("mode", "one-at-a-time")
-                # Accept both "one-at-a-time" and "one_at_a_time" (internal)
-                py_mode = mode.replace("-", "_")
                 from tau.engine.types import SteeringMode
 
-                agent = runtime.agent
-                if agent is not None:
-                    engine = agent._engine
-                    queue = getattr(engine, "steering_queue", None)
-                    if queue is not None and hasattr(queue, "mode"):
-                        with contextlib.suppress(ValueError):
-                            queue.mode = SteeringMode(py_mode)
-                _ok()
+                _set_queue_mode(runtime, "steering_queue", SteeringMode, cmd, _ok, _err)
 
             case "set_follow_up_mode":
-                mode = cmd.get("mode", "one-at-a-time")
-                py_mode = mode.replace("-", "_")
                 from tau.engine.types import FollowupMode
 
-                agent = runtime.agent
-                if agent is not None:
-                    engine = agent._engine
-                    queue = getattr(engine, "follow_up_queue", None)
-                    if queue is not None and hasattr(queue, "mode"):
-                        with contextlib.suppress(ValueError):
-                            queue.mode = FollowupMode(py_mode)
-                _ok()
+                _set_queue_mode(runtime, "follow_up_queue", FollowupMode, cmd, _ok, _err)
 
             # ── Compaction ───────────────────────────────────────────────────
 
             case "compact":
                 instructions = cmd.get("customInstructions")
                 agent = runtime.agent
-                result_data: dict | None = None
-                if agent is not None:
-                    compact_fn = getattr(agent, "compact", None)
-                    if callable(compact_fn):
-                        import inspect
-
-                        result = compact_fn(custom_instructions=instructions)
-                        if inspect.isawaitable(result):
-                            compaction_result = await result
-                            if compaction_result is not None:
-                                result_data = {
-                                    "summary": getattr(compaction_result, "summary", ""),
-                                    "firstKeptEntryId": getattr(
-                                        compaction_result, "first_kept_entry_id", None
-                                    ),
-                                    "tokensBefore": getattr(
-                                        compaction_result, "tokens_before", None
-                                    ),
-                                }
-                _ok(result_data)
+                if agent is None:
+                    _err("No active agent")
+                    return
+                compact_fn: Any = getattr(agent, "compact", None)
+                if not callable(compact_fn):
+                    _err("Compaction is not available")
+                    return
+                # compact() returns a bool, not a result object — the summary and
+                # token counts live on the compaction_end event and the session's
+                # CompactionEntry.
+                compacted = bool(await compact_fn(custom_instructions=instructions))
+                if not compacted:
+                    _err("Compaction failed — see compaction_failure event or the session log")
+                    return
+                _ok({"compacted": True, **_last_compaction(runtime.session_manager)})
 
             case "set_auto_compaction":
                 enabled = bool(cmd.get("enabled", True))
@@ -838,16 +945,22 @@ async def _handle_command(
                     set_fn = getattr(settings, "set_retry_enabled", None)
                     if callable(set_fn):
                         set_fn(enabled)
-                _ok()
+                # Settings only take effect when an LLM is constructed, so apply
+                # the change to the live one too.
+                agent = runtime.agent
+                llm = agent._engine.llm if agent is not None else None
+                options = getattr(getattr(llm, "api", None), "options", None)
+                if options is not None and settings is not None:
+                    options.max_retries = settings.get_retry_max_retries() if enabled else 0
+                _ok({"enabled": enabled})
 
             case "abort_retry":
-                # Abort any in-progress retry delay
+                # Cut short a retry backoff so the call fails now.
                 agent = runtime.agent
-                if agent is not None:
-                    abort_fn = getattr(agent, "abort_retry", None)
-                    if callable(abort_fn):
-                        abort_fn()
-                _ok()
+                llm = agent._engine.llm if agent is not None else None
+                abort_fn = getattr(llm, "abort_retry", None)
+                aborted = bool(abort_fn()) if callable(abort_fn) else False
+                _ok({"aborted": aborted})
 
             # ── Terminal ─────────────────────────────────────────────────────────
 
@@ -863,13 +976,9 @@ async def _handle_command(
                 _ok()
 
             case "abort_terminal":
-                # Abort a running terminal subprocess if possible
-                agent = runtime.agent
-                if agent is not None:
-                    abort_fn = getattr(agent, "abort_terminal", None)
-                    if callable(abort_fn):
-                        abort_fn()
-                _ok()
+                abort_fn = getattr(runtime, "abort_terminal", None)
+                aborted = bool(abort_fn()) if callable(abort_fn) else False
+                _ok({"aborted": aborted})
 
             # ── Session ──────────────────────────────────────────────────────
 
@@ -891,20 +1000,7 @@ async def _handle_command(
                         user_count += 1
                     elif isinstance(e.message, AssistantMessage):
                         asst_count += 1
-                agent = runtime.agent
-                context_usage = None
-                if agent is not None:
-                    stats_engine = getattr(agent, "_engine", None)
-                    usage = getattr(stats_engine, "context_usage", None) if stats_engine else None
-                    if usage is not None:
-                        tokens = getattr(usage, "tokens", None)
-                        window = getattr(usage, "context_window", None) or 0
-                        percent = (tokens / window * 100) if (tokens and window) else None
-                        context_usage = {
-                            "tokens": tokens,
-                            "contextWindow": window,
-                            "percent": percent,
-                        }
+                context_usage = _context_usage(runtime.agent)
                 _ok(
                     {
                         "sessionFile": str(getattr(sm, "session_file", "") or ""),
@@ -918,8 +1014,20 @@ async def _handle_command(
                 )
 
             case "export_html":
-                # HTML export is not implemented; return a not-supported error
-                _err("export_html is not supported in this build")
+                sm = runtime.session_manager
+                if sm is None:
+                    _err("No active session")
+                    return
+                output_path = cmd.get("outputPath") or cmd.get("output_path")
+                if not output_path:
+                    _err("'outputPath' is required")
+                    return
+                from tau.session.export import export_session_html
+
+                # Rendering walks the whole branch and writes a file — keep both
+                # off the event loop so a long transcript doesn't stall events.
+                written = await asyncio.to_thread(export_session_html, sm, output_path)
+                _ok({"path": str(written)})
 
             case "switch_session":
                 path = cmd.get("sessionPath", "") or cmd.get("path", "")
@@ -1019,13 +1127,17 @@ async def _handle_command(
                 _ok({"text": text or None})
 
             case "set_session_name":
-                name = cmd.get("name", "")
+                name = str(cmd.get("name", "")).strip()
+                if not name:
+                    _err("'name' is required")
+                    return
                 sm = runtime.session_manager
-                if sm is not None:
-                    set_name_fn = getattr(sm, "set_name", None)
-                    if callable(set_name_fn):
-                        set_name_fn(name)
-                _ok()
+                if sm is None:
+                    _err("No active session")
+                    return
+                # The name is a session entry, not a mutable field.
+                await asyncio.to_thread(sm.append_session_info, name)
+                _ok({"name": name})
 
             # ── Messages ─────────────────────────────────────────────────────
 

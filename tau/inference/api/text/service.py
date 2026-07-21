@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
@@ -79,6 +80,9 @@ class TextLLM:
         self.requested_model_id = model_id
         self.requested_provider_id = provider
         self.fallback_reason: str | None = None
+        # Set by abort_retry() to cut a backoff short; cleared at the start of
+        # every invoke()/stream() so a past abort can't poison the next call.
+        self._retry_abort = asyncio.Event()
 
         _models = models if models is not None else type(self)._builtin_models()
         _providers = providers if providers is not None else type(self)._builtin_providers()
@@ -277,6 +281,46 @@ class TextLLM:
         """
         return context.messages
 
+    def _retry_flag(self) -> asyncio.Event:
+        """The retry-abort flag, created on first use.
+
+        Lazy rather than set in ``__init__`` because instances are also built
+        via ``object.__new__`` (tests, and any caller assembling an LLM by hand).
+        """
+        event = getattr(self, "_retry_abort", None)
+        if event is None:
+            event = asyncio.Event()
+            self._retry_abort = event
+        return event
+
+    def abort_retry(self) -> bool:
+        """Cut a retry backoff short so the call fails now instead of retrying.
+
+        Returns ``False`` when no backoff is waiting on the flag. The in-flight
+        request is not cancelled — this only stops the *waiting* between
+        attempts and surfaces the error that triggered the retry.
+        """
+        flag = self._retry_flag()
+        if flag.is_set():
+            return False
+        flag.set()
+        return True
+
+    async def _retry_delay(self, seconds: float) -> bool:
+        """Wait out one retry backoff.
+
+        Returns ``True`` when the full delay elapsed (keep retrying) and
+        ``False`` when :meth:`abort_retry` cut it short.
+        """
+        flag = self._retry_flag()
+        if flag.is_set():
+            return False
+        try:
+            await asyncio.wait_for(flag.wait(), seconds)
+        except TimeoutError:
+            return True
+        return False
+
     async def stream(self, context: LLMContext) -> AsyncGenerator[LLMEvent, None]:
         """Stream LLM events from the configured provider API.
 
@@ -291,8 +335,6 @@ class TextLLM:
         Yields:
             LLMEvent objects (TextDeltaEvent, ToolCallEndEvent, EndEvent, ErrorEvent, etc.).
         """
-        import asyncio
-
         from tau.inference.types import (
             ErrorEvent,
             RetryEvent,
@@ -329,6 +371,7 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
+        self._retry_flag().clear()
         model_name = getattr(self.model, "name", getattr(self.model, "id", "unknown"))
         _log.debug("stream: provider=%s model=%s", self.provider_id, model_name)
         while True:
@@ -358,7 +401,12 @@ class TextLLM:
                     yield RetryEvent(
                         attempt=attempt + 1, max_retries=max_retries, error="empty response"
                     )
-                    await asyncio.sleep(base_delay_s * (2**attempt))
+                    if not await self._retry_delay(base_delay_s * (2**attempt)):
+                        yield ErrorEvent(
+                            reason=StopReason.Error,
+                            error=f"Empty response from {self.provider_id}; retry aborted.",
+                        )
+                        return
                     attempt += 1
                     continue
                 if not received_content and not received_error:
@@ -431,7 +479,11 @@ class TextLLM:
                     max_retries,
                 )
                 yield RetryEvent(attempt=attempt + 1, max_retries=max_retries, error=str(e))
-                await asyncio.sleep(get_retry_after_delay(e, base_delay_s * (2**attempt)))
+                if not await self._retry_delay(
+                    get_retry_after_delay(e, base_delay_s * (2**attempt))
+                ):
+                    yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                    return
                 attempt += 1
 
     async def invoke(
@@ -439,8 +491,6 @@ class TextLLM:
         context: LLMContext,
         thinking_level: ThinkingLevel | None = None,
     ) -> list[LLMEvent]:
-        import asyncio
-
         from tau.inference.types import ErrorEvent, StopReason, ThinkingLevel
         from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
 
@@ -472,6 +522,7 @@ class TextLLM:
 
         attempt = 0
         oauth_recovery_attempted = False
+        self._retry_flag().clear()
         model_name = getattr(self.model, "name", getattr(self.model, "id", "unknown"))
         _log.debug("invoke: provider=%s model=%s", self.provider_id, model_name)
         try:
@@ -497,7 +548,17 @@ class TextLLM:
                             attempt + 1,
                             max_retries,
                         )
-                        await asyncio.sleep(base_delay_s * (2**attempt))
+                        if not await self._retry_delay(base_delay_s * (2**attempt)):
+                            return [
+                                *events,
+                                ErrorEvent(
+                                    reason=StopReason.Error,
+                                    error=(
+                                        f"Empty response from {self.provider_id};"
+                                        " retry aborted."
+                                    ),
+                                ),
+                            ]
                         attempt += 1
                         continue
 
@@ -571,7 +632,12 @@ class TextLLM:
                         attempt + 1,
                         max_retries,
                     )
-                    await asyncio.sleep(get_retry_after_delay(e, base_delay_s * (2**attempt)))
+                    if not await self._retry_delay(
+                        get_retry_after_delay(e, base_delay_s * (2**attempt))
+                    ):
+                        return [
+                            ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                        ]
                     attempt += 1
         finally:
             self.api.options.thinking_level = original

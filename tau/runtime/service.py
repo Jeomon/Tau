@@ -5,7 +5,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tau.agent.service import Agent
 from tau.agent.types import AgentPhase, PromptOptions
@@ -83,6 +83,8 @@ class Runtime:
         self._layout: Layout | None = None
         self._extension_ui_refresh: Callable[[], None] | None = None
         self._extension_ui_bridge: object | None = None
+        self._terminal_proc: Any = None
+        self._terminal_aborted: bool = False
         self._on_extension_error: Callable[[object], None] | None = None
         self._shutdown_handler: Callable[[], None] | None = None
         self._stopped: bool = False
@@ -485,6 +487,7 @@ class Runtime:
         exit_code: int | None = None
         cancelled = False
         cwd = str(self._context.session_manager.cwd)
+        self._terminal_aborted = False
 
         # Let extensions intercept before the shell runs
         terminal_results = await self._context.hooks.emit(
@@ -516,6 +519,8 @@ class Runtime:
                 stderr=STDOUT,
                 cwd=cwd,
             )
+            # Published so abort_terminal() can reach the running shell.
+            self._terminal_proc = proc
             if proc.stdout is not None:
                 async for line in proc.stdout:
                     msg.output += line.decode(errors="replace")
@@ -531,10 +536,11 @@ class Runtime:
                     proc.kill()
                 with contextlib.suppress(Exception):
                     await proc.wait()
+            self._terminal_proc = None
 
         msg.output = msg.output.rstrip()
         msg.exit_code = exit_code
-        msg.cancelled = cancelled
+        msg.cancelled = cancelled or self._terminal_aborted
 
         sm = self._context.session_manager
         if sm is not None:
@@ -543,6 +549,21 @@ class Runtime:
             await asyncio.to_thread(sm.append_message, msg)
 
         await self._context.hooks.emit(TerminalExecutionEvent(message=msg, streaming=False))
+
+    def abort_terminal(self) -> bool:
+        """Kill the shell command started by :meth:`execute_terminal`.
+
+        Returns ``False`` when nothing is running. The command's partial output
+        is still persisted and its events still fire — the message is just
+        marked cancelled.
+        """
+        proc = self._terminal_proc
+        if proc is None or proc.returncode is not None:
+            return False
+        self._terminal_aborted = True
+        with contextlib.suppress(ProcessLookupError, OSError):
+            proc.kill()
+        return True
 
     async def invoke(
         self,

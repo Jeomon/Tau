@@ -414,3 +414,51 @@ class TestTerminalEmptyResponse:
             assert not any(isinstance(e, ErrorEvent) for e in result)
 
         asyncio.run(_run())
+
+
+class TestAbortRetry:
+    """abort_retry() cuts the backoff short instead of waiting it out."""
+
+    def test_stream_abort_during_backoff_surfaces_the_error(self):
+        async def _run():
+            # A long backoff: without the abort this would take 30s.
+            llm, call_count = _make_stream_llm(
+                [RuntimeError("503 service unavailable")] * 3, max_retries=3
+            )
+            llm.api.options.retry_base_delay_ms = 30_000
+
+            events = []
+
+            async def _collect():
+                async for event in llm.stream(_context()):
+                    events.append(event)
+                    if isinstance(event, RetryEvent):
+                        llm.abort_retry()
+
+            await asyncio.wait_for(_collect(), timeout=5)
+
+            assert any(isinstance(e, RetryEvent) for e in events)
+            error = next(e for e in events if isinstance(e, ErrorEvent))
+            assert "503" in error.error
+            assert call_count["n"] == 1  # never retried
+
+        asyncio.run(_run())
+
+    def test_abort_flag_is_cleared_between_calls(self):
+        async def _run():
+            llm, call_count = _make_stream_llm(
+                [[StartEvent(), EndEvent()], [StartEvent(), _text_end("hello")]]
+            )
+            llm.abort_retry()
+            # First call sees the stale flag cleared on entry, so the empty
+            # response still retries normally.
+            events = await _collect_stream(llm, _context())
+            assert call_count["n"] == 2
+            assert any(isinstance(e, TextEndEvent) for e in events)
+
+        asyncio.run(_run())
+
+    def test_abort_retry_reports_whether_it_did_anything(self):
+        llm, _ = _make_stream_llm([[StartEvent(), EndEvent()]])
+        assert llm.abort_retry() is True
+        assert llm.abort_retry() is False  # already set

@@ -131,33 +131,33 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 
 | Command | Fields | Response `data` |
 |---------|--------|-----------------|
-| `prompt` | `message`, `streamingBehavior?` | — |
-| `steer` | `message` | — |
-| `follow_up` | `message` | — |
+| `prompt` | `message?`, `attachments?`, `streamingBehavior?` | — |
+| `steer` | `message?`, `attachments?` | — |
+| `follow_up` | `message?`, `attachments?` | — |
 | `abort` | — | — |
 | `new_session` | `parentSession?` | `{cancelled}` |
 | `get_state` | — | session state object |
 | `set_model` | `modelId`, `provider?` | `{id, provider}` or `null` |
 | `cycle_model` | — | `{model}` or `null` |
 | `get_available_models` | — | `{models}` |
-| `set_thinking_level` | `level` | — |
-| `cycle_thinking_level` | — | `{level}` or `null` |
-| `set_steering_mode` | `mode` | — |
-| `set_follow_up_mode` | `mode` | — |
-| `compact` | `customInstructions?` | compaction fields or `null` |
+| `set_thinking_level` | `level` | `{level}` |
+| `cycle_thinking_level` | — | `{level}` |
+| `set_steering_mode` | `mode` | `{mode}` |
+| `set_follow_up_mode` | `mode` | `{mode}` |
+| `compact` | `customInstructions?` | `{compacted, summary, firstKeptEntryId, tokensBefore}` |
 | `set_auto_compaction` | `enabled` | — |
-| `set_auto_retry` | `enabled` | — |
-| `abort_retry` | — | — |
+| `set_auto_retry` | `enabled` | `{enabled}` |
+| `abort_retry` | — | `{aborted}` |
 | `terminal` | `command`, `excludeFromContext?` | — |
-| `abort_terminal` | — | — |
+| `abort_terminal` | — | `{aborted}` |
 | `get_session_stats` | — | stats object |
-| `export_html` | `outputPath?` | always fails |
+| `export_html` | `outputPath` | `{path}` |
 | `switch_session` | `sessionPath` | `{cancelled}` |
 | `fork` | `entryId`, `position?` | `{text, cancelled}` |
 | `clone` | — | `{cancelled}` |
 | `get_fork_messages` | — | `{messages}` |
 | `get_last_assistant_text` | — | `{text}` |
-| `set_session_name` | `name` | — |
+| `set_session_name` | `name` | `{name}` |
 | `get_messages` | — | `{messages}` |
 | `get_commands` | — | `{commands}` |
 | `extension_ui_response` | `value?`, `confirmed?`, `cancelled?` | no response line |
@@ -276,8 +276,11 @@ If starting the session raises, the error is logged and the response reports `{"
     "thinkingLevel": "medium",
     "isStreaming": false,
     "isCompacting": false,
+    "steeringMode": "all",
+    "followUpMode": "all",
     "sessionFile": "/home/user/.tau/sessions/20260720_0f9c1c4a.jsonl",
     "sessionId": "0f9c1c4a",
+    "sessionName": "ide-session",
     "autoCompactionEnabled": true,
     "messageCount": 4,
     "pendingMessageCount": 0
@@ -289,15 +292,16 @@ If starting the session raises, the error is logged and the response reports `{"
 |-------|------|-------|
 | `model` | object \| null | Only `id` and `provider`, not the full model descriptor |
 | `thinkingLevel` | string \| null | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
-| `isStreaming` | bool | Always `false` — see [Known Gaps](#known-gaps) |
-| `isCompacting` | bool | Hard-coded `false` |
+| `isStreaming` | bool | True while a turn is in flight |
+| `isCompacting` | bool | True while the agent is compacting |
+| `steeringMode` | string \| null | `all` or `one-at-a-time` |
+| `followUpMode` | string \| null | `all` or `one-at-a-time` |
 | `sessionFile` | string \| null | Empty string when the session is ephemeral |
 | `sessionId` | string \| null | |
+| `sessionName` | string \| null | Most recent name set via `set_session_name` |
 | `autoCompactionEnabled` | bool | From the agent's compaction config |
 | `messageCount` | int | Message entries on the active branch |
-| `pendingMessageCount` | int | Hard-coded `0` |
-
-The `RpcSessionState` type additionally declares `steeringMode`, `followUpMode`, and `sessionName`; the handler does not emit them.
+| `pendingMessageCount` | int | Steering plus follow-up messages waiting |
 
 #### get_messages
 
@@ -341,12 +345,12 @@ Text is the concatenation of every content block exposing a string `content` fie
     "assistantMessages": 2,
     "totalMessages": 4,
     "cwd": "/home/user/project",
-    "contextUsage": null
+    "contextUsage": {"tokens": 8214, "contextWindow": 200000, "percent": 4.1}
   }
 }
 ```
 
-`totalMessages` counts only user plus assistant messages. When there is no session manager, the payload degrades to `{"sessionId": null, "totalMessages": 0, "cwd": null}`. `contextUsage` is always `null` in the current implementation — see [Known Gaps](#known-gaps).
+`totalMessages` counts only user plus assistant messages. When there is no session manager, the payload degrades to `{"sessionId": null, "totalMessages": 0, "cwd": null}`. `contextUsage` is `null` until the first turn reports usage.
 
 #### get_last_assistant_text
 
@@ -376,7 +380,9 @@ Returns `{"text": null}` when there is no assistant message.
 
 `data` is `null` if there is no agent to read the new model back from.
 
-The swap returns a boolean internally and the handler ignores it, so an unknown model id or a provider with missing credentials still answers `success: true` — with `data` reporting the model that is *still* active. Compare the returned `id` and `provider` against what you asked for to detect a failed switch.
+A failed swap — unknown model id, missing credentials for its provider, no active agent — answers `success: false`; the previously active model stays in place.
+
+Only safe to call while the agent is idle.
 
 #### cycle_model
 
@@ -407,13 +413,13 @@ Lists every text model whose provider has usable authentication.
   "success": true,
   "data": {
     "models": [
-      {"id": "claude-sonnet-4-5", "provider": "anthropic", "name": "Claude Sonnet 4.5", "contextWindow": null}
+      {"id": "claude-sonnet-4-5", "provider": "anthropic", "name": "Claude Sonnet 4.5", "contextWindow": 200000}
     ]
   }
 }
 ```
 
-`contextWindow` is always `null`: the handler reads a `context_length` attribute that the model type does not define. The real field is `context_window`.
+`contextWindow` is the model's declared context window, or `null` when the model metadata does not carry one.
 
 #### set_thinking_level
 
@@ -422,10 +428,12 @@ Lists every text model whose provider has usable authentication.
 ```
 
 ```json
-{"type": "response", "command": "set_thinking_level", "success": true}
+{"type": "response", "command": "set_thinking_level", "success": true, "data": {"level": "high"}}
 ```
 
-Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. An invalid level produces a failure response. A valid level currently has no effect — see [Known Gaps](#known-gaps).
+Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. An unknown level, or having no active model, produces a failure response.
+
+The level is applied to the live model for the rest of the session; it is not persisted to settings. `data.level` reports what was actually applied, which may differ from what you asked for: a level the model does not support is clamped to its nearest supported one.
 
 #### cycle_thinking_level
 
@@ -437,7 +445,7 @@ Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ult
 {"type": "response", "command": "cycle_thinking_level", "success": true, "data": {"level": "high"}}
 ```
 
-`data` is `null` when the level could not be determined.
+Cycles through the levels *this model* supports, wrapping around, and reports the new one. Fails when there is no active model, or when the model supports no thinking levels at all.
 
 ### Queue Modes
 
@@ -449,10 +457,10 @@ Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ult
 ```
 
 ```json
-{"type": "response", "command": "set_steering_mode", "success": true}
+{"type": "response", "command": "set_steering_mode", "success": true, "data": {"mode": "one-at-a-time"}}
 ```
 
-`mode` is `"all"` or `"one-at-a-time"`; hyphens are converted to underscores to match the internal enum, so `"one_at_a_time"` is also accepted. Both commands currently no-op — see [Known Gaps](#known-gaps).
+`mode` is `"all"` or `"one-at-a-time"`; hyphens are converted to underscores to match the internal enum, so `"one_at_a_time"` is also accepted. An unrecognised mode fails, as does having no active agent. The change applies to the running session's queue immediately.
 
 ### Compaction and Retry
 
@@ -463,10 +471,10 @@ Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ult
 ```
 
 ```json
-{"type": "response", "command": "compact", "success": true, "data": {"summary": "", "firstKeptEntryId": null, "tokensBefore": null}}
+{"type": "response", "command": "compact", "success": true, "data": {"compacted": true, "summary": "Discussed the RPC protocol…", "firstKeptEntryId": "e42", "tokensBefore": 154203}}
 ```
 
-Compaction itself runs. The `data` fields are read from the return value of the agent's `compact()`, which is a boolean, so `summary` is always `""` and the other two are always `null`. Use the `compaction_end` event for real numbers.
+The summary and token count are read back from the session's compaction entry after the run. A failed compaction answers `success: false`; watch `compaction_failure` for the reason.
 
 #### set_auto_compaction
 
@@ -487,10 +495,10 @@ Flips the agent's compaction config for the running process.
 ```
 
 ```json
-{"type": "response", "command": "set_auto_retry", "success": true}
+{"type": "response", "command": "set_auto_retry", "success": true, "data": {"enabled": true}}
 ```
 
-Writes through to the settings manager's retry toggle.
+Writes through to the settings manager's retry toggle *and* to the live model, so the change takes effect on the next request rather than only on the next session.
 
 #### abort_retry
 
@@ -499,10 +507,10 @@ Writes through to the settings manager's retry toggle.
 ```
 
 ```json
-{"type": "response", "command": "abort_retry", "success": true}
+{"type": "response", "command": "abort_retry", "success": true, "data": {"aborted": true}}
 ```
 
-Looks for an `abort_retry` method on the agent; there is none, so this is a no-op that always succeeds.
+Cuts short the backoff between inference retries so the call fails now instead of waiting out the delay; the underlying provider error is then surfaced as an `agent_error` event. `data.aborted` is `false` when no backoff was waiting. The in-flight HTTP request is not cancelled — use `abort` for that.
 
 ### Terminal
 
@@ -528,7 +536,11 @@ The response carries no `data` — output arrives as events instead. `terminal_e
 {"type": "abort_terminal"}
 ```
 
-Looks for an `abort_terminal` method on the agent; there is none, so this is a no-op that always succeeds.
+```json
+{"type": "response", "command": "abort_terminal", "success": true, "data": {"aborted": true}}
+```
+
+Kills the shell command started by `terminal`. `data.aborted` is `false` when nothing is running. Partial output is still persisted and the closing `terminal_execution` event still fires, with the message marked cancelled.
 
 ### Session
 
@@ -601,22 +613,24 @@ Every user message on the active branch, with the entry id to pass back to `fork
 ```
 
 ```json
-{"type": "response", "command": "set_session_name", "success": true}
+{"type": "response", "command": "set_session_name", "success": true, "data": {"name": "refactor-auth"}}
 ```
 
-Looks for a `set_name` method on the session manager; there is none, so this is a no-op. Set the name at launch with `--name` instead.
+The name is appended to the session as an entry, so renaming is part of the session history and the latest name wins. Surrounding whitespace is trimmed; an empty name is an error. `get_state.sessionName` reads it back.
 
 #### export_html
 
-Declared in the protocol types but not implemented.
+Writes the active branch's transcript to a standalone HTML file — no external CSS, JS, or fonts, so it can be opened straight from disk or attached to a ticket. `outputPath` is required; missing parent directories are created.
 
 ```json
-{"type": "export_html"}
+{"type": "export_html", "outputPath": "/tmp/session.html"}
 ```
 
 ```json
-{"type": "response", "command": "export_html", "success": false, "error": "export_html is not supported in this build"}
+{"type": "response", "command": "export_html", "success": true, "data": {"path": "/tmp/session.html"}}
 ```
+
+The export covers user and assistant text, thinking blocks, tool calls and results, and terminal commands. Media attachments are noted but not inlined, so the file stays small.
 
 ### Commands Discovery
 
@@ -842,9 +856,13 @@ A failed command returns a response with `success: false` and an `error` string.
 |-----------|----------|
 | Malformed JSON line | `{"type": "response", "command": "parse", "success": false, "error": "Failed to parse command: …"}` |
 | Unknown `type` | `error: "Unknown command type: '<type>'"` |
-| Missing required field | e.g. `"'message' is required"`, `"'modelId' is required"`, `"'command' is required"`, `"'entryId' is required"`, `"'sessionPath' is required"` |
-| No agent for `steer`/`follow_up` | `"No active agent"` |
-| No session for `clone` | `"No active session"` |
+| Missing required field | e.g. `"'message' is required"`, `"'modelId' is required"`, `"'command' is required"`, `"'entryId' is required"`, `"'sessionPath' is required"`, `"'name' is required"`, `"'outputPath' is required"` |
+| Invalid enum value | `"Unknown thinking level: '<level>'"`, `"Unknown mode: '<mode>'"` |
+| No agent for `steer`/`follow_up`, queue modes, `compact` | `"No active agent"` |
+| No model for the thinking-level commands | `"No active model"` |
+| Failed model switch | `"Could not switch to '<id>' — unknown model, missing credentials, or no active agent"` |
+| Prompt sent mid-turn without `streamingBehavior` | `"Agent is streaming; specify streamingBehavior: 'steer' or 'followUp'"` |
+| No session for `clone`, `set_session_name`, `export_html` | `"No active session"` |
 | Unhandled exception in a handler | `error` is `str(exception)` |
 
 A parse error is reported with `command: "parse"` and never has an `id`, since the id could not be read. Parse errors do not terminate the loop — the next line is processed normally.
@@ -853,21 +871,17 @@ Note the asymmetry in a few handlers: `new_session` reports internal failure as 
 
 ## Known Gaps
 
-Verified against the implementation. These commands accept input and answer `success: true`, but do not change state.
+Verified against the implementation.
 
 | Command / field | Behaviour | Cause |
 |-----------------|-----------|-------|
-| `set_thinking_level` / `cycle_thinking_level` | No effect on the model | The handler calls `set_thinking_level` on the LLM object, which does not define it |
-| `set_steering_mode` / `set_follow_up_mode` | No effect | The queues live on `engine.state`, not on `engine` where the handler looks |
-| `set_session_name` | No effect | The session manager has no `set_name` method |
-| `abort_retry`, `abort_terminal` | No effect | The agent has no such methods |
-| `compact` response `data` | `summary` `""`, `firstKeptEntryId` and `tokensBefore` `null` | The agent's `compact()` returns a bool, not a result object |
-| `get_session_stats.contextUsage` | Always `null` | The handler reads `context_usage` off the engine; the real accessor is the agent's `get_context_usage()` |
-| `get_available_models[].contextWindow` | Always `null` | The handler reads `context_length`; the field is `context_window` |
-| `set_model` | Reports `success: true` even when the switch failed | The handler ignores the boolean result and reads the (unchanged) active model back |
-| `export_html` | Always fails | Not implemented |
+| `new_session` | Reports internal failure as `success: true` with `data.cancelled: true` | Deliberate: mirrors the interactive flow, where the user can decline |
+| `new_session.parentSession` | Accepted by the schema, ignored by the handler | Not wired |
+| `cycle_model` | Swallows lookup failures and answers `success: true` with `data: null` | The handler catches broadly; use `set_model` when you need a definite answer |
+| `get_entries` / `get_tree` | Not implemented | Present in the reference implementation; use `get_messages` |
+| Extension `ui` methods | `notify`, `setStatus`, `setWidget`, `setTitle`, `set_editor_text` are part of the protocol but no extension can trigger them in RPC mode | `ctx.ui` is TUI-only; only `ctx.select`/`ctx.confirm` are bridged |
 
-Use `abort` (which does work, via the agent's `abort()`), the `compaction_end` event, and launch flags such as `--effort` and `--name` as the reliable alternatives.
+Everything else on this page is wired to the real API and reports failure honestly. Commands that cannot do their job answer `success: false` with a reason rather than a hollow `success: true` — the [Error Handling](#error-handling) table lists the common messages.
 
 ## Worked Example Session
 
