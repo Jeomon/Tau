@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
+from tau.tui.layout import Alignment
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.utils import rule
+from tau.tui.widgets.tabs import Tabs
 from tau.utils.format import human_size
 
 if TYPE_CHECKING:
@@ -303,22 +305,23 @@ class ResumeSelector:
             text(rule(area.width), t.border)
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
-        write(
-            [
-                Span("  "),
-                Span(
-                    "[Folder]" if self._scope == "current" else "Folder",
-                    t.emphasis if self._scope == "current" else t.muted,
-                ),
-                Span("  "),
-                Span(
-                    "[All]" if self._scope == "all" else "All",
-                    t.emphasis if self._scope == "all" else t.muted,
-                ),
-                Span("    "),
-                Span(f"Sort: {self._SORT_LABELS[self._sort_idx]}", t.muted),
-            ]
+        # The scope switcher is a two-tab strip, so it uses the shared Tabs
+        # widget; the sort mode is not a tab and sits right-aligned beside it.
+        buf.grow_to(row + 1)
+        Tabs(
+            titles=["Folder", "All"],
+            selected=0 if self._scope == "current" else 1,
+            style=t.muted,
+            highlight_style=t.emphasis,
+            padding_left=1,
+            padding_right=1,
+        ).render(Rect(area.x + 2, row, max(area.width - 2, 1), 1), buf)
+        sort_line = Line(
+            [Span(f"Sort: {self._SORT_LABELS[self._sort_idx]}  ", t.muted)],
+            alignment=Alignment.RIGHT,
         )
+        buf.set_line(area.x, row, sort_line, area.width)
+        row += 1
         divider()
 
         # ── Search box ─────────────────────────────────────────────────────────

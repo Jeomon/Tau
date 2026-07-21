@@ -13,6 +13,7 @@ from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.utils import is_window_focused, rule
+from tau.tui.widgets.tabs import Tabs
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -360,17 +361,18 @@ class SettingsSelector:
 
         # ── Tab bar ────────────────────────────────────────────────────────────
         if self._tabs:
-            spans = [Span("  ")]
-            for i, (label, _) in enumerate(self._tabs):
-                if i:
-                    spans.append(Span("  "))
-                spans.append(
-                    Span(
-                        f"[{label}]" if i == self._active_tab else label,
-                        t.emphasis if i == self._active_tab else t.muted,
-                    )
-                )
-            write(spans)
+            # Same strip the ask_user dialog uses: the active tab is marked by
+            # style, not by wrapping its label in brackets.
+            buf.grow_to(row + 1)
+            Tabs(
+                titles=[label for label, _ in self._tabs],
+                selected=self._active_tab,
+                style=t.muted,
+                highlight_style=t.emphasis,
+                padding_left=1,
+                padding_right=1,
+            ).render(Rect(area.x + 2, row, max(area.width - 2, 1), 1), buf)
+            row += 1
         elif self._title:
             text(self._title, t.emphasis, "  ")
         divider()
