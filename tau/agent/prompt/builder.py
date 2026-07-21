@@ -133,9 +133,8 @@ def load_project_context_files(
 
 
 _DEFAULT_IDENTITY = """\
-You are an agentic coding assistant operating inside Tau, a coding agent harness. You help
-users understand and modify software by reading files, executing commands, editing code,
-and writing new files.
+You are Tau, an agentic coding assistant. You help users understand and modify software by
+reading files, executing commands, editing code, and writing new files.
 
 You have strong software engineering skills. You think carefully before making changes,
 and follow the existing style and conventions of the project.
@@ -526,19 +525,21 @@ class PromptBuilder:
         examples = get_examples_path()
 
         lines = [
-            "\n\nTau documentation (read only when the user asks about Tau itself — how to"
-            " extend it, embed it, or configure its resources):",
+            "\n\n# Tau Documentation\n",
+            "When the user asks about extending, embedding, or configuring Tau itself, read the"
+            " relevant file below before answering. Answer from the docs, not from prior"
+            " knowledge about other coding agents — their extension, skill, and configuration"
+            " systems do not apply to Tau.\n",
         ]
         if readme.is_file():
             lines.append(f"- README: {readme}")
         lines.append(f"- Docs directory: {docs}")
         if examples.is_dir():
             lines.append(f"- Examples directory: {examples} (extensions, custom tools, skills)")
+        lines.append("\nRead the matching file when the user asks about:")
+        lines.extend(f"- {title} — {docs}/{name}" for title, name in topics)
         lines.append(
-            "- When asked about: " + ", ".join(f"{title} (docs/{name})" for title, name in topics)
-        )
-        lines.append(
-            "- For any other Tau topic — usage, settings, sessions, installation, CLI flags,"
+            "\n- For any other Tau topic — usage, settings, sessions, installation, CLI flags,"
             " providers, architecture — list the docs directory above and read the relevant file"
         )
         lines.append(

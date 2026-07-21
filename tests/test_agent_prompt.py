@@ -127,7 +127,17 @@ class TestPromptBuilderIdentity:
         builder = PromptBuilder(_opts(tmp_path))
         prompt = builder.build()
         assert _DEFAULT_IDENTITY in prompt
-        assert prompt.startswith("You are an agentic coding assistant operating inside Tau,")
+        assert prompt.startswith("You are Tau, an agentic coding assistant.")
+
+    def test_default_identity_disowns_oauth_claude_code_block(self, tmp_path):
+        """The Claude Code OAuth adapter prepends a "You are Claude Code" system block it
+        cannot drop (see inference/api/text/anthropic_claude_code.py). Tau's identity is the
+        last system block, so it must explicitly disown that one or the model answers as
+        Claude Code — guessing at MCP servers and ~/.claude config instead of reading
+        Tau's own docs."""
+        prompt = PromptBuilder(_opts(tmp_path)).build()
+        assert "provider compatibility artifact" in prompt
+        assert "You are Tau" in prompt
 
     def test_identity_prompt_overrides_identity(self, tmp_path):
         builder = PromptBuilder(_opts(tmp_path, identity_prompt="Custom identity."))
@@ -407,12 +417,12 @@ class TestDocsAndSkillsRequireReadTool:
 
     def test_docs_section_omitted_without_read_tool(self, tmp_path):
         prompt = PromptBuilder(_opts(tmp_path, tools=[WriteTool()])).build()
-        assert "Tau documentation" not in prompt
+        assert "# Tau Documentation" not in prompt
         assert "Read .md files completely" not in prompt
 
     def test_docs_section_present_with_read_tool(self, tmp_path):
         prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
-        assert "Tau documentation" in prompt
+        assert "# Tau Documentation" in prompt
 
     def test_docs_section_omitted_when_docs_absent(self, tmp_path, monkeypatch):
         """Wheel installs ship no docs/ — the section must not name unreachable paths."""
@@ -420,7 +430,7 @@ class TestDocsAndSkillsRequireReadTool:
             "tau.agent.prompt.builder.get_docs_dir", lambda: tmp_path / "definitely-absent"
         )
         prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
-        assert "Tau documentation" not in prompt
+        assert "# Tau Documentation" not in prompt
         assert "definitely-absent" not in prompt
 
 
@@ -449,11 +459,13 @@ class TestDocsSectionCuratedTopics:
 
     def test_lists_curated_topics_with_titles(self, tmp_path, monkeypatch):
         index = self._index([{"title": "Terminal UI", "path": "tui.md"}], ["tui.md"])
-        self._docs(tmp_path, monkeypatch, index=index, names=["tui.md"])
+        docs = self._docs(tmp_path, monkeypatch, index=index, names=["tui.md"])
 
         prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
 
-        assert "Terminal UI (docs/tui.md)" in prompt
+        # Absolute paths, one topic per line: the run-on comma list buried the entries
+        # mid-paragraph and left the model resolving "docs/tui.md" against cwd.
+        assert f"- Terminal UI — {docs}/tui.md" in prompt
 
     def test_omits_docs_not_in_agent_topics(self, tmp_path, monkeypatch):
         """A doc existing on disk and in the nav is still not named unless opted in."""
@@ -485,11 +497,11 @@ class TestDocsSectionCuratedTopics:
             [{"title": "Ghost", "path": "ghost.md"}, {"title": "Real", "path": "real.md"}],
             ["ghost.md", "real.md"],
         )
-        self._docs(tmp_path, monkeypatch, index=index, names=["real.md"])
+        docs = self._docs(tmp_path, monkeypatch, index=index, names=["real.md"])
 
         prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
 
-        assert "Real (docs/real.md)" in prompt
+        assert f"- Real — {docs}/real.md" in prompt
         assert "ghost.md" not in prompt
 
     def test_section_dropped_when_index_malformed(self, tmp_path, monkeypatch):
@@ -497,7 +509,7 @@ class TestDocsSectionCuratedTopics:
 
         prompt = PromptBuilder(_opts(tmp_path, tools=[ReadTool()])).build()
 
-        assert "Tau documentation" not in prompt
+        assert "# Tau Documentation" not in prompt
 
     def test_real_agent_topics_are_valid(self):
         """Every curated topic must exist on disk and in the navigation."""
