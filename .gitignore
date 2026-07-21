@@ -14,4 +14,7 @@ temp
 experiments
 
 # Locally-installed third-party MCP servers (cloned/built, not project source)
-.tau/mcp-servers/.auto/
+.tau/mcp-servers/
+
+# Local autoresearch session scaffolding (not part of shipped source)
+.auto/
