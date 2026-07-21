@@ -67,10 +67,40 @@ OverlayAnchor = Literal[
 ]
 
 
+# Anchor groupings for the two independent axes.
+_ANCHORS_TOP = frozenset({"top-left", "top-center", "top-right"})
+_ANCHORS_BOTTOM = frozenset({"bottom-left", "bottom-center", "bottom-right"})
+_ANCHORS_LEFT = frozenset({"top-left", "left-center", "bottom-left"})
+_ANCHORS_RIGHT = frozenset({"top-right", "right-center", "bottom-right"})
+
+
 def _parse_size(value: SizeValue, reference: int) -> int:
     """Resolve a SizeValue against a reference dimension."""
     if isinstance(value, str) and value.endswith("%"):
         return int(reference * float(value[:-1]) / 100.0)
+    return int(value)
+
+
+def _parse_position(
+    value: SizeValue,
+    reference: int,
+    extent: int,
+    margin_start: int,
+    margin_end: int,
+) -> int:
+    """Resolve an explicit ``row``/``col`` to a 0-indexed coordinate.
+
+    A percentage is a fraction of the **free space**, not of the terminal, so
+    ``"0%"`` hugs the leading margin, ``"100%"`` the trailing one, and ``"50%"``
+    centres — the overlay always lands fully on screen rather than relying on a
+    later clamp. Measuring against the terminal instead would make ``"50%"``
+    put the overlay's *top edge* at mid-screen, i.e. visually below centre.
+
+    An int is an absolute coordinate and is returned unchanged.
+    """
+    if isinstance(value, str) and value.endswith("%"):
+        free = max(0, reference - margin_start - margin_end - extent)
+        return margin_start + int(free * float(value[:-1]) / 100.0)
     return int(value)
 
 
@@ -291,44 +321,42 @@ class OverlayEntry:
         height = min(height, max_h)
 
         # ── Position via anchor ───────────────────────────────────────────
+        # Anchoring happens inside the margin box, not the raw terminal:
+        # centring a 10-row overlay in a 24-row terminal with a 6-row top
+        # margin belongs at row 10, not row 7. The two agree whenever the
+        # margins are symmetric, which is why only asymmetric ones show it.
+        avail_h = max(0, term_h - mt - mb)
+        avail_w = max(0, term_w - ml - mr)
+
+        # Grouped explicitly rather than by prefix/suffix: the names mix orders
+        # ("top-left" is vertical-first, "left-center" horizontal-first), so
+        # "left-center".endswith("center") would wrongly centre it.
         anchor = opt.anchor
-        if anchor == "top-left":
+        if anchor in _ANCHORS_TOP:
             row = mt
+        elif anchor in _ANCHORS_BOTTOM:
+            row = mt + avail_h - height
+        else:
+            row = mt + (avail_h - height) // 2
+
+        if anchor in _ANCHORS_LEFT:
             col = ml
-        elif anchor == "top-center":
-            row = mt
-            col = max(ml, (term_w - width) // 2)
-        elif anchor == "top-right":
-            row = mt
-            col = max(ml, term_w - width - mr)
-        elif anchor == "left-center":
-            row = max(mt, (term_h - height) // 2)
-            col = ml
-        elif anchor == "right-center":
-            row = max(mt, (term_h - height) // 2)
-            col = max(ml, term_w - width - mr)
-        elif anchor == "bottom-left":
-            row = max(mt, term_h - height - mb)
-            col = ml
-        elif anchor == "bottom-center":
-            row = max(mt, term_h - height - mb)
-            col = max(ml, (term_w - width) // 2)
-        elif anchor == "bottom-right":
-            row = max(mt, term_h - height - mb)
-            col = max(ml, term_w - width - mr)
-        else:  # "center" — default
-            row = max(mt, (term_h - height) // 2)
-            col = max(ml, (term_w - width) // 2)
+        elif anchor in _ANCHORS_RIGHT:
+            col = ml + avail_w - width
+        else:
+            col = ml + (avail_w - width) // 2
 
         # ── Explicit row/col overrides anchor ─────────────────────────────
         if opt.row is not None:
-            row = _parse_size(opt.row, term_h)
+            row = _parse_position(opt.row, term_h, height, mt, mb)
         if opt.col is not None:
-            col = _parse_size(opt.col, term_w)
+            col = _parse_position(opt.col, term_w, width, ml, mr)
 
-        # ── Fine-tune with offset ─────────────────────────────────────────
-        row = max(0, min(row + opt.offset_y, term_h - height))
-        col = max(0, min(col + opt.offset_x, term_w - width))
+        # ── Fine-tune with offset, then clamp inside the margins ──────────
+        # The margin is a hard minimum gap from each edge, so an offset may
+        # not slide the overlay through it and up against the terminal edge.
+        row = max(mt, min(row + opt.offset_y, term_h - mb - height))
+        col = max(ml, min(col + opt.offset_x, term_w - mr - width))
 
         return width, height, row, col
 
