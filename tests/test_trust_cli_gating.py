@@ -141,7 +141,7 @@ def _run_update_all(cwd: Path, config_dir: Path, monkeypatch: pytest.MonkeyPatch
     # event loop, so stub it out. Only the pip-facing call matters here.
     monkeypatch.setattr(SettingsManager, "update_package_version", lambda *a, **k: None)
     # `tau update --all` also upgrades tau itself; that is out of scope here.
-    monkeypatch.setattr(update_mod, "_update_tau", lambda: None)
+    monkeypatch.setattr(update_mod, "_update_tau", lambda *a, **k: None)
     monkeypatch.setattr(Path, "cwd", classmethod(lambda _cls: cwd))
     # Redirect the *global* config dir into tmp so the developer's own
     # ~/.tau/settings.json (and any project_trust policy in it) cannot decide the

@@ -22,14 +22,39 @@ if TYPE_CHECKING:
 @click.argument("name", required=False, default=None)
 @click.option("--all", "update_all", is_flag=True, help="Update Tau and all extension packages.")
 @click.option(
+    "--extensions",
+    "update_extensions",
+    is_flag=True,
+    help="Update all extension packages only (not Tau).",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Reinstall Tau even if the current version is already latest.",
+)
+@click.option(
     "--local", is_flag=True, default=False, help="Update in project scope instead of global."
 )
-def update(name: str | None, update_all: bool, local: bool) -> None:
-    """Update tau itself, or update an extension package by NAME."""
+def update(
+    name: str | None,
+    update_all: bool,
+    update_extensions: bool,
+    force: bool,
+    local: bool,
+) -> None:
+    """Update tau itself, all extensions, or a single extension package by NAME."""
     if update_all and name is not None:
         raise click.ClickException("NAME cannot be combined with --all.")
-    if name is None and not update_all:
-        _update_tau()
+    if update_extensions and name is not None:
+        raise click.ClickException("NAME cannot be combined with --extensions.")
+    if update_all and update_extensions:
+        raise click.ClickException("--all and --extensions cannot be combined.")
+    if force and (name is not None or update_extensions):
+        raise click.ClickException("--force only applies to updating Tau itself.")
+
+    # No target (and not --extensions) -> update Tau itself.
+    if name is None and not update_all and not update_extensions:
+        _update_tau(force=force)
         return
 
     from tau.packages.manager import PackageManager
@@ -37,29 +62,31 @@ def update(name: str | None, update_all: bool, local: bool) -> None:
     from tau.trust.manager import create_project_settings_manager
 
     cwd = Path.cwd()
-    venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
-    pkg_manager = PackageManager(venv_dir)
     # Project package entries carry an attacker-controllable `index_url` that is
     # passed straight to `pip install`, so they must not be read from an
     # untrusted project. Untrusted -> project settings are empty -> project
     # packages are simply absent from the update set.
     settings = create_project_settings_manager(cwd)
 
-    packages = settings.get_packages(local=local)
-    if update_all:
+    # Bulk update: --all (Tau + every package) or --extensions (packages only).
+    if update_all or update_extensions:
+        if update_all:
+            _update_tau(force=force)
         packages = settings.get_all_packages()
-        _update_tau()
-        if not packages:
-            return
         for pkg in packages:
             scope_local = any(p.name == pkg.name for p in settings.get_packages(local=True))
             manager = PackageManager(get_packages_venv(cwd if scope_local else None))
             _update_package(manager, settings, pkg.name, scope_local)
-        asyncio.run(settings.flush())
+        if packages:
+            asyncio.run(settings.flush())
+        elif update_extensions:
+            click.echo("No extension packages to update.")
         return
 
-    targets = [p for p in packages if p.name == name]
-
+    # Single named package.
+    venv_dir = get_packages_venv(cwd) if local else get_packages_venv()
+    pkg_manager = PackageManager(venv_dir)
+    targets = [p for p in settings.get_packages(local=local) if p.name == name]
     if not targets:
         raise click.ClickException(f"Package '{name}' not found.")
 
@@ -89,8 +116,12 @@ def _update_package(
         click.echo(click.style(f"✗ {name}: {exc}", fg="red"))
 
 
-def _update_tau() -> None:
-    """Upgrade tau itself using whichever installer manages this install."""
+def _update_tau(force: bool = False) -> None:
+    """Upgrade tau itself using whichever installer manages this install.
+
+    ``force`` reinstalls even when already on the latest version, using each
+    installer's reinstall switch, for a clean re-pin of a corrupt install.
+    """
     import os
     import shutil
     import subprocess
@@ -106,11 +137,19 @@ def _update_tau() -> None:
     # tells the wrong tool to upgrade a package it doesn't manage, which fails.
     prefix = sys.prefix.replace(os.sep, "/")
     if "/pipx/" in prefix and shutil.which("pipx"):
-        cmd = ["pipx", "upgrade", app]
+        cmd = ["pipx", "upgrade", *(["--force"] if force else []), app]
     elif "/uv/tools/" in prefix and shutil.which("uv"):
-        cmd = ["uv", "tool", "upgrade", app]
+        cmd = ["uv", "tool", "upgrade", *(["--reinstall"] if force else []), app]
     else:
-        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", app]
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            *(["--force-reinstall"] if force else []),
+            app,
+        ]
 
     with _progress_bar(f"Updating {get_app_name()}…"):
         result = subprocess.run(cmd, capture_output=True, text=True)
