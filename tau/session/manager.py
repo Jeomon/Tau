@@ -14,6 +14,8 @@ from tau.message.types import (
     AgentMessage,
     AssistantMessage,
     CustomMessage,
+    ToolMessage,
+    UserMessage,
 )
 from tau.session.types import (
     SESSION_VERSION,
@@ -79,6 +81,11 @@ class SessionManager:
         # IDs explicitly removed by this manager. Durable entries absent from a
         # stale in-memory view are otherwise retained during a transaction.
         self._deleted_entry_ids: set[str] = set()
+        # IDs of MessageEntry entries whose heavy content has been dropped from the
+        # in-memory cache because they were folded into a compaction summary. The
+        # full content stays on disk (authoritative); cold readers rehydrate via
+        # _full_entries(). Bounds RAM on long/resumed sessions (see pi #6841).
+        self._shed_ids: set[str] = set()
 
         if self.persist and not self.session_dir.exists():
             self.session_dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +156,9 @@ class SessionManager:
                     self.session_id = entry.id
                     break
             self._build_index()
+            # A resumed session may be long and already compacted; free the folded
+            # message bodies immediately so RAM tracks the live window, not history.
+            self._shed_folded_message_content()
             self.flushed = True
 
     def new_session(self, options: SessionOptions | None = None):
@@ -202,6 +212,89 @@ class SessionManager:
             merged.append(entry)
         return merged
 
+    def _full_entries(self) -> list[SessionFileEntry]:
+        """Return entries with full content, reading from disk when content was shed.
+
+        The resident ``self.entries`` may have had folded MessageEntry content
+        dropped to bound RAM (see :meth:`_shed_folded_message_content`). Disk is
+        authoritative and always holds the full content, so cold readers that need
+        pre-compaction message bodies (fork, transcript export) source them here.
+        ``_merged_durable_entries`` lists durable (full) entries first, so it wins
+        over any shed local copy of the same id.
+        """
+        if self._shed_ids and self.persist and self.session_file and self.session_file.exists():
+            return self._merged_durable_entries()
+        return self.entries
+
+    def _shed_folded_message_content(self) -> None:
+        """Drop the heavy content of MessageEntry entries folded into a compaction.
+
+        After compaction, entries before the kept window are represented to the LLM
+        only by the summary, so their message bodies (the bulk of session RAM — tool
+        results, file contents, command output) are dead weight in memory. This
+        empties those bodies in the resident cache while leaving the entry skeletons
+        (id/parent_id/type/timestamp) intact so tree/branch/index navigation is
+        unchanged. The full content remains on disk for rehydration.
+
+        Idempotent: already-shed ids are skipped. Only MessageEntry is shed —
+        settings entries (model/thinking changes) and CustomMessage entries stay
+        resident so context/model resolution and extension reads are unaffected.
+
+        Best-effort: nothing to shed without a compaction (cheap pre-check avoids
+        walking the branch on uncompacted sessions), and a pathological branch that
+        get_branch rejects (cycle) is skipped rather than allowed to break loading.
+        """
+        if not any(isinstance(entry, CompactionEntry) for entry in self.entries):
+            return
+        try:
+            branch = self.get_branch()
+        except ValueError:
+            return
+        if not branch:
+            return
+        first_kept_id: str | None = None
+        for entry in branch:
+            if isinstance(entry, CompactionEntry):
+                first_kept_id = entry.first_kept_entry_id
+        if first_kept_id is None:
+            return
+        id_to_idx = {entry.id: idx for idx, entry in enumerate(branch)}
+        first_kept_idx = id_to_idx.get(first_kept_id)
+        if first_kept_idx is None:
+            return
+        for entry in branch[:first_kept_idx]:
+            if (
+                isinstance(entry, MessageEntry)
+                # UserMessage/AssistantMessage/ToolMessage carry the heavy content
+                # (tool results, file bodies, images). Other message kinds are small
+                # and some (TerminalExecutionMessage) have no content list at all.
+                and isinstance(entry.message, (UserMessage, AssistantMessage, ToolMessage))
+                # Non-empty content is the idempotence check: an already-shed entry
+                # (empty list) is skipped, and a fresh full copy reloaded from disk by
+                # a rewrite is re-shed. Keying on the id set would miss the latter,
+                # since the rewrite replaces the entry objects.
+                and entry.message.contents
+            ):
+                # Messages are mutable dataclasses; empty the heavy content list in
+                # place. Disk keeps the full copy, so this only frees RAM.
+                entry.message.contents = []
+                self._shed_ids.add(entry.id)
+
+    def _full_branch(self, from_id: str | None) -> list[SessionEntry]:
+        """Root→leaf branch with full content, rehydrated from disk when shed."""
+        if not self._shed_ids:
+            return self.get_branch(from_id)
+        full = self._full_entries()
+        by_id = {entry.id: entry for entry in full if not isinstance(entry, SessionHeader)}
+        path: list[SessionEntry] = []
+        cursor = from_id or self.leaf_id
+        visited: set[str] = set()
+        while cursor and cursor in by_id and cursor not in visited:
+            visited.add(cursor)
+            path.append(by_id[cursor])
+            cursor = by_id[cursor].parent_id
+        return list(reversed(path))
+
     def _preserve_unparseable_lines(self) -> None:
         """Back up the durable file once if it contains lines that don't parse.
 
@@ -246,6 +339,10 @@ class SessionManager:
             lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
             content = "\n".join(lines)
             atomic_write_text(self.session_file, f"{content}\n" if content else "")
+        # _merged_durable_entries reloads full content from disk; the file above was
+        # written with that full content, so re-shed the resident copy afterwards to
+        # keep RAM bounded without ever persisting the emptied bodies.
+        self._shed_folded_message_content()
 
     def _clear_index(self):
         """Clear the session indices."""
@@ -366,6 +463,15 @@ class SessionManager:
 
         for entry in reversed(self.get_branch()):
             if isinstance(entry, MessageEntry) and isinstance(entry.message, AssistantMessage):
+                if entry.id in self._shed_ids:
+                    # Body was freed from RAM; rehydrate this one from disk.
+                    hydrated = next(
+                        (e for e in self._full_entries() if e.id == entry.id), None
+                    )
+                    if isinstance(hydrated, MessageEntry) and isinstance(
+                        hydrated.message, AssistantMessage
+                    ):
+                        return hydrated.message
                 return entry.message
         return None
 
@@ -468,7 +574,10 @@ class SessionManager:
             details=details,
             parent_id=self.leaf_id,
         )
-        return self._append_entry(entry)
+        entry_id = self._append_entry(entry)
+        # Free the newly-folded message bodies from RAM (full copy stays on disk).
+        self._shed_folded_message_content()
+        return entry_id
 
     def append_session_info(self, name: str) -> str:
         """Set the session name."""
@@ -563,6 +672,14 @@ class SessionManager:
 
         kept_entries = entries[first_kept_idx:]
 
+        # Normally the kept window is post-compaction and never shed. But if the
+        # user navigated the tree back into an already-folded region, a kept entry
+        # may have had its content freed — rehydrate those from disk so the context
+        # is complete. Only pays the disk read when the window overlaps shed ids.
+        if self._shed_ids and any(entry.id in self._shed_ids for entry in kept_entries):
+            full = {entry.id: entry for entry in self._full_entries()}
+            kept_entries = [full.get(entry.id, entry) for entry in kept_entries]
+
         for entry in kept_entries:
             match entry:
                 case MessageEntry():
@@ -604,8 +721,12 @@ class SessionManager:
         return None
 
     def get_entries(self) -> list[SessionEntry]:
-        """Return all non-header entries in the session."""
-        return [entry for entry in self.entries if not isinstance(entry, SessionHeader)]
+        """Return all non-header entries in the session, with full content.
+
+        Rehydrates folded message bodies from disk when they've been shed from RAM,
+        so transcript/export/extension consumers always see complete content.
+        """
+        return [entry for entry in self._full_entries() if not isinstance(entry, SessionHeader)]
 
     def get_tree(self) -> list[SessionTreeNode]:
         """Build a hierarchical tree structure of all entries."""
@@ -660,7 +781,8 @@ class SessionManager:
     def create_branched_session(self, leaf_id: str) -> Path | None:
         """Create a new session file forking from the given entry."""
         previous_session_file = self.session_file
-        path = self.get_branch(leaf_id)
+        # Fork must copy full message bodies, so rehydrate from disk if any were shed.
+        path = self._full_branch(leaf_id)
 
         if not path:
             raise ValueError(f"Entry {leaf_id} not found.")
