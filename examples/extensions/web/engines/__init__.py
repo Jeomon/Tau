@@ -7,13 +7,15 @@ in ``_BUILDERS`` below.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import BaseSearchEngine, SearchMode, SearchRecency, result
-from .ddgs_engine import DDGSearchEngine
-from .exa_engine import ExaSearchEngine
-from .jina_engine import JinaSearchEngine
-from .tavily_engine import TavilySearchEngine
+
+if TYPE_CHECKING:
+    from .ddgs_engine import DDGSearchEngine
+    from .exa_engine import ExaSearchEngine
+    from .jina_engine import JinaSearchEngine
+    from .tavily_engine import TavilySearchEngine
 
 __all__ = [
     "BaseSearchEngine",
@@ -27,6 +29,36 @@ __all__ = [
     "build_engine",
     "get_nested",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily import each concrete engine class on first access (PEP 562).
+
+    Only ``build_engine()`` actually needs one of these (whichever
+    ``config["engine"]`` names, default ``ddgs``) — importing all four
+    eagerly here paid every backend's dependency cost on every startup
+    (measured: ~130ms for ``jina_engine``'s ``httpx`` import alone) even
+    though at most one is ever used per session. Keeps
+    ``from tau.builtins.extensions.web.engines import JinaSearchEngine``
+    working for anything that still spells it that way.
+    """
+    if name == "DDGSearchEngine":
+        from .ddgs_engine import DDGSearchEngine
+
+        return DDGSearchEngine
+    if name == "ExaSearchEngine":
+        from .exa_engine import ExaSearchEngine
+
+        return ExaSearchEngine
+    if name == "JinaSearchEngine":
+        from .jina_engine import JinaSearchEngine
+
+        return JinaSearchEngine
+    if name == "TavilySearchEngine":
+        from .tavily_engine import TavilySearchEngine
+
+        return TavilySearchEngine
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_nested(d: dict, path: str, default: Any = "") -> Any:
@@ -52,6 +84,8 @@ def _group(config: dict, name: str) -> dict:
 
 
 def _build_ddgs(config: dict) -> BaseSearchEngine:
+    from .ddgs_engine import DDGSearchEngine
+
     c = _group(config, "ddgs")
     return DDGSearchEngine(
         region=c.get("region", "us-en"),
@@ -60,6 +94,8 @@ def _build_ddgs(config: dict) -> BaseSearchEngine:
 
 
 def _build_exa(config: dict) -> BaseSearchEngine:
+    from .exa_engine import ExaSearchEngine
+
     c = _group(config, "exa")
     return ExaSearchEngine(
         _resolve_secret(c.get("api_key", "")),
@@ -68,6 +104,8 @@ def _build_exa(config: dict) -> BaseSearchEngine:
 
 
 def _build_tavily(config: dict) -> BaseSearchEngine:
+    from .tavily_engine import TavilySearchEngine
+
     c = _group(config, "tavily")
     return TavilySearchEngine(
         _resolve_secret(c.get("api_key", "")),
@@ -76,6 +114,8 @@ def _build_tavily(config: dict) -> BaseSearchEngine:
 
 
 def _build_jina(config: dict) -> BaseSearchEngine:
+    from .jina_engine import JinaSearchEngine
+
     c = _group(config, "jina")
     return JinaSearchEngine(
         api_key=_resolve_secret(c.get("api_key", "")),
@@ -98,6 +138,8 @@ def build_engine(config: dict) -> BaseSearchEngine:
     if the configured engine is unknown or fails to initialize (e.g. a missing
     API key), so web search always works.
     """
+    from .ddgs_engine import DDGSearchEngine
+
     name = str(config.get("engine") or "ddgs").lower()
     builder = _BUILDERS.get(name)
     if builder is None:

@@ -36,13 +36,57 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .computer import ComputerTool
-from .router import get_desktop_class
-from .state import build_state_message
+from .router import get_desktop_class, get_platform_name
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
     from tau.extensions.context import ExtensionContext
+
+    from .types import Desktop
+
+
+class _LazyDesktop:
+    """Duck-types ``Desktop``, deferring the real backend's import and
+    construction until desktop access is actually requested.
+
+    ``get_desktop_class()`` imports the concrete platform backend (e.g.
+    ``macos.desktop``), which on macOS pulls in the PyObjC/Quartz/AppKit
+    stack — measured at ~400ms, entirely on the synchronous extension-load
+    path that gates the TUI becoming interactive. Most sessions never touch
+    the (opt-in, disabled-by-default) computer tool at all, so that cost
+    shouldn't be paid at startup for a tool that might never be used. This
+    proxy pays it on first real use (``action='open'``) instead.
+
+    Not a ``Desktop`` subclass: ``Desktop`` is an ``ABC`` whose abstract
+    methods must be satisfied at class-definition time, which would defeat
+    the point of deferring the import. ``computer.py``/``state.py`` only
+    ever call attributes present here or forwarded via ``__getattr__``.
+    """
+
+    def __init__(self) -> None:
+        self._impl: Desktop | None = None
+
+    def _ensure(self) -> Desktop:
+        if self._impl is None:
+            self._impl = get_desktop_class()()
+        return self._impl
+
+    @property
+    def is_open(self) -> bool:
+        # False without constructing the real backend — lets the per-turn
+        # context hook (state.py) and startup stay cheap for sessions that
+        # never call action='open'.
+        return self._impl is not None and self._impl.is_open
+
+    def open(self) -> None:
+        self._ensure().open()
+
+    def close(self) -> None:
+        if self._impl is not None:
+            self._impl.close()
+
+    def __getattr__(self, name: str):
+        return getattr(self._ensure(), name)
 
 
 def register(tau: ExtensionAPI) -> None:
@@ -50,9 +94,24 @@ def register(tau: ExtensionAPI) -> None:
     if not config.get("enabled", False):
         return
     try:
-        desktop = get_desktop_class()()
+        # Cheap platform check only — validates OS support (same as before)
+        # without importing the heavy concrete backend.
+        get_platform_name()
     except RuntimeError:
         return  # unsupported platform (e.g. Linux)
+
+    # Deferred until here rather than at module scope: building
+    # ComputerTool's pydantic schema (ComputerSchema — a dozen-plus fields
+    # and several enums) has real, measurable cost (tens of ms) even before
+    # any desktop backend is touched. Disabled by default (see
+    # manifest.json), so most installs return above and should never pay
+    # this — but the extension *file* itself is always imported by the
+    # loader to find `register()`, so anything at module scope is paid
+    # unconditionally regardless of the enabled check.
+    from .computer import ComputerTool
+    from .state import build_state_message
+
+    desktop = _LazyDesktop()
 
     tau.register_tool(ComputerTool(desktop))
 
