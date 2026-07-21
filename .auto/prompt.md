@@ -136,9 +136,38 @@ Likely areas worth investigating (not yet measured/tried):
    have none. `pytest -q` passes (2653 passed) + manual check all 17
    builtins still resolve correctly through the lazy path.
 
-Current best: **0.3848s**, down from the original 0.8552s baseline (~55%
-faster). Remember commit #2 (benchmark fix) is a measurement correction,
-not an app change — the real, stacked app-level wins are #3, #4, #5, #6, #7.
+8. **typing fix, no perf change** (bcb98b5): fixed a real mypy regression
+   introduced by #6 (`Awaitable` -> `Coroutine`, since `asyncio.run()`
+   requires the latter). Confirmed `mypy tau/` didn't regress (actually
+   fixed a pre-existing unrelated count: 6->5 errors, unrelated file).
+9. **computer_use: defer schema import past the enabled-check** (4f836f2):
+   0.3879s (no measurable delta in *this* benchmark — computer_use happens
+   to be enabled in this dev environment). `from .computer import
+   ComputerTool` (and `.state`) were at module scope, so building
+   `ComputerSchema`'s pydantic model (a dozen-plus fields, several enums)
+   was paid on every startup even when `register()` immediately returns
+   because the extension is disabled — which is the *default*
+   (manifest.json: `"enabled": false`). Moved both imports to inside
+   `register()`, after the enabled/platform checks. Verified with a manual
+   harness (module import alone, and `register()` with `enabled=False`,
+   never import `.computer`; `enabled=True` still registers correctly).
+   Real win for the common case (extension present but off), invisible in
+   this specific benchmark's config. `pytest -q` passes (2653 passed).
+
+Current best (this benchmark's config): **0.3848-0.3879s**, down from the
+0.8552s baseline — **~55% faster**. Remember commit #2 (benchmark fix) is a
+measurement correction, not an app change, and commit #9 is a real fix that
+doesn't show up numerically here because of this environment's specific
+extension config — the stacked, *measured-here* app-level wins are #3, #4,
+#5, #6, #7.
+
+## Checked, same "enabled by default" pattern, did NOT change
+- `.tau/extensions/sandbox/__init__.py` imports `.manager`/`.sandbox_tool`
+  at module scope too, but its `enabled` default is `True` (unlike
+  computer_use's `False`) — most real installs use it as-is, so deferring
+  past the enabled-check would only help the minority who've explicitly
+  disabled it. Lower value; left alone. If revisited, same technique as #9
+  applies directly.
 
 
 ## Ideas not yet tried / next up
