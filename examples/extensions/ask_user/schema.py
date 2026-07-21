@@ -6,6 +6,7 @@ MAX_QUESTIONS = 4
 MIN_OPTIONS = 2
 MAX_OPTIONS = 4
 MAX_LABEL_LENGTH = 60
+MAX_HEADER_LENGTH = 14
 
 FREEFORM_LABEL = "Type something…"
 
@@ -26,6 +27,14 @@ class AskUserOption(BaseModel):
 
 class AskUserQuestion(BaseModel):
     question: str = Field(..., description="The question to ask the user")
+    header: str | None = Field(
+        default=None,
+        description=(
+            f"Short label (max {MAX_HEADER_LENGTH} characters) used as this question's "
+            "tab name when several questions are asked at once, e.g. 'Auth method', "
+            "'Library'. Falls back to a truncation of the question text."
+        ),
+    )
     context: str | None = Field(
         default=None, description="Relevant context summary shown before the question"
     )
@@ -107,6 +116,12 @@ def validate_questions(questions: list[AskUserQuestion]) -> None:
         if q.question in seen_questions:
             raise QuestionValidationError(f"Duplicate question: {q.question!r}")
         seen_questions.add(q.question)
+
+        if q.header and len(q.header) > MAX_HEADER_LENGTH:
+            raise QuestionValidationError(
+                f"Header {q.header!r} exceeds {MAX_HEADER_LENGTH} characters — it is a "
+                "tab label, not a summary."
+            )
 
         if not q.options:
             continue

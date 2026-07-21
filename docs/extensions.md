@@ -1367,7 +1367,23 @@ handle.close()
 ```
 
 The `ask_user` example is a complete worked implementation of a custom interactive
-dialog component.
+dialog component. It shows the patterns worth copying for any multi-step dialog:
+
+- **One question** renders bare. **Several** get a tab bar plus a review step, so the
+  user can move between them with `←`/`→`, revise an earlier answer, and submit once —
+  `_AskUserSequence` owns the tabs and delegates everything else to a per-question
+  child component.
+- A child in text-entry mode keeps every key (`is_editing`), so the wrapper never
+  steals the arrows that move the text cursor.
+- On a multi-select question, `Space` on the `Type something…` row opens an editor
+  whose `Enter` **saves** rather than submits — the answer is then the ticked options
+  *and* the typed text. Saving an empty string clears it again.
+- When the tool cannot work at all (`ctx.ui is None` in headless or RPC mode) it
+  removes itself from `engine.tools` and says so in the error, instead of failing
+  identically on every subsequent turn. `ExtensionAPI.set_active_tools` does the same
+  thing for a whole allowlist.
+- `timeout` is an *inactivity* timer: every keystroke re-arms it, and firing it tears
+  the dialog down as well as failing the call.
 
 ### Other UI surfaces
 

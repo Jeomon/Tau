@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Any
 from schema import FREEFORM_LABEL, AskUserOption  # type: ignore[import-not-found]
 
 from tau.tui.component import Component
+from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import RESET
 from tau.tui.theme import LayoutTheme
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
 
 
 def _typed_char(event: KeyEvent) -> str | None:
@@ -66,6 +66,11 @@ class _AskUserComponent(Component):
         self._mode = "list"  # "list" | "freeform"
         self._freeform_value = ""  # single-line freeform buffer
 
+        # Multi-select only: text typed on the "Type something…" row is *saved*
+        # alongside the ticked boxes instead of submitting on its own, so an
+        # answer can be "these two options, plus this custom note".
+        self._freeform_saved = ""
+
         # Multi-line freeform buffer (used only when self._multiline).
         self._ml_lines: list[str] = [""]
         self._ml_cursor_row = 0
@@ -81,6 +86,39 @@ class _AskUserComponent(Component):
         # "Type something…" row first. Applies to both single- and multi-line.
         if not self._options and self._allow_freeform:
             self._enter_freeform()
+
+    @property
+    def is_editing(self) -> bool:
+        """True while the freeform editor owns the keyboard.
+
+        The tabbed wrapper checks this before claiming arrow keys — inside the
+        editor they move the text cursor, not the tab.
+        """
+        return self._mode == "freeform"
+
+    def _saves_freeform(self) -> bool:
+        """True when freeform text is collected *with* the ticked options.
+
+        Only for multi-select questions that have real options: there, the
+        editor's Enter saves and returns to the list. Everywhere else, freeform
+        text is the whole answer and Enter submits it.
+        """
+        return self._allow_multiple and bool(self._options)
+
+    def _submit_selection(self) -> None:
+        """Finish a list-mode answer: ticked options plus any saved free text."""
+        if self._allow_multiple:
+            chosen = self._checked or (
+                {self._cursor} if self._cursor != self._freeform_index else set()
+            )
+            selections = [self._options[i].title for i in sorted(chosen)]
+        else:
+            selections = [self._options[self._cursor].title]
+        payload: dict[str, Any] = {"kind": "selection", "selections": list(selections)}
+        if self._freeform_saved:
+            payload["text"] = self._freeform_saved
+            payload["selections"] = [*selections, self._freeform_saved]
+        self._on_done(payload)
 
     def _enter_freeform(self, seed: str = "") -> None:
         self._mode = "freeform"
@@ -140,7 +178,9 @@ class _AskUserComponent(Component):
         preview_box = self._build_preview_box(preview, right_width, box_height)
 
         left_rows = _write(content_lines, area.x, body_y, left_width)
-        right_rows = _write(preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width)
+        right_rows = _write(
+            preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width
+        )
         col_rows = max(left_rows, right_rows)
 
         # Footer spans the FULL width beneath both columns — it's not part of
@@ -192,17 +232,18 @@ class _AskUserComponent(Component):
         else:
             inner.append("")
         back = "Esc to cancel" if not self._options else "Esc to go back"
+        commit = "Enter to save" if self._saves_freeform() else "Enter to submit"
         footer = [
             "",
-            f"  {muted}Enter to submit  ·  \\+Enter or Shift+Enter for newline  ·  "
-            f"{back}{RESET}",
+            f"  {muted}{commit}  ·  \\+Enter or Shift+Enter for newline  ·  {back}{RESET}",
         ]
         return inner, footer
 
     def _build_singleline_body(self) -> tuple[list[str], list[str]]:
         back = "Esc to cancel" if not self._options else "Esc to go back"
+        commit = "Enter to save" if self._saves_freeform() else "Enter to submit"
         content = [f"  {self._freeform_value}█"]
-        footer = ["", f"  {self._theme.muted.sgr()}Enter to submit  ·  {back}{RESET}"]
+        footer = ["", f"  {self._theme.muted.sgr()}{commit}  ·  {back}{RESET}"]
         return content, footer
 
     # Left margin + hanging indent for wrapped description lines beneath a
@@ -227,6 +268,14 @@ class _AskUserComponent(Component):
             desc = "" if is_freeform_row else (self._options[i].description or "")
             is_cursor = i == self._cursor
 
+            # Saved free text rides along with the ticked boxes, so show it on
+            # the row — otherwise it is invisible until the answer comes back.
+            if is_freeform_row and self._freeform_saved:
+                saved = self._freeform_saved.replace("\n", " ")
+                if len(saved) > 40:
+                    saved = saved[:39] + "…"
+                title = f'{FREEFORM_LABEL} "{saved}"'
+
             # Settings-selector style: per-span colors, no reversed background.
             # The moving cursor arrow is always accent-colored; the row label
             # is emphasis (selected) or muted (normal). Any inline color used
@@ -240,7 +289,11 @@ class _AskUserComponent(Component):
                 # arrow marker instead of a number. Suppressed when this row
                 # is also the cursor row, since cursor_mark already shows an
                 # arrow there — otherwise it doubles up as "❯ ❯ Type…".
-                marker = f" {arrow} " if not is_cursor else "   "
+                if self._saves_freeform():
+                    tick = f"{success}✔{RESET}{title_sgr}" if self._freeform_saved else " "
+                    marker = f"  {tick}"
+                else:
+                    marker = f" {arrow} " if not is_cursor else "   "
             elif self._allow_multiple:
                 # Same tick glyphs as the /extensions config panel, paired with
                 # the option's ordinal number.
@@ -265,6 +318,8 @@ class _AskUserComponent(Component):
         hints = ["↑/↓ move", "Enter confirm", "Esc cancel"]
         if self._allow_multiple:
             hints.insert(1, "Space toggle")
+        if self._saves_freeform():
+            hints.insert(-1, "Space adds text")
         footer = ["", f"  {muted}" + "  ·  ".join(hints) + RESET]
         return inner, footer
 
@@ -330,21 +385,21 @@ class _AskUserComponent(Component):
                     self._checked.discard(self._cursor)
                 else:
                     self._checked.add(self._cursor)
+            case " " | "space" if self._cursor == self._freeform_index and self._saves_freeform():
+                # Space opens the editor on the freeform row (Enter would too,
+                # but Enter also has to mean "submit" once boxes are ticked).
+                self._enter_freeform(seed=self._freeform_saved)
             case "enter":
-                if self._cursor == self._freeform_index:
+                if self._cursor == self._freeform_index and not self._saves_freeform():
                     self._enter_freeform()
-                elif self._allow_multiple:
-                    chosen = self._checked or {self._cursor}
-                    self._on_done(
-                        {
-                            "kind": "selection",
-                            "selections": [self._options[i].title for i in sorted(chosen)],
-                        }
-                    )
+                elif self._cursor == self._freeform_index and not (
+                    self._checked or self._freeform_saved
+                ):
+                    # Nothing ticked yet and no saved text — Enter on this row
+                    # can only mean "let me type", not "submit an empty answer".
+                    self._enter_freeform(seed=self._freeform_saved)
                 else:
-                    self._on_done(
-                        {"kind": "selection", "selections": [self._options[self._cursor].title]}
-                    )
+                    self._submit_selection()
             case "escape":
                 self._on_done(None)
             case _ if self._allow_freeform and _typed_char(event) is not None:
@@ -362,7 +417,14 @@ class _AskUserComponent(Component):
 
         match event.key:
             case "enter":
-                self._on_done({"kind": "freeform", "text": self._freeform_value})
+                if self._saves_freeform():
+                    # Save (or, when emptied, clear) and hand the keyboard back
+                    # to the list so boxes can still be ticked.
+                    self._freeform_saved = self._freeform_value
+                    self._freeform_value = ""
+                    self._mode = "list"
+                else:
+                    self._on_done({"kind": "freeform", "text": self._freeform_value})
             case "escape":
                 # With no real choices there's no list to fall back to — Esc
                 # cancels the whole prompt (mirrors the multi-line editor).
@@ -412,7 +474,11 @@ class _AskUserComponent(Component):
                 self._ml_cursor_col -= 1
                 self._ml_insert_newline()
                 return True
-            self._on_done({"kind": "freeform", "text": "\n".join(self._ml_lines)})
+            if self._saves_freeform():
+                self._freeform_saved = "\n".join(self._ml_lines).strip()
+                self._mode = "list"
+            else:
+                self._on_done({"kind": "freeform", "text": "\n".join(self._ml_lines)})
             return True
         if k == "backspace":
             if self._ml_cursor_col > 0:
@@ -487,3 +553,183 @@ class _AskUserComponent(Component):
 
     def set_theme(self, theme: LayoutTheme) -> None:
         self._theme = theme
+
+
+class _AskUserSequence(Component):
+    """Several questions at once: a tab bar, one child per question, a review tab.
+
+    Answering does not commit the whole dialog — it records the answer and moves
+    on, so the user can go back with ←/→ and change their mind before submitting
+    from the review tab. A single question skips all of this and behaves exactly
+    like the bare :class:`_AskUserComponent`.
+    """
+
+    REVIEW_LABEL = "Review"
+
+    def __init__(
+        self,
+        headers: list[str],
+        children: list[_AskUserComponent],
+        on_done: Any,
+        theme: LayoutTheme | None = None,
+        on_activity: Any = None,
+    ) -> None:
+        self._headers = headers
+        self._children = children
+        self._on_done = on_done
+        self._theme = theme or LayoutTheme()
+        self._on_activity = on_activity
+
+        self._index = 0
+        self._answers: dict[int, dict] = {}
+        self._warning = ""
+
+        for i, child in enumerate(children):
+            child._on_done = self._make_child_callback(i)
+
+    # ── Answer bookkeeping ────────────────────────────────────────────────
+
+    def _make_child_callback(self, index: int) -> Any:
+        def _callback(value: dict | None) -> None:
+            if value is None:
+                # Esc inside a question cancels the whole dialog, as in the
+                # single-question case — there is no "cancel just this one".
+                self._on_done(None)
+                return
+            self._answers[index] = value
+            self._warning = ""
+            self._advance_from(index)
+
+        return _callback
+
+    def _advance_from(self, index: int) -> None:
+        """After answering, go to the next unanswered question, else to review."""
+        for offset in range(1, len(self._children) + 1):
+            candidate = (index + offset) % len(self._children)
+            if candidate not in self._answers:
+                self._index = candidate
+                return
+        self._index = len(self._children)  # review tab
+
+    @property
+    def _on_review(self) -> bool:
+        return self._index == len(self._children)
+
+    def _unanswered(self) -> list[int]:
+        return [i for i in range(len(self._children)) if i not in self._answers]
+
+    def _answer_text(self, index: int) -> str:
+        answer = self._answers.get(index)
+        if answer is None:
+            return ""
+        if answer.get("kind") == "freeform":
+            return str(answer.get("text", "")).replace("\n", " ")
+        return ", ".join(answer.get("selections", []))
+
+    def results(self) -> list[dict | None]:
+        return [self._answers.get(i) for i in range(len(self._children))]
+
+    # ── Render ────────────────────────────────────────────────────────────
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        rows = 0
+        for line in self._tab_bar():
+            rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
+
+        body_area = Rect(area.x, area.y + rows, area.width, max(area.height - rows, 1))
+        if self._on_review:
+            for line in self._review_lines(area.width):
+                rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
+            return rows
+        return rows + self._children[self._index].render_cells(body_area, buf)
+
+    def _tab_bar(self) -> list[str]:
+        t = self._theme
+        muted, success, emphasis = t.muted.sgr(), t.success.sgr(), t.emphasis.sgr()
+
+        cells: list[str] = []
+        for i, header in enumerate(self._headers):
+            mark = "✔ " if i in self._answers else "  "
+            colour = emphasis if i == self._index else muted
+            tick = f"{success}{mark}{RESET}{colour}" if i in self._answers else mark
+            cells.append(f"{colour}{tick}{header}{RESET}")
+
+        review_colour = emphasis if self._on_review else muted
+        cells.append(f"{review_colour}  {self.REVIEW_LABEL}{RESET}")
+
+        lines = [f"  {f'{muted}│{RESET}'.join(f' {c} ' for c in cells)}"]
+        if self._warning:
+            lines.append(f"  {t.warning.sgr()}{self._warning}{RESET}")
+        lines.append("")
+        return lines
+
+    def _review_lines(self, width: int) -> list[str]:
+        t = self._theme
+        muted, accent, success = t.muted.sgr(), t.accent.sgr(), t.success.sgr()
+        lines = [f"  {accent}Review your answers{RESET}", ""]
+
+        for i, header in enumerate(self._headers):
+            answer = self._answer_text(i)
+            if i in self._answers:
+                text = answer or "(empty)"
+                if len(text) > max(width - len(header) - 12, 20):
+                    text = text[: max(width - len(header) - 13, 19)] + "…"
+                lines.append(f"  {success}✔{RESET} {accent}{header}{RESET}: {text}")
+            else:
+                lines.append(f"  {muted}·  {header}: (unanswered){RESET}")
+
+        hints = ["←/→ revise", "Esc cancel"]
+        if not self._unanswered():
+            hints.insert(0, "Enter submit")
+        lines += ["", f"  {muted}" + "  ·  ".join(hints) + RESET]
+        return lines
+
+    # ── Input ─────────────────────────────────────────────────────────────
+
+    def handle_input(self, event: InputEvent) -> bool:
+        if not isinstance(event, KeyEvent):
+            return False
+        if self._on_activity is not None:
+            self._on_activity()
+
+        # Inside the freeform editor the child owns every key — arrows move the
+        # text cursor there, and stealing them would make the editor unusable.
+        active = None if self._on_review else self._children[self._index]
+        if active is not None and active.is_editing:
+            return active.handle_input(event)
+
+        match event.key:
+            case "left" | "shift+tab":
+                self._index = (self._index - 1) % (len(self._children) + 1)
+                self._warning = ""
+                return True
+            case "right" | "tab":
+                self._index = (self._index + 1) % (len(self._children) + 1)
+                self._warning = ""
+                return True
+            case "escape":
+                self._on_done(None)
+                return True
+
+        if self._on_review:
+            if event.key == "enter":
+                missing = self._unanswered()
+                if missing:
+                    names = ", ".join(self._headers[i] for i in missing)
+                    self._warning = f"Still unanswered: {names}"
+                    return True
+                self._on_done({"kind": "sequence", "answers": self.results()})
+            return True
+
+        return active.handle_input(event) if active is not None else False
+
+    def invalidate(self) -> None:
+        for child in self._children:
+            child.invalidate()
+
+    def set_theme(self, theme: LayoutTheme) -> None:
+        self._theme = theme
+        for child in self._children:
+            child.set_theme(theme)

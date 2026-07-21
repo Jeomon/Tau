@@ -3,8 +3,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from component import _AskUserComponent
-from schema import AskUserParams, QuestionValidationError, normalize_options, validate_questions
+from component import _AskUserComponent, _AskUserSequence
+from schema import (
+    MAX_HEADER_LENGTH,
+    AskUserParams,
+    QuestionValidationError,
+    normalize_options,
+    validate_questions,
+)
 
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -30,6 +36,35 @@ def _render_result(content: str, opts: Any) -> list[str]:
     return content.splitlines() or [content]
 
 
+def _header_for(question: Any, index: int) -> str:
+    """Tab label: the model's own ``header``, else a truncated question."""
+    if question.header:
+        return question.header.strip()[:MAX_HEADER_LENGTH]
+    text = " ".join(question.question.split())
+    if len(text) <= MAX_HEADER_LENGTH:
+        return text or f"Q{index + 1}"
+    return text[: MAX_HEADER_LENGTH - 1] + "…"
+
+
+def _disable_tool(runtime: Any, name: str) -> bool:
+    """Drop one tool from the running agent so the LLM stops offering it.
+
+    Used when the tool cannot possibly work for the rest of the session (no
+    interactive UI). Mirrors ``ExtensionAPI.set_active_tools`` but removes a
+    single tool instead of replacing the whole allowlist, so it can't
+    resurrect tools another extension disabled.
+    """
+    engine = getattr(getattr(runtime, "agent", None), "_engine", None)
+    if engine is None:
+        return False
+    tools = [t for t in getattr(engine, "tools", []) if t.name != name]
+    if len(tools) == len(getattr(engine, "tools", [])):
+        return False
+    engine.tools = tools
+    engine._tools = {t.name: t for t in tools}
+    return True
+
+
 class AskUserTool(Tool):
     def __init__(self, runtime_ref: Any) -> None:
         self._runtime_ref = runtime_ref
@@ -37,15 +72,16 @@ class AskUserTool(Tool):
             name="ask_user",
             description=(
                 "Ask the human one or more focused questions and wait for their decision "
-                "before proceeding. Pass multiple questions to run them as a sequence — "
-                "each is shown and answered in turn, like a short interview — instead of "
+                "before proceeding. Pass multiple questions to show them together as tabs "
+                "the user can move between, revise, and submit in one go — instead of "
                 "issuing separate calls. Do not stack multiple ask_user calls back-to-back; "
-                "group all clarifying questions into one invocation. Use for high-impact "
+                "group all clarifying questions into one invocation. Give each question a "
+                "short 'header' when asking more than one — it names the tab. Use for high-impact "
                 "architectural trade-offs, ambiguous or conflicting requirements, or "
                 "assumptions that would materially change the implementation. Each "
                 "question supports single-select, multi-select, and freeform text "
                 "answers, and up to 4 options when options are given. If you recommend a "
-                "specific option, list it first and append \"(Recommended)\" to its "
+                'specific option, list it first and append "(Recommended)" to its '
                 "title. Only available in an interactive TUI session."
             ),
             schema=AskUserParams,
@@ -79,37 +115,42 @@ class AskUserTool(Tool):
         ext_ctx = ExtensionContext.from_runtime(runtime)
         ui = ext_ctx.ui
         if ui is None:
+            # Nothing about a headless session will change later in the run, so
+            # take the tool away rather than let the model retry it every turn.
+            disabled = _disable_tool(runtime, self.name)
             return ToolResult.error(
                 invocation.id,
-                "ask_user requires an interactive TUI session and is "
-                "unavailable in headless/RPC mode",
+                "ask_user requires an interactive TUI session and is unavailable in "
+                "headless/RPC mode."
+                + (
+                    " The tool has been disabled for the rest of this session — do not "
+                    "try it again; ask the question in plain text instead."
+                    if disabled
+                    else ""
+                ),
+            )
+
+        questions = params.questions
+        responses = await self._ask(ui, questions, params.timeout)
+
+        if responses is None:
+            # Cancelling discards the whole questionnaire — with a review step
+            # there is no such thing as a half-submitted set of answers.
+            return ToolResult.ok(
+                invocation.id,
+                self._format_answers([]),
+                metadata={"cancelled": True, "answers": []},
             )
 
         answers: list[dict] = []
-
-        for question in params.questions:
-            options = normalize_options(question.options)
-            response = await self._ask_one(ui, question, options, params.timeout)
-
+        for question, response in zip(questions, responses, strict=True):
             if response is None:
-                return ToolResult.ok(
-                    invocation.id,
-                    self._format_answers(answers, cancelled_at=question.question),
-                    metadata={
-                        "cancelled": True,
-                        "answers": answers,
-                        "cancelled_question": question.question,
-                    },
-                )
-
+                continue
             if response["kind"] == "freeform":
                 content = response["text"]
             else:
                 content = ", ".join(response["selections"])
-
-            answers.append(
-                {"question": question.question, "response": content, "raw": response}
-            )
+            answers.append({"question": question.question, "response": content, "raw": response})
 
         return ToolResult.ok(
             invocation.id,
@@ -117,45 +158,88 @@ class AskUserTool(Tool):
             metadata={"cancelled": False, "answers": answers},
         )
 
-    async def _ask_one(
+    async def _ask(
         self,
         ui: Any,
-        question: Any,
-        options: Any,
+        questions: list[Any],
         timeout: int | None,
-    ) -> dict | None:
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[dict | None] = loop.create_future()
-        timeout_task_ref: list[asyncio.Task | None] = [None]
+    ) -> list[dict | None] | None:
+        """Run the whole questionnaire in one dialog.
 
-        def _on_done(value: dict | None) -> None:
-            t = timeout_task_ref[0]
-            if t is not None and not t.done():
-                t.cancel()
+        Returns one response per question, or ``None`` if the user cancelled.
+        A single question is shown bare; several get the tab bar and a review
+        step, so earlier answers can still be changed before submitting.
+        """
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[list[dict | None] | None] = loop.create_future()
+        timeout_task_ref: list[asyncio.Task | None] = [None]
+        close_ref: list[Any] = [None]
+
+        def _settle(value: list[dict | None] | None) -> None:
+            task = timeout_task_ref[0]
+            if task is not None and not task.done():
+                task.cancel()
             if not fut.done():
                 fut.set_result(value)
 
         def _factory(_tui, _theme, _kb, done):
-            component = _AskUserComponent(
-                question=question.question,
-                context=question.context,
-                options=options,
-                allow_multiple=question.allow_multiple,
-                allow_freeform=question.allow_freeform,
-                multiline=question.multiline,
-                on_done=lambda v: (_on_done(v), done(v)),
-                theme=_theme,
-            )
+            close_ref[0] = done
+            children = [
+                _AskUserComponent(
+                    question=q.question,
+                    context=q.context,
+                    options=normalize_options(q.options),
+                    allow_multiple=q.allow_multiple,
+                    allow_freeform=q.allow_freeform,
+                    multiline=q.multiline,
+                    on_done=lambda _v: None,  # replaced below
+                    theme=_theme,
+                )
+                for q in questions
+            ]
+
+            def _finish(value: Any) -> None:
+                if value is None:
+                    _settle(None)
+                elif value.get("kind") == "sequence":
+                    _settle(value["answers"])
+                else:
+                    _settle([value])
+                done(value)
+
+            if len(children) == 1:
+                children[0]._on_done = _finish
+                component: Any = children[0]
+            else:
+                component = _AskUserSequence(
+                    headers=[_header_for(q, i) for i, q in enumerate(questions)],
+                    children=children,
+                    on_done=_finish,
+                    theme=_theme,
+                    on_activity=_restart_timeout,
+                )
+
             if timeout:
-                timeout_ms = timeout
-
-                async def _auto_dismiss() -> None:
-                    await asyncio.sleep(timeout_ms / 1000)
-                    _on_done(None)
-                    done(None)
-
-                timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
+                _restart_timeout()
             return component
+
+        def _restart_timeout() -> None:
+            """(Re)arm the inactivity timer — every keystroke pushes it back."""
+            if not timeout:
+                return
+            task = timeout_task_ref[0]
+            if task is not None and not task.done():
+                task.cancel()
+
+            async def _auto_dismiss() -> None:
+                await asyncio.sleep(timeout / 1000)
+                _settle(None)
+                # Tear the dialog down too, or it stays on screen owning input
+                # after the tool call has already returned.
+                if close_ref[0] is not None:
+                    close_ref[0](None)
+
+            timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
 
         await ui.custom_inline(_factory, kind="ask_user")
         return await fut
