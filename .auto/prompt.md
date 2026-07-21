@@ -142,43 +142,44 @@ not an app change — the real, stacked app-level wins are #3, #4, #5, #6, #7.
 
 
 ## Ideas not yet tried / next up
-- **Local model discovery** (`tau/runtime/service.py`
-  `_start_local_model_discovery` → `tau.inference.model.local.register_all()`):
-  fire-and-forget via `asyncio.ensure_future` (good), but it's an *asyncio
-  task on the main loop*, not a background *thread* — unlike the LSP
-  eager-warmup and git-status work, which deliberately use
-  `asyncio.to_thread`. A cProfile of the main thread shows 4×
-  `httpx.AsyncClient.__init__`/`_init_transport` (~0.3-0.4s cumulative
-  across ollama/lmstudio/vllm/llamacpp backends) actually executing
-  *during* `Runtime.create`/`App.create`'s own awaits, because cooperative
-  scheduling lets it interleave. This is a real, not-yet-tried lead: check
-  whether `register_all()` (or each backend's scan) can run via
-  `asyncio.to_thread` (or just be delayed until after `App.create`
-  returns, e.g. scheduled from `runtime_ready` a tick later) so it doesn't
-  compete with startup on the same thread. Be careful: this is real
-  `tau/` runtime code (not a dev extension), so any change needs
-  `pytest -q`, especially `tests/test_local_model_discovery.py`.
-- Because of the above, `httpx` itself is already imported/instantiated
-  during startup regardless of the web-search-engine choice — don't expect
-  further wins from deferring *other* httpx-based extension imports; the
-  import cost is already sunk by local-model-discovery. Confirmed by
-  profiling: after deferring jina/exa/tavily engine imports, `httpx`
-  AsyncClient still shows up 4× in the profile from local-model-discovery,
-  while `h2`/`hpack` (jina's HTTP/2 support, previously imported solely for
-  the default-off jina engine) no longer appear at all.
-- Lazy-import provider SDKs (anthropic/openai/google-genai/mistralai/ollama)
-  in `tau/inference/...` so only the active provider's SDK loads — check
-  `tau/inference/api/registry.py`'s `LazyAPI` first; it looks like this may
-  already be handled (not yet verified with importtime).
-- Cache/memoize theme and extension *discovery* (the `os.iterdir`/manifest
-  scan in `tau/extensions/loader.py::_discover`) if profiling shows it's
-  non-trivial — not yet measured in isolation.
+- **`tau/builtins/tools.py` (`TOOLS`)** and pydantic schema generation: the
+  latest profile (after fixes #1-#8) shows ~350 dataclasses processed and
+  ~47 pydantic `BaseModel` schemas built during startup (each tool's params
+  schema). This is core, necessary work for tools that are always
+  registered — not obviously avoidable without deferring tool
+  registration itself (risky, large change, not attempted). Worth a closer
+  look only if profiling later shows it's grown disproportionately; treat
+  as low-priority/high-risk for now.
+- **`.tau/extensions/sandbox/__init__.py`** shows ~0.11s cumulative in
+  profiling, mostly from importing `tau.builtins.tools.terminal` (the
+  terminal tool, which the default agent config already loads regardless of
+  the sandbox extension) — likely not an *avoidable* extra cost, just where
+  that shared import happens to land first. Not fixed; would need to trace
+  whether terminal's own import chain has anything deferrable.
+- **`load_external`/`load_paths`** in `tau/themes/registry.py` (global
+  `~/.tau/themes/` and project `.tau/themes/` themes) still eagerly parse
+  every file, unlike the builtins fix in #7. Most users have zero
+  global/project theme files, so this is usually free — only worth fixing
+  if a user's `~/.tau/themes/` grows large. Same lazy-factory technique
+  from #7 would apply, but keying by filename stem isn't guaranteed for
+  user-authored files (unlike verified-1:1 builtins), so it needs the
+  "parse to find declared name" fallback path that wasn't needed for #7.
+- Confirmed (don't re-chase): `httpx` import/construction cost is no
+  longer front-loaded onto the main thread (fixed in #6); jina's `h2`/hpack
+  chain no longer imports at all when unused (fixed in #4); `import git` in
+  `tau/agent/prompt/builder.py` was already lazy, nothing to fix there.
 - Re-run `.venv/bin/python -X importtime .auto/bench_tui_startup.py` and a
   cProfile pass (see commands below) after each change — cumulative
   import-time numbers found so far are specific to *this* environment
   (e.g. `~/.tau/extensions` contents like `peer`'s macOS AX integration) and
   won't reproduce identically elsewhere; always re-check before trusting an
-  old number.
+  old number. As of #8 (0.3848-0.3924s), the profile is dominated by
+  generic Python import machinery (`importlib`, `exec`, `__build_class__`)
+  and pydantic/dataclass schema construction — i.e. we've picked off the
+  clear app-level wins in this environment; further gains likely require
+  either deferring tool/schema construction (risky) or are specific to
+  whatever `~/.tau/extensions` happen to be installed on the machine
+  actually running the benchmark (not portable fixes).
 
 ## Profiling commands (for the next fresh agent)
 ```bash
