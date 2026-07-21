@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from model import WorkflowDef, WorkflowParseError, parse_workflow  # type: ignore[import-not-found]
+
+from .model import WorkflowDef, WorkflowParseError, parse_workflow
 
 _TEMPLATE = """\
 meta:

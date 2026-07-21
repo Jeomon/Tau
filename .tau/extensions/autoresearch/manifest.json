@@ -1,0 +1,19 @@
+{
+  "tau": {
+    "name": "Autoresearch",
+    "author": "jeomon",
+    "description": "Autonomous optimisation loop — try, measure, keep or revert, repeat",
+    "settings": {
+      "title": "Autoresearch",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true,
+          "description": "Register the experiment tools, /autoresearch and the dashboard."
+        }
+      ]
+    }
+  }
+}

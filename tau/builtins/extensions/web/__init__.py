@@ -35,14 +35,9 @@ engines additionally need the `exa-py` / `tavily-python` packages installed.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-from engines import build_engine  # type: ignore[import-not-found]
-from tools.fetch import WebFetchTool  # type: ignore[import-not-found]
-from tools.search import WebSearchTool  # type: ignore[import-not-found]
+from .engines import build_engine
+from .tools.fetch import WebFetchTool
+from .tools.search import WebSearchTool
 
 
 def register(tau) -> None:

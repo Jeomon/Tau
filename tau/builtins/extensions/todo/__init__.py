@@ -13,15 +13,11 @@ list is explicitly cleared or every task is deleted.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from todo_tool import TodoState, TodoTool  # type: ignore[import-not-found]
-
 from tau.tui.component import Component
+
+from .todo_tool import TodoState, TodoTool
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI

@@ -9,7 +9,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from duration import (  # type: ignore[import-not-found]
+from .duration import (
     FIFTEEN_MINUTES,
     ONE_MINUTE,
     THREE_DAYS,

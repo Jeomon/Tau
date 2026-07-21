@@ -6,9 +6,9 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from state import LoopTask, SchedulerState  # type: ignore[import-not-found]
-
 from tau.extensions.context import StaleExtensionContextError
+
+from .state import LoopTask, SchedulerState
 
 if TYPE_CHECKING:
     from tau.extensions.context import ExtensionContext

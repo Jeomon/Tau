@@ -23,19 +23,15 @@ auto-expires 3 days after creation.
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from dispatch import _emit, _update_status, run_ticker  # type: ignore[import-not-found]
-from duration import (  # type: ignore[import-not-found]
+from .dispatch import _emit, _update_status, run_ticker
+from .duration import (
     format_duration,
     parse_duration,
     parse_loop_args,
 )
-from state import MAX_TASKS, LoopTask, SchedulerState  # type: ignore[import-not-found]
+from .state import MAX_TASKS, LoopTask, SchedulerState
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI

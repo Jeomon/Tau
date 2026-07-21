@@ -13,12 +13,6 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
-from manager import (  # type: ignore[import-not-found]
-    WORKDIR,
-    SandboxManager,
-    SandboxUnavailableError,
-)
-
 from tau.builtins.tools.terminal import TerminalParams, TerminalTool
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -29,6 +23,12 @@ from tau.tool.types import (
     ToolInvocation,
     ToolKind,
     ToolResult,
+)
+
+from .manager import (
+    WORKDIR,
+    SandboxManager,
+    SandboxUnavailableError,
 )
 
 _MAX_OUTPUT_BYTES = 50 * 1024

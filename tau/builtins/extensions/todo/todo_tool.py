@@ -5,8 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from todo_schema import TodoParams  # type: ignore[import-not-found]
-
 from tau.tool.types import (
     Tool,
     ToolContext,
@@ -15,6 +13,8 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+
+from .todo_schema import TodoParams
 
 if TYPE_CHECKING:
     from tau.extensions.context import ExtensionContext
