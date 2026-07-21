@@ -161,6 +161,7 @@ Token budgets per thinking level, used by providers that map a level to `budget_
 | `show_tool_calls` | boolean | `true` | Show tool call and result blocks |
 | `show_images` | boolean | `true` | Render image content inline |
 | `picker_max_visible` | integer | `8` | Max visible rows in pickers; clamped to a minimum of 1 |
+| `external_editor` | string | `$VISUAL`/`$EDITOR` | Command run by `ctrl+g` to compose the prompt (e.g. `"code --wait"`). Falls back to `notepad`/`nano` |
 | `autocomplete_max_visible` | integer | `5` | Max visible rows in the editor autocomplete dropdown; minimum 1 |
 | `tool_result_preview_lines` | integer | `5` | Lines shown before a shell tool result collapses; minimum 1 |
 | `editor_padding_x` | integer | `0` | Horizontal padding inside the input editor; minimum 0 |

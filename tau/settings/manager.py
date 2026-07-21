@@ -657,6 +657,27 @@ class SettingsManager:
         self._mark_modified("theme")
         self._save()
 
+    def get_external_editor_command(self) -> str:
+        """Return the command the external-editor shortcut should run.
+
+        Resolution order: the ``external_editor`` setting, then ``$VISUAL``,
+        then ``$EDITOR``, then a platform default. Always returns something —
+        a machine without any of these still has ``notepad``/``nano``, and
+        failing to *launch* is reported when the spawn fails rather than
+        pre-emptively here.
+        """
+        import os
+        import sys
+
+        configured = self.settings.external_editor
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+        for var in ("VISUAL", "EDITOR"):
+            value = os.environ.get(var)
+            if value and value.strip():
+                return value.strip()
+        return "notepad" if sys.platform == "win32" else "nano"
+
     def get_http_idle_timeout_ms(self) -> int:
         """Return the HTTP idle timeout in milliseconds (default: 60000)."""
         v = self.settings.http_idle_timeout_ms

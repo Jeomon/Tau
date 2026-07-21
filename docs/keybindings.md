@@ -57,6 +57,24 @@ Active whenever no modal has captured input.
 | `ctrl+d` | Quit |
 | `ctrl+o` | Toggle expanded thinking and tool-result details |
 | `ctrl+e` | Toggle template and skill invocation blocks (when the editor is empty) |
+| `ctrl+g` | Compose the prompt in an external editor |
+
+### External editor
+
+`ctrl+g` writes the current prompt to a temporary `.tau.md` file, hands the terminal
+to an editor, and reads the text back when it exits. The command is resolved in this
+order:
+
+1. `external_editor` in `settings.json` — e.g. `"code --wait"`, or a quoted path
+   containing spaces
+2. `$VISUAL`
+3. `$EDITOR`
+4. `notepad` on Windows, otherwise `nano`
+
+**A non-zero exit leaves the prompt untouched**, so `:cq` in vim cancels the edit
+while `:wq` applies it. One trailing newline is stripped (editors add it on save);
+any beyond that are yours. The temporary file is always removed.
+
 
 Double-Escape while idle dispatches on the `double_escape_action` setting:
 
@@ -295,6 +313,7 @@ These are the only bindings routed through the keymap, and therefore the only on
 | `app.message.dequeue` | `ctrl+up` | Restore queued messages into the editor |
 | `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result details |
 | `app.invocations.toggle` | `ctrl+e` | Toggle template and skill blocks |
+| `app.editor.external` | `ctrl+g` | Compose the prompt in an external editor |
 | `tui.app.quit` | `ctrl+c`, `ctrl+d` | Quit |
 | `tui.app.abort` | `escape`, `ctrl+c` | Abort the current turn |
 | `tui.scroll.up` | `page_up` | Scroll the message list up a page |

@@ -171,6 +171,8 @@ class Settings:
     show_tool_calls: bool | None = None
     show_images: bool | None = None
     picker_max_visible: int | None = None
+    # Command run by the external-editor shortcut; falls back to $VISUAL/$EDITOR.
+    external_editor: str | None = None
     tool_result_preview_lines: int | None = None
 
     # Queue behaviour

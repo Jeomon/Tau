@@ -600,6 +600,62 @@ class App:
             self._tui.request_render()
             return
 
+        if keybindings.matches(event, "app.editor.external"):
+            self._track_task(asyncio.ensure_future(self._open_external_editor()))
+            return
+
+    async def _open_external_editor(self) -> None:
+        """Compose the prompt in $EDITOR, then bring the text back.
+
+        The editor owns the terminal while it runs, so the TUI is suspended
+        around the child rather than stopped. A non-zero exit means the user
+        bailed out (``:cq``), and the prompt is left untouched — only a clean
+        exit replaces it.
+        """
+        import os
+        import shlex
+        import tempfile
+
+        settings = self._runtime.settings_manager
+        if settings is None:
+            return
+        command = settings.get_external_editor_command()
+
+        text = self._layout.get_editor_text()
+        # .md so the editor lights up markdown; the prompt is markdown in practice.
+        fd, tmp_path = tempfile.mkstemp(prefix="tau-editor-", suffix=".tau.md")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+
+            # shlex so "code --wait" works *and* a quoted path with spaces
+            # survives ("C:\\Program Files\\...\\subl.exe" --wait). Windows
+            # keeps backslashes literal, so it must not use POSIX escaping.
+            parts = shlex.split(command, posix=os.name != "nt")
+            if not parts:
+                return
+            try:
+                async with self._tui.suspended():
+                    proc = await asyncio.create_subprocess_exec(*parts, tmp_path)
+                    returncode = await proc.wait()
+            except (OSError, ValueError) as exc:
+                self._ctx().notify(
+                    f"Could not launch external editor {command!r}: {exc}. "
+                    "Set `external_editor` in settings.json, or $VISUAL/$EDITOR."
+                )
+                return
+
+            if returncode == 0:
+                with open(tmp_path, encoding="utf-8") as handle:
+                    edited = handle.read()
+                # Editors add a trailing newline on save; one is an artefact,
+                # more than one the user meant.
+                self._layout.set_editor_text(edited[:-1] if edited.endswith("\n") else edited)
+                self._tui.request_render()
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+
     def _handle_escape(self) -> None:
         import time
 

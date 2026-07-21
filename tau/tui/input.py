@@ -926,6 +926,7 @@ _DEFAULTS: KeyMap = {
     "app.message.dequeue": ["ctrl+up"],  # restore queued messages into editor
     "app.details.toggle": ["ctrl+o"],
     "app.invocations.toggle": ["ctrl+e"],
+    "app.editor.external": ["ctrl+g"],  # compose the prompt in $EDITOR
     # App-level
     "tui.app.quit": ["ctrl+c", "ctrl+d"],
     "tui.app.abort": ["escape", "ctrl+c"],

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import sys
 import threading
 import time
-from collections.abc import Awaitable, Callable, Generator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Generator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -976,29 +977,7 @@ class TUI(Container):
         with self._terminal:
             if self._title is not None:
                 self._terminal.set_title(self._title)
-            self._terminal.hide_cursor()
-            self._terminal.disable_autowrap()
-            self._terminal.enable_bracketed_paste()
-            self._terminal.enable_focus_reporting()
-            if self.terminal_bg:
-                self._terminal.set_background_color(self.terminal_bg)
-            self._renderer.reset()
-            self._request_render()
-
-            self._terminal.enable_kitty_keyboard()
-            if _IS_WINDOWS:
-                # Windows event loops can't add_reader() a console handle, so a
-                # daemon thread does the blocking read and hands each chunk back
-                # to the loop thread.
-                self._stdin_thread = threading.Thread(
-                    target=self._win_stdin_loop,
-                    args=(loop, self._stdin_generation),
-                    name="tau-tui-stdin",
-                    daemon=True,
-                )
-                self._stdin_thread.start()
-            else:
-                loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
+            self._attach_terminal(loop)
 
             # Query terminal background colour for theme hints, then notify any
             # listener (e.g. auto light/dark theme selection).
@@ -1011,16 +990,8 @@ class TUI(Container):
             try:
                 await self._stop_event.wait()
             finally:
-                if _IS_WINDOWS:
-                    await self._stop_windows_stdin_reader()
-                else:
-                    loop.remove_reader(sys.stdin.fileno())
+                await self._detach_terminal(loop)
                 self._cancel_timers()
-                self._terminal.disable_kitty_keyboard()
-                self._terminal.disable_bracketed_paste()
-                self._terminal.disable_focus_reporting()
-                self._terminal.disable_mouse_tracking()
-                self._terminal.enable_autowrap()
                 if self.terminal_bg:
                     self._terminal.reset_background_color()
                 # Move cursor past last rendered line so the shell prompt
@@ -1035,6 +1006,78 @@ class TUI(Container):
                     elif diff < 0:
                         self._terminal.write(f"\x1b[{-diff}A")
                 self._terminal.write("\r\n")
+
+    def _attach_terminal(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Claim the terminal: input modes on, stdin wired up, full repaint queued.
+
+        Shared by ``run()`` and ``suspended()`` so the claim and release
+        sequences cannot drift apart.
+        """
+        self._terminal.hide_cursor()
+        self._terminal.disable_autowrap()
+        self._terminal.enable_bracketed_paste()
+        self._terminal.enable_focus_reporting()
+        if self.terminal_bg:
+            self._terminal.set_background_color(self.terminal_bg)
+        self._renderer.reset()
+        self._request_render()
+
+        self._terminal.enable_kitty_keyboard()
+        if _IS_WINDOWS:
+            # Windows event loops can't add_reader() a console handle, so a
+            # daemon thread does the blocking read and hands each chunk back
+            # to the loop thread.
+            self._stdin_generation += 1
+            self._stdin_shutdown.clear()
+            self._stdin_thread = threading.Thread(
+                target=self._win_stdin_loop,
+                args=(loop, self._stdin_generation),
+                name="tau-tui-stdin",
+                daemon=True,
+            )
+            self._stdin_thread.start()
+        else:
+            loop.add_reader(sys.stdin.fileno(), self._on_stdin_ready)
+
+    async def _detach_terminal(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Release the terminal: stdin detached and every input mode restored."""
+        if _IS_WINDOWS:
+            await self._stop_windows_stdin_reader()
+        else:
+            with contextlib.suppress(ValueError, OSError):
+                loop.remove_reader(sys.stdin.fileno())
+        self._terminal.disable_kitty_keyboard()
+        self._terminal.disable_bracketed_paste()
+        self._terminal.disable_focus_reporting()
+        self._terminal.disable_mouse_tracking()
+        self._terminal.enable_autowrap()
+
+    @asynccontextmanager
+    async def suspended(self) -> AsyncIterator[None]:
+        """Hand the terminal to a child process, then take it back.
+
+        For anything that must own the terminal itself — an external editor, a
+        pager, an interactive ``git`` command. Unlike :meth:`stop` this does not
+        end the run loop; the UI is still live and simply repaints once the
+        child exits.
+
+        The child may leave the screen in any state (``vim`` uses the alternate
+        screen), so resuming forces a clear-and-redraw rather than a diff. The
+        restore runs in a ``finally``: a child that crashes must not strand the
+        terminal in raw mode.
+        """
+        loop = asyncio.get_event_loop()
+        await self._detach_terminal(loop)
+        self._terminal.show_cursor()
+        self._terminal.exit_raw_mode()
+        try:
+            yield
+        finally:
+            self._terminal.enter_raw_mode()
+            self._attach_terminal(loop)
+            # The child owned the screen; assume nothing about what is on it.
+            self._renderer.reset_with_clear()
+            self._request_render(force=True)
 
     def stop(self) -> None:
         """Request the run loop to exit cleanly."""
