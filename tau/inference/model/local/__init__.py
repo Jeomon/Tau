@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
 
-def _backends() -> tuple[Callable[[], Awaitable[int]], ...]:
+def _backends() -> tuple[Callable[[], Coroutine[Any, Any, int]], ...]:
     # Imported lazily so importing this package doesn't eagerly pull in every
     # backend module (mirrors the lazy-adapter-loading convention elsewhere
     # in tau.inference).
@@ -49,16 +50,29 @@ async def register_all() -> int:
 
     Each backend is independently best-effort — one unreachable/missing local
     daemon contributes 0 and never blocks or fails the others.
+
+    Each backend runs in its own worker thread (its own fresh event loop via
+    ``asyncio.run``), not just as a task on the caller's loop. Constructing an
+    ``httpx.AsyncClient`` has real synchronous CPU cost beyond the (already
+    shared/cached, see ``get_shared_ssl_context``) SSL context — connection
+    pool and transport setup — measured at ~90-100ms per backend, ~0.3-0.4s
+    total across the four. Run as plain tasks on the caller's loop (as this
+    used to be), that cost lands squarely on the same thread driving the
+    just-launched TUI's render loop, at the exact moment ``Runtime.create``
+    is finishing up. Threading it mirrors the same fix already applied to
+    git-status (``tau/agent/prompt/builder.py``) and the LSP extension's
+    eager warm-up.
     """
     backends = _backends()
-    results = await asyncio.gather(*(backend() for backend in backends), return_exceptions=True)
+    results = await asyncio.gather(
+        *(asyncio.to_thread(asyncio.run, backend()) for backend in backends),
+        return_exceptions=True,
+    )
 
     total = 0
     for backend, result in zip(backends, results, strict=True):
         if isinstance(result, BaseException):
-            _log.debug(
-                "Local model discovery failed for %s", backend.__module__, exc_info=result
-            )
+            _log.debug("Local model discovery failed for %s", backend.__module__, exc_info=result)
             continue
         total += result
     return total
