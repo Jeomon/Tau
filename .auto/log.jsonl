@@ -1,0 +1,2 @@
+{"type": "config", "name": "Speed up tau TUI startup", "metric_name": "seconds", "metric_unit": "s", "direction": "lower", "timestamp": 1784660556.986207}
+{"type": "result", "commit": "9e6fdbd", "metric": 0.8552, "metrics": {}, "status": "keep", "description": "baseline: cold-process TUI startup (Runtime.create + App.create), best-of-5", "timestamp": 1784660566.372876, "segment": 0, "confidence": null}

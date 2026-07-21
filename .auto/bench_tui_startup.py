@@ -9,6 +9,19 @@ never exit on its own).
 Run as a fresh process each time (see measure.sh) so process + import
 overhead — often the dominant cost for a CLI's perceived startup — is
 included, not just the async setup work.
+
+Deliberately does *not* use ``asyncio.run()``: that helper's cleanup path
+(``shutdown_default_executor``) blocks until every ``asyncio.to_thread``
+background job still running has finished — including things like the
+project-local LSP extension's `runtime_ready`-triggered eager server
+warm-up, which walks the whole project tree and is fired with
+``asyncio.ensure_future`` (fire-and-forget) precisely so it does *not*
+block the TUI becoming interactive. In the real app that thread keeps
+running quietly after the user is already typing; measuring it here would
+count work that never actually delays perceived startup. Using a bare
+event loop + immediate ``os._exit`` avoids waiting on it, matching what a
+user actually experiences. (Measured impact: ~120-150ms of the original
+~850ms baseline — see .auto/prompt.md.)
 """
 
 from __future__ import annotations
@@ -38,10 +51,12 @@ async def _main() -> None:
 
 if __name__ == "__main__":
     sys.path.insert(0, str(REPO_ROOT))
-    asyncio.run(_main())
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(_main())
     # The app is ready to render/accept input at this point — that's the
     # moment being timed. Skip teardown (background threads/tasks, log
-    # flushing) so it isn't counted against startup: it isn't part of what
-    # the user perceives as "the TUI is up".
+    # flushing, asyncio.run()'s executor-shutdown wait) so it isn't counted
+    # against startup: it isn't part of what the user perceives as "the TUI
+    # is up".
     sys.stdout.flush()
     os._exit(0)
