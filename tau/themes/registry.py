@@ -61,6 +61,7 @@ def _lazy_theme_factory(path: Path) -> Callable[[], LayoutTheme]:
 
     return factory
 
+
 class ThemeRegistry:
     def __init__(self) -> None:
         """Initialize an empty theme registry."""
@@ -98,7 +99,6 @@ class ThemeRegistry:
                     continue
                 self._add(path.stem.lower(), _lazy_theme_factory(path), "builtin")
         self._builtins_loaded = True
-
 
     def load_external(self, cwd: Path | None = None) -> list[ThemeLoadError]:
         """Load themes from global and optional project-specific directories."""

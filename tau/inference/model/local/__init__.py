@@ -72,9 +72,7 @@ async def register_all() -> int:
     total = 0
     for backend, result in zip(backends, results, strict=True):
         if isinstance(result, BaseException):
-            _log.debug(
-                "Local model discovery failed for %s", backend.__module__, exc_info=result
-            )
+            _log.debug("Local model discovery failed for %s", backend.__module__, exc_info=result)
             continue
         total += result
     return total
