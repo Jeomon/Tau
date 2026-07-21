@@ -24,6 +24,7 @@ __all__ = [
     "anthropic_thinking_params",
     "anthropic_apply_message_cache",
     "has_tool_history",
+    "drop_orphan_function_call_outputs",
 ]
 
 
@@ -179,6 +180,37 @@ def gemini_function_response_parts_raw(content: Any) -> list[dict[str, Any]] | N
     return [
         {"inlineData": {"mimeType": mime or "image/png", "data": b64}}
         for b64, mime in content.image.to_base64()
+    ]
+
+
+def drop_orphan_function_call_outputs(
+    input_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop ``function_call_output`` items whose ``call_id`` has no matching ``function_call``.
+
+    The OpenAI Responses/Codex API rejects the whole request with
+    ``400 No tool call found for function call output with call_id ...`` if a tool
+    result is present without its originating call. That can happen when a
+    compaction boundary (or an extension-supplied boundary) folds a tool call into
+    the summary while keeping its result, leaving an orphaned result in the
+    reconstructed context — permanently wedging the session. Filtering the orphan
+    here is a defensive backstop so a single stray result can't brick a session.
+
+    Only orphaned *outputs* are dropped, not orphaned *calls*: in the Responses API
+    a reasoning item must immediately precede the ``function_call`` it justified, so
+    removing a call would strand its reasoning item and create a different
+    malformation. Orphaned outputs are the shape that actually triggers the 400.
+    """
+    present_calls = {
+        item.get("call_id") for item in input_items if item.get("type") == "function_call"
+    }
+    return [
+        item
+        for item in input_items
+        if not (
+            item.get("type") == "function_call_output"
+            and item.get("call_id") not in present_calls
+        )
     ]
 
 

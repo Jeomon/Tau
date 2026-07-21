@@ -95,14 +95,23 @@ def _build_client(options: LLMOptions) -> genai.Client:
             "Set GOOGLE_CLOUD_LOCATION or pass location in extra_params."
         )
 
-    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if gac:
-        from google.oauth2 import service_account
+    # A caller-injected, run-local credential takes precedence over ambient env
+    # credentials: a multi-tenant server can pick the exact per-run service account
+    # from a secret store without mutating GOOGLE_APPLICATION_CREDENTIALS globally or
+    # writing a temp key file. The client is built per GoogleVertexAPI instance (one
+    # per model run), so the injected credential stays request-local.
+    credentials = options.credentials
+    if credentials is None:
+        gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if gac:
+            from google.oauth2 import service_account
 
-        credentials = service_account.Credentials.from_service_account_file(
-            gac,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        )
+            credentials = service_account.Credentials.from_service_account_file(
+                gac,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+
+    if credentials is not None:
         return genai.Client(
             vertexai=True, project=project, location=location, credentials=credentials
         )

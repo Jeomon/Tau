@@ -157,6 +157,12 @@ class LLMOptions:
     thinking_budgets: ThinkingBudgets | None = None
     signal: AbortSignal | None = None
     extra_params: dict[str, Any] | None = None
+    # Run-local, in-memory auth object for the google-vertex provider (a
+    # google.auth.credentials.Credentials). Lets a multi-tenant caller select a
+    # per-run service account without process-wide env mutation
+    # (GOOGLE_APPLICATION_CREDENTIALS) or writing a temp key file. Typed Any so
+    # google-auth need not be imported at module load; ignored by other providers.
+    credentials: Any | None = None
     on_payload: PayloadCallback | None = None
     on_response: ResponseCallback | None = None
     # Internal-only flag consulted by the Gemini-family providers (never a wire

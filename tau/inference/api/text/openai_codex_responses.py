@@ -16,6 +16,7 @@ import websockets.asyncio.client
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
+    drop_orphan_function_call_outputs,
     openai_responses_function_call_output,
     parse_tool_args,
 )
@@ -259,7 +260,7 @@ def _messages_to_input(messages: list[LLMMessage]) -> tuple[str, list[dict[str, 
                 if text_parts:
                     input_items.append({"role": "assistant", "content": text_parts})
 
-    return instructions, input_items
+    return instructions, drop_orphan_function_call_outputs(input_items)
 
 
 def _text_format(response_format: Any | None) -> dict[str, Any] | None:
