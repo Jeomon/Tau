@@ -197,18 +197,48 @@ extension config — the stacked, *measured-here* app-level wins are #3, #4,
   longer front-loaded onto the main thread (fixed in #6); jina's `h2`/hpack
   chain no longer imports at all when unused (fixed in #4); `import git` in
   `tau/agent/prompt/builder.py` was already lazy, nothing to fix there.
+- **Round 4 investigation (this pass) — verified dead ends, don't re-chase:**
+  - Provider SDKs (`anthropic`, `openai`, `google-genai`, `mistralai`,
+    `ollama` the pip package) are confirmed **not** imported at all during
+    this benchmark — checked directly against `importtime` output. Confirms
+    `tau/inference/api/registry.py` + `.../text/registry.py`'s `LazyAPI`
+    (dynamic `importlib.import_module` per-provider) is already working as
+    intended. `tau/builtins/providers/text.py` only builds lightweight
+    `APIProvider` dataclass instances + imports 5 small OAuth-provider
+    modules — no heavy SDK client construction. Nothing to fix here.
+  - `tau/resources/*` import cost is ~2µs cumulative — negligible, not a
+    target.
+  - The remaining ~47 pydantic `BaseModel` schemas / ~350 dataclasses are
+    overwhelmingly **core, always-needed machinery**: `tau/agent/types.py`
+    -> `tau/engine/*` -> `tau/session/*` -> `tau/hooks/*` (the app's
+    backbone, needed for the TUI to do anything at all) plus the 7 default
+    tool schemas (`read`/`write`/`edit`/`glob`/`grep`/`ls`/`terminal` under
+    `tau/builtins/tools/`) which are used from the very first turn and
+    can't be deferred without deferring tool registration itself — pydantic
+    builds a `BaseModel` subclass's schema at class-definition time
+    (import time), so the only way to defer it further is to defer
+    importing the module that defines it, which for *default* tools means
+    deferring until first LLM turn — a materially bigger, riskier
+    restructuring of `Runtime.create()`/`Agent` construction, not attempted
+    this session given the payoff (a fraction of the ~100-150ms pydantic
+    total, since default tools' schemas are needed at first turn anyway)
+    doesn't clearly justify the risk of touching core agent wiring.
+  - `.tau/extensions/sandbox/__init__.py`'s eager import is *not* obviously
+    fixable the way computer_use was (see "Checked... did NOT change" above)
+    — its default is `enabled: true`.
 - Re-run `.venv/bin/python -X importtime .auto/bench_tui_startup.py` and a
   cProfile pass (see commands below) after each change — cumulative
   import-time numbers found so far are specific to *this* environment
   (e.g. `~/.tau/extensions` contents like `peer`'s macOS AX integration) and
   won't reproduce identically elsewhere; always re-check before trusting an
-  old number. As of #8 (0.3848-0.3924s), the profile is dominated by
-  generic Python import machinery (`importlib`, `exec`, `__build_class__`)
-  and pydantic/dataclass schema construction — i.e. we've picked off the
-  clear app-level wins in this environment; further gains likely require
-  either deferring tool/schema construction (risky) or are specific to
-  whatever `~/.tau/extensions` happen to be installed on the machine
-  actually running the benchmark (not portable fixes).
+  old number. As of round 4, the profile is dominated by generic Python
+  import machinery (`importlib`, `exec`, `__build_class__`) and the core
+  agent/engine/session import chain + default tool schemas — i.e. we've
+  picked off the clear, safe, app-level wins in this environment. Further
+  gains would require deferring core tool/schema construction until first
+  turn (bigger, riskier restructuring, not yet attempted) or are specific
+  to whatever `~/.tau/extensions` happen to be installed on the machine
+  actually running the benchmark (not portable fixes worth making here).
 
 ## Profiling commands (for the next fresh agent)
 ```bash
