@@ -77,6 +77,11 @@ class UIContext:
     and replace the input editor — all on the live layout.
     """
 
+    #: There is a terminal grid here, so ``custom``/``custom_inline``/
+    #: ``show_overlay`` really render. The RPC context sets this ``False`` —
+    #: see :class:`tau.modes.rpc.ui_context.RpcUIContext`.
+    supports_components = True
+
     def __init__(self, layout: Layout, settings: SettingsManager | None = None) -> None:
         self._layout_ref: weakref.ref[Layout] = weakref.ref(layout)
         self._settings = settings
@@ -257,6 +262,42 @@ class UIContext:
                 fut.set_result(None)
 
         layout.open_tree_selector(items, _commit, _cancel)
+        return await fut
+
+    async def multi_select(
+        self, title: str, options: list[str], timeout: float | None = None
+    ) -> list[str] | None:
+        """Show a checkbox list and return every chosen option.
+
+        ``[]`` means "none of these" — a real answer, distinct from the ``None``
+        returned when the user cancels. ``timeout`` is accepted for signature
+        parity with the RPC context and ignored here (the user is present).
+
+        Usage::
+
+            async def handler(ctx, args):
+                picks = await ctx.ui.multi_select("Which surfaces?", ["Web", "CLI"])
+        """
+        layout = self._layout()
+        if layout is None:
+            return None
+        from tau.tui.components.multi_select_list import MultiSelectItem, MultiSelectList
+
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[list[str] | None] = loop.create_future()
+
+        def _done(values: list[str] | None) -> None:
+            if not fut.done():
+                fut.set_result(values)
+            layout.close_custom_selector("multi_select")
+
+        component = MultiSelectList(
+            title=title,
+            items=[MultiSelectItem(label=o) for o in options],
+            on_done=_done,
+            theme=layout._theme,
+        )
+        layout.open_custom_selector("multi_select", component)
         return await fut
 
     async def confirm(self, title: str, message: str = "") -> bool:

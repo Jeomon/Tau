@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 from component import _AskUserComponent, _AskUserSequence
+from rpc_backend import ask_over_bridge
 from schema import (
     MAX_HEADER_LENGTH,
     AskUserParams,
@@ -115,13 +116,13 @@ class AskUserTool(Tool):
         ext_ctx = ExtensionContext.from_runtime(runtime)
         ui = ext_ctx.ui
         if ui is None:
-            # Nothing about a headless session will change later in the run, so
-            # take the tool away rather than let the model retry it every turn.
+            # No user-facing surface at all (print/JSON mode), and that will not
+            # change later in the run — take the tool away rather than let the
+            # model retry it every turn.
             disabled = _disable_tool(runtime, self.name)
             return ToolResult.error(
                 invocation.id,
-                "ask_user requires an interactive TUI session and is unavailable in "
-                "headless/RPC mode."
+                "ask_user needs an interactive session and is unavailable in this mode."
                 + (
                     " The tool has been disabled for the rest of this session — do not "
                     "try it again; ask the question in plain text instead."
@@ -131,7 +132,17 @@ class AskUserTool(Tool):
             )
 
         questions = params.questions
-        responses = await self._ask(ui, questions, params.timeout)
+        if getattr(ui, "supports_components", True):
+            responses = await self._ask(ui, questions, params.timeout)
+        else:
+            # An RPC client can answer dialogs but cannot render the component,
+            # so ask through the protocol's fixed shapes instead.
+            responses = await ask_over_bridge(
+                ui,
+                questions,
+                [normalize_options(q.options) for q in questions],
+                params.timeout,
+            )
 
         if responses is None:
             # Cancelling discards the whole questionnaire — with a review step

@@ -159,6 +159,8 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 | `get_last_assistant_text` | — | `{text}` |
 | `set_session_name` | `name` | `{name}` |
 | `get_messages` | — | `{messages}` |
+| `get_entries` | `since?` | `{entries, leafId}` |
+| `get_tree` | — | `{tree, leafId}` |
 | `get_commands` | — | `{commands}` |
 | `extension_ui_response` | `value?`, `confirmed?`, `cancelled?` | no response line |
 
@@ -634,6 +636,49 @@ The export covers user and assistant text, thinking blocks, tool calls and resul
 
 ### Commands Discovery
 
+#### get_entries
+
+The raw session entries — every message, model change, thinking-level change, compaction and label, not just the flattened messages `get_messages` returns.
+
+```json
+{"id": "e1", "type": "get_entries"}
+```
+
+```json
+{"id": "e1", "type": "response", "command": "get_entries", "success": true, "data": {
+  "entries": [
+    {"type": "model_change", "id": "71a61395", "parent_id": null, "model_id": "claude-sonnet-4-5", "provider_id": "anthropic", "timestamp": 1784547215.5},
+    {"type": "message", "id": "57a353e4", "parent_id": "71a61395", "message": {"…": "…"}, "meta": {}, "timestamp": 1784547216.1}
+  ],
+  "leafId": "57a353e4"}}
+```
+
+Pass `since` to fetch only what followed a given entry — the usual way to tail a session without re-reading it:
+
+```json
+{"id": "e2", "type": "get_entries", "since": "57a353e4"}
+```
+
+The cursor entry itself is **not** included; you already have it. An unknown `since` fails with `"Entry not found: <id>"` rather than silently returning everything. `leafId` is the current branch tip — store it and use it as the next `since`.
+
+Entry fields are the session model's own `snake_case` names (`parent_id`, `model_id`), like events and unlike response envelopes.
+
+#### get_tree
+
+The same entries nested under their parents, for rendering branch structure.
+
+```json
+{"type": "get_tree"}
+```
+
+```json
+{"type": "response", "command": "get_tree", "success": true, "data": {
+  "tree": [{"entry": {"…": "…"}, "children": [], "label": null, "label_timestamp": null}],
+  "leafId": "57a353e4"}}
+```
+
+Each node carries its `entry`, its `children`, and any branch `label`. Both commands answer `{"entries": [], "leafId": null}` / `{"tree": [], "leafId": null}` when there is no session.
+
 #### get_commands
 
 Extension commands, prompt templates, and skills, each invocable by sending `prompt` with a leading `/`.
@@ -821,9 +866,14 @@ Dialog methods block until the client replies with a matching `extension_ui_resp
 | Method | Request fields | Expected reply |
 |--------|----------------|----------------|
 | `select` | `title`, `options` | `value` (chosen option) or `cancelled` |
+| `multi_select` | `title`, `options` | `value` (**list** of chosen options) or `cancelled` |
 | `confirm` | `title`, `message` | `confirmed` or `cancelled` |
 | `input` | `title`, `placeholder` | `value` or `cancelled` |
 | `editor` | `title`, `prefill` | `value` or `cancelled` |
+
+`multi_select` is Tau-specific — the reference protocol has no multi-select shape. Its reply is a list, and `[]` is a real answer meaning "none of these", distinct from `cancelled`. A client that answers it with a bare string is treated as having chosen that one option. `title` may contain newlines when the caller supplied context.
+
+A client must reply to every request it receives, including methods it does not recognise — answer `{"cancelled": true}` rather than staying silent, or the extension waits forever (until its `timeout`, if it set one).
 
 Fire-and-forget methods expect no reply:
 
@@ -842,7 +892,11 @@ Fire-and-forget methods expect no reply:
 
 `timeout`, when present on a request, is the number of **milliseconds** Tau will wait before giving up on that dialog. A timeout resolves the same way a cancel does (`null`, or `false` for `confirm`). Dialogs sent without a `timeout` wait indefinitely — but not past the end of the session: when the client disconnects or the process shuts down, every pending dialog is resolved as cancelled so nothing blocks the exit.
 
-> **Extension reach.** RPC mode installs `RpcExtensionUIContext` as the runtime's dialog bridge, so `ctx.select(...)` and `ctx.confirm(...)` from an extension emit real `extension_ui_request` lines and `ctx.has_ui` is `True`. The rich TUI surface (`ctx.ui` — widgets, footers, themes) stays `None` in RPC mode; the fire-and-forget methods above are part of the protocol but are not yet reachable from `ctx`. Guard extension code with `ctx.has_ui` for dialogs and with `ctx.ui is not None` for TUI customization.
+> **Extension reach.** `ctx.ui` is a real object in RPC mode, not `None`: dialogs (`select`, `confirm`, `prompt`/`input`, `editor`) and the fire-and-forget methods (`notify`, `set_status`, `set_widget`, `set_title`, `set_editor_text`) all become `extension_ui_request` records. `ctx.select`/`ctx.confirm` work too. Anything needing a terminal grid — `custom`, `custom_inline`, `show_overlay`, footers, headers, themes, the working indicator, raw key subscriptions — degrades to a no-op.
+>
+> **Check `ctx.ui.supports_components` before rendering a component.** It is `False` here and `True` in the TUI. A non-`None` `ctx.ui` promises dialogs, not a surface to draw on; `custom_inline()` returns `None` in RPC mode, and an extension that assumes otherwise will fail on the result. `ctx.has_ui` answers the narrower question "can I ask the user something at all".
+>
+> The bridge is installed before `session_start`, so an extension that pushes a status chip or widget from its first handler will emit those lines *before* the `ready` handshake. Clients must tolerate `extension_ui_request` arriving at any point in the stream.
 
 ## Error Handling
 
@@ -878,8 +932,7 @@ Verified against the implementation.
 | `new_session` | Reports internal failure as `success: true` with `data.cancelled: true` | Deliberate: mirrors the interactive flow, where the user can decline |
 | `new_session.parentSession` | Accepted by the schema, ignored by the handler | Not wired |
 | `cycle_model` | Swallows lookup failures and answers `success: true` with `data: null` | The handler catches broadly; use `set_model` when you need a definite answer |
-| `get_entries` / `get_tree` | Not implemented | Present in the reference implementation; use `get_messages` |
-| Extension `ui` methods | `notify`, `setStatus`, `setWidget`, `setTitle`, `set_editor_text` are part of the protocol but no extension can trigger them in RPC mode | `ctx.ui` is TUI-only; only `ctx.select`/`ctx.confirm` are bridged |
+| Component-rendering UI | `ctx.ui.custom`, `custom_inline`, `show_overlay`, footers, headers, themes | No terminal grid to render into — the protocol carries fixed dialog shapes, not arbitrary components. Gate on `ctx.ui.supports_components` |
 
 Everything else on this page is wired to the real API and reports failure honestly. Commands that cannot do their job answer `success: false` with a reason rather than a hollow `success: true` — the [Error Handling](#error-handling) table lists the common messages.
 

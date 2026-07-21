@@ -11,8 +11,11 @@ from schema import (  # type: ignore[import-not-found]
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import RESET
+from tau.tui.style import RESET, Style
+from tau.tui.text import Line, Span
 from tau.tui.theme import LayoutTheme
+from tau.tui.widgets.block import Block, Borders, Padding
+from tau.tui.widgets.tabs import Tabs
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
@@ -99,6 +102,30 @@ class _AskUserComponent(Component):
         """
         return self._mode == "freeform"
 
+    def park_editor(self) -> dict | None:
+        """Called when the tabbed wrapper navigates away from this question.
+
+        Returns an answer to record, or ``None`` if there is nothing to keep.
+        A question with no options is *only* an editor, so whatever has been
+        typed becomes its answer — otherwise tabbing to Review would show
+        "(unanswered)" for a question the user has visibly filled in. The
+        buffer is left intact so returning to the tab resumes where it was.
+
+        For questions that also have options, leaving the editor mirrors Esc:
+        multi-select keeps the text alongside the ticks, single-select drops
+        the draft, and neither answers the question on its own.
+        """
+        if self._mode != "freeform":
+            return None
+        text = "\n".join(self._ml_lines) if self._multiline else self._freeform_value
+        if not self._options:
+            return {"kind": "freeform", "text": text} if text.strip() else None
+        if self._saves_freeform():
+            self._freeform_saved = text.strip()
+        self._mode = "list"
+        self._freeform_value = ""
+        return None
+
     def _saves_freeform(self) -> bool:
         """True when freeform text is collected *with* the ticked options.
 
@@ -178,13 +205,14 @@ class _AskUserComponent(Component):
             preview = self._options[self._cursor].preview
 
         box_height = max(len(content_lines), self.PREVIEW_MIN_BOX_HEIGHT)
-        preview_box = self._build_preview_box(preview, right_width, box_height)
 
         left_rows = _write(content_lines, area.x, body_y, left_width)
-        right_rows = _write(
-            preview_box, area.x + left_width + self.PREVIEW_GAP, body_y, right_width
+        self._render_preview(
+            preview,
+            Rect(area.x + left_width + self.PREVIEW_GAP, body_y, right_width, box_height),
+            buf,
         )
-        col_rows = max(left_rows, right_rows)
+        col_rows = max(left_rows, box_height)
 
         # Footer spans the FULL width beneath both columns — it's not part of
         # either column, so it never wraps just because the left column is
@@ -288,15 +316,17 @@ class _AskUserComponent(Component):
             cursor_mark = f"{accent}{arrow}{RESET}{title_sgr}" if is_cursor else " "
 
             if is_freeform_row:
-                # Synthetic action row, not a countable option — keeps its own
-                # arrow marker instead of a number. Suppressed when this row
-                # is also the cursor row, since cursor_mark already shows an
-                # arrow there — otherwise it doubles up as "❯ ❯ Type…".
+                # Synthetic action row, not a countable option: no number, and
+                # no marker of its own — the moving cursor arrow is the only
+                # arrow on screen. Padded to the width of an ordinal ("1.") so
+                # its label lines up with the real options above it.
                 if self._saves_freeform():
+                    # Pad to "N. " so the tick lands in the same column as the
+                    # options' checkboxes rather than one to their left.
                     tick = f"{success}✔{RESET}{title_sgr}" if self._freeform_saved else " "
-                    marker = f"  {tick}"
+                    marker = f"   {tick}"
                 else:
-                    marker = f" {arrow} " if not is_cursor else "   "
+                    marker = "  "
             elif self._allow_multiple:
                 # Same tick glyphs as the /extensions config panel, paired with
                 # the option's ordinal number.
@@ -326,46 +356,49 @@ class _AskUserComponent(Component):
         footer = ["", f"  {muted}" + "  ·  ".join(hints) + RESET]
         return inner, footer
 
-    def _build_preview_box(self, preview: str | None, width: int, height: int) -> list[str]:
-        """A bordered box of exactly ``height`` lines, sized to ``width``.
+    def _render_preview(self, preview: str | None, area: Rect, buf: Buffer) -> None:
+        """Draw the preview pane into ``area``.
 
-        Content beyond the available rows is truncated with a "N lines hidden"
-        footer rather than growing the box — the box height is pinned to the
-        paired option list so the two columns stay aligned row-for-row.
+        The frame is the shared ``Block`` widget rather than hand-assembled
+        ┌─┐│└┘ strings; content goes into ``block.inner(area)``. The box height
+        is pinned by the caller to the paired option list so the two columns
+        stay aligned row-for-row, so anything that does not fit is truncated
+        with a "N lines hidden" footer instead of growing the box.
         """
-        dim, reset = self._theme.border.sgr(), RESET
-        inner_width = max(width - 4, 4)
-        top = f"{dim}┌{'─' * (width - 2)}┐{reset}"
-        bottom = f"{dim}└{'─' * (width - 2)}┘{reset}"
-        content_rows = max(height - 2, 1)
+        import textwrap
 
-        def pad(text: str) -> str:
-            return text + " " * max(0, inner_width - len(text))
+        buf.grow_to(area.y + area.height)
+        block = Block(
+            borders=Borders.ALL,
+            border_style=self._theme.border,
+            padding=Padding.symmetric(1, 0),
+        ).with_title(Line([Span(" Preview ", self._theme.muted)]))
+        block.render(area, buf)
 
-        def framed(text: str) -> str:
-            return f"{dim}│{reset} {pad(text)} {dim}│{reset}"
+        inner = block.inner(area)
+        if inner.width <= 0 or inner.height <= 0:
+            return
 
         if not preview:
-            body = [framed("(no preview for this option)" if content_rows else "")]
-            body += [framed("") for _ in range(content_rows - len(body))]
-            return [top, *body[:content_rows], bottom]
-
-        import textwrap
+            buf.set_string(
+                inner.x, inner.y, "(no preview for this option)"[: inner.width], self._theme.muted
+            )
+            return
 
         wrapped: list[str] = []
         for src_line in preview.splitlines() or [""]:
-            wrapped.extend(textwrap.wrap(src_line, inner_width) or [""])
+            wrapped.extend(textwrap.wrap(src_line, inner.width) or [""])
 
-        if len(wrapped) > content_rows:
-            visible = wrapped[: max(content_rows - 1, 1)]
+        if len(wrapped) > inner.height:
+            visible = wrapped[: max(inner.height - 1, 1)]
             hidden = len(wrapped) - len(visible)
-            footer = f"✂ {hidden} lines hidden".center(inner_width)
-            body = [framed(line) for line in visible] + [framed(footer)]
+            footer = f"\u2702 {hidden} lines hidden".center(inner.width)
+            rows = [*visible, footer]
         else:
-            body = [framed(line) for line in wrapped]
-            body += [framed("") for _ in range(content_rows - len(body))]
+            rows = wrapped
 
-        return [top, *body[:content_rows], bottom]
+        for i, text in enumerate(rows[: inner.height]):
+            buf.set_string(inner.x, inner.y + i, text[: inner.width], Style())
 
     # ── Input ─────────────────────────────────────────────────────────────
 
@@ -637,8 +670,8 @@ class _AskUserSequence(Component):
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
-        rows = 0
-        for line in self._tab_bar():
+        rows = self._render_tabs(area, buf)
+        for line in self._tab_trailer():
             rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
 
         body_area = Rect(area.x, area.y + rows, area.width, max(area.height - rows, 1))
@@ -648,23 +681,40 @@ class _AskUserSequence(Component):
             return rows
         return rows + self._children[self._index].render_cells(body_area, buf)
 
-    def _tab_bar(self) -> list[str]:
-        t = self._theme
-        muted, success, emphasis = t.muted.sgr(), t.success.sgr(), t.emphasis.sgr()
+    def _render_tabs(self, area: Rect, buf: Buffer) -> int:
+        """Draw the tab strip with the shared ``Tabs`` widget.
 
-        cells: list[str] = []
+        Hand-joining the titles into one ANSI string worked, but a strip wider
+        than the terminal wrapped onto a second row and pushed the body down;
+        ``Tabs`` clips at the right edge instead. Each title's own spans keep
+        their colour (``set_line`` patches the tab style *under* the span
+        style), so an answered tab's ✔ stays green while its label follows the
+        selected/unselected style.
+        """
+        titles: list[Line] = []
         for i, header in enumerate(self._headers):
-            mark = "✔ " if i in self._answers else "  "
-            colour = emphasis if i == self._index else muted
-            tick = f"{success}{mark}{RESET}{colour}" if i in self._answers else mark
-            cells.append(f"{colour}{tick}{header}{RESET}")
+            spans = (
+                [Span("✔ ", self._theme.success)] if i in self._answers else [Span("  ", Style())]
+            )
+            titles.append(Line([*spans, Span(header, Style())]))
+        titles.append(Line([Span("  ", Style()), Span(self.REVIEW_LABEL, Style())]))
 
-        review_colour = emphasis if self._on_review else muted
-        cells.append(f"{review_colour}  {self.REVIEW_LABEL}{RESET}")
+        buf.grow_to(area.y + 1)
+        Tabs(
+            titles=titles,
+            selected=self._index,
+            style=self._theme.muted,
+            highlight_style=self._theme.emphasis,
+            padding_left=1,
+            padding_right=1,
+        ).render(Rect(area.x + 2, area.y, max(area.width - 2, 1), 1), buf)
+        return 1
 
-        lines = [f"  {f'{muted}│{RESET}'.join(f' {c} ' for c in cells)}"]
+    def _tab_trailer(self) -> list[str]:
+        """The warning line (if any) and the blank row under the tab strip."""
+        lines: list[str] = []
         if self._warning:
-            lines.append(f"  {t.warning.sgr()}{self._warning}{RESET}")
+            lines.append(f"  {self._theme.warning.sgr()}{self._warning}{RESET}")
         lines.append("")
         return lines
 
@@ -697,24 +747,27 @@ class _AskUserSequence(Component):
         if self._on_activity is not None:
             self._on_activity()
 
-        # Inside the freeform editor the child owns every key — arrows move the
-        # text cursor there, and stealing them would make the editor unusable.
+        # Inside the freeform editor the child gets first refusal on every key.
+        # Only Tab is taken back from it: arrows belong to the text cursor, and
+        # a question with no options is *only* an editor, so without Tab there
+        # would be no way off its tab short of cancelling the whole dialog.
         active = None if self._on_review else self._children[self._index]
         if active is not None and active.is_editing:
-            return active.handle_input(event)
+            if active.handle_input(event):
+                return True
+            if event.key != "tab":
+                return False
 
-        match event.key:
-            case "left" | "shift+tab":
-                self._index = (self._index - 1) % (len(self._children) + 1)
-                self._warning = ""
-                return True
-            case "right" | "tab":
-                self._index = (self._index + 1) % (len(self._children) + 1)
-                self._warning = ""
-                return True
-            case "escape":
-                self._on_done(None)
-                return True
+        # Tab cycles forwards, Shift+Tab backwards, both wrapping through the
+        # Review tab. Shift+Tab arrives as key "tab" with shift set — there is
+        # no "shift+tab" key name, so it must be read off the modifier.
+        if event.key in ("tab", "left", "right"):
+            backwards = event.key == "left" or (event.key == "tab" and event.shift)
+            self._step(-1 if backwards else 1)
+            return True
+        if event.key == "escape":
+            self._on_done(None)
+            return True
 
         if self._on_review:
             if event.key == "enter":
@@ -727,6 +780,25 @@ class _AskUserSequence(Component):
             return True
 
         return active.handle_input(event) if active is not None else False
+
+    def _step(self, delta: int) -> None:
+        """Move ``delta`` tabs, wrapping across the questions and Review."""
+        self._leave_current()
+        self._index = (self._index + delta) % (len(self._children) + 1)
+        self._warning = ""
+
+    def _leave_current(self) -> None:
+        """Park the question being navigated away from.
+
+        A draft typed into an editor is recorded as that question's answer
+        rather than discarded — otherwise tabbing to Review shows
+        "(unanswered)" for a question the user has visibly filled in.
+        """
+        if self._on_review:
+            return
+        parked = self._children[self._index].park_editor()
+        if parked is not None:
+            self._answers[self._index] = parked
 
     def invalidate(self) -> None:
         for child in self._children:

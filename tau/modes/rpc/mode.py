@@ -182,6 +182,21 @@ def _write(obj: dict) -> None:
     _OUTPUT.write_line(json.dumps(obj, default=_json_default) + "\n")
 
 
+def _dump_model(model: Any) -> Any:
+    """Serialize a pydantic session entry / tree node for the wire.
+
+    ``mode="json"`` so nested enums, paths and datetimes come out as JSON
+    scalars rather than leaning on ``_json_default`` to stringify them.
+    """
+    dump = getattr(model, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump(mode="json")
+        except Exception:
+            _log.debug("rpc: model_dump failed for %s", type(model).__name__, exc_info=True)
+    return model
+
+
 def _shallow_asdict(event: object) -> dict:
     """``dataclasses.asdict`` without the deep copy (used when that one fails)."""
     return {f.name: getattr(event, f.name, None) for f in dataclasses.fields(event)}  # type: ignore[arg-type]
@@ -283,6 +298,24 @@ class RpcExtensionUIContext:
             {"method": "select", "title": title, "options": options}, timeout
         )
 
+    async def multi_select(
+        self, title: str, options: list[str], timeout: float | None = None
+    ) -> list[str] | None:
+        """Pick any number of ``options``. ``None`` when cancelled.
+
+        Distinct from ``select`` returning one label: an empty list is a real
+        answer ("none of these"), so it must not collapse to ``None``.
+        """
+        result = await self._dialog(
+            {"method": "multi_select", "title": title, "options": options}, timeout
+        )
+        if result is None:
+            return None
+        if isinstance(result, list):
+            return [str(item) for item in result]
+        # A client that answered a multi-select with one bare label.
+        return [str(result)]
+
     async def confirm(self, title: str, message: str = "", timeout: float | None = None) -> bool:
         result = await self._dialog(
             {"method": "confirm", "title": title, "message": message}, timeout
@@ -330,6 +363,28 @@ class RpcExtensionUIContext:
 
     def set_editor_text(self, text: str) -> None:
         self._fire({"method": "set_editor_text", "text": text})
+
+
+# Extension UI state lives at module scope because it must exist before
+# run_rpc_mode does: extensions load during Runtime.create and can call
+# ctx.ui from session_start, long before the protocol loop starts. RPC mode
+# is one-per-process, same as _OUTPUT above.
+_UI_PENDING: dict[str, asyncio.Future] = {}
+_UI_BRIDGE: RpcExtensionUIContext | None = None
+
+
+def install_extension_ui_bridge(runtime: Any) -> RpcExtensionUIContext:
+    """Give ``runtime`` the protocol-backed ``ctx.ui`` / ``ctx.select`` backend.
+
+    Called from ``Runtime.create`` for an RPC run so extension UI works from the
+    very first lifecycle event, and again from ``run_rpc_mode``. Idempotent —
+    the same bridge instance is reused so pending dialogs survive.
+    """
+    global _UI_BRIDGE
+    if _UI_BRIDGE is None:
+        _UI_BRIDGE = RpcExtensionUIContext(_UI_PENDING)
+    runtime.set_extension_ui_bridge(_UI_BRIDGE)
+    return _UI_BRIDGE
 
 
 # ---------------------------------------------------------------------------
@@ -1141,6 +1196,38 @@ async def _handle_command(
 
             # ── Messages ─────────────────────────────────────────────────────
 
+            case "get_entries":
+                sm = runtime.session_manager
+                if sm is None:
+                    _ok({"entries": [], "leafId": None})
+                    return
+                entries = sm.get_entries()
+                since = cmd.get("since")
+                if since is not None:
+                    index = next(
+                        (i for i, e in enumerate(entries) if getattr(e, "id", None) == since),
+                        None,
+                    )
+                    if index is None:
+                        _err(f"Entry not found: {since}")
+                        return
+                    # Everything *after* the cursor — a client that already has
+                    # `since` asks for the delta, not a duplicate of it.
+                    entries = entries[index + 1 :]
+                _ok({"entries": [_dump_model(e) for e in entries], "leafId": sm.get_leaf_id()})
+
+            case "get_tree":
+                sm = runtime.session_manager
+                if sm is None:
+                    _ok({"tree": [], "leafId": None})
+                    return
+                _ok(
+                    {
+                        "tree": [_dump_model(node) for node in sm.get_tree()],
+                        "leafId": sm.get_leaf_id(),
+                    }
+                )
+
             case "get_messages":
                 sm = runtime.session_manager
                 if sm is None:
@@ -1277,10 +1364,10 @@ async def run_rpc_mode(runtime: Runtime) -> None:
     _OUTPUT.install()
     await _OUTPUT.start_async()
 
-    # Pending extension UI futures keyed by request id
-    ui_pending: dict[str, asyncio.Future] = {}
-    ui_context = RpcExtensionUIContext(ui_pending)
-    runtime.set_extension_ui_bridge(ui_context)
+    # Usually already installed by Runtime.create (extensions load, and can
+    # call ctx.ui, well before this loop starts); idempotent either way.
+    ui_context = install_extension_ui_bridge(runtime)
+    ui_pending = _UI_PENDING
 
     # ── Subscribe to agent events and stream them out ────────────────────────
 

@@ -242,23 +242,37 @@ class ExtensionContext:
 
     @property
     def ui(self) -> UIContext | None:
-        """TUI customization API. None when running outside a TUI session."""
+        """UI API. ``None`` only when there is no user-facing surface at all.
+
+        In a TUI session this is the full interactive context. In RPC mode it is
+        a protocol-backed stand-in: dialogs, notifications, status slots,
+        widgets and titles reach the client, while anything needing a terminal
+        grid degrades to a no-op. **Check ``ui.supports_components`` before
+        calling ``custom``/``custom_inline``/``show_overlay``** — a non-``None``
+        ``ui`` does not promise a surface to render on.
+        """
         self._assert_active()
         if self._layout is None:
-            return None
+            bridge = self._ui_bridge
+            if bridge is None:
+                return None
+            from tau.modes.rpc.ui_context import RpcUIContext
+
+            return RpcUIContext(bridge)  # type: ignore[return-value]
         from tau.modes.interactive.ui_context import UIContext
 
         return UIContext(self._layout, settings=self._settings)  # type: ignore[arg-type]
 
     @property
     def has_ui(self) -> bool:
-        """True when dialog-capable UI is available.
+        """Exactly ``ctx.ui is not None`` — a convenience, not a second check.
 
-        That means a TUI, or an RPC client that answers ``extension_ui_request``.
-        ``ctx.ui`` (the rich TUI customization API) is still TUI-only.
+        True for a TUI session and for an RPC client that answers
+        ``extension_ui_request``; False in print/JSON modes. It says a user can
+        be reached, *not* that components can be rendered — that question is
+        ``ctx.ui.supports_components``.
         """
-        self._assert_active()
-        return self._layout is not None or self._ui_bridge is not None
+        return self.ui is not None
 
     @property
     def _ui_bridge(self) -> Any | None:

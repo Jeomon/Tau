@@ -126,6 +126,12 @@ class Runtime:
             }
         )
         runtime = cls(context=context, config=runtime_config)
+        if config.mode == "rpc":
+            # Before session_start: extensions call ctx.ui from their very first
+            # handler, and in RPC mode that has to reach the client, not nothing.
+            from tau.modes.rpc.mode import install_extension_ui_bridge
+
+            install_extension_ui_bridge(runtime)
         runtime._start_version_check()
         runtime._start_telemetry()
         runtime._start_local_model_discovery()

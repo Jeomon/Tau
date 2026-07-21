@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import logging
 import re
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -67,9 +68,15 @@ def generate_id(by_id: Any) -> str:
 
 
 def generate_timestamp() -> float:
-    """Generate a Unix timestamp for the current moment."""
-    now = datetime.now()
-    return now.timestamp()
+    """Generate a Unix timestamp for the current moment.
+
+    Reads the epoch clock directly rather than going through naive
+    ``datetime.now()``, whose ``.timestamp()`` re-interprets the value as local
+    time — ambiguous during a DST fall-back (an hour that occurs twice), and
+    subject to µs→float rounding that could place the result just outside the
+    interval a caller measured around it.
+    """
+    return time.time()
 
 
 def get_default_project_session_dir(cwd: str | Path, sessions_dir: Path | None = None) -> Path:

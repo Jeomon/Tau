@@ -408,3 +408,104 @@ class TestExportHtml:
             {"type": "export_html", "id": "1"}, _Runtime(_Agent(), _SessionManager()), {}
         )
         assert captured[-1]["success"] is False
+
+
+# ── Transcript reads ─────────────────────────────────────────────────────────
+
+
+class _Entry:
+    """Minimal stand-in for a session entry (pydantic-shaped)."""
+
+    def __init__(self, entry_id: str, parent_id: str | None = None) -> None:
+        self.id = entry_id
+        self.parent_id = parent_id
+
+    def model_dump(self, mode: str = "python"):
+        return {"id": self.id, "parentId": self.parent_id}
+
+
+class _EntriesSessionManager(_SessionManager):
+    def __init__(self, entries) -> None:
+        super().__init__()
+        self._all = entries
+        self._tree = [_Entry("root")]
+
+    def get_entries(self):
+        return self._all
+
+    def get_leaf_id(self):
+        return self._all[-1].id if self._all else None
+
+    def get_tree(self):
+        return self._tree
+
+
+class TestGetEntries:
+    @pytest.mark.asyncio
+    async def test_returns_every_entry_and_the_leaf(self, captured):
+        sm = _EntriesSessionManager([_Entry("e1"), _Entry("e2"), _Entry("e3")])
+
+        await mode._handle_command(
+            {"type": "get_entries", "id": "1"}, _Runtime(_Agent(), sm), {}
+        )
+
+        data = captured[-1]["data"]
+        assert [e["id"] for e in data["entries"]] == ["e1", "e2", "e3"]
+        assert data["leafId"] == "e3"
+
+    @pytest.mark.asyncio
+    async def test_since_returns_only_what_follows(self, captured):
+        sm = _EntriesSessionManager([_Entry("e1"), _Entry("e2"), _Entry("e3")])
+
+        await mode._handle_command(
+            {"type": "get_entries", "id": "1", "since": "e1"}, _Runtime(_Agent(), sm), {}
+        )
+
+        # Excludes the cursor itself — the client already has it.
+        assert [e["id"] for e in captured[-1]["data"]["entries"]] == ["e2", "e3"]
+
+    @pytest.mark.asyncio
+    async def test_since_the_latest_entry_returns_nothing(self, captured):
+        sm = _EntriesSessionManager([_Entry("e1"), _Entry("e2")])
+
+        await mode._handle_command(
+            {"type": "get_entries", "id": "1", "since": "e2"}, _Runtime(_Agent(), sm), {}
+        )
+
+        assert captured[-1]["data"]["entries"] == []
+        assert captured[-1]["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_cursor_is_an_error(self, captured):
+        sm = _EntriesSessionManager([_Entry("e1")])
+
+        await mode._handle_command(
+            {"type": "get_entries", "id": "1", "since": "nope"}, _Runtime(_Agent(), sm), {}
+        )
+
+        assert captured[-1]["success"] is False
+        assert "Entry not found: nope" in captured[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_no_session_degrades_to_empty(self, captured):
+        await mode._handle_command({"type": "get_entries", "id": "1"}, _Runtime(_Agent()), {})
+
+        assert captured[-1]["data"] == {"entries": [], "leafId": None}
+
+
+class TestGetTree:
+    @pytest.mark.asyncio
+    async def test_returns_the_tree_and_the_leaf(self, captured):
+        sm = _EntriesSessionManager([_Entry("e1")])
+
+        await mode._handle_command({"type": "get_tree", "id": "1"}, _Runtime(_Agent(), sm), {})
+
+        data = captured[-1]["data"]
+        assert data["tree"] == [{"id": "root", "parentId": None}]
+        assert data["leafId"] == "e1"
+
+    @pytest.mark.asyncio
+    async def test_no_session_degrades_to_empty(self, captured):
+        await mode._handle_command({"type": "get_tree", "id": "1"}, _Runtime(_Agent()), {})
+
+        assert captured[-1]["data"] == {"tree": [], "leafId": None}

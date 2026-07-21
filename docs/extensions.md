@@ -1209,11 +1209,35 @@ explicitly with `ctx.set_project_trusted(True, remember=True)`, which writes to
 
 ## TUI: Widgets, Dialogs, and Overlays
 
-`ctx.ui` is a `UIContext` when running inside a TUI session and `None` otherwise. Always
-guard on it — `ctx.has_ui` and `ctx.mode` are the explicit checks.
+`ctx.ui` is a `UIContext` inside a TUI session. In RPC mode it is an `RpcUIContext`,
+which speaks the same API over the JSON-lines protocol. It is `None` only when there is
+no user-facing surface at all (print/JSON modes). Always guard on it.
 
-The earliest event at which `ctx.ui` is reliably available is `tui_ready`;
-`session_start` with reason `startup` fires before the layout exists.
+| Capability | TUI | RPC | Check |
+|------------|-----|-----|-------|
+| Dialogs — `select`, `confirm`, `prompt`, `editor` | ✅ | ✅ | `ctx.has_ui` |
+| `notify`, `set_status`, `set_widget` (lines), `set_title`, `set_editor_text` | ✅ | ✅ | `ctx.has_ui` |
+| `multi_select` — pick several | ✅ | ✅ | `ctx.has_ui` |
+| Components — `custom`, `custom_inline`, `show_overlay`, footers, headers, themes | ✅ | ❌ no-op | **`ctx.ui.supports_components`** |
+
+`ctx.has_ui` is defined as `ctx.ui is not None` — use whichever reads better, they are the
+same test. There is only one real branch point beyond it: `supports_components`.
+
+Rendering your own `Component` is the case that needs the capability flag:
+
+```python
+ui = ctx.ui
+if ui is None or not ui.supports_components:
+    return          # no grid to draw on — custom_inline() would return None
+await ui.custom_inline(my_factory)
+```
+
+`ctx.has_ui` answers the narrower question "can I ask the user something at all" — it is
+`True` in RPC mode, because dialogs do work there.
+
+In a TUI the earliest event at which `ctx.ui` is reliably available is `tui_ready`;
+`session_start` with reason `startup` fires before the layout exists. In RPC mode the
+bridge is installed before `session_start`, so `ctx.ui` is usable from the first handler.
 
 ```python
 def register(tau):
@@ -1378,10 +1402,14 @@ dialog component. It shows the patterns worth copying for any multi-step dialog:
 - On a multi-select question, `Space` on the `Type something…` row opens an editor
   whose `Enter` **saves** rather than submits — the answer is then the ticked options
   *and* the typed text. Saving an empty string clears it again.
-- When the tool cannot work at all (`ctx.ui is None` in headless or RPC mode) it
-  removes itself from `engine.tools` and says so in the error, instead of failing
-  identically on every subsequent turn. `ExtensionAPI.set_active_tools` does the same
-  thing for a whole allowlist.
+- **Two backends, one answer shape.** In a TUI it renders the component above. Under
+  RPC — where `ctx.ui.supports_components` is `False` — `rpc_backend.py` asks the same
+  questions through the protocol's fixed dialogs (`select`, `multi_select`,
+  `input`/`editor`), folding option descriptions into the labels. The model gets
+  identical answers either way; what is lost is the tabs, the review step and previews.
+- When there is no UI at all (print/JSON mode, `ctx.ui is None`) the tool removes itself
+  from `engine.tools` and says so in the error, instead of failing identically on every
+  subsequent turn. `ExtensionAPI.set_active_tools` does the same for a whole allowlist.
 - `timeout` is an *inactivity* timer: every keystroke re-arms it, and firing it tears
   the dialog down as well as failing the call.
 
@@ -1857,8 +1885,8 @@ runtime *generation* — see [Hot Reload](#hot-reload) for staleness rules.
 | `ctx.llm` | `TextLLM \| None` | Live LLM for your own model calls; `None` outside a session |
 | `ctx.settings` | `SettingsManager \| None` | Settings access |
 | `ctx.mode` | `str` | `"tui"` or `"headless"` |
-| `ctx.has_ui` | `bool` | True when dialog-capable UI is available |
-| `ctx.ui` | `UIContext \| None` | TUI customisation API |
+| `ctx.has_ui` | `bool` | True when dialog-capable UI is available (TUI **or** RPC) |
+| `ctx.ui` | `UIContext \| RpcUIContext \| None` | UI API; check `.supports_components` before rendering one |
 | `ctx.branch_entries` | `list[SessionEntry]` | Current branch only |
 | `ctx.session_entries` | `list[SessionEntry]` | Every branch |
 
@@ -2218,7 +2246,8 @@ to interception.
 | Only one copy of a duplicated extension loads | Same-identity priority: project beats global beats builtin |
 | A handler's return value does nothing | The event is not in the interceptable allowlist — see [Dispatch model](#dispatch-model) |
 | `StaleExtensionContextError` | A context was retained across a reload or session replacement |
-| `ctx.ui` is `None` early in startup | Subscribe to `tui_ready` instead of `session_start` |
+| `ctx.ui` is `None` early in startup | Subscribe to `tui_ready` instead of `session_start` (TUI only — in RPC mode `ctx.ui` is ready before `session_start`) |
+| `custom_inline()` returns `None` and the caller crashes | You are in RPC mode — gate on `ctx.ui.supports_components` |
 | Native import fails after a dependency install | The project `.venv` targets a different Python than the interpreter running Tau |
 
 **Dependency install state** can be inspected with `tau doctor`, which uses the same

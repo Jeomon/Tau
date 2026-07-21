@@ -27,14 +27,12 @@ one. Keeping ``highlight_style=Style()`` (a true no-op patch) and
 ``highlight_symbol=""`` sidesteps that; the "> " marker and label/suffix
 colors are just spans in the row's own Line, exactly as before.
 
-Known limitation: a single ``ListItem`` is always one row (the List
-has no concept of a wrapped multi-row item). The legacy ``render(width)``
-path let an overlong row (long label + description, e.g.
-ThinkingSelector's) wrap onto extra rows via the generic wrap-aware
-Component bridge; here it's clipped to ``area.width`` instead. Verified
-byte-identical against the original at realistic widths (60+ columns,
-where these selectors actually render); only affects terminals narrower
-than ~50 columns for description-heavy rows.
+A row's label is still a single line, clipped to ``area.width`` — verified
+byte-identical against the legacy ``render(width)`` path at realistic widths
+(60+ columns), and only differing on terminals narrower than ~50 columns.
+Callers that need more room can put the overflow in ``detail_lines``, which
+become extra rows of the same ``ListItem`` (see ``ListItem.height``) instead
+of being truncated; ``MultiSelectList`` wraps its descriptions that way.
 """
 
 from __future__ import annotations
@@ -50,13 +48,22 @@ from tau.tui.widgets.list import List, ListItem, ListState
 
 @dataclass
 class PickerRow:
-    """One row: a label plus optional pre-styled trailing spans (checkmark,
+    """One row: a label plus optional pre-styled spans around it (checkmark,
     description, status text, ...). Spans are independent of selection
     state — the label's own style is chosen by render_picker_cells based on
-    whether this row is selected."""
+    whether this row is selected.
+
+    ``prefix_spans`` sit between the cursor arrow and the label, which is where
+    a checkbox column goes: it keeps its own colour instead of inheriting the
+    label's selected/unselected style."""
 
     label: str
     suffix_spans: list[Span] = field(default_factory=list)
+    prefix_spans: list[Span] = field(default_factory=list)
+    #: Extra rows rendered under the label, already wrapped by the caller (it
+    #: knows the wrap width it wants). Each becomes another row of this item —
+    #: see ``ListItem.height`` — rather than being clipped off the end.
+    detail_lines: list[str] = field(default_factory=list)
 
 
 def render_picker_cells(
@@ -110,6 +117,9 @@ def render_picker_cells(
         start = max(0, min(selected - visible // 2, max(0, count - visible)))
         state.select(selected)
         state.offset = start
+        # Rows with detail lines are taller than one row, so the viewport has to
+        # be measured in rows, not items, or the last entries fall off the end.
+        viewport_rows = sum(1 + len(row.detail_lines) for row in rows[start : start + visible])
 
         if start > 0:
             write("  " + apply_style(muted_style, f"↑ {start} more above"))
@@ -118,23 +128,25 @@ def render_picker_cells(
         for i, row in enumerate(rows):
             is_sel = i == selected
             if is_sel:
-                spans = [
-                    Span("  ", Style()),
-                    Span(arrow, accent_style),
-                    Span(" ", Style()),
-                    Span(row.label, emphasis_style),
-                ]
+                spans = [Span("  ", Style()), Span(arrow, accent_style), Span(" ", Style())]
             else:
-                spans = [Span("    ", Style()), Span(row.label, muted_style)]
+                spans = [Span("    ", Style())]
+            spans.extend(row.prefix_spans)
+            spans.append(Span(row.label, emphasis_style if is_sel else muted_style))
             spans.extend(row.suffix_spans)
-            list_items.append(ListItem(Line(spans)))
+            if row.detail_lines:
+                lines = [Line(spans)]
+                lines += [Line([Span(detail, muted_style)]) for detail in row.detail_lines]
+                list_items.append(ListItem(lines))
+            else:
+                list_items.append(ListItem(Line(spans)))
 
-        list_area = Rect(area.x, y, area.width, visible)
-        buf.grow_to(y + visible)
+        list_area = Rect(area.x, y, area.width, viewport_rows)
+        buf.grow_to(y + viewport_rows)
         List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
             list_area, buf, state
         )
-        y += visible
+        y += viewport_rows
 
         remaining = count - (start + visible)
         if remaining > 0:

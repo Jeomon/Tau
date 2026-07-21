@@ -194,6 +194,21 @@ class GetMessagesCommand(TypedDict, total=False):
     id: str
 
 
+class GetEntriesCommand(TypedDict, total=False):
+    """Raw session entries. ``since`` returns only what follows that entry id."""
+
+    type: Literal["get_entries"]
+    id: str
+    since: str
+
+
+class GetTreeCommand(TypedDict, total=False):
+    """The session's branch tree, entries nested under their parents."""
+
+    type: Literal["get_tree"]
+    id: str
+
+
 class GetCommandsCommand(TypedDict, total=False):
     type: Literal["get_commands"]
     id: str
@@ -226,6 +241,22 @@ class SelectUIRequest(TypedDict, total=False):
     type: Literal["extension_ui_request"]
     id: str
     method: Literal["select"]
+    title: str
+    options: list[str]
+    timeout: int
+
+
+class MultiSelectUIRequest(TypedDict, total=False):
+    """Pick zero or more of ``options``.
+
+    The reply's ``value`` is a list of chosen labels (``[]`` is a valid answer,
+    meaning "none of these"); ``cancelled`` dismisses. Tau-specific — the
+    reference protocol has no multi-select shape.
+    """
+
+    type: Literal["extension_ui_request"]
+    id: str
+    method: Literal["multi_select"]
     title: str
     options: list[str]
     timeout: int

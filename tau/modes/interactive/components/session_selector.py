@@ -360,12 +360,10 @@ class ResumeSelector:
 
             end_idx = min(start + visible, count)
 
-            # Each session is 2 content rows (name, meta) plus a blank
-            # separator between entries — never after the last one in the
-            # window. Built as a flat run of ListItems (one row per
-            # ListItem); only "name" rows are ever
-            # the selected one, so state.selected always points at a
-            # 3k-th item within this windowed slice.
+            # One ListItem per session, each carrying its own rows: the name,
+            # the meta line, and a blank separator except after the last entry
+            # in the window. ListItem.height reports those rows, so selection
+            # indexes sessions directly rather than a flat run of rows.
             list_items: list[ListItem] = []
             for i in range(start, end_idx):
                 session = self._filtered[i]
@@ -396,10 +394,8 @@ class ResumeSelector:
                     name_style = t.muted
                     indicator_spans = [Span("  ", Style())]
 
-                list_items.append(
-                    ListItem(
-                        Line([Span("  ", Style()), *indicator_spans, Span(display, name_style)])
-                    )
+                name_line = Line(
+                    [Span("  ", Style()), *indicator_spans, Span(display, name_style)]
                 )
 
                 # ── Line 2: age · project · size · ⚙ N ───────────────────────
@@ -413,20 +409,23 @@ class ResumeSelector:
                     meta_parts.append(f"⚙ {mc}")
 
                 meta_line = "  ·  ".join(meta_parts)
-                list_items.append(ListItem(Line([Span("    ", Style()), Span(meta_line, t.muted)])))
+                lines = [name_line, Line([Span("    ", Style()), Span(meta_line, t.muted)])]
 
                 # blank line between entries for readability
                 if i < end_idx - 1:
-                    list_items.append(ListItem(Line([])))
+                    lines.append(Line([]))
+
+                list_items.append(ListItem(lines))
 
             state = ListState()
-            state.select((self._selected - start) * 3 if list_items else None)
+            state.select(self._selected - start if list_items else None)
             state.offset = 0
-            buf.grow_to(row + len(list_items))
+            total_rows = sum(item.height for item in list_items)
+            buf.grow_to(row + total_rows)
             List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-                Rect(area.x, row, area.width, len(list_items)), buf, state
+                Rect(area.x, row, area.width, total_rows), buf, state
             )
-            row += len(list_items)
+            row += total_rows
 
             total_count = (
                 self._current_total_count if self._scope == "current" else self._all_total_count
