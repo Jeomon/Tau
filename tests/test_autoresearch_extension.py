@@ -528,9 +528,11 @@ class _Ctx:
     def __init__(self, ui=None) -> None:
         self.ui = ui
         self.sent: list[str] = []
+        self.triggered: list[bool] = []
 
-    async def send_message(self, content: str) -> None:
+    async def send_user_message(self, content: str, *, trigger_turn: bool = False) -> None:
         self.sent.append(content)
+        self.triggered.append(trigger_turn)
 
 
 class _Registry:
@@ -639,6 +641,8 @@ class TestCommand:
 
         assert ctx.sent and "autoresearch-create" in ctx.sent[0]
         assert "optimize test runtime" in ctx.sent[0]
+        # A plain steer would queue behind a turn that never starts.
+        assert ctx.triggered == [True]
 
     def test_a_goal_resumes_when_a_prompt_file_exists(self, wired):
         registry, cwd = wired
@@ -650,6 +654,7 @@ class TestCommand:
 
         assert ctx.sent and "Continue the autoresearch loop" in ctx.sent[0]
         assert "keep going" in ctx.sent[0]
+        assert ctx.triggered == [True]
 
     def test_commands_survive_a_headless_context(self, wired):
         registry, _ = wired

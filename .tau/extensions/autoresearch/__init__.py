@@ -277,11 +277,15 @@ def register(tau: Any) -> None:
             if goal:
                 note += f"\nAdded context: {goal}"
             _notify(ctx, note)
-            await ctx.send_message(
+            # trigger_turn: with the agent idle a plain steer would sit in the
+            # queue with nothing to intercept — the command would look like it
+            # did nothing. This starts the turn now, or steers if one is running.
+            await ctx.send_user_message(
                 "Continue the autoresearch loop. Re-read .auto/prompt.md, the tail of "
                 ".auto/log.jsonl and `git log` first so you are working from the files "
                 "rather than memory, then run the next experiment."
-                + (f"\n\nExtra context from the user: {goal}" if goal else "")
+                + (f"\n\nExtra context from the user: {goal}" if goal else ""),
+                trigger_turn=True,
             )
             return
 
@@ -290,11 +294,12 @@ def register(tau: Any) -> None:
             "autoresearch: no .auto/prompt.md yet — setting up a new session." if goal else _HELP,
         )
         if goal:
-            await ctx.send_message(
+            await ctx.send_user_message(
                 "Set up an autoresearch session with the autoresearch-create skill. "
                 f"The user's goal: {goal}\n\n"
                 f"Write {prompt_path(session.cwd)} and {measure_path(session.cwd)}, call "
-                "init_experiment, run the baseline, then start the loop."
+                "init_experiment, run the baseline, then start the loop.",
+                trigger_turn=True,
             )
 
     tau.register_command(
