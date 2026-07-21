@@ -3,16 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from component import _AskUserComponent, _AskUserSequence
-from rpc_backend import ask_over_bridge
-from schema import (
-    MAX_HEADER_LENGTH,
-    AskUserParams,
-    QuestionValidationError,
-    normalize_options,
-    validate_questions,
-)
-
 from tau.tool.render import call_line
 from tau.tool.types import (
     Tool,
@@ -21,6 +11,19 @@ from tau.tool.types import (
     ToolInvocation,
     ToolKind,
     ToolResult,
+)
+
+from .component import (
+    _AskUserComponent,
+    _AskUserSequence,
+)
+from .rpc_backend import ask_over_bridge
+from .schema import (
+    MAX_HEADER_LENGTH,
+    AskUserParams,
+    QuestionValidationError,
+    normalize_options,
+    validate_questions,
 )
 
 

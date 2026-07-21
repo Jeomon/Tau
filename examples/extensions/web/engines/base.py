@@ -95,7 +95,7 @@ class BaseSearchEngine(ABC):
     async def fetch(self, url: str, timeout: int) -> str:
         """Fetch a URL and return its content as text."""
 
-    async def aclose(self) -> None:
+    async def aclose(self) -> None:  # noqa: B027 — deliberately optional override, not abstract
         """Release any held resources (connections, sessions). Default no-op.
 
         Overridden by engines that keep a persistent client alive across

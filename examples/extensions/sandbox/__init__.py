@@ -29,14 +29,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from manager import SandboxConfig, SandboxManager  # type: ignore[import-not-found]
-from sandbox_tool import SandboxTerminalTool  # type: ignore[import-not-found]
+from .manager import SandboxConfig, SandboxManager
+from .sandbox_tool import SandboxTerminalTool
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI

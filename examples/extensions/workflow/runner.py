@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from model import WorkflowDef, WorkflowPhase, WorkflowTask  # type: ignore[import-not-found]
-
 from tau.agent.embedded import TASK_TIMEOUT_S, run_embedded_agent
+
+from .model import WorkflowDef, WorkflowPhase, WorkflowTask
 
 MAX_CONCURRENCY = 4
 _PLACEHOLDER_RE = re.compile(r"\{(previous|item|results\.[^{}]+)\}")

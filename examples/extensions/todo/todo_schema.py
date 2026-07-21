@@ -54,7 +54,9 @@ class TodoParams(BaseModel):
     )
     append_note: str | None = Field(
         default=None,
-        description="Append a paragraph to the task's existing description. Only used by action='update'.",
+        description=(
+            "Append a paragraph to the task's existing description. Only used by action='update'."
+        ),
     )
     status: Literal["pending", "in_progress", "done", "failed"] | None = Field(
         default=None,

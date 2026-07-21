@@ -229,25 +229,28 @@ startup, and the other extensions still load.
         └── search.py
 ```
 
-The loader imports entry files with `importlib.util.spec_from_file_location`, which does
-**not** establish a real package context. Sibling modules are therefore not importable
-as a package — add the extension directory to `sys.path` at the top of the entry file:
+A directory extension is loaded as a **package**: the loader calls
+`importlib.util.spec_from_file_location(name, dir/"__init__.py")`, and Python makes that
+a package because the entry file is `__init__.py`. Import siblings relatively:
 
 ```python
 # web/__init__.py
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-
-from tools.search import WebSearchTool   # now resolvable
+from .tools.search import WebSearchTool
 
 
 def register(tau):
     tau.register_tool(WebSearchTool())
 ```
 
-Every real example in `examples/extensions/` uses exactly this pattern.
+Every example in `examples/extensions/` uses exactly this pattern.
+
+> **Do not add the extension directory to `sys.path` and import siblings by bare name.**
+> Each extension gets a unique package name (`_tau_ext_<hash of path>`), so relative
+> imports are private to it — but a bare `import state` goes into the process-wide
+> `sys.modules`, where the first extension to claim the name wins and every later one
+> silently gets *that* module. Generic names (`state`, `tool`, `types`, `utils`, `model`)
+> collide across extensions in practice: it once left the workflow extension calling the
+> subagent extension's `discover_agents()`, which returns a different shape and crashed.
 
 **Manifest-declared entry points** — for a named entry file, multiple entry files, or
 any declared dependencies, skills, or settings schema:
@@ -2053,15 +2056,11 @@ class NoteStore:
 # notes/__init__.py
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent))
-
 from pydantic import BaseModel, Field
-from store import NoteStore
 
 from tau.tool.types import Tool, ToolInvocation, ToolKind, ToolResult
+
+from .store import NoteStore
 
 WIDGET_KEY = "notes"
 
@@ -2241,7 +2240,9 @@ to interception.
 | Symptom | Cause |
 |---|---|
 | `No 'register(tau)' function in <file>` | The module has no module-level `register` callable |
-| `ModuleNotFoundError` for a sibling module | Missing `sys.path.insert(0, str(Path(__file__).parent))` in the entry file |
+| `ModuleNotFoundError` for a sibling module | Import it relatively (`from .store import NoteStore`) — a directory extension is a package |
+| `ImportError: attempted relative import with no known parent package` | The module was imported by bare name (often in a test); load the extension package and reach submodules through it |
+| A sibling import returns another extension's module | Bare-name sibling imports share one global namespace — use relative imports |
 | Extension silently absent | Filename or directory starts with `_`, or it is disabled in `extensions.list` / `/extensions` |
 | Only one copy of a duplicated extension loads | Same-identity priority: project beats global beats builtin |
 | A handler's return value does nothing | The event is not in the interceptable allowlist — see [Dispatch model](#dispatch-model) |

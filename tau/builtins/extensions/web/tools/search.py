@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from engines import BaseSearchEngine  # type: ignore[import-not-found]
-from engines import SearchMode as _SearchMode  # type: ignore[import-not-found]
-from engines import SearchRecency as _SearchRecency  # type: ignore[import-not-found]
 from pydantic import BaseModel, Field
 
 from tau.tool.render import call_line
@@ -16,6 +13,10 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+
+from ..engines import BaseSearchEngine
+from ..engines import SearchMode as _SearchMode
+from ..engines import SearchRecency as _SearchRecency
 
 
 def _render_web_search_call(args: dict, _streaming: bool) -> list[str]:

@@ -8,13 +8,9 @@ consuming the parent conversation's.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from subagent_tool import SubagentTool  # noqa: E402
+from .subagent_tool import SubagentTool  # noqa: E402
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI

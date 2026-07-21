@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from schema import FREEFORM_LABEL, AskUserOption, AskUserQuestion  # type: ignore[import-not-found]
+from .schema import FREEFORM_LABEL, AskUserOption, AskUserQuestion
 
 
 def _prompt_text(question: AskUserQuestion) -> str:

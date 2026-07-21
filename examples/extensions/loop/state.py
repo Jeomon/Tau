@@ -8,9 +8,13 @@ import string
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
 
-from duration import FIFTEEN_MINUTES, ONE_MINUTE, THREE_DAYS, format_duration
+from .duration import (
+    FIFTEEN_MINUTES,
+    ONE_MINUTE,
+    THREE_DAYS,
+    format_duration,
+)
 
 MAX_TASKS = 50
 
@@ -23,10 +27,10 @@ class LoopTask:
     created_at: float
     next_run_at: float
     interval_s: float
-    expires_at: Optional[float] = None
+    expires_at: float | None = None
     jitter_s: float = 0
-    last_run_at: Optional[float] = None
-    last_status: Optional[str] = None
+    last_run_at: float | None = None
+    last_status: str | None = None
     run_count: int = 0
     pending: bool = False
 
@@ -56,7 +60,7 @@ def _hash_id(task_id: str) -> int:
 class SchedulerState:
     def __init__(self) -> None:
         self.tasks: dict[str, LoopTask] = {}
-        self.storage_path: Optional[Path] = None
+        self.storage_path: Path | None = None
         self.dispatching = False
 
     def set_storage(self, cwd: Path) -> None:
@@ -76,7 +80,9 @@ class SchedulerState:
                 if not item.get("id") or not item.get("prompt"):
                     continue
                 item = {**item, "pending": False}
-                task = LoopTask(**{k: v for k, v in item.items() if k in LoopTask.__dataclass_fields__})
+                task = LoopTask(
+                    **{k: v for k, v in item.items() if k in LoopTask.__dataclass_fields__}
+                )
                 if task.expires_at and now >= task.expires_at:
                     continue
                 self.tasks[task.id] = task
@@ -90,7 +96,9 @@ class SchedulerState:
             self.storage_path.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "version": 1,
-                "tasks": [asdict(t) for t in sorted(self.tasks.values(), key=lambda t: t.next_run_at)],
+                "tasks": [
+                    asdict(t) for t in sorted(self.tasks.values(), key=lambda t: t.next_run_at)
+                ],
             }
             tmp = self.storage_path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(data, indent=2))

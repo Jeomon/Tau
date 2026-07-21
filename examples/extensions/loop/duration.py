@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Optional
 
 ONE_MINUTE = 60
 FIFTEEN_MINUTES = 15 * ONE_MINUTE
@@ -17,7 +16,7 @@ _DURATION_WORD = re.compile(
 )
 
 
-def parse_duration(text: str) -> Optional[float]:
+def parse_duration(text: str) -> float | None:
     """Parse '5m', '2h', '30 seconds', etc. into seconds."""
     raw = text.strip().lower()
     if not raw:
@@ -43,7 +42,7 @@ def parse_duration(text: str) -> Optional[float]:
     return None
 
 
-def normalize_duration(seconds: float) -> tuple[float, Optional[str]]:
+def normalize_duration(seconds: float) -> tuple[float, str | None]:
     """Round up to minute granularity, matching the minimum tick resolution."""
     if seconds <= 0:
         return ONE_MINUTE, "Rounded up to 1m (minimum interval)."
@@ -61,7 +60,7 @@ def format_duration(seconds: float) -> str:
     return f"{int(seconds // ONE_MINUTE)}m"
 
 
-def _extract_leading_duration(text: str) -> Optional[tuple[float, str]]:
+def _extract_leading_duration(text: str) -> tuple[float, str] | None:
     tokens = text.strip().split()
     if len(tokens) < 2:
         return None
@@ -78,7 +77,7 @@ def _extract_leading_duration(text: str) -> Optional[tuple[float, str]]:
     return None
 
 
-def _extract_trailing_duration(text: str) -> Optional[tuple[float, str]]:
+def _extract_trailing_duration(text: str) -> tuple[float, str] | None:
     tokens = text.strip().split()
     if len(tokens) < 2:
         return None
@@ -95,8 +94,8 @@ def _extract_trailing_duration(text: str) -> Optional[tuple[float, str]]:
     return None
 
 
-def parse_loop_args(text: str) -> Optional[dict]:
-    """/loop 5m <task>  |  /loop <task> every 2h  |  /loop <task> 5m  |  /loop <task> (default 10m)."""
+def parse_loop_args(text: str) -> dict | None:
+    """/loop 5m <task> | /loop <task> every 2h | /loop <task> 5m | /loop <task> (default 10m)."""
     raw = text.strip()
     if not raw:
         return None

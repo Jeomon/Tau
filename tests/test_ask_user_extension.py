@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,26 +10,27 @@ import pytest
 
 from tau.extensions.loader import _RuntimeRef
 from tau.tool.types import ToolInvocation
+from tau.tui.buffer import Buffer
+from tau.tui.geometry import Rect
+from tau.tui.input import KeyEvent
+from tests.ext_loader import load_extension
 
-# Add the bundled ask_user extension directory to sys.path to allow imports under test.
-sys.path.insert(
-    0,
-    str(Path(__file__).parent.parent / ".tau" / "extensions" / "ask_user"),
-)
+# Loaded as a package, exactly as tau's loader does — its modules use relative
+# imports and never occupy a bare name like `schema` or `tool`.
+_PKG = load_extension("ask_user").__name__
+_component = importlib.import_module(f"{_PKG}.component")
+_schema = importlib.import_module(f"{_PKG}.schema")
+_tool = importlib.import_module(f"{_PKG}.tool")
 
-from component import _AskUserComponent, _AskUserSequence  # noqa: E402
-from schema import (  # noqa: E402
-    AskUserOption,
-    AskUserParams,
-    AskUserQuestion,
-    QuestionValidationError,
-    validate_questions,
-)
-from tool import AskUserTool, _header_for  # noqa: E402
-
-from tau.tui.buffer import Buffer  # noqa: E402
-from tau.tui.geometry import Rect  # noqa: E402
-from tau.tui.input import KeyEvent  # noqa: E402
+_AskUserComponent = _component._AskUserComponent
+_AskUserSequence = _component._AskUserSequence
+AskUserOption = _schema.AskUserOption
+AskUserParams = _schema.AskUserParams
+AskUserQuestion = _schema.AskUserQuestion
+QuestionValidationError = _schema.QuestionValidationError
+validate_questions = _schema.validate_questions
+AskUserTool = _tool.AskUserTool
+_header_for = _tool._header_for
 
 
 def test_ask_user_tool_initialization() -> None:

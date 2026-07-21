@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from engines import BaseSearchEngine  # type: ignore[import]
 from pydantic import BaseModel, Field
 
 from tau.tool.render import call_line
@@ -16,6 +15,8 @@ from tau.tool.types import (
     ToolResult,
 )
 from tau.utils.format import human_size as _human_size
+
+from ..engines import BaseSearchEngine
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:

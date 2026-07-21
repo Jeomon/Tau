@@ -37,7 +37,7 @@ class ExaSearchEngine(BaseSearchEngine):
 
     def _get_client(self):
         if self._client is None:
-            from exa_py import Exa
+            from exa_py import Exa  # type: ignore[import-not-found]
 
             self._client = Exa(self._api_key)
         return self._client

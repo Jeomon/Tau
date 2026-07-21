@@ -1,16 +1,16 @@
 """Reuses the subagent extension's agent discovery (same presets: scout,
-worker, reviewer, ...), loaded by file path so this extension has no
-import-order dependency on the subagent extension having loaded first.
+worker, reviewer, ...).
 
-Named agent_discovery.py, not agents.py: both this extension's __init__.py
-and subagent/__init__.py do `sys.path.insert(0, own_dir)` then a plain
-`import`. A file named agents.py here would collide with subagent/agents.py
-in sys.modules — whichever extension's __init__.py runs first (alphabetical
-discovery order: subagent < workflow) wins the "agents" name, and the other
-silently imports the wrong module. Caused a real bug: workflow ended up
-calling subagent's discover_agents(), which returns a (list, Path | None)
-tuple instead of a flat list, so agent lookup iterated over that tuple and
-crashed on its second element.
+Loaded by file path, not imported: it lives in a *different* extension, so a
+relative import cannot reach it and a bare one would depend on the subagent
+extension having been loaded first. The explicit module name keeps it out of
+the shared `sys.modules` namespace, and the target module must stay
+sibling-import-free for a path load to work at all.
+
+(This file was once named to dodge a `sys.modules` collision with
+subagent/agents.py — back when both extensions put their own directory on
+`sys.path` and imported siblings by bare name. Extensions now use relative
+imports, so that hazard is gone; the name simply stayed.)
 """
 
 from __future__ import annotations

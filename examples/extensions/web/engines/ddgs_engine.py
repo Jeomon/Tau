@@ -52,7 +52,7 @@ class DDGSearchEngine(BaseSearchEngine):
         route through it via ``asyncio.to_thread`` instead.
         """
         if self._client is None:
-            from ddgs import DDGS
+            from ddgs import DDGS  # type: ignore[import-not-found]
 
             self._client = DDGS()
         return self._client
@@ -152,7 +152,7 @@ class DDGSearchEngine(BaseSearchEngine):
                 ]
 
     async def fetch(self, url: str, timeout: int) -> str:
-        from ddgs import DDGS
+        from ddgs import DDGS  # type: ignore[import-not-found]
 
         def _fetch() -> str:
             ddgs = DDGS(timeout=timeout)

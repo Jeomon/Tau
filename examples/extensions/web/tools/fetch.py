@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from engines import BaseSearchEngine  # type: ignore[import]
 from pydantic import BaseModel, Field
 
 from tau.tool.render import call_line
@@ -16,6 +15,8 @@ from tau.tool.types import (
     ToolResult,
 )
 from tau.utils.format import human_size as _human_size
+
+from ..engines import BaseSearchEngine
 
 
 def _render_web_fetch_call(args: dict, _streaming: bool = False) -> list[str]:
@@ -64,8 +65,12 @@ class _WebFetchSchema(BaseModel):
 def _render_web_fetch(content: str, opts: Any) -> list[str]:
     # Style via the theme passed on the render options — the stable surface for
     # extensions — rather than importing ANSI codes from Tau internals.
-    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
-    error = getattr(opts.theme, "error", _id)
+    from tau.tui.style import Style, apply_style
+
+    error_style = getattr(opts.theme, "error", Style())
+
+    def error(text: str) -> str:
+        return apply_style(error_style, text)
 
     if opts.is_error:
         return [error(content.strip())]

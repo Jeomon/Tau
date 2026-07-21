@@ -3,8 +3,6 @@ from __future__ import annotations
 import textwrap
 from typing import TYPE_CHECKING, Any
 
-from schema import FREEFORM_LABEL, AskUserOption  # type: ignore[import-not-found]
-
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
@@ -14,6 +12,11 @@ from tau.tui.theme import LayoutTheme
 from tau.tui.utils import rule
 from tau.tui.widgets.block import Block, Borders, Padding
 from tau.tui.widgets.tabs import Tabs
+
+from .schema import (
+    FREEFORM_LABEL,
+    AskUserOption,
+)
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer

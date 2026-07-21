@@ -1,5 +1,6 @@
-'''Tavily engine (LLM-oriented search, https://tavily.com). "
-Requires an API key + ``tavily-python``.'''
+"""Tavily engine (LLM-oriented search, https://tavily.com).
+Requires an API key + ``tavily-python``.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ class TavilySearchEngine(BaseSearchEngine):
 
     def _get_client(self):
         if self._client is None:
-            from tavily import TavilyClient
+            from tavily import TavilyClient  # type: ignore[import-not-found]
 
             self._client = TavilyClient(api_key=self._api_key)
         return self._client

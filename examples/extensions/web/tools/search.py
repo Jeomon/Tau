@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from engines import BaseSearchEngine
-from engines import SearchMode as _SearchMode
-from engines import SearchRecency as _SearchRecency
 from pydantic import BaseModel, Field
 
 from tau.tool.render import call_line
@@ -16,6 +13,10 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+
+from ..engines import BaseSearchEngine
+from ..engines import SearchMode as _SearchMode
+from ..engines import SearchRecency as _SearchRecency
 
 
 def _render_web_search_call(args: dict, _streaming: bool) -> list[str]:
@@ -53,10 +54,7 @@ class _WebSearchSchema(BaseModel):
     )
     max_results: int = Field(
         default=10,
-        description=(
-            "Number of results to return (default 10). "
-            "Increase to 20+ for broader coverage."
-        ),
+        description=("Results to return (default 10). Increase to 20+ for broader coverage."),
         examples=[10, 20],
     )
     recency: _SearchRecency | None = Field(
@@ -96,11 +94,14 @@ def _render_web_search(content: str, opts: Any) -> list[str]:
 
     # Style via the theme on the render options (stable extension surface)
     # instead of importing ANSI codes from Tau internals.
-    _id = lambda s: s  # noqa: E731 — fallback when no theme (e.g. outside the TUI)
-    muted = getattr(opts.theme, "muted", _id)
+    from tau.tui.style import Style, apply_style
+
+    muted_style = getattr(opts.theme, "muted", Style())
+
+    def muted(text: str) -> str:
+        return apply_style(muted_style, text)
 
     metadata = opts.metadata or {}
-    # query = metadata.get("query", "")  # Unused variable
     mode = metadata.get("mode", "text")
     result_count = metadata.get("result_count", 0)
     results = metadata.get("results", [])
@@ -185,7 +186,7 @@ class WebSearchTool(Tool):
         recency = _SearchRecency(raw_recency) if raw_recency else None
 
         if not self._engine.supports(mode):
-            modes_list = ', '.join(sorted(m.value for m in self._engine.supported_modes))
+            modes_list = ", ".join(sorted(m.value for m in self._engine.supported_modes))
             return ToolResult.error(
                 invocation.id,
                 f"The '{self._engine.name}' engine does not support '{mode}' mode. "
@@ -216,7 +217,9 @@ class WebSearchTool(Tool):
 
         if not results:
             return ToolResult.ok(
-                invocation.id, f"{recency_note}No results found for: {query}", metadata=metadata
+                invocation.id,
+                f"{recency_note}No results found for: {query}",
+                metadata=metadata,
             )
 
         return ToolResult.ok(

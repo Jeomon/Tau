@@ -33,9 +33,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agents import AgentConfig, discover_agents
-from subagent_schema import SubagentParams
-
 from tau.agent.embedded import TASK_TIMEOUT_S, load_fork_context, run_embedded_agent
 from tau.hooks.engine import MessageEndEvent, ToolExecutionStartEvent
 from tau.message.types import Role
@@ -51,6 +48,9 @@ from tau.tool.types import (
     ToolResult,
 )
 from tau.utils.format import format_number
+
+from .agents import AgentConfig, discover_agents
+from .subagent_schema import SubagentParams
 
 MAX_PARALLEL_TASKS = 8
 MAX_CONCURRENCY = 4

@@ -1,31 +1,20 @@
-"""Tests for the subagent tool's context='fresh'|'fork' plumbing.
-
-'fork' resumes the parent's current persisted session as read-only context by
-reading its session file directly (tau.agent.embedded.load_fork_context) and
-seeding the embedded agent's initial_messages with it — never creating a new
-forked session file and never writing back. See subagent_tool._parent_session
-/ run_single_agent. These tests cover that logic directly, without spawning
-any real subagent process (run_embedded_agent itself is monkeypatched out).
-"""
-
-# ruff: noqa: I001 — import order below is load-bearing: the bundled subagent
-# extension directory must be on sys.path before subagent_tool is imported.
 from __future__ import annotations
 
-import sys
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(
-    0,
-    str(Path(__file__).parent.parent / ".tau" / "extensions" / "subagent"),
-)
-
-import subagent_tool  # type: ignore[import-not-found]
-from agents import AgentConfig  # type: ignore[import-not-found]
 from tau.session.manager import SessionManager
+from tests.ext_loader import load_extension
+
+# Loaded as a package, like tau's loader — `agents` is relative inside it, not
+# a bare global name shared with the workflow extension.
+_PKG = load_extension("subagent").__name__
+subagent_tool = importlib.import_module(f"{_PKG}.subagent_tool")
+AgentConfig = importlib.import_module(f"{_PKG}.agents").AgentConfig
+
 
 
 def _agent(**overrides) -> AgentConfig:
@@ -261,10 +250,9 @@ class TestBuiltinAgentContextDefaults:
     tiers) so this doesn't depend on the running machine's ~/.tau/agents."""
 
     def _builtin_agents(self):
-        from agents import (  # type: ignore[import-not-found]
-            _BUILTIN_AGENTS_DIR,
-            _load_agents_from_dir,
-        )
+        agents = importlib.import_module(f"{_PKG}.agents")
+        _BUILTIN_AGENTS_DIR = agents._BUILTIN_AGENTS_DIR
+        _load_agents_from_dir = agents._load_agents_from_dir
 
         return _load_agents_from_dir(_BUILTIN_AGENTS_DIR, "builtin")
 

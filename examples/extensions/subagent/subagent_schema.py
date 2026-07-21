@@ -18,9 +18,7 @@ class TaskItem(BaseModel):
     agent: str = Field(..., description="Name of the agent to invoke.")
     task: str = Field(..., description="Task to delegate to the agent.")
     cwd: str | None = Field(default=None, description="Working directory for the agent process.")
-    context: Literal["fresh", "fork"] | None = Field(
-        default=None, description=_CONTEXT_DESCRIPTION
-    )
+    context: Literal["fresh", "fork"] | None = Field(default=None, description=_CONTEXT_DESCRIPTION)
 
 
 class ChainItem(BaseModel):
@@ -30,9 +28,7 @@ class ChainItem(BaseModel):
         description="Task with an optional '{previous}' placeholder for the prior step's output.",
     )
     cwd: str | None = Field(default=None, description="Working directory for the agent process.")
-    context: Literal["fresh", "fork"] | None = Field(
-        default=None, description=_CONTEXT_DESCRIPTION
-    )
+    context: Literal["fresh", "fork"] | None = Field(default=None, description=_CONTEXT_DESCRIPTION)
 
 
 class SubagentParams(BaseModel):
@@ -47,9 +43,7 @@ class SubagentParams(BaseModel):
             "need to set it explicitly."
         ),
     )
-    agent: str | None = Field(
-        default=None, description="Target agent name for action='get'."
-    )
+    agent: str | None = Field(default=None, description="Target agent name for action='get'.")
     spawn: list[TaskItem] | None = Field(
         default=None,
         description=(
