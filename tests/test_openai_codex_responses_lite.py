@@ -182,3 +182,56 @@ def test_stream_skips_lite_transform_for_non_lite_models(monkeypatch: pytest.Mon
     assert "instructions" in body
     assert "prompt_cache_key" not in body
     assert "version" not in captured[0]["headers"]
+
+
+def _jwt_for(account_id: str) -> str:
+    """Build a minimal unsigned JWT carrying a chatgpt_account_id claim."""
+    import base64
+    import json
+
+    def b64(obj: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    header = b64({"alg": "none"})
+    payload = b64({"https://api.openai.com/auth": {"chatgpt_account_id": account_id}})
+    return f"{header}.{payload}."
+
+
+def test_stream_regenerates_session_id_when_account_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A credential swap (A→B) on a live adapter must not reuse A's session id."""
+    captured: list[dict[str, str]] = []
+
+    async def fake_stream_sse(
+        self: OpenAICodexResponsesAPI, body: dict[str, Any], headers: dict[str, str]
+    ) -> AsyncGenerator[Any, None]:
+        captured.append(headers)
+        for _ in ():
+            yield
+
+    monkeypatch.setattr(OpenAICodexResponsesAPI, "_stream_sse", fake_stream_sse)
+
+    api = OpenAICodexResponsesAPI(LLMOptions(api_key=_jwt_for("acct-1")))
+    context = LLMContext(messages=[UserMessage.from_text("hi")])
+    model = _model("gpt-5.5")  # non-lite → session-id header is self._session_id
+
+    async def run() -> None:
+        async for _ in api.stream(context, model):  # account A
+            pass
+        async for _ in api.stream(context, model):  # account A again
+            pass
+        api.options.api_key = _jwt_for("acct-2")  # credential swap
+        async for _ in api.stream(context, model):  # account B
+            pass
+
+    import asyncio
+
+    asyncio.run(run())
+
+    assert len(captured) == 3
+    s1, s2, s3 = (h["session-id"] for h in captured)
+    assert s1 == s2  # same account → session id reused (prompt-cache affinity intact)
+    assert s3 != s1  # account changed → session id retired and regenerated
+    assert captured[0]["chatgpt-account-id"] == "acct-1"
+    assert captured[2]["chatgpt-account-id"] == "acct-2"

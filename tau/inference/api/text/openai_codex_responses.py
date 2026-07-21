@@ -587,6 +587,11 @@ class OpenAICodexResponsesAPI(BaseAPI):
         # Responses Lite ties session affinity to a UUIDv7; generated lazily
         # (only Lite models need it) and reused for the life of this adapter.
         self._lite_session_id: str | None = None
+        # Account owning the current session ids. If the credential's account
+        # changes on a live adapter (A→B), the session ids — which feed the
+        # session-affinity / prompt_cache_key headers — are regenerated so a new
+        # account never inherits the previous account's session identity.
+        self._session_account_id: str | None = None
 
     async def _stream_sse(
         self,
@@ -686,6 +691,13 @@ class OpenAICodexResponsesAPI(BaseAPI):
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         token = self.options.api_key or ""
         account_id = _extract_account_id(token)
+        # Retire session ids tied to a previous account so a credential swap
+        # (A→B) on this live adapter can't reuse account A's session-affinity /
+        # prompt_cache_key identity for account B's requests.
+        if self._session_account_id is not None and self._session_account_id != account_id:
+            self._session_id = str(uuid.uuid4())
+            self._lite_session_id = None
+        self._session_account_id = account_id
         instructions, input_items = _messages_to_input(context.messages)
         if context.system_prompt:
             instructions = context.system_prompt
