@@ -96,59 +96,92 @@ Current best: 0.5206s (was 0.8552s before any real profiling — remember the
 app-level win so far is computer_use, ~26% on top of the corrected number).
 
 
-## Ideas not yet tried
-- Profile actual import cost: `.venv/bin/python -X importtime .auto/bench_tui_startup.py 2> /tmp/importtime.txt`
-  then `grep -a "^import time:" /tmp/importtime.txt | awk -F'|' '{gsub(/^ +| +$/,"",$2); print $2, $3}' | sort -rn | head -30`
-  (2nd column is cumulative µs including children — that's the one that
-  matters for "can we avoid importing this at all").
+## Ideas not yet tried / next up
+- **Local model discovery** (`tau/runtime/service.py`
+  `_start_local_model_discovery` → `tau.inference.model.local.register_all()`):
+  fire-and-forget via `asyncio.ensure_future` (good), but it's an *asyncio
+  task on the main loop*, not a background *thread* — unlike the LSP
+  eager-warmup and git-status work, which deliberately use
+  `asyncio.to_thread`. A cProfile of the main thread shows 4×
+  `httpx.AsyncClient.__init__`/`_init_transport` (~0.3-0.4s cumulative
+  across ollama/lmstudio/vllm/llamacpp backends) actually executing
+  *during* `Runtime.create`/`App.create`'s own awaits, because cooperative
+  scheduling lets it interleave. This is a real, not-yet-tried lead: check
+  whether `register_all()` (or each backend's scan) can run via
+  `asyncio.to_thread` (or just be delayed until after `App.create`
+  returns, e.g. scheduled from `runtime_ready` a tick later) so it doesn't
+  compete with startup on the same thread. Be careful: this is real
+  `tau/` runtime code (not a dev extension), so any change needs
+  `pytest -q`, especially `tests/test_local_model_discovery.py`.
+- Because of the above, `httpx` itself is already imported/instantiated
+  during startup regardless of the web-search-engine choice — don't expect
+  further wins from deferring *other* httpx-based extension imports; the
+  import cost is already sunk by local-model-discovery. Confirmed by
+  profiling: after deferring jina/exa/tavily engine imports, `httpx`
+  AsyncClient still shows up 4× in the profile from local-model-discovery,
+  while `h2`/`hpack` (jina's HTTP/2 support, previously imported solely for
+  the default-off jina engine) no longer appear at all.
 - Lazy-import provider SDKs (anthropic/openai/google-genai/mistralai/ollama)
-  so only the active provider's SDK loads.
-- Lazy-import `tiktoken`/`pygments`/`pylatexenc`/`rapidfuzz` etc. if only
-  needed for specific features not touched at startup.
-- Cache/memoize theme and extension discovery if it re-walks disk every run.
-- Check whether `tau/builtins/tools.py` (`TOOLS`) eagerly imports every tool
-  module (including ones with heavy deps) at import time vs. lazily.
+  in `tau/inference/...` so only the active provider's SDK loads — check
+  `tau/inference/api/registry.py`'s `LazyAPI` first; it looks like this may
+  already be handled (not yet verified with importtime).
+- Cache/memoize theme and extension *discovery* (the `os.iterdir`/manifest
+  scan in `tau/extensions/loader.py::_discover`) if profiling shows it's
+  non-trivial — not yet measured in isolation.
+- Re-run `.venv/bin/python -X importtime .auto/bench_tui_startup.py` and a
+  cProfile pass (see commands below) after each change — cumulative
+  import-time numbers found so far are specific to *this* environment
+  (e.g. `~/.tau/extensions` contents like `peer`'s macOS AX integration) and
+  won't reproduce identically elsewhere; always re-check before trusting an
+  old number.
 
-## Baseline importtime findings (real numbers, this machine, 2025 run)
-Top cumulative import costs from an actual baseline run (µs, cumulative
-including children — see profiling command above):
+## Profiling commands (for the next fresh agent)
+```bash
+# import-time breakdown (cumulative µs, includes children)
+.venv/bin/python -X importtime .auto/bench_tui_startup.py 2> /tmp/importtime.txt
+grep -a "^import time:" /tmp/importtime.txt | awk -F'|' '{gsub(/^ +| +$/,"",$2); print $2, $3}' | sort -rn | head -30
 
-- `_tau_ext_*.macos.desktop.service` / `.macos.ax` (~220ms / ~215ms): a
-  **user-level** extension under `~/.tau/extensions` (likely `peer` or a
-  macOS notification/accessibility integration) pulls in PyObjC
-  (`Quartz`, `AppKit`, `Foundation`, `objc`, `CoreFoundation`) at import
-  time — ~160-220ms just for that. This only reproduces on machines with
-  that user extension installed, so treat it as a *pattern* to fix
-  (extensions should not import heavy platform SDKs at module scope; defer
-  until the feature is actually used) rather than something to hardcode
-  around — don't special-case this repo's `~/.tau` contents.
-- `git` (GitPython, ~220ms cumulative): imported eagerly at module scope by
-  `tau/agent/prompt/builder.py` (`from tau.agent.prompt.builder import
-  _git_status` in `tau/runtime/types.py`) even though the actual
-  `_git_status()` call is already deferred to a background thread. The
-  *import* itself is still synchronous and on the critical path. Deferring
-  `import git` to inside `_git_status()` (or wherever it's first called)
-  should shave a good chunk off with zero behavior change.
-- `tau.extensions` / `tau.extensions.context` (~144ms / ~128ms) pulls in a
-  user-level extension's web-search engine (`jina_engine`) which imports
-  `httpx`/`h2`/`httpcore` (~137ms) at module scope, even though search is
-  a tool invoked on demand, not at startup. Same pattern as above: fix by
-  making extensions/tools lazy-import their heavy deps, not by touching
-  `~/.tau` contents.
-- `tau.modes.interactive.app` (~180ms cumulative) — check what it pulls in
-  beyond the above; some of this overlaps with the extension costs since
-  extension loading happens during `Runtime.create` before `App.create`.
+# cProfile of the exact benchmarked path (main thread only — background
+# to_thread work won't show up, which is correct: it isn't on the critical
+# path; background *asyncio tasks* like local-model-discovery DO show up)
+.venv/bin/python -c "
+import cProfile, pstats, asyncio, sys, os
+sys.path.insert(0,'.')
+from pathlib import Path
+async def main():
+    from tau.modes.interactive.app import App
+    from tau.runtime.service import Runtime
+    from tau.runtime.types import RuntimeConfig
+    config = RuntimeConfig(cwd=Path('.').resolve(), persist_session=False, project_trusted=True, mode='interactive')
+    runtime = await Runtime.create(config)
+    await App.create(runtime)
+pr = cProfile.Profile(); pr.enable()
+loop = asyncio.new_event_loop(); loop.run_until_complete(main())
+pr.disable()
+f = open('/tmp/prof.txt','w')
+pstats.Stats(pr, stream=f).sort_stats('cumulative').print_stats(40)
+f.flush(); f.close(); os._exit(0)
+" </dev/null >/tmp/out.txt 2>&1
+cat /tmp/prof.txt
+```
 
-Net takeaway: a good first experiment is deferring the `import git` in
-`tau/agent/prompt/builder.py` / `tau/runtime/types.py` to inside the
-function that uses it — safe, mechanical, and shows up directly in
-`import time`. After that, look at whether `tau/extensions/*` loading
-(project + user) can defer each extension module's *own* heavy imports
-(that's a fix inside the extension files, or inside the loader if it can
-enforce/encourage lazy imports) — but remember this repo's own
-`tau/` source is the scope; `~/.tau/extensions` contents on this machine
-are not something to edit as "the fix" since they won't ship with tau.
-Focus optimization effort on `tau/` itself (e.g. does the extension
-*loader* do anything that forces eager imports of extension internals it
-doesn't need yet, like importing every submodule instead of just the
-package's `register()` entry point?).
+## Past findings already fixed (don't re-attempt these)
+- ~~`import git` is eager in `tau/agent/prompt/builder.py`~~ — checked: it's
+  already a lazy `from git import Repo` *inside* `_git_status()`, not at
+  module scope. The earlier importtime entry attributing ~220ms to `git`
+  was from the backgrounded `_git_status` thread actually executing during
+  the profiled window, not a synchronous startup cost. Nothing to fix here.
+- `.tau/extensions/computer_use` eager Desktop backend import → fixed
+  (`_LazyDesktop`, see log #3).
+- `tau/builtins/extensions/web/engines/__init__.py` eager import of all 4
+  search backends → fixed (lazy `_build_*` + module `__getattr__`, see
+  log #4) — real fix, but don't expect a big wall-clock number for it
+  specifically; see the local-model-discovery note above for why.
+- A **user-level** `~/.tau/extensions` install on this dev machine (a macOS
+  accessibility/notification integration, package name hash
+  `_tau_ext_4e0873...`) also eagerly imports PyObjC/Quartz/AppKit
+  (~200-220ms). This is *not* part of the `tau` repo and won't reproduce on
+  another machine/CI — don't chase it further here, but note the general
+  pattern (extensions eagerly importing heavy platform SDKs at
+  registration time) is exactly what the computer_use fix addressed, so if
+  it recurs elsewhere the same lazy-proxy technique applies.
