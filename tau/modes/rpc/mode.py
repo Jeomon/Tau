@@ -756,13 +756,16 @@ async def _handle_command(
                 _ok()
 
             case "new_session":
-                cancelled = False
+                # `cancelled` means the user (or a hook) declined — a crash is a
+                # failure and must not be dressed up as a polite refusal.
+                parent = cmd.get("parentSession") or cmd.get("parent_session")
                 try:
-                    await runtime.new_session()
-                except Exception:
+                    await runtime.new_session(parent_session=parent)
+                except Exception as exc:
                     _log.error("rpc new_session failed", exc_info=True)
-                    cancelled = True
-                _ok({"cancelled": cancelled})
+                    _err(f"Could not start a new session: {exc}")
+                    return
+                _ok({"cancelled": False})
 
             # ── State ────────────────────────────────────────────────────────
 
@@ -860,30 +863,42 @@ async def _handle_command(
                 _ok(model_info)
 
             case "cycle_model":
-                # Cycle to the next available model
+                # Every failure here used to be swallowed into `success: true,
+                # data: null`, which reads identically to "cycled, but I can't
+                # tell you to what". Each one now says what went wrong.
                 agent = runtime.agent
-                new_model_info = None
-                if agent is not None:
-                    try:
-                        from tau.inference.api.text.service import TextLLM
+                if agent is None:
+                    _err("No active agent")
+                    return
+                from tau.inference.api.text.service import TextLLM
 
-                        llm = agent._engine.llm
-                        current_id = getattr(getattr(llm, "model", None), "id", None)
-                        all_models = TextLLM.list_available()
-                        if all_models and current_id:
-                            ids = [getattr(m, "id", None) for m in all_models]
-                            try:
-                                idx = ids.index(current_id)
-                                next_model = all_models[(idx + 1) % len(all_models)]
-                                next_id = getattr(next_model, "id", "")
-                                next_provider = getattr(next_model, "provider", None)
-                                await runtime.set_model(next_id, next_provider)
-                                new_model_info = {"id": next_id, "provider": next_provider or ""}
-                            except ValueError:
-                                pass
-                    except Exception:
-                        pass
-                _ok({"model": new_model_info} if new_model_info else None)
+                llm = agent._engine.llm
+                current_id = getattr(getattr(llm, "model", None), "id", None)
+                try:
+                    available = TextLLM.list_available()
+                except Exception as exc:
+                    _log.debug("rpc cycle_model: list_available failed", exc_info=True)
+                    _err(f"Could not list available models: {exc}")
+                    return
+                if not available:
+                    _err("No models available — check provider credentials")
+                    return
+
+                ids = [getattr(m, "id", None) for m in available]
+                if current_id not in ids:
+                    _err(
+                        f"Active model '{current_id}' is not in the available list, "
+                        "so there is no next model to cycle to. Use set_model."
+                    )
+                    return
+
+                next_model = available[(ids.index(current_id) + 1) % len(available)]
+                next_id = getattr(next_model, "id", "")
+                next_provider = getattr(next_model, "provider", None)
+                if not await runtime.set_model(next_id, next_provider):
+                    _err(f"Could not switch to '{next_id}' — see set_model for the reason")
+                    return
+                _ok({"model": {"id": next_id, "provider": next_provider or ""}})
 
             case "get_available_models":
                 models: list[dict] = []

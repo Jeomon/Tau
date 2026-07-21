@@ -941,8 +941,15 @@ class Runtime:
     # Session lifecycle
     # -------------------------------------------------------------------------
 
-    async def new_session(self, *, with_session=None) -> None:
-        """Shut down the current session and start a fresh one."""
+    async def new_session(
+        self, *, with_session=None, parent_session: str | Path | None = None
+    ) -> None:
+        """Shut down the current session and start a fresh one.
+
+        ``parent_session`` records the session this one continues from, in the
+        new session's header — session lineage, so a client (or a later reader)
+        can walk back through a chain of related sessions.
+        """
         await self._emit_session_shutdown(SessionShutdownReason.New)
         self._extension_generation += 1
         # ``resume`` is a startup instruction, not persistent runtime state.
@@ -956,6 +963,14 @@ class Runtime:
             ext_runtime=self.extension_runtime,
         )
         self._reinit_after_context_create()
+        if parent_session is not None:
+            # The context created its own header already; re-issue it with the
+            # lineage link while the session is still empty.
+            sm = self._context.session_manager
+            if sm is not None:
+                from tau.session.types import SessionOptions
+
+                sm.new_session(SessionOptions(parent_session=str(parent_session)))
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.New)
 

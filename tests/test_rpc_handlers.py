@@ -6,6 +6,8 @@ the handler must now reach the real API, and say so when it cannot.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import tau.modes.rpc.mode as mode
@@ -509,3 +511,165 @@ class TestGetTree:
         await mode._handle_command({"type": "get_tree", "id": "1"}, _Runtime(_Agent()), {})
 
         assert captured[-1]["data"] == {"tree": [], "leafId": None}
+
+
+# ── new_session / cycle_model honesty ────────────────────────────────────────
+
+
+class TestNewSession:
+    @pytest.mark.asyncio
+    async def test_success_reports_not_cancelled(self, captured):
+        class _RT(_Runtime):
+            def __init__(self):
+                super().__init__(_Agent())
+                self.parents: list = []
+
+            async def new_session(self, *, with_session=None, parent_session=None):
+                self.parents.append(parent_session)
+
+        rt = _RT()
+        await mode._handle_command({"type": "new_session", "id": "1"}, rt, {})
+
+        assert captured[-1]["success"] is True
+        assert captured[-1]["data"] == {"cancelled": False}
+
+    @pytest.mark.asyncio
+    async def test_a_crash_is_an_error_not_a_polite_cancel(self, captured):
+        class _RT(_Runtime):
+            async def new_session(self, *, with_session=None, parent_session=None):
+                raise RuntimeError("disk full")
+
+        await mode._handle_command({"type": "new_session", "id": "1"}, _RT(_Agent()), {})
+
+        # Previously this answered success:true with cancelled:true — a failure
+        # dressed up as the user declining.
+        assert captured[-1]["success"] is False
+        assert "disk full" in captured[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_parent_session_is_forwarded(self, captured):
+        class _RT(_Runtime):
+            def __init__(self):
+                super().__init__(_Agent())
+                self.parents: list = []
+
+            async def new_session(self, *, with_session=None, parent_session=None):
+                self.parents.append(parent_session)
+
+        rt = _RT()
+        await mode._handle_command(
+            {"type": "new_session", "id": "1", "parentSession": "/tmp/prev.jsonl"}, rt, {}
+        )
+
+        assert rt.parents == ["/tmp/prev.jsonl"]
+
+
+class TestCycleModel:
+    def _runtime(self, *, switched=True):
+        class _RT(_Runtime):
+            def __init__(self):
+                super().__init__(_Agent())
+                self.requested: list = []
+
+            async def set_model(self, model_id, provider=None):
+                self.requested.append((model_id, provider))
+                return switched
+
+        return _RT()
+
+    @pytest.mark.asyncio
+    async def test_cycles_to_the_next_model(self, captured, monkeypatch):
+        from tau.inference.api.text.service import TextLLM
+
+        models = [_Model(), SimpleNamespace(id="next-model", provider="other")]
+        models[0].id = "test-model"
+        monkeypatch.setattr(TextLLM, "list_available", staticmethod(lambda: models))
+        rt = self._runtime()
+
+        await mode._handle_command({"type": "cycle_model", "id": "1"}, rt, {})
+
+        assert rt.requested == [("next-model", "other")]
+        assert captured[-1]["data"] == {"model": {"id": "next-model", "provider": "other"}}
+
+    @pytest.mark.asyncio
+    async def test_an_empty_model_list_is_an_error(self, captured, monkeypatch):
+        from tau.inference.api.text.service import TextLLM
+
+        monkeypatch.setattr(TextLLM, "list_available", staticmethod(list))
+
+        await mode._handle_command({"type": "cycle_model", "id": "1"}, self._runtime(), {})
+
+        assert captured[-1]["success"] is False
+        assert "No models available" in captured[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_an_unlisted_active_model_says_so(self, captured, monkeypatch):
+        from tau.inference.api.text.service import TextLLM
+
+        other = SimpleNamespace(id="somebody-else", provider="x")
+        monkeypatch.setattr(TextLLM, "list_available", staticmethod(lambda: [other]))
+
+        await mode._handle_command({"type": "cycle_model", "id": "1"}, self._runtime(), {})
+
+        assert captured[-1]["success"] is False
+        assert "not in the available list" in captured[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_switch_is_reported(self, captured, monkeypatch):
+        from tau.inference.api.text.service import TextLLM
+
+        models = [_Model(), SimpleNamespace(id="next-model", provider="other")]
+        models[0].id = "test-model"
+        monkeypatch.setattr(TextLLM, "list_available", staticmethod(lambda: models))
+
+        await mode._handle_command(
+            {"type": "cycle_model", "id": "1"}, self._runtime(switched=False), {}
+        )
+
+        assert captured[-1]["success"] is False
+        assert "next-model" in captured[-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_no_agent_is_an_error(self, captured):
+        await mode._handle_command({"type": "cycle_model", "id": "1"}, _Runtime(), {})
+        assert captured[-1]["success"] is False
+
+
+class TestParentSessionLineage:
+    """`parentSession` used to be accepted and dropped. It now reaches the
+    session header, so a chain of sessions can be walked back."""
+
+    def test_the_session_manager_records_the_parent(self, tmp_path):
+        from tau.session.manager import SessionManager
+        from tau.session.types import SessionHeader, SessionOptions
+
+        parent = tmp_path / "parent.jsonl"
+        parent.write_text("")
+        sm = SessionManager(cwd=tmp_path, persist=False)
+
+        sm.new_session(SessionOptions(parent_session=str(parent)))
+
+        header = next(e for e in sm.entries if isinstance(e, SessionHeader))
+        assert header.parent_session == parent.resolve()
+
+    def test_extension_new_session_forwards_the_option(self):
+        import asyncio
+
+        from tau.extensions.context import ExtensionContext, NewSessionOptions
+
+        seen: list = []
+
+        class _RT:
+            extension_generation = 0
+
+            async def new_session(self, *, with_session=None, parent_session=None):
+                seen.append(parent_session)
+
+        ctx = ExtensionContext.__new__(ExtensionContext)
+        ctx._runtime_instance = _RT()
+        ctx._generation = 0
+
+        asyncio.run(ctx.new_session(NewSessionOptions(parent_session="/tmp/prev.jsonl")))
+
+        # The option existed on the dataclass but was never passed through.
+        assert seen == ["/tmp/prev.jsonl"]

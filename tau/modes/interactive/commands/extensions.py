@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import Literal
@@ -40,6 +41,11 @@ def open_config_panel(ctx: CommandContext) -> None:
             return title, app.get("author")
         except Exception:
             return None, None
+
+    def _ext_dir(path: str) -> Path:
+        """The extension's directory, given either its dir or its entry file."""
+        p = Path(path).expanduser()
+        return p.parent if p.name == "__init__.py" else p
 
     def _entry(e, scope: Literal["global", "project"]) -> ConfigEntry:
         title, m_author = _manifest_meta(e.path)
@@ -149,33 +155,95 @@ def open_config_panel(ctx: CommandContext) -> None:
             )
         return entries
 
+    def _discovered_entries(configured: set[Path]) -> list[ConfigEntry]:
+        """Loaded extensions that have no settings.json entry yet.
+
+        Extensions are found by scanning the extension directories, so one can
+        be loaded and working while being absent from ``extensions.list``.
+        Without this the panel showed only what had already been configured —
+        a freshly added extension was invisible here, and could not be turned
+        off without hand-editing settings.json. Listed as enabled, because
+        that is what discovery-loaded means.
+        """
+        ext_runtime = getattr(ctx.runtime, "extension_runtime", None)
+        if ext_runtime is None:
+            return []
+
+        entries: list[ConfigEntry] = []
+        for loaded in ext_runtime.get_extensions():
+            # Builtins are enumerated above; package/explicit sources are not
+            # owned by these two lists, so toggling them here would not persist.
+            if loaded.source not in ("global", "project"):
+                continue
+            directory = _ext_dir(loaded.path)
+            try:
+                resolved = directory.resolve()
+            except OSError:
+                continue
+            if resolved in configured:
+                continue
+            configured.add(resolved)
+
+            # Match how each scope stores paths: project entries are written
+            # relative to the project root, global ones absolute.
+            path_str = str(directory)
+            if loaded.source == "project":
+                with contextlib.suppress(ValueError):
+                    path_str = str(directory.relative_to(Path.cwd()))
+
+            title, author = _manifest_meta(str(directory))
+            entries.append(
+                ConfigEntry(
+                    path=path_str,
+                    name=title or directory.name,
+                    author=author,
+                    path_display=_display(path_str),
+                    enabled=True,
+                    scope=loaded.source,
+                )
+            )
+        return entries
+
+    configured_dirs = {
+        _ext_dir(e.path).resolve()
+        for e in [*global_list, *project_list]
+        if not _is_builtin(e.path)
+    }
     all_entries = (
         [_entry(e, "global") for e in global_list if not _is_builtin(e.path)]
         + [_entry(e, "project") for e in project_list if not _is_builtin(e.path)]
+        + _discovered_entries(configured_dirs)
         + _builtin_entries()
     )
 
     if not all_entries:
-        ctx.notify("No extensions configured. Add extension paths to settings first.")
+        ctx.notify("No extensions found.")
         return
 
     changed = False
+
+    def _set_enabled(entries: list, path: str, enabled: bool) -> None:
+        """Flip an entry's enabled flag, creating it if this extension was
+        discovery-loaded and had no settings entry yet — otherwise the toggle
+        would appear to work and persist nothing."""
+        from tau.settings.types import ExtensionEntry
+
+        target = _ext_dir(path).resolve()
+        for ext in entries:
+            if _ext_dir(ext.path).resolve() == target:
+                ext.enabled = enabled
+                return
+        entries.append(ExtensionEntry(path=path, enabled=enabled))
 
     def on_toggle(entry: ConfigEntry, enabled: bool) -> None:
         nonlocal changed
         if entry.scope == "builtin":
             sm.set_extension_config_key(entry.path, "enabled", enabled)
         elif entry.scope == "global":
-            for ext in global_list:
-                if ext.path == entry.path:
-                    ext.enabled = enabled
-                    break
+            _set_enabled(global_list, entry.path, enabled)
             sm.set_extension_list(global_list)
         else:
-            for ext in project_list:
-                if ext.path == entry.path:
-                    ext.enabled = enabled
-                    break
+            _set_enabled(project_list, entry.path, enabled)
             sm.set_project_extension_list(project_list)
 
         changed = True

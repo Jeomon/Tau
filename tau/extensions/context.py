@@ -421,7 +421,9 @@ class ExtensionContext:
         if self._runtime is None:
             return {"cancelled": True}
         opts = options or NewSessionOptions()
-        await self._runtime.new_session(with_session=opts.with_session)
+        await self._runtime.new_session(
+            with_session=opts.with_session, parent_session=opts.parent_session
+        )
         return {"cancelled": False}
 
     async def fork(self, entry_id: str, options: ForkOptions | None = None) -> dict:

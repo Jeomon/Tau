@@ -170,6 +170,18 @@ benchmark), log.jsonl (every run). ctrl+shift+f opens the fullscreen view too,
 where the terminal delivers that combination."""
 
 
+def _notify(ctx: Any, message: str) -> None:
+    """Post a message to the transcript.
+
+    ``ExtensionContext`` has no ``notify`` of its own — it lives on ``ctx.ui``,
+    which is ``None`` in print/JSON mode. Commands can be invoked there, so the
+    call has to be guarded rather than assumed.
+    """
+    ui = getattr(ctx, "ui", None)
+    if ui is not None:
+        ui.notify(message)
+
+
 def _status_text(session: Session) -> str:
     state = session.state
     if not state.results:
@@ -226,7 +238,7 @@ def register(tau: Any) -> None:
         sub = args[0].lower() if args else ""
 
         if sub in ("help", "-h", "--help"):
-            ctx.notify(_HELP)
+            _notify(ctx, _HELP)
             return
 
         if sub in ("dashboard", "full"):
@@ -237,13 +249,13 @@ def register(tau: Any) -> None:
         if sub == "status":
             session.reload()
             session.refresh()
-            ctx.notify(_status_text(session))
+            _notify(ctx, _status_text(session))
             return
 
         if sub == "off":
             session.dismissed = True
             session.hide()
-            ctx.notify("autoresearch: dashboard off. The log in .auto/ is untouched.")
+            _notify(ctx, "autoresearch: dashboard off. The log in .auto/ is untouched.")
             return
 
         if sub == "clear":
@@ -251,7 +263,7 @@ def register(tau: Any) -> None:
             session.reload()
             session.dismissed = True
             session.hide()
-            ctx.notify("autoresearch: log cleared. prompt.md and measure.sh were kept.")
+            _notify(ctx, "autoresearch: log cleared. prompt.md and measure.sh were kept.")
             return
 
         # Anything else is a goal: start or resume.
@@ -264,7 +276,7 @@ def register(tau: Any) -> None:
             note = f"Resuming autoresearch from {prompt_path(session.cwd)}."
             if goal:
                 note += f"\nAdded context: {goal}"
-            ctx.notify(note)
+            _notify(ctx, note)
             await ctx.send_message(
                 "Continue the autoresearch loop. Re-read .auto/prompt.md, the tail of "
                 ".auto/log.jsonl and `git log` first so you are working from the files "
@@ -273,8 +285,9 @@ def register(tau: Any) -> None:
             )
             return
 
-        ctx.notify(
-            "autoresearch: no .auto/prompt.md yet — setting up a new session." if goal else _HELP
+        _notify(
+            ctx,
+            "autoresearch: no .auto/prompt.md yet — setting up a new session." if goal else _HELP,
         )
         if goal:
             await ctx.send_message(

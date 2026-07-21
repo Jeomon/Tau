@@ -138,7 +138,7 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 | `new_session` | `parentSession?` | `{cancelled}` |
 | `get_state` | — | session state object |
 | `set_model` | `modelId`, `provider?` | `{id, provider}` or `null` |
-| `cycle_model` | — | `{model}` or `null` |
+| `cycle_model` | — | `{model}` |
 | `get_available_models` | — | `{models}` |
 | `set_thinking_level` | `level` | `{level}` |
 | `cycle_thinking_level` | — | `{level}` |
@@ -247,10 +247,11 @@ Cancel the current agent operation. Always succeeds, even when nothing is runnin
 
 #### new_session
 
-Start a fresh session. The `parentSession` field is accepted by the schema but not used by the handler.
+Start a fresh session. Pass `parentSession` — a session file path — to record where this one continues from; it is written to the new session's header, so a client can walk a chain of related sessions back to its origin.
 
 ```json
 {"type": "new_session"}
+{"type": "new_session", "parentSession": "/home/user/.tau/sessions/20260720_0f9c1c4a.jsonl"}
 ```
 
 ```json
@@ -398,7 +399,7 @@ Advances to the next model in the available list, wrapping around.
 {"type": "response", "command": "cycle_model", "success": true, "data": {"model": {"id": "gpt-5", "provider": "openai"}}}
 ```
 
-`data` is `null` when the current model is not in the available list, when there is no agent, or when anything in the lookup fails — the handler swallows errors and still reports `success: true`.
+Fails with a reason rather than a silent `data: null`: no active agent, no models available (usually missing credentials), an active model that is not in the available list (nothing to cycle from — use `set_model`), or a switch that the runtime rejected.
 
 #### get_available_models
 
@@ -921,7 +922,7 @@ A failed command returns a response with `success: false` and an `error` string.
 
 A parse error is reported with `command: "parse"` and never has an `id`, since the id could not be read. Parse errors do not terminate the loop — the next line is processed normally.
 
-Note the asymmetry in a few handlers: `new_session` reports internal failure as `success: true` with `data.cancelled: true`, and `cycle_model` swallows lookup failures and returns `success: true` with `data: null`.
+`data.cancelled` on `new_session`, `fork`, `clone` and `switch_session` means the operation was *declined*, not that it failed — a failure answers `success: false` with a reason.
 
 ## Known Gaps
 
@@ -929,9 +930,6 @@ Verified against the implementation.
 
 | Command / field | Behaviour | Cause |
 |-----------------|-----------|-------|
-| `new_session` | Reports internal failure as `success: true` with `data.cancelled: true` | Deliberate: mirrors the interactive flow, where the user can decline |
-| `new_session.parentSession` | Accepted by the schema, ignored by the handler | Not wired |
-| `cycle_model` | Swallows lookup failures and answers `success: true` with `data: null` | The handler catches broadly; use `set_model` when you need a definite answer |
 | Component-rendering UI | `ctx.ui.custom`, `custom_inline`, `show_overlay`, footers, headers, themes | No terminal grid to render into — the protocol carries fixed dialog shapes, not arbitrary components. Gate on `ctx.ui.supports_components` |
 
 Everything else on this page is wired to the real API and reports failure honestly. Commands that cannot do their job answer `success: false` with a reason rather than a hollow `success: true` — the [Error Handling](#error-handling) table lists the common messages.

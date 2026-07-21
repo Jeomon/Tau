@@ -507,3 +507,151 @@ class TestOverlay:
     def test_unrelated_keys_are_not_consumed(self):
         overlay, _ = self._overlay()
         assert overlay.handle_input(self._key("f5")) is False
+
+
+# ── /autoresearch command ────────────────────────────────────────────────────
+
+
+class _UI:
+    """The slice of ctx.ui the command touches. ExtensionContext has no
+    notify() of its own — it lives here, and is absent entirely when headless."""
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.theme = None
+
+    def notify(self, message: str) -> None:
+        self.messages.append(message)
+
+
+class _Ctx:
+    def __init__(self, ui=None) -> None:
+        self.ui = ui
+        self.sent: list[str] = []
+
+    async def send_message(self, content: str) -> None:
+        self.sent.append(content)
+
+
+class _Registry:
+    """Captures what register() wires up."""
+
+    def __init__(self) -> None:
+        self.tools: list = []
+        self.commands: dict = {}
+        self.shortcuts: dict = {}
+        self.hooks: dict = {}
+        self.services: dict = {}
+
+    def register_tool(self, tool):
+        self.tools.append(tool)
+
+    def register_command(self, name, description, handler, **kwargs):
+        self.commands[name] = handler
+
+    def register_shortcut(self, key, description=None, handler=None):
+        def _decorator(fn):
+            self.shortcuts[key] = fn
+            return fn
+
+        return _decorator if handler is None else self.shortcuts.setdefault(key, handler)
+
+    def on(self, event_type, handler=None):
+        def _decorator(fn):
+            self.hooks[event_type] = fn
+            return fn
+
+        return _decorator if handler is None else self.hooks.setdefault(event_type, handler)
+
+    def provide(self, name, service):
+        self.services[name] = service
+
+
+@pytest.fixture
+def wired(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    registry = _Registry()
+    importlib.import_module(_PKG).register(registry)
+    return registry, tmp_path
+
+
+class TestCommand:
+    def _run(self, registry, ctx, *args):
+        asyncio.run(registry.commands["autoresearch"](ctx, list(args)))
+
+    def test_registers_tools_command_and_shortcut(self, wired):
+        registry, _ = wired
+
+        assert {t.name for t in registry.tools} == {
+            "init_experiment",
+            "run_experiment",
+            "log_experiment",
+        }
+        assert "autoresearch" in registry.commands
+        assert "ctrl+shift+f" in registry.shortcuts
+
+    def test_status_reports_through_the_ui(self, wired):
+        registry, _ = wired
+        ui = _UI()
+        ctx = _Ctx(ui)
+
+        self._run(registry, ctx, "status")
+
+        assert ui.messages and "No experiments logged yet" in ui.messages[0]
+
+    def test_status_summarises_a_real_session(self, wired):
+        registry, cwd = wired
+        append_config(cwd, State(name="Speed", metric_name="seconds", metric_unit="s"))
+        append_result(cwd, Result(commit="a", metric=10.0, status="keep", description="baseline"))
+        append_result(cwd, Result(commit="b", metric=8.0, status="keep", description="faster"))
+        ui = _UI()
+
+        self._run(registry, _Ctx(ui), "status")
+
+        text = ui.messages[0]
+        assert "Speed" in text and "2 runs" in text
+        assert "10s" in text and "8s" in text and "better" in text
+
+    def test_help_is_shown_for_help_and_for_a_bare_call(self, wired):
+        registry, _ = wired
+        ui = _UI()
+
+        self._run(registry, _Ctx(ui), "help")
+        self._run(registry, _Ctx(ui), *[])
+
+        assert all("/autoresearch" in m for m in ui.messages)
+
+    def test_clear_deletes_the_log(self, wired):
+        registry, cwd = wired
+        append_config(cwd, State(name="Speed", metric_name="seconds"))
+        append_result(cwd, Result(commit="a", metric=1.0, status="keep", description="x"))
+        assert log_path(cwd).exists()
+
+        self._run(registry, _Ctx(_UI()), "clear")
+
+        assert not log_path(cwd).exists()
+
+    def test_a_goal_asks_the_agent_to_set_the_session_up(self, wired):
+        registry, _ = wired
+        ctx = _Ctx(_UI())
+
+        self._run(registry, ctx, "optimize", "test", "runtime")
+
+        assert ctx.sent and "autoresearch-create" in ctx.sent[0]
+        assert "optimize test runtime" in ctx.sent[0]
+
+    def test_a_goal_resumes_when_a_prompt_file_exists(self, wired):
+        registry, cwd = wired
+        (cwd / ".auto").mkdir()
+        (cwd / ".auto" / "prompt.md").write_text("# session")
+        ctx = _Ctx(_UI())
+
+        self._run(registry, ctx, "keep", "going")
+
+        assert ctx.sent and "Continue the autoresearch loop" in ctx.sent[0]
+        assert "keep going" in ctx.sent[0]
+
+    def test_commands_survive_a_headless_context(self, wired):
+        registry, _ = wired
+        # ctx.ui is None in print/JSON mode; notifying must not explode.
+        self._run(registry, _Ctx(None), "status")
