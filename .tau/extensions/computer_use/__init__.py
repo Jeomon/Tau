@@ -36,9 +36,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .computer import ComputerTool
 from .router import get_desktop_class, get_platform_name
-from .state import build_state_message
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
@@ -101,6 +99,18 @@ def register(tau: ExtensionAPI) -> None:
         get_platform_name()
     except RuntimeError:
         return  # unsupported platform (e.g. Linux)
+
+    # Deferred until here rather than at module scope: building
+    # ComputerTool's pydantic schema (ComputerSchema — a dozen-plus fields
+    # and several enums) has real, measurable cost (tens of ms) even before
+    # any desktop backend is touched. Disabled by default (see
+    # manifest.json), so most installs return above and should never pay
+    # this — but the extension *file* itself is always imported by the
+    # loader to find `register()`, so anything at module scope is paid
+    # unconditionally regardless of the enabled check.
+    from .computer import ComputerTool
+    from .state import build_state_message
+
     desktop = _LazyDesktop()
 
     tau.register_tool(ComputerTool(desktop))
