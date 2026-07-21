@@ -149,6 +149,12 @@ class SelectListTheme:
     selected_dir: Style = field(default_factory=lambda: Style().bold().with_fg("cyan"))
     # Optional full-line background for the selected row (None = no background)
     selected_bg: Style | None = None
+    # Cursor glyph marking the focused row, matching the selector lists and the
+    # input prompt. Mirrored from LayoutTheme.selector_arrow; set to "" for a
+    # marker-less list. Unfocused rows are padded to the same width so labels
+    # stay aligned.
+    selector_arrow: str = "❯"
+    arrow: Style = field(default_factory=lambda: Style().with_fg("cyan"))
 
 
 @dataclass
@@ -221,3 +227,7 @@ class LayoutTheme:
         self.message.error = self.error
         self.message.warning = self.warning
         self.message.accent = self.accent
+        # Same idea for the inline pickers (/, @, command palette): one
+        # selector_arrow key restyles every cursor marker in the app.
+        self.select_list.selector_arrow = self.selector_arrow
+        self.select_list.arrow = self.accent

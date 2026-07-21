@@ -6,7 +6,7 @@ from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
-from tau.tui.utils import fuzzy_filter
+from tau.tui.utils import fuzzy_filter, visible_width
 from tau.tui.widgets.list import List, ListItem, ListState
 
 if True:  # avoid circular at runtime
@@ -121,6 +121,10 @@ class CommandPalette(Component):
         if start > 0:
             write(apply_style(t.indicator, f"  ↑ {start} more"))
 
+        # Unfocused rows pad to the marker width so labels share one column.
+        marker_w = visible_width(t.selector_arrow) + 1 if t.selector_arrow else 2
+        blank_marker = " " * marker_w
+
         list_items: list[ListItem] = []
         for i, cmd in enumerate(self._commands):
             is_sel = i == self._selected
@@ -129,7 +133,9 @@ class CommandPalette(Component):
             desc = cmd.description[:desc_w] if desc_w > 0 else ""
             label_style = t.selected_label if is_sel else t.normal_label
             desc_style = t.selected_desc if is_sel else t.normal_desc
-            spans = [Span("  ", Style()), Span(label, label_style), Span("  ", Style())]
+            marker = f"{t.selector_arrow} " if (is_sel and t.selector_arrow) else blank_marker
+            marker_style = t.arrow if (is_sel and t.selector_arrow) else Style()
+            spans = [Span(marker, marker_style), Span(label, label_style), Span("  ", Style())]
             spans.append(Span(desc, desc_style))
             list_items.append(ListItem(Line(spans)))
 

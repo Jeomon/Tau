@@ -182,6 +182,11 @@ class AutocompletePicker(Component):
         if start > 0:
             write([Span(f"  ↑ {start} more", t.indicator)])
 
+        # The focused row carries the cursor glyph; the rest are padded to the
+        # same width so every label stays in one column.
+        marker_w = visible_width(t.selector_arrow) + 1 if t.selector_arrow else 2
+        blank_marker = " " * marker_w
+
         for i in range(start, start + visible):
             item = self._items[i]
             is_sel = i == self._selected
@@ -189,9 +194,10 @@ class AutocompletePicker(Component):
             desc = clip_to_width(item.description, desc_w) if desc_w > 0 else ""
 
             if is_sel:
+                marker = f"{t.selector_arrow} " if t.selector_arrow else blank_marker
                 write(
                     [
-                        Span("  "),
+                        Span(marker, t.arrow),
                         Span(label, t.selected_label),
                         Span("  "),
                         Span(desc, t.selected_desc),
@@ -202,7 +208,7 @@ class AutocompletePicker(Component):
             else:
                 write(
                     [
-                        Span("  "),
+                        Span(blank_marker),
                         Span(label, t.normal_label),
                         Span("  "),
                         Span(desc, t.normal_desc),
