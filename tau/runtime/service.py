@@ -95,6 +95,10 @@ class Runtime:
         self._reload_lock = asyncio.Lock()
         self._reload_pending: bool = False
         self._reload_task: asyncio.Task[None] | None = None
+        # Long-running extension operations (e.g. a /workflow run) that execute
+        # while the agent is idle and want Esc/Ctrl+C to cancel them — see
+        # register_cancellable / cancel_active_operation.
+        self._cancellable_ops: list[tuple[str, asyncio.Event]] = []
         self.version_check_task: asyncio.Task[str | None] | None = None
         self.telemetry_task: asyncio.Task[None] | None = None
         self.local_model_discovery_task: asyncio.Task[int] | None = None
@@ -357,6 +361,61 @@ class Runtime:
         self._layout.add_message(msg)
 
     # -------------------------------------------------------------------------
+    # Cancellable operations (extension work running outside an agent turn)
+    # -------------------------------------------------------------------------
+
+    def register_cancellable(self, label: str, signal: asyncio.Event) -> Callable[[], None]:
+        """Register a long-running operation that Esc/Ctrl+C should cancel.
+
+        Commands run while the agent is idle, so the normal abort path
+        (which only fires when the agent is busy) can't reach them. While
+        registered, an idle-agent Esc or Ctrl+C sets ``signal`` instead of
+        its usual idle behavior.
+
+        Not called by extensions: ``user_input`` invokes this automatically
+        around every slash-command dispatch, and command handlers read the
+        signal via ``ExtensionContext.command_signal`` — cooperative
+        cancellation with no registration ceremony on their side.
+
+        Returns an unregister callable — always call it (in a ``finally``)
+        when the operation ends, whether or not it was cancelled.
+        """
+        entry = (label, signal)
+        self._cancellable_ops.append(entry)
+
+        def _unregister() -> None:
+            try:
+                self._cancellable_ops.remove(entry)
+            except ValueError:
+                pass  # already removed (e.g. unregister called twice)
+
+        return _unregister
+
+    def cancel_active_operation(self) -> str | None:
+        """Cancel the most recently registered active operation, if any.
+
+        Sets its signal and returns its label, or None when nothing is
+        registered. The entry stays registered until its owner unregisters —
+        setting the signal is a request, and the operation reports its own
+        completion.
+        """
+        for label, signal in reversed(self._cancellable_ops):
+            if not signal.is_set():
+                signal.set()
+                return label
+        return None
+
+    @property
+    def active_cancellable_signal(self) -> asyncio.Event | None:
+        """The innermost active operation's abort signal, or None when idle.
+
+        This is what ExtensionContext.command_signal reads: inside a command
+        handler it is that dispatch's own signal (registered automatically in
+        user_input), set by an idle-agent Esc/Ctrl+C.
+        """
+        return self._cancellable_ops[-1][1] if self._cancellable_ops else None
+
+    # -------------------------------------------------------------------------
     # Core input entry point
     # -------------------------------------------------------------------------
 
@@ -391,7 +450,19 @@ class Runtime:
                 parts = t[1:].strip().split()
                 name, args = parts[0].lower(), parts[1:]
                 cmd = ParsedCommand(name=name, args=args, raw=t)
-                dispatched = await self.commands.dispatch(cmd)
+                # Every command dispatch gets an ambient abort signal (exposed
+                # as ExtensionContext.command_signal) so long-running command
+                # work is Esc-cancellable without any registration ceremony —
+                # commands run while the agent is idle, out of reach of the
+                # normal busy-agent abort path. Registration/cleanup is
+                # automatic here; handlers that never look at the signal are
+                # simply not cancellable, same as before.
+                signal = asyncio.Event()
+                unregister = self.register_cancellable(f"/{name}", signal)
+                try:
+                    dispatched = await self.commands.dispatch(cmd)
+                finally:
+                    unregister()
                 if not dispatched:
                     from tau.prompts.registry import prompt_registry
 

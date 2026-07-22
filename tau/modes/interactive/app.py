@@ -656,12 +656,28 @@ class App:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
 
+    def _cancel_extension_operation(self) -> bool:
+        """Cancel a registered idle-agent operation (e.g. a running /workflow).
+
+        Returns True when something was cancelled — the keypress is then
+        consumed and must not fall through to the usual idle behavior.
+        """
+        cancel = getattr(self._runtime, "cancel_active_operation", None)
+        cancelled = cancel() if callable(cancel) else None
+        if cancelled is None:
+            return False
+        self._runtime.notify(f"Cancelling {cancelled}...")
+        self._tui.request_render()
+        return True
+
     def _handle_escape(self) -> None:
         import time
 
         agent = self._runtime.agent
         if agent is not None and not agent.is_idle():
             self._input.escape_abort()
+            self._last_escape = 0.0
+        elif self._cancel_extension_operation():
             self._last_escape = 0.0
         else:
             now = time.monotonic()
@@ -677,6 +693,8 @@ class App:
         agent = self._runtime.agent
         if agent is not None and not agent.is_idle():
             agent.abort()
+            return
+        if self._cancel_extension_operation():
             return
         now = time.monotonic()
         if now - self._last_ctrl_c < 0.5:

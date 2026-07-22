@@ -1903,6 +1903,7 @@ runtime *generation* — see [Hot Reload](#hot-reload) for staleness rules.
 | `ctx.error_message` | `str \| None` | Most recent engine error |
 | `ctx.queued_messages` | `dict[str, list[LLMMessage]]` | Keys `steering` and `followup` |
 | `ctx.signal` | `asyncio.Event \| None` | Abort signal while streaming; set when aborted. `None` when idle |
+| `ctx.command_signal` | `asyncio.Event \| None` | Ambient abort signal for the current command dispatch; `None` outside one — see below |
 
 | Method | Returns | Description |
 |---|---|---|
@@ -1923,6 +1924,27 @@ async def guard_context(event, ctx):
         ctx.abort()
         if ctx.ui:
             ctx.ui.notify("Context nearly full — aborting turn", "warning")
+```
+
+**Cancellation in command handlers** — `ctx.signal` covers work during an agent turn,
+but command handlers run while the agent is *idle*, out of reach of the normal
+Esc-abort path. For those, the runtime creates a fresh `asyncio.Event` around every
+slash-command dispatch and exposes it as `ctx.command_signal`; an Esc or Ctrl+C pressed
+while the agent is idle sets it. No registration is needed — read the signal and
+either check `is_set()` at your own checkpoints or pass it to signal-aware helpers
+(`run_embedded_agent(abort_signal=...)` propagates it into each embedded engine).
+Handlers that ignore it simply aren't cancellable, same as before. When operations
+nest, Esc cancels the innermost one first. Modal dialogs (`ctx.select`,
+`ctx.confirm`, overlays) still consume Esc themselves — the signal only fires when no
+overlay has focus.
+
+```python
+async def cmd_sweep(ctx, args):
+    for target in discover_targets(ctx.cwd):
+        if ctx.command_signal is not None and ctx.command_signal.is_set():
+            ctx.ui.notify("Sweep cancelled.", "warning")
+            return
+        await process(target)
 ```
 
 **Session control** — all `async`, all available from event and command handlers.
