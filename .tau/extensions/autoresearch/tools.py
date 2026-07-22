@@ -97,11 +97,18 @@ def _tail(text: str, lines: int = OUTPUT_TAIL_LINES) -> str:
     return "\n".join(["…", *parts[-lines:]])
 
 
-async def _run(command: str, cwd: Path, timeout: int) -> tuple[int | None, str, float]:
+async def _run(
+    command: str, cwd: Path, timeout: int, signal: asyncio.Event | None = None
+) -> tuple[int | None, str, float]:
     """Run a shell command, capturing combined output. Returns (code, output, seconds).
 
     A timeout returns ``None`` as the code — the caller reports it as a crash
     rather than a benchmark result, since a killed run has no valid measurement.
+
+    ``signal`` is the engine's abort signal (Esc / Ctrl+C). When it fires the
+    subprocess is killed and ``None`` is returned as the code, exactly like a
+    timeout — without this, an aborted turn would silently block on the
+    benchmark for up to ``timeout`` seconds before unwinding.
     """
     started = time.monotonic()
     proc = await asyncio.create_subprocess_shell(
@@ -110,13 +117,26 @@ async def _run(command: str, cwd: Path, timeout: int) -> tuple[int | None, str, 
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
+    comm = asyncio.ensure_future(proc.communicate())
+    waiters: set[asyncio.Future] = {comm}
+    abort_waiter: asyncio.Task | None = None
+    if signal is not None:
+        abort_waiter = asyncio.ensure_future(signal.wait())
+        waiters.add(abort_waiter)
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        code: int | None = proc.returncode
-    except TimeoutError:
-        proc.kill()
-        stdout, _ = await proc.communicate()
-        code = None
+        done, _ = await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        if comm in done:
+            stdout, _ = comm.result()
+            code: int | None = proc.returncode
+        else:
+            # Timed out, or the abort signal fired first: kill and collect
+            # whatever output the command produced so far.
+            proc.kill()
+            stdout, _ = await comm
+            code = None
+    finally:
+        if abort_waiter is not None:
+            abort_waiter.cancel()
     return code, (stdout or b"").decode(errors="replace"), time.monotonic() - started
 
 
@@ -217,11 +237,25 @@ class RunExperimentTool(Tool):
         state.running_since = time.time()
         self._session.refresh()
         try:
-            code, output, seconds = await _run(params.command, cwd, params.timeout_seconds)
+            code, output, seconds = await _run(
+                params.command, cwd, params.timeout_seconds, signal=signal
+            )
         finally:
             state.running_command = None
             state.running_since = None
             self._session.refresh()
+
+        if code is None and signal is not None and signal.is_set():
+            # Esc / Ctrl+C mid-benchmark: the process was killed, so there is
+            # no valid measurement — and unlike a timeout, nothing should be
+            # logged. Report the abort and stop.
+            return ToolResult.ok(
+                invocation.id,
+                f"$ {params.command}\n"
+                f"Aborted by user interrupt after {seconds:.2f}s — no measurement taken. "
+                "Do not log this as an experiment.",
+                metadata={"aborted": True, "seconds": seconds},
+            )
 
         metrics = parse_metrics(output)
         lines = [
@@ -248,7 +282,7 @@ class RunExperimentTool(Tool):
         checks_ok: bool | None = None
         if code == 0 and checks.exists():
             checks_code, checks_output, _ = await _run(
-                f"bash {checks.name}", checks.parent, params.checks_timeout_seconds
+                f"bash {checks.name}", checks.parent, params.checks_timeout_seconds, signal=signal
             )
             checks_ok = checks_code == 0
             if checks_ok:

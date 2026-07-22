@@ -30,7 +30,7 @@ delivers that combination.
 | Tool | Purpose |
 |------|---------|
 | `init_experiment` | Name the session; declare the metric, its unit, and whether lower or higher wins. Called once — again only if the optimisation target itself changes, which starts a new segment with a fresh baseline. |
-| `run_experiment` | Run the benchmark, time it, parse `METRIC name=value` lines from its output, then run `.auto/checks.sh` if the benchmark passed. Measures only — it never decides. |
+| `run_experiment` | Run the benchmark, time it, parse `METRIC name=value` lines from its output, then run `.auto/checks.sh` if the benchmark passed. Measures only — it never decides. Honors the engine abort signal: Esc mid-benchmark kills the subprocess immediately and reports "no measurement taken" (not a crash), so nothing bogus gets logged. |
 | `log_experiment` | Record the commit, metric, keep/discard decision and a one-line description. This is what makes the run durable. |
 
 The measure/decide split is the point: the agent reads the numbers and chooses,
