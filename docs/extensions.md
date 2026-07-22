@@ -16,7 +16,7 @@ schemas and the `/settings` panel, see [Extension Settings](extension-settings.m
 
 Working, maintained implementations live in `examples/extensions/` in this repository —
 `todo`, `web`, `lsp`, `sandbox`, `subagent`, `workflow`, `loop`, `peer`, `ask_user`,
-`computer_use`, and `voice`. They are referenced throughout this document and are the
+`autoresearch`, `computer_use`, and `voice`. They are referenced throughout this document and are the
 best starting point for anything non-trivial.
 
 ## Table of Contents
