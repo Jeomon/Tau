@@ -56,6 +56,22 @@ class BtwWidget(Component):
         return False  # never captures input — editor stays focused
 
 
+# Appended to the main agent's system prompt for contextual side questions.
+# Without it, a model conditioned on a tool-using conversation keeps trying to
+# answer with a tool call — and with no tools available in this channel, that
+# surfaces as an empty response (verified live against claude-sonnet-5).
+_SIDE_CHANNEL_PROMPT = (
+    "\n\n[btw side-channel]\n"
+    "This request is a parallel side conversation, separate from the main agent session "
+    "shown above. The main task is being handled by another agent — do not continue it. "
+    "You have NO tools in this side channel: every tool described earlier is unavailable, "
+    "and you must never emit a tool call. Answer the user's side question directly in "
+    "plain text, using the conversation so far only as background context. If the answer "
+    "requires tools or live data you don't have, say so briefly and give your best "
+    "text-only answer."
+)
+
+
 # ── Per-session state ──────────────────────────────────────────────────────────
 
 
@@ -71,14 +87,14 @@ class BtwState:
     def _rendered_lines(self, streaming: str = "") -> list[str]:
         lines: list[str] = []
         for role, text in self.thread:
-            prefix = "\x1b[1myou\x1b[0m" if role == "user" else "\x1b[36mbtw\x1b[0m"
+            prefix = "\x1b[1mYou\x1b[0m" if role == "user" else "\x1b[36mAssistant\x1b[0m"
             lines.append(f"  {prefix}")
             for part in text.splitlines() or [""]:
                 for wrapped in textwrap.wrap(part, width=60) or [part or ""]:
                     lines.append(f"    {wrapped}")
             lines.append("")
         if streaming:
-            lines.append("  \x1b[36mbtw\x1b[0m \x1b[2m(thinking…)\x1b[0m")
+            lines.append("  \x1b[36mAssistant\x1b[0m \x1b[2m(thinking…)\x1b[0m")
             for part in streaming.splitlines() or [""]:
                 for wrapped in textwrap.wrap(part, width=60) or [part or ""]:
                     lines.append(f"    {wrapped}")
@@ -144,7 +160,13 @@ class BtwState:
 
     async def _stream(self, ctx: ExtensionContext, question: str, with_context: bool) -> None:
         from tau.inference.api.text.service import TextLLM
-        from tau.inference.types import LLMContext, TextDeltaEvent, TextEndEvent
+        from tau.inference.types import (
+            ErrorEvent,
+            LLMContext,
+            RetryEvent,
+            TextDeltaEvent,
+            TextEndEvent,
+        )
         from tau.message.types import TextContent, UserMessage
 
         raw_llm = ctx.llm
@@ -161,15 +183,18 @@ class BtwState:
             from tau.session.utils import to_llm_messages
 
             agent_msgs = [e.message for e in ctx.branch_entries if isinstance(e, MessageEntry)]
+            # Dangling tool calls in a mid-turn branch are repaired downstream
+            # by TextLLM._resolve_messages (close_dangling_tool_calls).
             messages.extend(to_llm_messages(agent_msgs))
 
         messages.append(UserMessage(contents=[TextContent(content=question)]))
-        system_prompt = ctx.get_system_prompt() if with_context else None
+        system_prompt = ctx.get_system_prompt() + _SIDE_CHANNEL_PROMPT if with_context else None
         context = LLMContext(messages=messages, system_prompt=system_prompt)
 
         self._refresh(streaming=" ")
 
         response_text = ""
+        error_text = ""
         try:
             async for event in llm.stream(context):
                 if isinstance(event, TextDeltaEvent):
@@ -177,13 +202,30 @@ class BtwState:
                     self._refresh(streaming=response_text)
                 elif isinstance(event, TextEndEvent):
                     response_text = event.text.content
+                elif isinstance(event, RetryEvent):
+                    self._refresh(
+                        streaming=f"\x1b[2m(retrying {event.attempt}/{event.max_retries}:"
+                        f" {event.error})\x1b[0m"
+                    )
+                elif isinstance(event, ErrorEvent):
+                    error_text = event.error or "stream error"
         except asyncio.CancelledError:
             if response_text:
                 self.thread.append(("btw", response_text + " \x1b[2m[cancelled]\x1b[0m"))
             self._refresh()
             return
+        except Exception as e:
+            import logging
 
-        self.thread.append(("btw", response_text or "(no response)"))
+            logging.getLogger(__name__).error("btw stream failed", exc_info=e)
+            error_text = str(e) or type(e).__name__
+
+        if response_text:
+            self.thread.append(("btw", response_text))
+        elif error_text:
+            self.thread.append(("btw", f"\x1b[31m(error: {error_text})\x1b[0m"))
+        else:
+            self.thread.append(("btw", "(no response)"))
         self._refresh()
 
 

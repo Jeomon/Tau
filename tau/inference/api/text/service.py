@@ -288,16 +288,23 @@ class TextLLM:
 
         The system prompt is carried on the context (``context.system_prompt``)
         and forwarded to the API adapter as a first-class field, matching how
-        every provider injects it into its native system slot. It is no longer
-        folded into the message list here, so messages pass through unchanged.
+        every provider injects it into its native system slot.
+
+        Tool-call pairing is repaired here as a transport-level safety net:
+        any tool call left unanswered in the history (a caller borrowed a live
+        session's branch mid tool execution, a crash left a half-committed
+        turn, ...) gets a synthetic result, because providers reject unpaired
+        ``tool_use`` blocks outright. A no-op on well-formed histories.
 
         Args:
             context: The LLMContext with messages and optional system prompt.
 
         Returns:
-            The context's message list, unchanged.
+            The context's message list with tool-call pairing repaired.
         """
-        return context.messages
+        from tau.message.utils import close_dangling_tool_calls
+
+        return close_dangling_tool_calls(context.messages)
 
     def _retry_flag(self) -> asyncio.Event:
         """The retry-abort flag, created on first use.
@@ -403,7 +410,14 @@ class TextLLM:
                         # don't count them as "received data" so retries still fire on empty bodies.
                         if not isinstance(event, (StartEvent, RetryEvent)):
                             received_any = True
-                        if isinstance(event, (TextEndEvent, TextDeltaEvent, ToolCallEndEvent)):
+                        # Mirror invoke()'s has_content: an empty text block
+                        # (TextEnd with '') is NOT content — some providers
+                        # emit one on an otherwise-blank response, which must
+                        # still count as empty so the retry below fires.
+                        if isinstance(event, ToolCallEndEvent) or (
+                            isinstance(event, (TextEndEvent, TextDeltaEvent))
+                            and event.text.content.strip()
+                        ):
                             received_content = True
                         if isinstance(event, ErrorEvent):
                             received_error = True

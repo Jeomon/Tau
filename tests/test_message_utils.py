@@ -180,6 +180,103 @@ class TestStripUnusableTrailingAssistant:
         assert result == msgs
 
 
+class TestCloseDanglingToolCalls:
+    def _tool_msg(self, *ids: str):
+        from tau.message.types import ToolMessage, ToolResultContent
+
+        return ToolMessage.from_results(
+            [ToolResultContent(id=i, content=f"result {i}", tool_name="fn") for i in ids]
+        )
+
+    def test_trailing_dangling_call_gets_synthetic_result(self):
+        from tau.message.types import ToolMessage, ToolResultContent
+        from tau.message.utils import close_dangling_tool_calls
+
+        user = UserMessage.from_text("hi")
+        asst = AssistantMessage(contents=[ToolCallContent(id="1", name="fn", args={})])
+        result = close_dangling_tool_calls([user, asst])
+        assert len(result) == 3
+        assert result[1] is asst
+        tool_msg = result[2]
+        assert isinstance(tool_msg, ToolMessage)
+        [res] = [c for c in tool_msg.contents if isinstance(c, ToolResultContent)]
+        assert res.id == "1"
+        assert res.tool_name == "fn"
+
+    def test_custom_placeholder(self):
+        from tau.message.types import ToolResultContent
+        from tau.message.utils import close_dangling_tool_calls
+
+        asst = AssistantMessage(contents=[ToolCallContent(id="1", name="fn", args={})])
+        result = close_dangling_tool_calls([asst], placeholder="still running")
+        [res] = [c for c in result[1].contents if isinstance(c, ToolResultContent)]
+        assert res.content == "still running"
+
+    def test_mid_history_dangling_call_before_user_message(self):
+        from tau.message.types import ToolMessage
+        from tau.message.utils import close_dangling_tool_calls
+
+        asst = AssistantMessage(contents=[ToolCallContent(id="1", name="fn", args={})])
+        follow_up = UserMessage.from_text("side question")
+        result = close_dangling_tool_calls([asst, follow_up])
+        assert len(result) == 3
+        assert isinstance(result[1], ToolMessage)
+        assert result[2] is follow_up
+
+    def test_partial_results_are_merged_not_duplicated(self):
+        from tau.message.types import ToolResultContent
+        from tau.message.utils import close_dangling_tool_calls
+
+        asst = AssistantMessage(
+            contents=[
+                ToolCallContent(id="1", name="fn", args={}),
+                ToolCallContent(id="2", name="fn", args={}),
+            ]
+        )
+        partial = self._tool_msg("1")
+        result = close_dangling_tool_calls([asst, partial])
+        assert len(result) == 2
+        results = [c for c in result[1].contents if isinstance(c, ToolResultContent)]
+        assert [r.id for r in results] == ["1", "2"]
+        assert results[0].content == "result 1"
+
+    def test_well_formed_history_is_untouched(self):
+        from tau.message.utils import close_dangling_tool_calls
+
+        user = UserMessage.from_text("hi")
+        asst = AssistantMessage(contents=[ToolCallContent(id="1", name="fn", args={})])
+        tool = self._tool_msg("1")
+        final = AssistantMessage(contents=[TextContent(content="done")])
+        result = close_dangling_tool_calls([user, asst, tool, final])
+        assert result == [user, asst, tool, final]
+        assert result[2] is tool
+
+    def test_assistant_without_tool_calls_passes_through(self):
+        from tau.message.utils import close_dangling_tool_calls
+
+        msgs = [UserMessage.from_text("a"), AssistantMessage(contents=[TextContent(content="b")])]
+        assert close_dangling_tool_calls(msgs) == msgs
+
+    def test_empty_list(self):
+        from tau.message.utils import close_dangling_tool_calls
+
+        assert close_dangling_tool_calls([]) == []
+
+
+class TestResolveMessagesClosesDanglingCalls:
+    def test_text_llm_repairs_pairing(self):
+        from tau.inference.api.text.service import TextLLM
+        from tau.inference.types import LLMContext
+        from tau.message.types import ToolMessage
+
+        llm = TextLLM.__new__(TextLLM)
+        asst = AssistantMessage(contents=[ToolCallContent(id="1", name="fn", args={})])
+        context = LLMContext(messages=[UserMessage.from_text("hi"), asst])
+        resolved = llm._resolve_messages(context)
+        assert len(resolved) == 3
+        assert isinstance(resolved[2], ToolMessage)
+
+
 class TestVideoToBase64:
     def test_bytes_returns_base64_string(self):
         from tau.message.utils import video_to_base64

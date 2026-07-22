@@ -245,3 +245,61 @@ def strip_unusable_trailing_assistant(messages: list, session_manager: Any = Non
         else:
             msgs.pop()
     return msgs
+
+
+_DANGLING_TOOL_CALL_PLACEHOLDER = "(no result recorded for this tool call)"
+
+
+def close_dangling_tool_calls(
+    messages: list, placeholder: str = _DANGLING_TOOL_CALL_PLACEHOLDER
+) -> list:
+    """Answer any unanswered tool calls with synthetic results.
+
+    The non-destructive sibling of strip_unusable_trailing_assistant: instead
+    of dropping the assistant message, every tool call that has no matching
+    tool result in the following message gets a synthetic result carrying
+    ``placeholder``. Providers (Anthropic in particular) reject a request
+    outright when a ``tool_use`` block is not immediately answered — a state
+    any caller that borrows session history mid tool execution will see (side
+    channels, embedded agents forking a live session, and so on).
+
+    Returns the input unchanged (same list object contents, new list) when the
+    history is already well-formed; existing messages are never mutated —
+    a ToolMessage missing some results is replaced by a rebuilt copy.
+    """
+    from tau.message.types import (
+        AssistantMessage,
+        ToolCallContent,
+        ToolMessage,
+        ToolResultContent,
+    )
+
+    patched: list = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        patched.append(msg)
+        i += 1
+        if not isinstance(msg, AssistantMessage):
+            continue
+        calls = [c for c in msg.contents if isinstance(c, ToolCallContent)]
+        if not calls:
+            continue
+        tool_msg = None
+        results: list[ToolResultContent] = []
+        if i < len(messages) and isinstance(messages[i], ToolMessage):
+            tool_msg = messages[i]
+            results = [c for c in tool_msg.contents if isinstance(c, ToolResultContent)]
+            i += 1
+        answered = {r.id for r in results}
+        pending = [c for c in calls if c.id not in answered]
+        if not pending:
+            if tool_msg is not None:
+                patched.append(tool_msg)
+        else:
+            synthetic = [
+                ToolResultContent(id=c.id, content=placeholder, tool_name=c.name)
+                for c in pending
+            ]
+            patched.append(ToolMessage.from_results(results + synthetic))
+    return patched

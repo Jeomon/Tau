@@ -131,6 +131,88 @@ def test_circuit_breaker_notifies_once(monkeypatch) -> None:
     assert "disabled after 3 failures" in notifications[0]
 
 
+def test_compaction_notify_only_for_manual(monkeypatch) -> None:
+    from tau.extensions.context import ExtensionContext
+
+    notifications: list[str] = []
+    fake_ctx = SimpleNamespace(ui=SimpleNamespace(notify=notifications.append))
+    monkeypatch.setattr(
+        ExtensionContext, "from_runtime", classmethod(lambda cls, runtime: fake_ctx)
+    )
+
+    def run(manual: bool) -> None:
+        agent = _agent(_Settings())
+        agent._phase = AgentPhase.IDLE
+        agent._runtime = SimpleNamespace()
+        agent.hooks = Hooks()
+        agent._session_manager = SimpleNamespace(append_compaction=lambda **kwargs: "entry")
+        agent._run_compaction = AsyncMock(
+            return_value=(
+                CompactionResult(summary="summary", first_kept_entry_id="kept", tokens_before=100),
+                False,
+            )
+        )
+        asyncio.run(agent._apply_compaction(SimpleNamespace(), [], manual=manual))
+
+    run(manual=False)
+    assert notifications == []
+    run(manual=True)
+    assert notifications == ["Compaction completed."]
+
+
+def test_context_usage_drops_immediately_after_compaction() -> None:
+    """Right after compaction the kept messages still carry pre-compaction
+    usage; the reported context size must come from the effective
+    (summary + kept) list, not that stale anchor."""
+    from tau.message.types import AssistantMessage, CompactionSummaryMessage, Usage
+    from tau.session.types import CompactionEntry
+
+    agent = _agent(_Settings(), context_window=200_000)
+    kept = AssistantMessage.from_text("done")
+    kept.usage = Usage(input_tokens=150_000, output_tokens=10)
+    kept.timestamp = 100.0
+    summary = CompactionSummaryMessage(summary="short summary of the history")
+    entry = CompactionEntry(
+        summary="short summary of the history",
+        first_kept_entry_id="kept",
+        tokens_before=150_000,
+        timestamp=200.0,
+    )
+    agent._session_manager = SimpleNamespace(
+        build_session_context=lambda: SimpleNamespace(messages=[summary, kept]),
+        get_branch=lambda: [entry],
+    )
+
+    agent.update_context_tokens()
+
+    assert agent._context_tokens < 10_000
+
+
+def test_context_usage_keeps_fresh_anchor() -> None:
+    """A usage anchor from a response after the last compaction stays authoritative."""
+    from tau.message.types import AssistantMessage, Usage
+    from tau.session.types import CompactionEntry
+
+    agent = _agent(_Settings(), context_window=200_000)
+    fresh = AssistantMessage.from_text("done")
+    fresh.usage = Usage(input_tokens=42_000, output_tokens=10)
+    fresh.timestamp = 300.0
+    entry = CompactionEntry(
+        summary="old summary",
+        first_kept_entry_id="kept",
+        tokens_before=150_000,
+        timestamp=200.0,
+    )
+    agent._session_manager = SimpleNamespace(
+        build_session_context=lambda: SimpleNamespace(messages=[fresh]),
+        get_branch=lambda: [entry],
+    )
+
+    agent.update_context_tokens()
+
+    assert agent._context_tokens >= 42_000
+
+
 def test_compaction_events_run_in_explicit_phase() -> None:
     agent = _agent(_Settings())
     agent._phase = AgentPhase.IDLE

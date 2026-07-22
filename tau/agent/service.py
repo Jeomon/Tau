@@ -156,11 +156,21 @@ class Agent:
 
     def update_context_tokens(self) -> None:
         """Recalculate context token usage."""
-        from tau.session.compaction import estimate_context_tokens
+        from tau.session.compaction import estimate_context_tokens, latest_compaction_timestamp
 
         session_ctx = self._session_manager.build_session_context()
         llm_messages = _to_llm_messages(session_ctx.messages)
         usage = estimate_context_tokens(llm_messages)
+        # Stale-anchor guard (mirrors _check_compaction): right after a
+        # compaction the kept messages still carry pre-compaction usage on
+        # their anchor, which would keep reporting the pre-compaction context
+        # size until the next real response lands. Fall back to a from-scratch
+        # estimate of the effective (summary + kept) message list instead.
+        if usage.last_usage_index is not None:
+            anchor = llm_messages[usage.last_usage_index]
+            comp_ts = latest_compaction_timestamp(self._session_manager.get_branch())
+            if comp_ts is not None and getattr(anchor, "timestamp", 0.0) <= comp_ts:
+                usage = estimate_context_tokens(llm_messages, ignore_usage=True)
         self._context_tokens = usage.tokens
 
     def get_context_usage(self) -> ContextUsage | None:
@@ -414,7 +424,10 @@ class Agent:
                 first_kept_entry_id=result.first_kept_entry_id,
                 tokens_before=result.tokens_before,
             )
-            if self._runtime is not None:
+            # Only announce manual /compact — automatic compaction already
+            # surfaces through the spinner's "Compacting…" phase and the
+            # summary entry, so a notification would just be noise.
+            if manual and self._runtime is not None:
                 from tau.extensions.context import ExtensionContext
 
                 ctx = ExtensionContext.from_runtime(self._runtime)
