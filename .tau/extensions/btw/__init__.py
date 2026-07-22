@@ -76,28 +76,55 @@ _SIDE_CHANNEL_PROMPT = (
 
 
 class BtwState:
+    #: Content width the transcript is laid out at before the widget re-wraps
+    #: it into the box; matches the old textwrap width so the look is stable.
+    _WRAP_WIDTH = 60
+
     def __init__(self) -> None:
         self.thread: list[tuple[str, str]] = []  # (role, text)
         self._widget: BtwWidget | None = None
         self._request_render: Callable[[], None] | None = None
         self._task: asyncio.Task[None] | None = None
+        self._md_theme: Any = None  # MarkdownTheme, captured from the UI
 
     # ── Rendering ─────────────────────────────────────────────────────────────
+
+    def _plain_lines(self, text: str) -> list[str]:
+        out: list[str] = []
+        for part in text.splitlines() or [""]:
+            for wrapped in textwrap.wrap(part, width=self._WRAP_WIDTH) or [part or ""]:
+                out.append(f"    {wrapped}")
+        return out
+
+    def _assistant_lines(self, text: str) -> list[str]:
+        """Assistant replies are markdown — render them like the main chat.
+
+        Falls back to plain wrapping when no theme is available (headless) or
+        the renderer chokes on a half-streamed document.
+        """
+        if self._md_theme is not None:
+            try:
+                from tau.tui.markdown import render_markdown
+
+                rendered = render_markdown(text, self._WRAP_WIDTH, self._md_theme)
+                return [f"    {line}" for line in rendered]
+            except Exception:
+                pass
+        return self._plain_lines(text)
 
     def _rendered_lines(self, streaming: str = "") -> list[str]:
         lines: list[str] = []
         for role, text in self.thread:
-            prefix = "\x1b[1mYou\x1b[0m" if role == "user" else "\x1b[36mAssistant\x1b[0m"
-            lines.append(f"  {prefix}")
-            for part in text.splitlines() or [""]:
-                for wrapped in textwrap.wrap(part, width=60) or [part or ""]:
-                    lines.append(f"    {wrapped}")
+            if role == "user":
+                lines.append("  \x1b[1mYou\x1b[0m")
+                lines.extend(self._plain_lines(text))
+            else:
+                lines.append("  \x1b[36mAssistant\x1b[0m")
+                lines.extend(self._assistant_lines(text))
             lines.append("")
         if streaming:
             lines.append("  \x1b[36mAssistant\x1b[0m \x1b[2m(thinking…)\x1b[0m")
-            for part in streaming.splitlines() or [""]:
-                for wrapped in textwrap.wrap(part, width=60) or [part or ""]:
-                    lines.append(f"    {wrapped}")
+            lines.extend(self._assistant_lines(streaming))
         return lines
 
     def _refresh(self, streaming: str = "") -> None:
@@ -116,6 +143,10 @@ class BtwState:
         if self._widget is None:
             self._widget = BtwWidget()
         self._request_render = ui.request_render
+        # Re-capture per show so a /theme switch is picked up next time.
+        # MarkdownTheme lives at LayoutTheme.message.markdown.
+        message_theme = getattr(getattr(ui, "theme", None), "message", None)
+        self._md_theme = getattr(message_theme, "markdown", None)
         self._widget.set_lines(self._rendered_lines())
         ui.set_widget("btw", self._widget, placement="above_editor")
         ui.request_render()
