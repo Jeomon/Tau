@@ -21,6 +21,7 @@ from tau.tui.component import Component
 from tau.tui.geometry import Rect
 
 from .dashboard import DashboardOverlay, widget_lines
+from .hooks import run_hook
 from .state import (
     State,
     clear,
@@ -277,6 +278,14 @@ def register(tau: Any) -> None:
             if goal:
                 note += f"\nAdded context: {goal}"
             _notify(ctx, note)
+
+            before_note = await run_hook(
+                "before",
+                session.cwd,
+                session.state,
+                next_run_number=len(session.state.current()) + 1,
+            )
+
             # trigger_turn: with the agent idle a plain steer would sit in the
             # queue with nothing to intercept — the command would look like it
             # did nothing. This starts the turn now, or steers if one is running.
@@ -284,10 +293,12 @@ def register(tau: Any) -> None:
                 "Continue the autoresearch loop. Re-read .auto/prompt.md, the tail of "
                 ".auto/log.jsonl and `git log` first so you are working from the files "
                 "rather than memory, then run the next experiment."
-                + (f"\n\nExtra context from the user: {goal}" if goal else ""),
+                + (f"\n\nExtra context from the user: {goal}" if goal else "")
+                + (f"\n\n[hook before.sh]\n{before_note}" if before_note else ""),
                 trigger_turn=True,
             )
             return
+
 
         _notify(
             ctx,

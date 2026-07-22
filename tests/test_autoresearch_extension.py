@@ -36,7 +36,7 @@ _PKG = _load_extension()
 _state = importlib.import_module(f"{_PKG}.state")
 _dashboard = importlib.import_module(f"{_PKG}.dashboard")
 _tools = importlib.import_module(f"{_PKG}.tools")
-
+_hooks = importlib.import_module(f"{_PKG}.hooks")
 MetricDef = _state.MetricDef
 Result = _state.Result
 State = _state.State
@@ -57,6 +57,10 @@ DashboardOverlay = _dashboard.DashboardOverlay
 InitExperimentTool = _tools.InitExperimentTool
 LogExperimentTool = _tools.LogExperimentTool
 RunExperimentTool = _tools.RunExperimentTool
+
+after_path = _hooks.after_path
+before_path = _hooks.before_path
+run_hook = _hooks.run_hook
 
 
 # ── METRIC parsing ───────────────────────────────────────────────────────────
@@ -348,6 +352,104 @@ class TestTools:
             tmp_path,
         )
         assert "max_experiments" in result.content
+
+
+# ── Hooks ────────────────────────────────────────────────────────────────────
+
+
+def _write_hook(cwd: Path, name: str, script: str) -> Path:
+    path = cwd / ".auto" / "hooks" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(script)
+    path.chmod(0o755)
+    return path
+
+
+class TestHooks:
+    def test_missing_script_is_silently_none(self, tmp_path):
+        note = asyncio.run(run_hook("before", tmp_path, State(name="x")))
+        assert note is None
+
+    def test_non_executable_script_is_treated_as_absent(self, tmp_path):
+        path = _write_hook(tmp_path, "before.sh", "#!/usr/bin/env bash\necho hi\n")
+        path.chmod(0o644)
+        note = asyncio.run(run_hook("before", tmp_path, State(name="x")))
+        assert note is None
+
+    def test_stdout_is_returned_as_a_note(self, tmp_path):
+        _write_hook(tmp_path, "after.sh", "#!/usr/bin/env bash\ncat >/dev/null\necho hello\n")
+        note = asyncio.run(run_hook("after", tmp_path, State(name="x")))
+        assert note == "hello"
+
+    def test_empty_stdout_is_none(self, tmp_path):
+        _write_hook(tmp_path, "after.sh", "#!/usr/bin/env bash\ncat >/dev/null\n")
+        note = asyncio.run(run_hook("after", tmp_path, State(name="x")))
+        assert note is None
+
+    def test_receives_the_expected_stdin_shape(self, tmp_path):
+        _write_hook(
+            tmp_path,
+            "before.sh",
+            "#!/usr/bin/env bash\ncat\n",
+        )
+        state = State(name="Speed", metric_name="seconds", metric_unit="s", direction="lower")
+        result = Result(commit="a", metric=10.0, status="keep", description="baseline")
+        note = asyncio.run(
+            run_hook(
+                "before", tmp_path, state, last_result=result, last_run_number=1, next_run_number=2
+            )
+        )
+        payload = json.loads(note)
+        assert payload["event"] == "before"
+        assert payload["next_run"] == 2
+        assert payload["last_run"] == {
+            "run": 1,
+            "status": "keep",
+            "metric": 10.0,
+            "description": "baseline",
+        }
+        assert payload["session"]["goal"] == "Speed"
+        assert payload["session"]["metric_name"] == "seconds"
+
+    def test_a_nonzero_exit_is_reported_not_raised(self, tmp_path):
+        script = "#!/usr/bin/env bash\ncat >/dev/null\necho boom\nexit 1\n"
+        _write_hook(tmp_path, "after.sh", script)
+        note = asyncio.run(run_hook("after", tmp_path, State(name="x")))
+        assert note is not None and "exited 1" in note and "boom" in note
+
+    def test_a_timeout_is_reported_not_raised(self, tmp_path):
+        _write_hook(tmp_path, "after.sh", "#!/usr/bin/env bash\ncat >/dev/null\nsleep 5\n")
+
+        original = _hooks.HOOK_TIMEOUT
+        setattr(_hooks, "HOOK_TIMEOUT", 1)  # noqa: B010
+        try:
+            note = asyncio.run(run_hook("after", tmp_path, State(name="x")))
+        finally:
+            setattr(_hooks, "HOOK_TIMEOUT", original)  # noqa: B010
+        assert note is not None and "timed out" in note
+
+    def test_every_fire_is_appended_to_the_log(self, tmp_path):
+        _write_hook(tmp_path, "after.sh", "#!/usr/bin/env bash\ncat >/dev/null\necho ok\n")
+        asyncio.run(run_hook("after", tmp_path, State(name="x")))
+
+        lines = log_path(tmp_path).read_text().splitlines()
+        record = json.loads(lines[-1])
+        assert record["type"] == "hook"
+        assert record["hook"] == "after"
+        assert record["ok"] is True
+
+    def test_log_experiment_folds_hook_notes_into_its_output(self, tmp_path):
+        _write_hook(tmp_path, "after.sh", "#!/usr/bin/env bash\ncat >/dev/null\necho retro-note\n")
+        _write_hook(tmp_path, "before.sh", "#!/usr/bin/env bash\ncat >/dev/null\necho pro-note\n")
+        session = _Session(tmp_path)
+        result = _invoke(
+            LogExperimentTool(session),
+            {"commit": "a", "metric": 1.0, "status": "keep", "description": "x"},
+            tmp_path,
+        )
+
+        assert "retro-note" in result.content
+        assert "pro-note" in result.content
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────

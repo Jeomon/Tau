@@ -46,6 +46,7 @@ Everything lives under `.auto/` in the working directory.
 | `prompt.md` | The living session document — objective, what's been tried, dead ends |
 | `measure.sh` | The benchmark; prints `METRIC name=value` lines |
 | `checks.sh` | *(optional)* correctness gate run after a passing benchmark |
+| `hooks/before.sh`, `hooks/after.sh` | *(optional)* automation run at iteration boundaries — see [Hooks](#hooks) |
 | `config.json` | *(optional)* `{"max_experiments": 50}` |
 
 A fresh agent with no memory can read `prompt.md` plus the tail of `log.jsonl`
@@ -67,6 +68,33 @@ because one thermal-throttled run should not redefine "normal".
 
 Advisory only. Nothing is auto-discarded; the agent still decides.
 
+## Hooks
+
+Drop executable scripts at `.auto/hooks/before.sh` and `.auto/hooks/after.sh`
+to run automation at iteration boundaries — notifications, a learnings
+journal, git tagging, priming the next attempt with fresh research. They are
+transparent to the agent: it never calls them directly, and the core loop has
+no idea what (if anything) they do.
+
+* **`before.sh`** fires before an iteration starts: on `/autoresearch`
+  activation, and again right after `after.sh` at the end of every
+  `log_experiment` call. Use it for prospective work.
+* **`after.sh`** fires at the end of every `log_experiment` call. Use it for
+  retrospective work.
+
+Both must be executable (`chmod +x`) — a non-executable file is treated as
+absent. Each receives a single-line JSON object on stdin (`event`, `cwd`,
+`session`, plus `last_run`/`run_entry` depending on the stage) and may print
+up to 8 KiB on stdout, which is folded into what the agent reads next as a
+`[hook before.sh]` / `[hook after.sh]` note. A non-zero exit or a 30s timeout
+produces a note describing the failure instead of raising — a broken hook
+never takes the loop down. Every fire is appended to `.auto/log.jsonl` as a
+`{"type": "hook", ...}` line.
+
+Example scripts (desktop notification, learnings journal) ship in
+`skills/autoresearch-hooks/examples/` — copy one into `.auto/hooks/`, adapt,
+and `chmod +x`.
+
 ## Dashboard
 
 ```
@@ -87,15 +115,17 @@ Advisory only. Nothing is auto-discarded; the agent still decides.
 Secondary metrics get their own columns when the terminal is wide enough, and
 are dropped from the right before the description is squeezed.
 
-## Bundled skill
+## Bundled skills
 
-`skills/autoresearch-create/` ships with the extension and is registered from
-`manifest.json`'s `"skills"` field. It gathers the goal, command, metric and
-files in scope, writes `.auto/prompt.md` and `.auto/measure.sh`, runs the
-baseline, and starts iterating.
+* `skills/autoresearch-create/` gathers the goal, command, metric and files
+  in scope, writes `.auto/prompt.md` and `.auto/measure.sh`, runs the
+  baseline, and starts iterating.
+* `skills/autoresearch-hooks/` helps you author `.auto/hooks/before.sh` /
+  `after.sh` and points at the shipped examples.
+
+Both are registered automatically from `manifest.json`'s `"skills"` field.
 
 ## Not ported
 
-The browser dashboard (`/autoresearch export`), the `before.sh`/`after.sh`
-hooks, and the `autoresearch-finalize` skill that splits a noisy branch into
-independently reviewable ones.
+The browser dashboard (`/autoresearch export`) and the `autoresearch-finalize`
+skill that splits a noisy branch into independently reviewable ones.

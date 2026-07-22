@@ -25,6 +25,7 @@ from tau.tool.types import (
     ToolResult,
 )
 
+from .hooks import run_hook
 from .state import (
     Result,
     State,
@@ -359,6 +360,23 @@ class LogExperimentTool(Tool):
                 f"Reached max_experiments ({state.max_experiments}). Stop here and summarise "
                 "unless the user asks for more."
             )
+
+        run_number = state.run_number(result)
+        after_note = await run_hook(
+            "after", cwd, state, last_result=result, last_run_number=run_number
+        )
+        if after_note:
+            lines.append(f"\n[hook after.sh]\n{after_note}")
+        before_note = await run_hook(
+            "before",
+            cwd,
+            state,
+            last_result=result,
+            last_run_number=run_number,
+            next_run_number=run_number + 1,
+        )
+        if before_note:
+            lines.append(f"\n[hook before.sh]\n{before_note}")
 
         return ToolResult.ok(invocation.id, "\n".join(lines), metadata=result.to_json())
 
