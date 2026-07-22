@@ -462,3 +462,80 @@ class TestAbortRetry:
         llm, _ = _make_stream_llm([[StartEvent(), EndEvent()]])
         assert llm.abort_retry() is True
         assert llm.abort_retry() is False  # already set
+
+
+# ---------------------------------------------------------------------------
+# OAuth fail-fast — no request is sent when the token refresh already failed
+# ---------------------------------------------------------------------------
+
+
+def _make_oauth_llm_without_key(has_credential: bool, refresh_error: Exception | None = None):
+    """TextLLM whose OAuth provider's get_api_key() returns None (refresh failed)."""
+    llm = _make_llm(api_invoke_side_effect=[[_text_end("never reached")]])
+    llm.__dict__["_uses_oauth"] = True
+    llm._auth_manager.get_api_key = AsyncMock(return_value=None)
+    llm._auth_manager.has = MagicMock(return_value=has_credential)
+    llm._auth_manager.last_refresh_error = MagicMock(return_value=refresh_error)
+    return llm
+
+
+class TestOAuthFailFast:
+    def test_invoke_fails_fast_when_refresh_failed_transiently(self):
+        async def _run():
+            cause = RuntimeError("Request failed (429): rate_limit_error")
+            llm = _make_oauth_llm_without_key(has_credential=True, refresh_error=cause)
+            events = await llm.invoke(_context())
+            assert len(events) == 1
+            assert isinstance(events[0], ErrorEvent)
+            assert events[0].kind == ErrorKind.AUTH
+            assert "429" in events[0].error
+            # The doomed request with the stale token must never be sent.
+            llm.api.invoke.assert_not_awaited()
+
+        asyncio.run(_run())
+
+    def test_invoke_prompts_relogin_when_credential_dropped(self):
+        async def _run():
+            llm = _make_oauth_llm_without_key(has_credential=False)
+            events = await llm.invoke(_context())
+            assert len(events) == 1
+            assert isinstance(events[0], ErrorEvent)
+            assert "/login" in events[0].error
+            llm.api.invoke.assert_not_awaited()
+
+        asyncio.run(_run())
+
+    def test_stream_fails_fast_when_refresh_failed(self):
+        async def _run():
+            llm, call_count = _make_stream_llm([[StartEvent(), _text_end("never reached")]])
+            llm.__dict__["_uses_oauth"] = True
+
+            class FailingAuth:
+                async def get_api_key(self, provider_id):
+                    return None
+
+                def has(self, provider_id):
+                    return True
+
+                def last_refresh_error(self, provider_id):
+                    return RuntimeError("Request failed (429): rate_limit_error")
+
+            llm.__dict__["_auth_manager"] = FailingAuth()
+            events = await _collect_stream(llm, _context())
+            assert len(events) == 1
+            assert isinstance(events[0], ErrorEvent)
+            assert events[0].kind == ErrorKind.AUTH
+            assert call_count["n"] == 0  # stream was never opened
+
+        asyncio.run(_run())
+
+    def test_api_key_provider_unaffected_by_missing_key(self):
+        async def _run():
+            # Non-OAuth provider with no stored key keeps today's behavior:
+            # the request proceeds with whatever key the options already have.
+            llm = _make_llm(api_invoke_side_effect=[[_text_end("ok")]])
+            events = await llm.invoke(_context())
+            assert any(isinstance(e, TextEndEvent) for e in events)
+            llm.api.invoke.assert_awaited_once()
+
+        asyncio.run(_run())

@@ -121,3 +121,55 @@ class TestIsHeadlessEnvironment:
         monkeypatch.delenv("SSH_CONNECTION", raising=False)
         monkeypatch.delenv("SSH_TTY", raising=False)
         assert is_headless_environment() is False
+
+
+# ---------------------------------------------------------------------------
+# http_error_to_runtime_error
+# ---------------------------------------------------------------------------
+
+
+class TestHttpErrorToRuntimeError:
+    def _http_error(self, code: int, headers: dict | None = None):
+        import io
+        import urllib.error
+        from email.message import Message
+
+        msg = Message()
+        for k, v in (headers or {}).items():
+            msg[k] = v
+        return urllib.error.HTTPError(
+            url="https://example.test/token",
+            code=code,
+            msg="err",
+            hdrs=msg,
+            fp=io.BytesIO(b"{}"),
+        )
+
+    def test_attaches_status_code_and_response(self):
+        from tau.inference.provider.oauth.utils import http_error_to_runtime_error
+
+        e = self._http_error(429, {"Retry-After": "7"})
+        err = http_error_to_runtime_error(e, "Request failed (429): rate limited")
+        assert isinstance(err, RuntimeError)
+        assert err.status_code == 429  # type: ignore[attr-defined]
+        assert err.response.headers.get("retry-after") == "7"  # type: ignore[attr-defined]
+
+    def test_classifier_and_retry_delay_read_the_metadata(self):
+        from tau.inference.provider.oauth.utils import http_error_to_runtime_error
+        from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
+
+        rate_limited = http_error_to_runtime_error(
+            self._http_error(429, {"Retry-After": "7"}), "HTTP 429 from x: slow down"
+        )
+        assert classify_error(rate_limited).kind == ErrorKind.RATE_LIMIT
+        assert get_retry_after_delay(rate_limited, 1.0) == 7.0
+
+        # GitHub Copilot's message format carries no parseable markers — the
+        # attached status is what makes a dead token unrecoverable.
+        dead_token = http_error_to_runtime_error(
+            self._http_error(401), "HTTP 401 from x: Bad credentials"
+        )
+        from tau.auth.manager import _is_unrecoverable_refresh_error
+
+        assert classify_error(dead_token).status_code == 401
+        assert _is_unrecoverable_refresh_error(dead_token) is True

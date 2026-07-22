@@ -31,6 +31,7 @@ from tau.inference.provider.oauth.types import (
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
     get_oauth_ssl_context,
+    http_error_to_runtime_error,
     parse_authorization_input,
     start_oauth_callback_server,
 )
@@ -89,7 +90,7 @@ def _post_json(url: str, body: dict) -> dict:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        raise RuntimeError(f"Request failed ({e.code}): {body_text}") from e
+        raise http_error_to_runtime_error(e, f"Request failed ({e.code}): {body_text}") from e
 
 
 def _exchange_code(code: str, state: str, verifier: str) -> dict:
@@ -288,7 +289,15 @@ async def refresh_anthropic_token(
     except Exception:
         keychain_cred = await asyncio.to_thread(read_cc_keychain_credential)
         if keychain_cred is not None and keychain_cred.refresh != credential.refresh:
-            return keychain_cred
+            if int(time.time() * 1000) < keychain_cred.expires:
+                return keychain_cred
+            # Claude Code's copy is newer but its access token has also expired
+            # (the app hasn't run recently). Adopting it as-is would hand the
+            # caller a credential that 401s on first use — refresh with ITS
+            # rotated token instead, which is the one Anthropic still honors.
+            data = await asyncio.to_thread(_refresh_token_sync, keychain_cred.refresh)
+            access, refresh, expires_ms = _parse_token_response(data)
+            return OAuthCredential(access=access, refresh=refresh, expires=expires_ms)
         raise
 
 

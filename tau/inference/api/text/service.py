@@ -190,6 +190,7 @@ class TextLLM:
 
         base_url_override = model.base_url
 
+        self._uses_oauth = isinstance(resolved_provider, OAuthProvider)
         if isinstance(resolved_provider, OAuthProvider):
             credential = self._auth_manager.get(resolved_provider.id)
             if not isinstance(credential, OAuthCredential):
@@ -306,6 +307,38 @@ class TextLLM:
 
         return close_dangling_tool_calls(context.messages)
 
+    def _oauth_key_unavailable_error(self):
+        """ErrorEvent for an OAuth provider whose access token could not be obtained.
+
+        get_api_key() returning None for an OAuth provider means the refresh
+        just failed (after its own retries) or the credential was dropped as
+        dead — the only key left is the stale access token the refresh was
+        meant to replace, and sending it is a guaranteed 401. Fail fast with
+        the actual cause instead.
+        """
+        from tau.inference.types import ErrorEvent, StopReason
+        from tau.inference.utils import ErrorKind
+
+        if not self._auth_manager.has(self.provider_id):  # type: ignore[union-attr]
+            return ErrorEvent(
+                reason=StopReason.Error,
+                error=(
+                    "Authentication failed — your session has expired."
+                    " Run /login to sign in again."
+                ),
+                kind=ErrorKind.AUTH,
+            )
+        cause = self._auth_manager.last_refresh_error(self.provider_id)  # type: ignore[union-attr]
+        detail = f": {cause}" if cause else ""
+        return ErrorEvent(
+            reason=StopReason.Error,
+            error=(
+                f"OAuth token refresh failed for {self.provider_id}{detail}."
+                " Try again shortly, or run /login to sign in again."
+            ),
+            kind=ErrorKind.AUTH,
+        )
+
     def _retry_flag(self) -> asyncio.Event:
         """The retry-abort flag, created on first use.
 
@@ -376,6 +409,9 @@ class TextLLM:
             # Set credentials before resolving the lazy adapter: SDK clients such as
             # Anthropic validate and capture authentication during construction.
             self.api.options.api_key = api_key
+        elif getattr(self, "_uses_oauth", False):
+            yield self._oauth_key_unavailable_error()
+            return
 
         # Resolve the provider SDK (first-use import + client construction) on a
         # worker thread so a cold import doesn't block the event loop — and with
@@ -530,6 +566,8 @@ class TextLLM:
         if api_key:
             # Set credentials before resolving the lazy adapter; see stream().
             self.api.options.api_key = api_key
+        elif getattr(self, "_uses_oauth", False):
+            return [self._oauth_key_unavailable_error()]
 
         # Resolve the provider SDK (first-use import + client construction) on a
         # worker thread so a cold import doesn't block the event loop — and with

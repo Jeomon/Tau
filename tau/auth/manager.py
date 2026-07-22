@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import builtins
 import json
 import logging
@@ -21,6 +22,15 @@ from tau.settings.paths import get_auth_path
 from tau.utils.secrets import resolve_secret
 
 _log = logging.getLogger(__name__)
+
+# OAuth token-endpoint refresh retry policy: the endpoint itself can be
+# rate-limited or briefly down (observed: 429s from Anthropic's token URL);
+# without backoff a transient blip becomes a failed turn. Delays are capped
+# well below get_retry_after_delay's 60s ceiling because the storage lock is
+# held for the duration — other sessions wanting the same credential wait.
+_REFRESH_MAX_RETRIES = 2  # retries after the first attempt (3 attempts total)
+_REFRESH_BASE_DELAY_S = 1.0
+_REFRESH_MAX_DELAY_S = 20.0
 
 
 def _get_env_api_key(provider: str) -> str | None:
@@ -67,6 +77,9 @@ class AuthManager:
         self.runtime_overrides: dict[str, str] = {}
         self._load_error: Exception | None = None
         self._errors: list[Exception] = []
+        # Last refresh failure per provider, so callers can explain *why* a
+        # credential is unusable instead of surfacing a downstream 401.
+        self._refresh_errors: dict[str, Exception] = {}
         self.data: dict[str, AuthCredential] = self._load()
 
     @staticmethod
@@ -188,6 +201,7 @@ class AuthManager:
     def remove(self, provider: str) -> None:
         """Remove the stored credential for a provider and persist to storage."""
         self.data.pop(provider, None)
+        self._refresh_errors.pop(provider, None)
         self._persist_provider_change(provider=provider, credential=None)
 
     def set_runtime_api_key(self, provider: str, api_key: str) -> None:
@@ -214,6 +228,47 @@ class AuthManager:
         drained = list(self._errors)
         self._errors.clear()
         return drained
+
+    def last_refresh_error(self, provider: str) -> Exception | None:
+        """Return the most recent OAuth refresh failure for a provider, if any.
+
+        Cleared by a subsequent successful refresh, login, or credential removal.
+        """
+        return self._refresh_errors.get(provider)
+
+    async def _refresh_with_backoff(self, provider: str, oauth_provider, credential):
+        """Call the provider's token refresh, retrying transient failures.
+
+        Unrecoverable failures (dead refresh token → invalid_grant etc.) raise
+        immediately; rate limits, 5xx, and timeouts back off — honoring
+        Retry-After when the error carries response headers — and retry up to
+        _REFRESH_MAX_RETRIES times. Runs while the caller holds the storage
+        lock, so the per-wait delay is capped at _REFRESH_MAX_DELAY_S.
+        """
+        from tau.inference.utils import get_retry_after_delay
+
+        attempt = 0
+        while True:
+            try:
+                return await oauth_provider.refresh_token(credential=credential)
+            except Exception as e:
+                if _is_unrecoverable_refresh_error(e) or attempt >= _REFRESH_MAX_RETRIES:
+                    raise
+                delay = min(
+                    get_retry_after_delay(e, _REFRESH_BASE_DELAY_S * (2**attempt)),
+                    _REFRESH_MAX_DELAY_S,
+                )
+                _log.warning(
+                    "transient oauth refresh failure for %s, retrying in %.1fs"
+                    " (attempt %d/%d): %s",
+                    provider,
+                    delay,
+                    attempt + 1,
+                    _REFRESH_MAX_RETRIES,
+                    e,
+                )
+                await asyncio.sleep(delay)
+                attempt += 1
 
     async def get_api_key(self, provider: str) -> str | None:
         """Get an API key for a provider, refreshing OAuth tokens if needed."""
@@ -265,13 +320,16 @@ class AuthManager:
                 return LockResult(result=credential)
 
             try:
-                refreshed_credential = await oauth_provider.refresh_token(credential=credential)
+                refreshed_credential = await self._refresh_with_backoff(
+                    provider, oauth_provider, credential
+                )
                 if credential.extra:
                     merged_extra = dict(credential.extra)
                     merged_extra.update(refreshed_credential.extra)
                     refreshed_credential.extra = merged_extra
                 current_data[provider] = refreshed_credential
                 self.data = current_data
+                self._refresh_errors.pop(provider, None)
                 serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
                 return LockResult(
                     result=refreshed_credential, next=json.dumps(serialized, indent=2)
@@ -279,6 +337,17 @@ class AuthManager:
             except Exception as e:
                 _log.error("oauth token refresh failed for %s: %s", provider, e, exc_info=True)
                 self._record_error(e)
+                self._refresh_errors[provider] = e
+                if _is_unrecoverable_refresh_error(e):
+                    # Refresh token is dead — drop the credential so the caller
+                    # prompts re-login instead of retrying a broken token every
+                    # turn (mirrors force_refresh below).
+                    current_data.pop(provider, None)
+                    self.data = current_data
+                    serialized = {
+                        k: self._serialize_credential(v) for k, v in current_data.items()
+                    }
+                    return LockResult(result=None, next=json.dumps(serialized, indent=2))
                 return LockResult(result=None)
 
         result = await self.storage.with_lock_async(refresh_fn)
@@ -321,19 +390,23 @@ class AuthManager:
                 return LockResult(result=credential)
 
             try:
-                refreshed_credential = await oauth_provider.refresh_token(credential=credential)
+                refreshed_credential = await self._refresh_with_backoff(
+                    provider, oauth_provider, credential
+                )
                 if credential.extra:
                     merged_extra = dict(credential.extra)
                     merged_extra.update(refreshed_credential.extra)
                     refreshed_credential.extra = merged_extra
                 current_data[provider] = refreshed_credential
                 self.data = current_data
+                self._refresh_errors.pop(provider, None)
                 serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
                 return LockResult(
                     result=refreshed_credential, next=json.dumps(serialized, indent=2)
                 )
             except Exception as e:
                 self._record_error(e)
+                self._refresh_errors[provider] = e
                 if _is_unrecoverable_refresh_error(e):
                     # Refresh token is dead — drop the credential so the user is
                     # prompted to log in again rather than retrying a broken token.
@@ -353,6 +426,7 @@ class AuthManager:
         if oauth_provider := self.registry.text.get_oauth_provider(provider):
             credential = await oauth_provider.login(callbacks=callbacks)
             self.data[provider] = credential
+            self._refresh_errors.pop(provider, None)
             self._persist_provider_change(provider, credential)
 
     async def logout(self, provider: str):

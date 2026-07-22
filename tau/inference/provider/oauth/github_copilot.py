@@ -28,7 +28,10 @@ from tau.inference.provider.oauth.types import (
     OAuthLoginCallbacks,
     OAuthPrompt,
 )
-from tau.inference.provider.oauth.utils import get_oauth_ssl_context
+from tau.inference.provider.oauth.utils import (
+    get_oauth_ssl_context,
+    http_error_to_runtime_error,
+)
 from tau.inference.provider.types import OAuthProvider
 
 __all__ = ["GitHubCopilotOAuthProvider", "get_copilot_base_url"]
@@ -101,7 +104,7 @@ def _fetch_json(url: str, *, method: str = "GET", headers: dict, body: bytes | N
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        raise RuntimeError(f"HTTP {e.code} from {url}: {body_text}") from e
+        raise http_error_to_runtime_error(e, f"HTTP {e.code} from {url}: {body_text}") from e
 
 
 def _start_device_flow(domain: str) -> dict:

@@ -29,6 +29,7 @@ from tau.inference.provider.oauth.types import (
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
     get_oauth_ssl_context,
+    http_error_to_runtime_error,
     is_headless_environment,
     parse_authorization_input,
     start_oauth_callback_server,
@@ -129,7 +130,7 @@ def _post_token(body: dict[str, str]) -> dict:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        raise RuntimeError(f"Token request failed ({e.code}): {body_text}") from e
+        raise http_error_to_runtime_error(e, f"Token request failed ({e.code}): {body_text}") from e
 
 
 def _exchange_code(code: str, verifier: str, redirect_uri: str = REDIRECT_URI) -> dict:

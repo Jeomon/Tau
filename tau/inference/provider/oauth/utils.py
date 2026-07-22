@@ -18,11 +18,29 @@ __all__ = [
     "OAUTH_SUCCESS_HTML",
     "OAUTH_ERROR_HTML",
     "get_oauth_ssl_context",
+    "http_error_to_runtime_error",
     "parse_authorization_input",
     "start_oauth_callback_server",
     "await_oauth_code",
     "is_headless_environment",
 ]
+
+
+def http_error_to_runtime_error(e, message: str) -> RuntimeError:
+    """Wrap an ``urllib.error.HTTPError`` in a RuntimeError carrying the HTTP metadata.
+
+    classify_error reads ``status_code`` and get_retry_after_delay reads
+    ``response.headers`` (HTTPError carries the response headers), so
+    AuthManager's refresh backoff can tell a rate-limited token endpoint
+    (retry after the server-requested delay) from a dead refresh token
+    (drop the credential) without parsing the message text.
+
+    Callers should ``raise http_error_to_runtime_error(e, ...) from e``.
+    """
+    err = RuntimeError(message)
+    err.status_code = e.code  # type: ignore[attr-defined]
+    err.response = e  # type: ignore[attr-defined]
+    return err
 
 
 def is_headless_environment() -> bool:

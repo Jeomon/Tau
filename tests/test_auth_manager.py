@@ -176,3 +176,152 @@ class TestAuthManagerAuthStatus:
         mgr.set_runtime_api_key("prov", "k")
         mgr.remove_runtime_api_key("prov")
         assert "prov" not in mgr.runtime_overrides
+
+
+# ---------------------------------------------------------------------------
+# OAuth refresh backoff (get_api_key / force_refresh)
+# ---------------------------------------------------------------------------
+
+
+import time
+
+import pytest
+
+from tau.inference.provider.registry import TextProviderRegistry
+from tau.inference.provider.types import OAuthProvider
+
+
+class _FakeOAuthProvider(OAuthProvider):
+    """OAuth provider whose refresh_token() replays a scripted result list."""
+
+    def __init__(self, refresh_results):
+        super().__init__(id="fake-oauth", name="Fake OAuth")
+        self.refresh_results = list(refresh_results)
+        self.refresh_calls = 0
+
+    @property
+    def api(self):
+        return "fake"
+
+    async def login(self, callbacks):
+        raise NotImplementedError
+
+    async def logout(self, credential):
+        pass
+
+    async def validate(self, credential, signal=None):
+        return True
+
+    async def refresh_token(self, credential, signal=None):
+        result = self.refresh_results[self.refresh_calls]
+        self.refresh_calls += 1
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def _fresh_cred(access: str = "new-access") -> OAuthCredential:
+    return OAuthCredential(
+        access=access, refresh="r-new", expires=int(time.time() * 1000) + 3_600_000
+    )
+
+
+def _rate_limit_error(retry_after: str | None = None) -> Exception:
+    e = RuntimeError("Request failed (429): rate_limit_error")
+    e.status_code = 429  # type: ignore[attr-defined]
+    if retry_after is not None:
+        response = type("R", (), {"headers": {"retry-after": retry_after}})()
+        e.response = response  # type: ignore[attr-defined]
+    return e
+
+
+def _oauth_manager(provider: _FakeOAuthProvider) -> AuthManager:
+    registry = TextProviderRegistry()
+    registry.register(provider)
+    mgr = AuthManager.in_memory(ProviderRegistry(text=registry))
+    mgr.set("fake-oauth", OAuthCredential(access="stale", refresh="r-old", expires=0))
+    return mgr
+
+
+@pytest.fixture
+def sleep_spy(monkeypatch):
+    delays: list[float] = []
+
+    async def fake_sleep(seconds):
+        delays.append(seconds)
+
+    monkeypatch.setattr("tau.auth.manager.asyncio.sleep", fake_sleep)
+    return delays
+
+
+class TestOAuthRefreshBackoff:
+    @pytest.mark.asyncio
+    async def test_transient_failure_retries_then_succeeds(self, sleep_spy):
+        provider = _FakeOAuthProvider([_rate_limit_error(), _fresh_cred()])
+        mgr = _oauth_manager(provider)
+
+        api_key = await mgr.get_api_key("fake-oauth")
+
+        assert api_key == "new-access"
+        assert provider.refresh_calls == 2
+        assert sleep_spy == [1.0]  # base delay, no Retry-After header
+        assert mgr.last_refresh_error("fake-oauth") is None
+        stored = mgr.get("fake-oauth")
+        assert isinstance(stored, OAuthCredential) and stored.access == "new-access"
+
+    @pytest.mark.asyncio
+    async def test_retry_honors_retry_after_header(self, sleep_spy):
+        provider = _FakeOAuthProvider([_rate_limit_error(retry_after="7"), _fresh_cred()])
+        mgr = _oauth_manager(provider)
+
+        api_key = await mgr.get_api_key("fake-oauth")
+
+        assert api_key == "new-access"
+        assert sleep_spy == [7.0]
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries_returns_none_and_keeps_credential(self, sleep_spy):
+        errors = [_rate_limit_error(), _rate_limit_error(), _rate_limit_error()]
+        provider = _FakeOAuthProvider(errors)
+        mgr = _oauth_manager(provider)
+
+        api_key = await mgr.get_api_key("fake-oauth")
+
+        assert api_key is None
+        assert provider.refresh_calls == 3  # 1 attempt + 2 retries
+        assert mgr.has("fake-oauth") is True  # transient: credential kept
+        assert mgr.last_refresh_error("fake-oauth") is errors[-1]
+
+    @pytest.mark.asyncio
+    async def test_unrecoverable_failure_no_retry_drops_credential(self, sleep_spy):
+        provider = _FakeOAuthProvider([RuntimeError("Request failed (400): invalid_grant")])
+        mgr = _oauth_manager(provider)
+
+        api_key = await mgr.get_api_key("fake-oauth")
+
+        assert api_key is None
+        assert provider.refresh_calls == 1  # no retry on a dead refresh token
+        assert sleep_spy == []
+        assert mgr.has("fake-oauth") is False  # dropped so the caller prompts re-login
+        assert mgr.last_refresh_error("fake-oauth") is not None
+
+    @pytest.mark.asyncio
+    async def test_force_refresh_retries_transient_failures(self, sleep_spy):
+        provider = _FakeOAuthProvider([_rate_limit_error(), _fresh_cred()])
+        mgr = _oauth_manager(provider)
+
+        refreshed = await mgr.force_refresh("fake-oauth", stale_access="stale")
+
+        assert refreshed is not None and refreshed.access == "new-access"
+        assert provider.refresh_calls == 2
+        assert sleep_spy == [1.0]
+
+    @pytest.mark.asyncio
+    async def test_successful_login_clears_refresh_error(self, sleep_spy):
+        provider = _FakeOAuthProvider([_rate_limit_error(), _rate_limit_error(), _rate_limit_error()])
+        mgr = _oauth_manager(provider)
+        await mgr.get_api_key("fake-oauth")
+        assert mgr.last_refresh_error("fake-oauth") is not None
+
+        mgr.remove("fake-oauth")
+        assert mgr.last_refresh_error("fake-oauth") is None
