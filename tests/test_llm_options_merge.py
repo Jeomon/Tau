@@ -66,6 +66,46 @@ def test_post_construction_assignment_counts_as_explicit() -> None:
     assert merged.max_retries == 3
 
 
-def test_none_override_returns_base() -> None:
+def test_none_override_returns_a_copy_not_base() -> None:
+    """The merge must never hand out ``base`` itself.
+
+    For non-OAuth providers ``base`` is the provider registry's shared options
+    object (the registry is a process-wide singleton), and callers mutate the
+    merged options in place after construction — api_key, signal, timeout,
+    thinking_level, distrust_thought_signatures, ... Returning ``base``
+    leaked every such mutation across all TextLLM instances of the same
+    provider: the main session's abort signal appeared on embedded subagent
+    LLMs, and a /model switch poisoned the provider defaults process-wide.
+    """
     base = LLMOptions(temperature=0.2)
-    assert _merge(base, None) is base
+    merged = _merge(base, None)
+    assert merged is not base
+    assert merged.temperature == 0.2
+
+
+def test_mutating_merged_options_leaves_base_untouched() -> None:
+    import asyncio
+
+    base = LLMOptions(temperature=0.2, headers={"h": "v"}, extra_params={"p": 1})
+    merged = _merge(base, None)
+
+    merged.api_key = "leaked?"
+    merged.signal = asyncio.Event()
+    merged.distrust_thought_signatures = True
+    merged.headers["h"] = "mutated"  # type: ignore[index]
+    merged.extra_params["p"] = 2  # type: ignore[index]
+
+    assert base.api_key is None
+    assert base.signal is None
+    assert base.distrust_thought_signatures is False
+    assert base.headers == {"h": "v"}
+    assert base.extra_params == {"p": 1}
+
+
+def test_merged_containers_are_detached_from_override_too() -> None:
+    base = LLMOptions()
+    override = LLMOptions(headers={"h": "v"})
+    merged = _merge(base, override)
+    assert merged.headers == {"h": "v"}
+    merged.headers["h"] = "mutated"  # type: ignore[index]
+    assert override.headers == {"h": "v"}

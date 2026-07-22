@@ -248,6 +248,18 @@ class TextLLM:
         (LLMOptions.explicitly_set) — otherwise passing any options object
         would silently clobber the provider's base options with defaults.
 
+        Always returns a fresh LLMOptions, never ``base`` itself — even when
+        ``override`` is None. For non-OAuth providers ``base`` is the provider
+        registry's options object, and the registry is a process-wide
+        singleton cached on TextLLM, so every TextLLM built for the same
+        provider would otherwise share one options instance. Callers mutate
+        the merged options in place after construction (api_key, signal,
+        thinking_level, timeout, on_response, distrust_thought_signatures,
+        ...); with a shared instance those mutations leak across every
+        concurrent TextLLM of that provider — e.g. the main session's abort
+        signal showing up on an embedded subagent's LLM, or a /model switch
+        poisoning the provider defaults for the rest of the process.
+
         Args:
             base: The base LLMOptions configuration.
             override: Optional override LLMOptions; explicitly-set fields
@@ -256,13 +268,19 @@ class TextLLM:
         Returns:
             A new LLMOptions with merged values.
         """
-        if override is None:
-            return base
         merged = LLMOptions(**{f.name: getattr(base, f.name) for f in fields(base)})
-        for f in fields(override):
-            value = getattr(override, f.name)
-            if value is not None and override.explicitly_set(f.name):
-                setattr(merged, f.name, value)
+        if override is not None:
+            for f in fields(override):
+                value = getattr(override, f.name)
+                if value is not None and override.explicitly_set(f.name):
+                    setattr(merged, f.name, value)
+        # Detach the mutable containers too: headers is mutated in place by
+        # extensions (before_provider_headers) and __init__ below, and sharing
+        # either dict with the registry's base options would leak those writes.
+        if merged.headers is not None:
+            merged.headers = dict(merged.headers)
+        if merged.extra_params is not None:
+            merged.extra_params = dict(merged.extra_params)
         return merged
 
     def _resolve_messages(self, context: LLMContext) -> list[LLMMessage]:
