@@ -221,10 +221,13 @@ async def run_embedded_agent(
     the task message — use load_fork_context() to build this from a parent
     session's history for a read-only "fork" context.
 
-    ``abort_signal``, if given, is used as the engine's own AbortSignal
-    instead of a fresh one — set it externally (e.g. on parent-tool-call
-    cancellation) to abort the run cooperatively. The timeout still applies
-    on top of this and sets the same signal when it fires.
+    ``abort_signal``, if given, is watched and propagated into the engine's
+    own (always fresh) AbortSignal — set it externally (e.g. on
+    parent-tool-call cancellation) to abort the run cooperatively. It is
+    never set from in here: the caller's signal is typically the parent
+    engine's own abort signal, and setting it on a timeout would abort the
+    whole parent session as if the user had interrupted it. The timeout only
+    sets the embedded engine's local signal.
 
     When ``schema`` is set (a flat JSON-Schema-shaped dict), the task gets an
     extra ``structured_output`` tool and must call it exactly once to finish;
@@ -238,10 +241,11 @@ async def run_embedded_agent(
     object emitted during the run, for callers that want to build a richer
     live view (e.g. per-tool-call result previews).
 
-    On timeout, aborts cooperatively via the engine's own AbortSignal (the
+    On timeout, aborts cooperatively via the engine's local AbortSignal (the
     same mechanism Esc-cancel uses in the interactive TUI) and gives it
     ``_ABORT_GRACE_S`` to unwind cleanly before falling back to raw task
-    cancellation.
+    cancellation. The caller's ``abort_signal`` is deliberately left
+    untouched by that path.
     """
     usage: dict[str, Any] = {"turns": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
     final_text = ""
@@ -311,7 +315,24 @@ async def run_embedded_agent(
     task_message = UserMessage.from_text(f"Task: {task_text}")
     messages: list[LLMMessage] = [*(initial_messages or []), task_message]
     ctx = EngineContext(system_prompt=system_prompt, messages=messages, tools=tools)
-    signal = abort_signal if abort_signal is not None else asyncio.Event()
+    # The engine always gets its own local signal. The caller's abort_signal
+    # is usually the *parent* engine's abort signal (the subagent tool passes
+    # the signal it receives from Tool.execute straight through), so it must
+    # only ever be read here — setting it on timeout would abort the whole
+    # parent session, which the TUI then renders as a spurious "User
+    # Interrupted". Propagate caller-side aborts inward via a watcher instead.
+    signal = asyncio.Event()
+    watcher: asyncio.Task | None = None
+    if abort_signal is not None:
+        if abort_signal.is_set():
+            signal.set()
+        else:
+
+            async def _propagate_abort() -> None:
+                await abort_signal.wait()
+                signal.set()
+
+            watcher = asyncio.ensure_future(_propagate_abort())
     run_task = asyncio.ensure_future(engine.run(ctx, signal=signal))
 
     try:
@@ -337,6 +358,11 @@ async def run_embedded_agent(
         return False, f"Task timed out after {timeout_s:.0f}s", usage
     except Exception as e:
         return False, f"Subagent failed: {e}", usage
+    finally:
+        if watcher is not None:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
 
     if failed:
         return False, error_message or final_text or "(no output)", usage
