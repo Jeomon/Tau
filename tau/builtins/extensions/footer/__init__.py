@@ -11,17 +11,53 @@ if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
 
 
+_BRANCH_POLL_SECONDS = 2.0
+
+
 def register(tau: ExtensionAPI) -> None:
+    import asyncio
+
     from tau.tui.component import Row
 
     git_badge = GitBadge()
     model_badge = ModelBadge()
     row = Row([(git_badge, "left"), (model_badge, "right")])  # type: ignore[arg-type]
+    watcher: dict[str, Any] = {"task": None, "ctx": None}
 
     def _request_render(ctx: Any) -> None:
         layout = getattr(ctx, "_layout", None)
         if layout is not None:
             layout._tui.request_render()
+
+    async def _watch_branch() -> None:
+        # The badge otherwise only refreshes on session events, so a branch
+        # switched from another terminal while tau sits idle never shows up.
+        from tau.extensions.context import StaleExtensionContextError
+
+        while True:
+            await asyncio.sleep(_BRANCH_POLL_SECONDS)
+            ctx = watcher["ctx"]
+            if ctx is None:
+                continue
+            try:
+                if ctx.has_ui and git_badge.update(str(ctx.cwd)):
+                    _request_render(ctx)
+            except StaleExtensionContextError:
+                # Session replaced or runtime shutting down — wait for the
+                # fresh ctx delivered by the next session_start.
+                watcher["ctx"] = None
+
+    def _track(ctx: Any) -> None:
+        watcher["ctx"] = ctx
+        if watcher["task"] is None:
+            watcher["task"] = asyncio.create_task(_watch_branch())
+
+    def _stop_watcher() -> None:
+        task = watcher["task"]
+        if task is not None:
+            task.cancel()
+            watcher["task"] = None
+        watcher["ctx"] = None
 
     @tau.on("tui_ready")
     def on_ready(event: Any, ctx: Any) -> None:
@@ -29,6 +65,15 @@ def register(tau: ExtensionAPI) -> None:
         git_badge.update(str(ctx.cwd))
         model_badge.update_from_ctx(ctx)
         _request_render(ctx)
+        _track(ctx)
+
+    @tau.on("extension_unload")
+    def on_unload(event: Any, ctx: Any) -> None:
+        _stop_watcher()
+
+    @tau.on("runtime_stop")
+    def on_runtime_stop(event: Any, ctx: Any) -> None:
+        _stop_watcher()
 
     @tau.on("session_start")
     def on_session_start(event: Any, ctx: Any) -> None:
@@ -36,6 +81,7 @@ def register(tau: ExtensionAPI) -> None:
             git_badge.update(str(ctx.cwd))
             model_badge.update_from_ctx(ctx)
             _request_render(ctx)
+            _track(ctx)
 
     @tau.on("model_select")
     def on_model_select(event: Any, ctx: Any) -> None:

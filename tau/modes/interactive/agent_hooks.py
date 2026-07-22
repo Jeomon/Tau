@@ -313,10 +313,24 @@ class AgentHookHandler:
             self._mark_turn_content()
             if isinstance(msg, AssistantMessage):
                 usage = msg.usage
-                self._layout.spinner.update_tokens(
-                    up=usage.input_tokens,
-                    down=usage.output_tokens,
-                )
+                # Full prompt size, not just the uncached slice: Anthropic
+                # reports cache read/write tokens separately from
+                # input_tokens, so on a warm cache the raw input_tokens is a
+                # handful of tokens and the ↑ count would collapse to ~0 until
+                # the next full-context estimate shot it back up. Same
+                # accounting as the footer context badge.
+                up = usage.input_tokens
+                if not usage.input_tokens_include_cache_read:
+                    up += usage.cache_read_tokens + usage.cache_write_tokens
+                if up or usage.output_tokens:
+                    self._layout.spinner.update_tokens(up=up, down=usage.output_tokens)
+                else:
+                    # Provider reported no usage — fold a tokenizer estimate
+                    # of the finished message into the down-count instead of
+                    # resetting both counters to 0.
+                    from tau.session.compaction import estimate_tokens
+
+                    self._layout.spinner.update_tokens(down=estimate_tokens(msg))
             if self._current_block is not None:
                 self._update_block(msg, streaming=False, clear=True)
             else:

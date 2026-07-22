@@ -6,7 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from tau.message.types import ToolCallContent, ToolMessage, ToolResultContent
+from tau.message.types import (
+    AssistantMessage,
+    ToolCallContent,
+    ToolMessage,
+    ToolResultContent,
+    Usage,
+)
 from tau.modes.interactive.agent_hooks import AgentHookHandler
 from tau.modes.interactive.components.message_list import MessageBlock
 from tau.tool.types import ToolResult
@@ -22,6 +28,7 @@ class _Spinner:
             label_compacting="Compacting",
         )
         self.label = ""
+        self.token_updates: list[tuple[int | None, int]] = []
 
     def set_label(self, label: str) -> None:
         self.label = label
@@ -36,7 +43,7 @@ class _Spinner:
         pass
 
     def update_tokens(self, *, up: int | None = None, down: int = 0) -> None:
-        pass
+        self.token_updates.append((up, down))
 
     def set_streaming_estimate(self, tokens: int) -> None:
         pass
@@ -118,3 +125,60 @@ async def test_partial_tool_result_updates_existing_block_until_final_result() -
     assert len(layout.blocks) == 1
     assert not block.is_streaming
     assert block._message is final_message
+
+
+def _handler() -> tuple[AgentHookHandler, _Layout]:
+    layout = _Layout()
+    handler = AgentHookHandler(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        layout,  # type: ignore[arg-type]
+        _TUI(),  # type: ignore[arg-type]
+    )
+    return handler, layout
+
+
+@pytest.mark.anyio
+async def test_up_count_includes_cache_tokens() -> None:
+    # Anthropic-style usage: on a warm cache input_tokens is tiny and the
+    # prompt bulk sits in cache_read/cache_write — the spinner's ↑ must show
+    # their sum, not collapse to the uncached slice.
+    handler, layout = _handler()
+    msg = AssistantMessage.from_text("hi")
+    msg.usage = Usage(
+        input_tokens=3,
+        output_tokens=50,
+        cache_read_tokens=40_000,
+        cache_write_tokens=1_000,
+        input_tokens_include_cache_read=False,
+    )
+    await handler._on_message_end(SimpleNamespace(message=msg))
+    assert layout.spinner.token_updates == [(41_003, 50)]
+
+
+@pytest.mark.anyio
+async def test_up_count_no_double_count_when_input_includes_cache() -> None:
+    # OpenAI-style usage: input_tokens already folds in cached tokens.
+    handler, layout = _handler()
+    msg = AssistantMessage.from_text("hi")
+    msg.usage = Usage(
+        input_tokens=41_000,
+        output_tokens=50,
+        cache_read_tokens=40_000,
+        input_tokens_include_cache_read=True,
+    )
+    await handler._on_message_end(SimpleNamespace(message=msg))
+    assert layout.spinner.token_updates == [(41_000, 50)]
+
+
+@pytest.mark.anyio
+async def test_empty_usage_does_not_reset_up_count() -> None:
+    # A provider that reports no usage must not clobber the ↑ count with 0;
+    # the finished message's tokenizer estimate feeds the ↓ count instead.
+    handler, layout = _handler()
+    msg = AssistantMessage.from_text("some response text")
+    msg.usage = Usage()
+    await handler._on_message_end(SimpleNamespace(message=msg))
+    assert len(layout.spinner.token_updates) == 1
+    up, down = layout.spinner.token_updates[0]
+    assert up is None
+    assert down > 0

@@ -21,10 +21,14 @@ class GitBadge(Component):
     def __init__(self) -> None:
         self._text = ""
 
-    def update(self, cwd: str) -> None:
+    def update(self, cwd: str) -> bool:
+        """Re-read the branch; return True if the displayed text changed."""
         branch = read_branch(cwd)
         display = shorten_home(cwd)
-        self._text = f"{display} ({branch})" if branch else display
+        text = f"{display} ({branch})" if branch else display
+        changed = text != self._text
+        self._text = text
+        return changed
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         buf.grow_to(area.y + 1)

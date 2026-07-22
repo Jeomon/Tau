@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from tau.builtins.extensions.footer.git import GitBadge
 from tau.builtins.extensions.footer.utils import read_branch, shorten_home
 
 
@@ -43,6 +44,20 @@ class TestReadBranch:
     def test_oserror_returns_empty(self):
         result = read_branch("/this/path/definitely/does/not/exist/anywhere")
         assert result == ""
+
+
+class TestGitBadgeUpdate:
+    def test_reports_change_on_branch_switch(self, tmp_path):
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        head = git_dir / "HEAD"
+        head.write_text("ref: refs/heads/main\n")
+        badge = GitBadge()
+        assert badge.update(str(tmp_path)) is True  # first fill is a change
+        assert badge.update(str(tmp_path)) is False  # same branch, no change
+        head.write_text("ref: refs/heads/feature/x\n")
+        assert badge.update(str(tmp_path)) is True
+        assert "feature/x" in badge._text
 
 
 class TestShortenHome:
