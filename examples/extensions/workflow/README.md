@@ -61,14 +61,19 @@ phases:
   a JSON array, or split into non-empty lines — substituting `{item}`.
 - Any task failure aborts the run immediately (fail-fast): there is no
   partial-success mode.
+- Esc (or Ctrl+C) cancels a running workflow: no new task starts, in-flight
+  tasks abort cooperatively, and the run reports how many tasks completed
+  before the abort. (Wired through `ctx.command_signal`, the ambient
+  per-command abort signal.)
 - `agent` names are resolved the same way the `subagent` tool resolves them:
   builtins (`scout`, `worker`, `reviewer`, `planner`, `oracle`, `delegate`,
   `researcher`, `context-builder`), plus project (`.tau/agents/`) and user
   (`~/.tau/agents/`) agents.
 
-Every task spawns an isolated `tau` subprocess — the same mechanism the
-`subagent` tool uses — so a workflow run involves no LLM tool call and no
-in-process code execution.
+Every task runs an isolated in-process agent (`run_embedded_agent`, the same
+mechanism the `subagent` tool uses) with its own Engine/LLM/tools — no OS
+subprocess, no shared session state with the parent, and no LLM tool call
+involved in running the workflow itself.
 
 ## Skill
 

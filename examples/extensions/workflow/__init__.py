@@ -109,7 +109,13 @@ async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
     def on_tool_start(_phase_title: str, label: str, preview: str) -> None:
         _emit(ctx, f"    → {label}: {preview}")
 
-    _emit(ctx, f"Running workflow '{wf.slug}'...")
+    _emit(ctx, f"Running workflow '{wf.slug}'... (Esc to cancel)")
+    # ctx.command_signal is the per-command abort signal the runtime manages
+    # around every dispatch — an idle-agent Esc/Ctrl+C sets it. (Distinct
+    # from ctx.signal, which is turn-scoped and doesn't exist here: commands
+    # run while the agent is idle.) Passing it down means no new task starts
+    # once it fires and in-flight embedded agents abort cooperatively.
+    abort_signal = ctx.command_signal
     result = await run_workflow(
         wf,
         cwd=ctx.cwd,
@@ -120,10 +126,20 @@ async def _execute(ctx: ExtensionContext, wf: WorkflowDef) -> None:
         on_phase=on_phase,
         on_task_end=on_task_end,
         on_tool_start=on_tool_start,
+        abort_signal=abort_signal,
     )
 
     total_cost = sum(r.cost for r in result.results)
     total_turns = sum(r.turns for r in result.results)
+
+    if abort_signal is not None and abort_signal.is_set():
+        done = sum(1 for r in result.results if r.ok)
+        _emit(
+            ctx,
+            f"✗ Workflow '{wf.slug}' cancelled — {done} task(s) completed before the abort.",
+            "warning",
+        )
+        return
 
     if not result.ok:
         _emit(ctx, f"✗ Workflow '{wf.slug}' failed: {result.error}", "error")
