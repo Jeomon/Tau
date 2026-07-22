@@ -143,6 +143,10 @@ class App:
         self._auto_theme: bool = False
         self._theme_name: str = "dark"
 
+        # True only on the very first launch (no settings file existed at
+        # startup) — shows the one-time theme/telemetry setup screen.
+        self._first_run_setup: bool = False
+
     # -------------------------------------------------------------------------
     # Theme
     # -------------------------------------------------------------------------
@@ -186,6 +190,7 @@ class App:
         runtime: Runtime,
         theme: LayoutTheme | str | None = None,
         keybindings: KeyMap | None = None,
+        first_run_setup: bool = False,
     ) -> App:
         """Build the TUI around an already-constructed Runtime."""
         from tau.themes.registry import DEFAULT_THEME, theme_registry
@@ -262,6 +267,7 @@ class App:
         app = cls(runtime, tui, layout)
         app._auto_theme = auto_theme
         app._theme_name = theme_name
+        app._first_run_setup = first_run_setup
 
         # ESC clears the editor only while idle; mid-stream it must fall through
         # to the global key handler so it can abort the run.
@@ -486,9 +492,11 @@ class App:
 
         await self._runtime.hooks.emit(TuiReadyEvent())
 
-        # If the project needs a trust decision, replace the root with TrustScreen
-        # before the loop starts so the layout never renders until the user acts.
-        self._setup_trust_screen_if_needed()
+        # On the very first launch the root becomes the one-time setup screen,
+        # which chains into the trust prompt itself once the user acts. Either
+        # way the layout never renders until every pending decision is made.
+        if not self._setup_first_run_screen_if_needed():
+            self._setup_trust_screen_if_needed()
 
         self._track_task(asyncio.ensure_future(self._announce_update()))
 
@@ -565,6 +573,83 @@ class App:
         from tau.modes.interactive.components.trust_screen import TrustScreen
 
         screen = TrustScreen(str(cwd), options, _on_commit, theme=self._layout.theme)
+        self._layout.detach(self._tui)
+        self._tui.add_child(screen)
+        self._tui.set_focus(screen)
+        return True
+
+    # -------------------------------------------------------------------------
+    # First-run setup
+    # -------------------------------------------------------------------------
+
+    def _setup_first_run_screen_if_needed(self) -> bool:
+        """On the very first launch, swap the TUI root to FirstRunScreen.
+
+        Returns True if the screen was installed. The commit callback restores
+        the normal layout, persists the choices (which creates the settings
+        file, so the screen never shows again), and then runs the trust check
+        that was skipped in run(). Esc skips without persisting anything.
+        """
+        if not self._first_run_setup:
+            return False
+        sm = self._runtime.settings_manager
+        if sm is None:
+            return False
+
+        import contextlib
+
+        from tau.modes.interactive.components.first_run_screen import (
+            FirstRunResult,
+            FirstRunScreen,
+        )
+        from tau.themes.registry import AUTO_THEME, mode_for_background, theme_registry
+
+        original_theme = self._layout.theme
+
+        def _resolve(name: str) -> str:
+            # Map "auto" to the concrete builtin for the terminal background.
+            # The OSC 11 reply is queried unconditionally early in TUI.run(),
+            # so by the time the user navigates it has normally arrived.
+            if name == AUTO_THEME:
+                return mode_for_background(self._tui.background_color)
+            return name
+
+        def _preview(name: str) -> None:
+            with contextlib.suppress(ValueError):
+                new_theme = theme_registry.get(_resolve(name))
+                self._apply_message_flags(new_theme, sm)
+                self._layout.set_theme(new_theme)
+                screen.set_theme(new_theme)
+            self._tui.request_render()
+
+        def _on_commit(result: FirstRunResult | None) -> None:
+            self._tui.clear()
+            self._layout.attach(self._tui)
+            self._tui.set_focus(self._layout)
+
+            if result is None:
+                # Skipped — restore the startup theme and persist nothing, so
+                # setup is offered again on the next launch.
+                self._layout.set_theme(original_theme)
+            else:
+                self._auto_theme = result.theme == AUTO_THEME
+                self._theme_name = _resolve(result.theme)
+                with contextlib.suppress(ValueError):
+                    new_theme = theme_registry.get(self._theme_name)
+                    self._apply_message_flags(new_theme, sm)
+                    self._layout.set_theme(new_theme)
+                sm.set_theme(result.theme)  # persist "auto" verbatim
+                sm.set_telemetry(result.share_telemetry)
+
+            self._tui.request_render()
+            self._setup_trust_screen_if_needed()
+
+        theme_options = [
+            (AUTO_THEME, "Auto — match the terminal background"),
+            ("dark", "Dark"),
+            ("light", "Light"),
+        ]
+        screen = FirstRunScreen(theme_options, _preview, _on_commit, theme=self._layout.theme)
         self._layout.detach(self._tui)
         self._tui.add_child(screen)
         self._tui.set_focus(screen)

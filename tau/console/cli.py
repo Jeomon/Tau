@@ -319,6 +319,12 @@ async def _start(opts: dict) -> None:
 
         install_output_guard()
 
+    # First-run gate: sampled before Runtime.create, which may write settings
+    # and would otherwise make the very first launch look like a repeat one.
+    from tau.settings.paths import get_settings_path
+
+    first_run_setup = opts["mode"] == "interactive" and not get_settings_path().exists()
+
     runtime = await Runtime.create(config)
 
     from tau.utils import timing
@@ -340,7 +346,7 @@ async def _start(opts: dict) -> None:
     try:
         match opts["mode"]:
             case "interactive":
-                await _run_interactive(runtime, opts["theme"])
+                await _run_interactive(runtime, opts["theme"], first_run_setup)
             case "print":
                 message = _build_initial_message(opts.get("prompt"), opts.get("files", ()))
                 await _run_print(runtime, message, quiet=opts.get("quiet", False))
@@ -368,11 +374,11 @@ async def _start(opts: dict) -> None:
         await runtime.ashutdown()
 
 
-async def _run_interactive(runtime: Runtime, theme: str | None) -> None:
+async def _run_interactive(runtime: Runtime, theme: str | None, first_run_setup: bool = False) -> None:
     """Run the interactive TUI mode."""
     from tau.modes.interactive.app import App
 
-    app = await App.create(runtime, theme=theme)
+    app = await App.create(runtime, theme=theme, first_run_setup=first_run_setup)
     await app.run()
 
 
