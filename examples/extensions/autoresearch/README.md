@@ -122,10 +122,14 @@ are dropped from the right before the description is squeezed.
   baseline, and starts iterating.
 * `skills/autoresearch-hooks/` helps you author `.auto/hooks/before.sh` /
   `after.sh` and points at the shipped examples.
+* `skills/autoresearch-finalize/` splits a noisy autoresearch branch into
+  clean, independent branches — one per logical, non-overlapping change —
+  once you're happy with the results and want them reviewed.
 
-Both are registered automatically from `manifest.json`'s `"skills"` field.
+All three are registered automatically from `manifest.json`'s `"skills"`
+field.
 
 ## Not ported
 
-The browser dashboard (`/autoresearch export`) and the `autoresearch-finalize`
-skill that splits a noisy branch into independently reviewable ones.
+The browser dashboard (`/autoresearch export`) — the terminal widget and
+fullscreen overlay cover the same ground for a CLI-first workflow.
