@@ -59,17 +59,37 @@ def register(tau: ExtensionAPI) -> None:
             watcher["task"] = None
         watcher["ctx"] = None
 
-    @tau.on("tui_ready")
-    def on_ready(event: Any, ctx: Any) -> None:
-        ctx._layout.footer.add_child(row)
+    def _mount(ctx: Any) -> None:
+        footer = ctx._layout.footer
+        if row not in footer.children:
+            footer.add_child(row)
         git_badge.update(str(ctx.cwd))
         model_badge.update_from_ctx(ctx)
         _request_render(ctx)
         _track(ctx)
 
+    @tau.on("tui_ready")
+    def on_ready(event: Any, ctx: Any) -> None:
+        _mount(ctx)
+
+    @tau.on("extension_reloaded")
+    def on_reloaded(event: Any, ctx: Any) -> None:
+        # Extension reload builds a fresh row/badges in a new register() call,
+        # but tui_ready never re-fires — without this the new row is never
+        # added to the footer and the visible one is an orphan whose handlers
+        # were unsubscribed, so the badge silently freezes (stale model /
+        # effort / context% after any reload: project trust, /reload, ...).
+        if ctx.has_ui:
+            _mount(ctx)
+
     @tau.on("extension_unload")
     def on_unload(event: Any, ctx: Any) -> None:
+        # Detach this instance's row — the replacement instance adds its own
+        # on extension_reloaded. Leaving it behind renders stale badges.
         _stop_watcher()
+        layout = getattr(ctx, "_layout", None)
+        if layout is not None:
+            layout.footer.remove_child(row)
 
     @tau.on("runtime_stop")
     def on_runtime_stop(event: Any, ctx: Any) -> None:
