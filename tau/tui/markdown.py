@@ -332,6 +332,12 @@ class StreamingMarkdownRenderer:
         self._scan_in_fence = False
         self._scan_fence_marker = ""
         self._scan_last_boundary = 0
+        # Cache for render_prefixed(): the frozen half only needs re-prefixing
+        # when frozen_generation actually moves (i.e. a new top-level block
+        # just froze), not on every streamed token.
+        self._prefixed_generation = -1
+        self._prefixed_prefix = ""
+        self._prefixed_frozen: list[str] = []
 
     def reset(self) -> None:
         self._text = ""
@@ -462,6 +468,36 @@ class StreamingMarkdownRenderer:
             theme,
             preserve_soft_breaks=preserve_soft_breaks,
         ).lines
+
+    def render_prefixed(
+        self,
+        text: str,
+        width: int,
+        theme: MarkdownTheme,
+        *,
+        preserve_soft_breaks: bool = False,
+        prefix: str,
+    ) -> list[str]:
+        """Like ``render``, but with every line prefixed (e.g. an indent).
+
+        Re-prefixing every already-frozen line on every single streamed
+        token flush is O(response-size-so-far) per flush — this instead
+        re-prefixes the frozen half only when ``frozen_generation`` actually
+        moves (a new top-level block just froze, which happens once per
+        paragraph/heading/etc., not once per token), and always re-prefixes
+        just the small live tail.
+        """
+        split = self.render_split(text, width, theme, preserve_soft_breaks=preserve_soft_breaks)
+        if (
+            self._prefixed_generation != split.frozen_generation
+            or self._prefixed_prefix != prefix
+        ):
+            self._prefixed_frozen = [prefix + line for line in split.frozen_lines]
+            self._prefixed_generation = split.frozen_generation
+            self._prefixed_prefix = prefix
+        if not split.live_lines:
+            return self._prefixed_frozen
+        return [*self._prefixed_frozen, *(prefix + line for line in split.live_lines)]
 
 
 def _streaming_markdown_freeze_cutoff(text: str) -> int:

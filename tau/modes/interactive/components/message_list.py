@@ -240,25 +240,43 @@ class MessageBlock:
         width: int,
         *,
         preserve_soft_breaks: bool = False,
+        prefix: str = "",
     ) -> list[str]:
-        """Render markdown, using append-only incremental caching while streaming."""
+        """Render markdown, using append-only incremental caching while streaming.
+
+        ``prefix`` (e.g. the "  " indent applied to assistant text) is applied
+        inside the incremental cache rather than by the caller looping over
+        every returned line, so already-frozen lines are prefixed once (when
+        they freeze) instead of being re-prefixed from scratch on every
+        streamed token flush.
+        """
         if self._streaming:
             renderer = self._streaming_markdown.get(key)
             if renderer is None:
                 renderer = StreamingMarkdownRenderer()
                 self._streaming_markdown[key] = renderer
+            if prefix:
+                return renderer.render_prefixed(
+                    text,
+                    width,
+                    self._theme.markdown,
+                    preserve_soft_breaks=preserve_soft_breaks,
+                    prefix=prefix,
+                )
             return renderer.render(
                 text,
                 width,
                 self._theme.markdown,
                 preserve_soft_breaks=preserve_soft_breaks,
             )
-        return render_markdown(
+        lines = render_markdown(
             text,
             width,
             self._theme.markdown,
             preserve_soft_breaks=preserve_soft_breaks,
         )
+        return [prefix + line for line in lines] if prefix else lines
+
 
     # -------------------------------------------------------------------------
     # Rendering
@@ -476,12 +494,14 @@ class MessageBlock:
                 lines.append("")
 
             elif isinstance(item, TextContent) and item.content:
-                for line in self._render_markdown_text(
-                    (idx, False),
-                    item.content.rstrip(),
-                    inner_width,
-                ):
-                    lines.append("  " + line)
+                lines.extend(
+                    self._render_markdown_text(
+                        (idx, False),
+                        item.content.rstrip(),
+                        inner_width,
+                        prefix="  ",
+                    )
+                )
 
             elif isinstance(item, _ImageContent):
                 for i_idx, (b64, mime) in enumerate(item.to_base64()):
