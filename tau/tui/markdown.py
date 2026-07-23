@@ -438,7 +438,14 @@ class StreamingMarkdownRenderer:
             preserve_soft_breaks=preserve_soft_breaks,
         )
         frozen = self._frozen_lines
-        frozen_lines = list(frozen[:-1] if not tail_lines and frozen[-1:] == [""] else frozen)
+        # ``frozen`` only ever grows by appending (see above) and callers only
+        # ever iterate it, never mutate it — so it's safe (and much cheaper
+        # for a long streamed reply, avoiding an O(frozen-so-far) copy on
+        # every single token flush) to hand back the live list directly
+        # instead of copying it every call. The only case that needs an
+        # actual copy is trimming the trailing block-separator blank line
+        # when there's no live tail to keep it meaningful for.
+        frozen_lines = frozen[:-1] if not tail_lines and frozen[-1:] == [""] else frozen
         return StreamingMarkdownRender(frozen_lines, tail_lines, self._frozen_generation)
 
     def render(
