@@ -324,12 +324,70 @@ class StreamingMarkdownRenderer:
         self._frozen_until = 0
         self._frozen_lines: list[str] = []
         self._frozen_generation = 0
+        # Incremental freeze-cutoff scan state (see _advance_freeze_scan).
+        # ``_scan_pos`` only ever advances past *complete* lines (ones ending
+        # in \n/\r), so an in-progress trailing line is safely re-scanned
+        # next call instead of being counted as a boundary too early.
+        self._scan_pos = 0
+        self._scan_in_fence = False
+        self._scan_fence_marker = ""
+        self._scan_last_boundary = 0
 
     def reset(self) -> None:
         self._text = ""
         self._frozen_until = 0
         self._frozen_lines = []
         self._frozen_generation += 1
+        self._scan_pos = 0
+        self._scan_in_fence = False
+        self._scan_fence_marker = ""
+        self._scan_last_boundary = 0
+
+    def _advance_freeze_scan(self, text: str) -> int:
+        """Incremental, append-only equivalent of ``_streaming_markdown_freeze_cutoff``.
+
+        The naive version re-scans the *entire* accumulated text on every
+        call, which is O(total response length) per streamed token and thus
+        O(n²) over the life of one long streamed reply. Since ``text`` only
+        ever grows by appending (enforced by the caller's
+        ``text.startswith(self._text)`` reset check), this instead resumes
+        scanning from the last position a *complete* line ended, carrying
+        the fenced-code-block state across calls — so the cost of each call
+        is proportional only to the newly arrived text, not the whole reply.
+        """
+        pos = self._scan_pos
+        in_fence = self._scan_in_fence
+        fence_marker = self._scan_fence_marker
+        last_boundary = self._scan_last_boundary
+
+        chunk = text[pos:]
+        lines = chunk.splitlines(keepends=True)
+        # A trailing fragment with no line terminator is still being
+        # written to (more characters may land right after it before the
+        # next newline) — leave it unconsumed so it's re-scanned, cheaply,
+        # next call instead of being treated as a finished line now.
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines.pop()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith(("```", "~~~")):
+                marker = stripped[:3]
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                elif marker == fence_marker:
+                    in_fence = False
+                    fence_marker = ""
+            pos += len(line)
+            if not in_fence and stripped == "":
+                last_boundary = pos
+
+        self._scan_pos = pos
+        self._scan_in_fence = in_fence
+        self._scan_fence_marker = fence_marker
+        self._scan_last_boundary = last_boundary
+        return last_boundary
 
     def render_split(
         self,
@@ -352,7 +410,7 @@ class StreamingMarkdownRenderer:
             self.reset()
 
         self._text = text
-        freeze_until = _streaming_markdown_freeze_cutoff(text)
+        freeze_until = self._advance_freeze_scan(text)
         if freeze_until > self._frozen_until:
             newly_stable = text[self._frozen_until:freeze_until]
             rendered = _render_markdown(
