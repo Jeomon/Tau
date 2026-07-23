@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 
 from tau.inference.api.text.utils import (
+    anthropic_apply_message_cache,
+    anthropic_cache_control,
     anthropic_output_config,
     openai_assistant_content,
     openai_response_format,
     openai_user_content,
+    resolve_cache_retention,
 )
 from tau.message.types import ImageContent, TextContent, ToolCallContent
 
@@ -131,3 +134,68 @@ class TestAnthropicOutputConfig:
         assert result is not None
         assert result["format"]["type"] == "json_schema"
         assert result["format"]["schema"] == {"type": "string"}
+
+
+class TestResolveCacheRetention:
+    def test_defaults_to_short(self, monkeypatch):
+        monkeypatch.delenv("TAU_CACHE_RETENTION", raising=False)
+        assert resolve_cache_retention() == "short"
+
+    def test_explicit_value_wins_over_env(self, monkeypatch):
+        monkeypatch.setenv("TAU_CACHE_RETENTION", "short")
+        assert resolve_cache_retention("long") == "long"
+
+    def test_env_used_when_no_explicit(self, monkeypatch):
+        monkeypatch.setenv("TAU_CACHE_RETENTION", "long")
+        assert resolve_cache_retention() == "long"
+
+    def test_env_case_and_whitespace_normalised(self, monkeypatch):
+        monkeypatch.setenv("TAU_CACHE_RETENTION", "  LONG ")
+        assert resolve_cache_retention() == "long"
+
+    def test_unrecognised_falls_back_to_short(self, monkeypatch):
+        monkeypatch.delenv("TAU_CACHE_RETENTION", raising=False)
+        assert resolve_cache_retention("forever") == "short"
+
+
+class TestAnthropicCacheControl:
+    def test_short_is_bare_ephemeral(self):
+        assert anthropic_cache_control(True, "short") == {"type": "ephemeral"}
+
+    def test_long_with_support_adds_1h_ttl(self):
+        assert anthropic_cache_control(True, "long") == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_long_without_support_stays_5m(self):
+        assert anthropic_cache_control(False, "long") == {"type": "ephemeral"}
+
+    def test_none_disables_caching(self):
+        assert anthropic_cache_control(True, "none") is None
+
+
+class TestAnthropicApplyMessageCache:
+    def _msgs(self):
+        return [
+            {"role": "user", "content": "a"},
+            {"role": "assistant", "content": [{"type": "text", "text": "b"}]},
+        ]
+
+    def test_default_marker_is_5m_ephemeral(self):
+        out = anthropic_apply_message_cache(self._msgs())
+        assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_custom_marker_threaded_through(self):
+        marker = {"type": "ephemeral", "ttl": "1h"}
+        out = anthropic_apply_message_cache(self._msgs(), marker=marker)
+        assert out[-1]["content"][-1]["cache_control"] == marker
+        # string content is wrapped into a text block carrying the marker
+        assert out[-2]["content"][-1]["cache_control"] == marker
+
+    def test_none_marker_injects_no_breakpoints(self):
+        out = anthropic_apply_message_cache(self._msgs(), marker=None)
+        assert "cache_control" not in out[-2]
+        assert all("cache_control" not in b for b in out[-1]["content"])
+
+    def test_skip_tail_excludes_ephemeral_messages(self):
+        out = anthropic_apply_message_cache(self._msgs(), skip_tail=1)
+        # last message is skipped; breakpoint lands on the earlier one
+        assert all("cache_control" not in b for b in out[-1]["content"])

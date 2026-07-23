@@ -11,6 +11,7 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
+    anthropic_cache_control,
     anthropic_messages_to_list,
     anthropic_output_config,
     anthropic_thinking_params,
@@ -136,7 +137,9 @@ def _billing_header_value(messages: list[dict[str, Any]], entrypoint: str) -> st
 
 
 def _build_system_blocks(
-    system_text: str | None, messages: list[dict[str, Any]]
+    system_text: str | None,
+    messages: list[dict[str, Any]],
+    marker: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Assemble the system[] array for OAuth requests.
 
@@ -150,7 +153,9 @@ def _build_system_blocks(
 
     The ephemeral cache breakpoint sits on the last block so the whole system prefix
     is cached; the billing header is stable within a session (it hashes the first
-    user message), so the prefix stays cacheable across turns.
+    user message), so the prefix stays cacheable across turns. `marker` is the
+    cache_control value (5-minute default, a "1h" TTL for long retention, or None
+    to disable caching).
 
     Returns (system_blocks, messages). Messages are returned unchanged — nothing is
     relocated.
@@ -163,7 +168,8 @@ def _build_system_blocks(
     if system_text:
         system_blocks.append({"type": "text", "text": system_text})
 
-    system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    if marker is not None:
+        system_blocks[-1]["cache_control"] = marker
     return system_blocks, messages
 
 
@@ -197,14 +203,19 @@ class AnthropicClaudeCodeAPI(BaseAPI):
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
         """Assemble the Anthropic API request payload, including thinking and tool configs."""
+        marker = anthropic_cache_control(
+            model.supports_long_cache_retention, self.options.cache_retention
+        )
         params: dict[str, Any] = {
             "model": model.id,
-            "messages": anthropic_apply_message_cache(messages, skip_tail=ephemeral_message_count),
+            "messages": anthropic_apply_message_cache(
+                messages, skip_tail=ephemeral_message_count, marker=marker
+            ),
             "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
         }
         if not model.thinking_suppresses_sampling:
             params["temperature"] = self.options.temperature
-        system_blocks, params["messages"] = _build_system_blocks(system, params["messages"])
+        system_blocks, params["messages"] = _build_system_blocks(system, params["messages"], marker)
         params["system"] = system_blocks
         params.update(anthropic_thinking_params(model, self.options))
 
@@ -218,7 +229,8 @@ class AnthropicClaudeCodeAPI(BaseAPI):
                 for tool in tools
             ]
             # Cache the last tool definition to reduce repeated prompt-token charges.
-            tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
+            if marker is not None:
+                tool_defs[-1]["cache_control"] = marker
             params["tools"] = tool_defs
         elif has_tool_history(params["messages"]):
             # Anthropic rejects the request outright if tool_use/tool_result blocks

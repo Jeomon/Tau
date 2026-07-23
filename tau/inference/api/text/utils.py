@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
@@ -23,12 +24,50 @@ __all__ = [
     "anthropic_output_config",
     "anthropic_thinking_params",
     "anthropic_apply_message_cache",
+    "resolve_cache_retention",
+    "anthropic_cache_control",
     "has_tool_history",
     "drop_orphan_function_call_outputs",
 ]
 
 
 _CACHE_MARKER = {"type": "ephemeral"}
+
+_VALID_CACHE_RETENTIONS = ("none", "short", "long")
+
+
+def resolve_cache_retention(retention: str | None = None) -> str:
+    """Resolve the effective Anthropic cache-retention preference.
+
+    Precedence: an explicit value (one of "none"/"short"/"long"), else the
+    TAU_CACHE_RETENTION env var, else "short" (Anthropic's default 5-minute
+    TTL). Unrecognised values fall through to "short" rather than raising, so a
+    typo degrades to the safe default instead of breaking inference.
+    """
+    for candidate in (retention, os.environ.get("TAU_CACHE_RETENTION")):
+        if candidate and candidate.strip().lower() in _VALID_CACHE_RETENTIONS:
+            return candidate.strip().lower()
+    return "short"
+
+
+def anthropic_cache_control(
+    supports_long_retention: bool, retention: str | None = None
+) -> dict[str, Any] | None:
+    """Build the Anthropic cache_control marker for the resolved retention.
+
+    Returns None when retention resolves to "none" (caching disabled — callers
+    should omit cache_control entirely). The "1h" TTL is only requested when
+    retention is "long" AND the model advertises support; otherwise the marker
+    omits ttl and Anthropic applies its default 5-minute retention. The 1-hour
+    TTL is generally available and needs no beta header.
+    """
+    resolved = resolve_cache_retention(retention)
+    if resolved == "none":
+        return None
+    if resolved == "long" and supports_long_retention:
+        return {"type": "ephemeral", "ttl": "1h"}
+    return dict(_CACHE_MARKER)
+
 
 _NO_TOOL_OUTPUT = "(no tool output)"
 
@@ -235,6 +274,7 @@ def anthropic_apply_message_cache(
     messages: list[dict[str, Any]],
     n: int = 2,
     skip_tail: int = 0,
+    marker: dict[str, Any] | None = _CACHE_MARKER,
 ) -> list[dict[str, Any]]:
     """Inject cache_control breakpoints into the last n stable messages.
 
@@ -246,24 +286,31 @@ def anthropic_apply_message_cache(
     skip_tail: number of ephemeral messages at the end of the list to skip
     (desktop/browser screenshots that change every turn and must not be cached).
 
+    marker: the cache_control value to inject (e.g. a "1h" TTL marker for long
+    retention). Defaults to the 5-minute ephemeral marker. Pass None to disable
+    caching entirely ("none" retention) — the history is returned with no
+    breakpoints.
+
     Returns a new list; the original is not mutated.
     """
     import copy
 
     messages = copy.deepcopy(messages)
+    if marker is None:
+        return messages
     total = len(messages)
     stable_end = total - skip_tail  # index just past the last stable message
     stable_start = max(0, stable_end - n)
     for msg in messages[stable_start:stable_end]:
         content = msg.get("content")
         if content is None or content == "":
-            msg["cache_control"] = _CACHE_MARKER
+            msg["cache_control"] = marker
         elif isinstance(content, str):
-            msg["content"] = [{"type": "text", "text": content, "cache_control": _CACHE_MARKER}]
+            msg["content"] = [{"type": "text", "text": content, "cache_control": marker}]
         elif isinstance(content, list) and content:
             last = content[-1]
             if isinstance(last, dict):
-                last["cache_control"] = _CACHE_MARKER
+                last["cache_control"] = marker
     return messages
 
 

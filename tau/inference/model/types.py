@@ -72,6 +72,14 @@ class Model:
     # explicit "type"), snake_case thinkingConfig, and the interleaved-
     # thinking beta header. Only meaningful for that one backend.
     antigravity_is_claude: bool = False
+    # True when the model accepts the 1-hour prompt-cache TTL
+    # (cache_control:{type:"ephemeral", ttl:"1h"}). Only consulted by the
+    # Anthropic-Messages-compatible backends (anthropic_messages.py,
+    # anthropic_vertex.py, anthropic_claude_code.py) and only when the caller
+    # requests "long" cache retention; ignored elsewhere. Defaults True because
+    # every current Claude model that supports prompt caching also supports the
+    # extended TTL — set False for a model that rejects it.
+    supports_long_cache_retention: bool = True
     context_window: int = 0
     max_input_tokens: int | None = None
     max_output_tokens: int = 16384

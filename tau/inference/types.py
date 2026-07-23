@@ -155,6 +155,12 @@ class LLMOptions:
     transport: Transport = _UNSET
     thinking_level: ThinkingLevel | None = None
     thinking_budgets: ThinkingBudgets | None = None
+    # Prompt-cache retention preference for the Anthropic-Messages-family
+    # backends: "short" (Anthropic's default 5-minute TTL), "long" (1-hour TTL,
+    # gated on the model's supports_long_cache_retention), or "none" (no cache
+    # breakpoints at all). None defers to the TAU_CACHE_RETENTION env var, then
+    # falls back to "short". Ignored by non-Anthropic providers.
+    cache_retention: str | None = None
     signal: AbortSignal | None = None
     extra_params: dict[str, Any] | None = None
     # Run-local, in-memory auth object for the google-vertex provider (a

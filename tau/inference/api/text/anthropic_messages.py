@@ -9,6 +9,7 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     anthropic_apply_message_cache,
+    anthropic_cache_control,
     anthropic_messages_to_list,
     anthropic_output_config,
     anthropic_thinking_params,
@@ -79,17 +80,23 @@ class AnthropicMessagesAPI(BaseAPI):
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
         """Assemble the Anthropic API request payload, including thinking and tool configs."""
+        marker = anthropic_cache_control(
+            model.supports_long_cache_retention, self.options.cache_retention
+        )
         params: dict[str, Any] = {
             "model": model.id,
-            "messages": anthropic_apply_message_cache(messages, skip_tail=ephemeral_message_count),
+            "messages": anthropic_apply_message_cache(
+                messages, skip_tail=ephemeral_message_count, marker=marker
+            ),
             "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
         }
         if not model.thinking_suppresses_sampling:
             params["temperature"] = self.options.temperature
         if system:
-            params["system"] = [
-                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
-            ]
+            system_block: dict[str, Any] = {"type": "text", "text": system}
+            if marker is not None:
+                system_block["cache_control"] = marker
+            params["system"] = [system_block]
         params.update(anthropic_thinking_params(model, self.options))
 
         if tools:
@@ -102,7 +109,8 @@ class AnthropicMessagesAPI(BaseAPI):
                 for tool in tools
             ]
             # Cache the last tool definition to reduce repeated prompt-token charges.
-            tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
+            if marker is not None:
+                tool_defs[-1]["cache_control"] = marker
             params["tools"] = tool_defs
         elif has_tool_history(params["messages"]):
             # Anthropic rejects the request outright if tool_use/tool_result blocks
