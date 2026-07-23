@@ -176,7 +176,7 @@ def parse_ansi_into(buf: Buffer, x: int, y: int, line: str, max_width: int) -> i
     i = 0
     n = len(line)
     while i < n and col < limit:
-        m = _ANSI_RE.match(line, i)
+        m = _ANSI_RE.match(line, i) if line[i] == "\x1b" else None
         if m:
             state.process(m.group(0))
             i += len(m.group(0))
@@ -218,7 +218,7 @@ def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: i
     tokens: list[tuple[str, int, Style]] = []
     index = 0
     while index < len(line):
-        match = _ANSI_RE.match(line, index)
+        match = _ANSI_RE.match(line, index) if line[index] == "\x1b" else None
         if match:
             state.process(match.group(0))
             index += len(match.group(0))
