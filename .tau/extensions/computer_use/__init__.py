@@ -108,7 +108,7 @@ def register(tau: ExtensionAPI) -> None:
     # this — but the extension *file* itself is always imported by the
     # loader to find `register()`, so anything at module scope is paid
     # unconditionally regardless of the enabled check.
-    from .computer import ComputerTool
+    from .tool import ComputerTool
     from .state import build_state_message
 
     desktop = _LazyDesktop()
