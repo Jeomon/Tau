@@ -5,6 +5,7 @@ import subprocess
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from tau.tui.style import Style, apply_style
@@ -136,6 +137,7 @@ def style(text: str, *codes: str) -> str:
 # ── Width calculation ─────────────────────────────────────────────────────────
 
 
+@lru_cache(maxsize=4096)
 def _char_width(ch: str) -> int:
     """Return the terminal column width of a single character."""
     cp = ord(ch)
@@ -372,10 +374,7 @@ def _split_at_columns(text: str, width: int, tracker: _AnsiStateTracker) -> tupl
         # streamed assistant prose is plain text, and probing every single
         # character with a regex engine call (even a non-matching one) adds
         # up badly over a very long response.
-        if text[i] == "\x1b":
-            m = _ANSI_RE.match(text, i)
-        else:
-            m = None
+        m = _ANSI_RE.match(text, i) if text[i] == "\x1b" else None
         if m:
             code = m.group(0)
             tracker.process(code)
