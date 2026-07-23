@@ -9,6 +9,7 @@ from tau.inference.api.text.utils import (
     anthropic_cache_control,
     anthropic_output_config,
     openai_assistant_content,
+    openai_prompt_cache_retention,
     openai_response_format,
     openai_user_content,
     resolve_cache_retention,
@@ -170,6 +171,20 @@ class TestAnthropicCacheControl:
 
     def test_none_disables_caching(self):
         assert anthropic_cache_control(True, "none") is None
+
+
+class TestOpenaiPromptCacheRetention:
+    def test_long_with_support_is_24h(self):
+        assert openai_prompt_cache_retention(True, "long") == "24h"
+
+    def test_long_without_support_is_none(self):
+        assert openai_prompt_cache_retention(False, "long") is None
+
+    def test_short_is_none(self):
+        assert openai_prompt_cache_retention(True, "short") is None
+
+    def test_none_retention_is_none(self):
+        assert openai_prompt_cache_retention(True, "none") is None
 
 
 class TestAnthropicApplyMessageCache:

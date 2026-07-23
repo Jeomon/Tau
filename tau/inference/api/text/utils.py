@@ -26,6 +26,7 @@ __all__ = [
     "anthropic_apply_message_cache",
     "resolve_cache_retention",
     "anthropic_cache_control",
+    "openai_prompt_cache_retention",
     "has_tool_history",
     "drop_orphan_function_call_outputs",
 ]
@@ -67,6 +68,19 @@ def anthropic_cache_control(
     if resolved == "long" and supports_long_retention:
         return {"type": "ephemeral", "ttl": "1h"}
     return dict(_CACHE_MARKER)
+
+
+def openai_prompt_cache_retention(
+    supports_long_retention: bool, retention: str | None = None
+) -> str | None:
+    """Return the OpenAI Responses `prompt_cache_retention` value, or None.
+
+    OpenAI's extended prompt-cache TTL is "24h" (vs. Anthropic's "1h"), requested
+    only when retention resolves to "long" AND the model advertises support.
+    "short"/"none" leave the field unset so OpenAI applies its implicit default.
+    """
+    resolved = resolve_cache_retention(retention)
+    return "24h" if resolved == "long" and supports_long_retention else None
 
 
 _NO_TOOL_OUTPUT = "(no tool output)"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -11,8 +12,10 @@ from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     drop_orphan_function_call_outputs,
     openai_gpt56_prompt_cache_options,
+    openai_prompt_cache_retention,
     openai_responses_function_call_output,
     parse_tool_args,
+    resolve_cache_retention,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -93,6 +96,24 @@ def _extra_body_for(model: Model) -> dict[str, Any]:
         if cache_options is not None:
             extra_body["prompt_cache_options"] = cache_options
     return extra_body
+
+
+def _cache_body_for(model: Model, retention: str, cache_key: str) -> dict[str, Any]:
+    """Build the prompt-cache routing/retention fields for the request body.
+
+    Gated on provider=="openai" for the same reason as `_extra_body_for`: this
+    adapter is shared by perplexity/xai/bedrock proxies that may reject
+    OpenAI-only request fields. "none" retention drops the routing key
+    (`prompt_cache_key`); "long" requests the 24h extended TTL when the model
+    supports it. Returns an empty dict for non-OpenAI providers.
+    """
+    body: dict[str, Any] = {}
+    if retention != "none":
+        body["prompt_cache_key"] = cache_key
+    ttl = openai_prompt_cache_retention(model.supports_long_cache_retention, retention)
+    if ttl is not None:
+        body["prompt_cache_retention"] = ttl
+    return body
 
 
 def _content_to_openai(
@@ -286,6 +307,11 @@ class OpenAIResponsesAPI(BaseAPI):
             max_retries=options.max_retries,
             timeout=options.timeout.total_seconds(),
         )
+        # Stable per-instance prompt_cache_key so every turn of this session
+        # routes to the same cache (OpenAI's session-affinity hint). The adapter
+        # instance is constructed once per session and reused across turns, so a
+        # uuid minted here is session-stable — mirroring the openai_codex path.
+        self._cache_key = uuid.uuid4().hex
 
     async def aclose(self) -> None:
         await self._client.close()
@@ -359,6 +385,8 @@ class OpenAIResponsesAPI(BaseAPI):
         # signature yet, so it has to ride in extra_body rather than be spread
         # as a keyword argument (same pattern as openai_completions.py).
         extra_body = _extra_body_for(model)
+        retention = resolve_cache_retention(self.options.cache_retention)
+        extra_body.update(_cache_body_for(model, retention, self._cache_key))
 
         # Keyed by the response item's own id (event.item_id in the arguments
         # delta/done events), mapping to (call_id, name). item_id and call_id
