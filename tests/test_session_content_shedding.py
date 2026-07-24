@@ -295,3 +295,19 @@ def test_jump_moves_residency_window_both_directions(tmp_path):
     # and the context is complete after the round trip
     joined = " ".join(_text(msg) for msg in m.build_session_context().messages)
     assert "RECENT-REPLY-kept" in joined
+
+
+def test_shed_never_destroys_unflushed_content(tmp_path):
+    """An unflushed session (no assistant message → no file yet, see _persist)
+    holds the ONLY copy of message bodies in RAM — shedding must refuse."""
+    m = _manager(tmp_path)
+    u1 = m.append_message(UserMessage.from_text("ONLY-COPY-" + "x" * 500))
+    kept = m.append_message(UserMessage.from_text("kept"))
+    assert not m.session_file.exists()  # nothing durable yet
+
+    m.append_compaction(summary="S", first_kept_entry_id=kept, tokens_before=1)
+    assert m.by_id[u1].message.contents  # body survived — nothing to rehydrate from
+    assert u1 not in m._shed_ids
+
+    m.branch(u1)  # navigation path must refuse too (_reshed_for_view guard)
+    assert m.by_id[u1].message.contents

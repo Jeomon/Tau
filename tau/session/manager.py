@@ -265,6 +265,11 @@ class SessionManager:
         """
         if not any(isinstance(entry, CompactionEntry) for entry in self.entries):
             return
+        # Shedding is only safe when the full copy provably exists on disk —
+        # an unflushed session (no assistant message yet, see _persist) holds
+        # the ONLY copy in RAM. Same guard as _reshed_for_view.
+        if not (self.persist and self.session_file and self.session_file.exists()):
+            return
         try:
             branch = self.get_branch()
         except ValueError:
