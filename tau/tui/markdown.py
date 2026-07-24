@@ -350,16 +350,22 @@ class StreamingMarkdownRenderer:
         self._scan_last_boundary = 0
 
     def _advance_freeze_scan(self, text: str) -> int:
-        """Incremental, append-only equivalent of ``_streaming_markdown_freeze_cutoff``.
+        """Return an append-only cutoff for completed top-level markdown blocks.
 
-        The naive version re-scans the *entire* accumulated text on every
-        call, which is O(total response length) per streamed token and thus
-        O(n²) over the life of one long streamed reply. Since ``text`` only
-        ever grows by appending (enforced by the caller's
-        ``text.startswith(self._text)`` reset check), this instead resumes
-        scanning from the last position a *complete* line ended, carrying
-        the fenced-code-block state across calls — so the cost of each call
-        is proportional only to the newly arrived text, not the whole reply.
+        During streaming, only the current open block needs to remain live.
+        Once a blank-line boundary is seen outside a fenced code block, the
+        block before it is structurally complete for the common
+        assistant-output cases we render (paragraphs, headings, lists, tables,
+        quotes, fenced code); freezing up to the latest such boundary keeps
+        active work bounded to the current block rather than the whole reply.
+
+        A naive version would re-scan the *entire* accumulated text on every
+        call — O(total response length) per streamed token, thus O(n²) over one
+        long reply. Since ``text`` only ever grows by appending (enforced by
+        the caller's ``text.startswith(self._text)`` reset check), this instead
+        resumes scanning from the last position a *complete* line ended,
+        carrying the fenced-code-block state across calls, so each call costs
+        only in the newly arrived text, not the whole reply.
         """
         pos = self._scan_pos
         in_fence = self._scan_in_fence
@@ -513,36 +519,6 @@ class StreamingMarkdownRenderer:
                 return frozen[:-1]
             return frozen
         return [*frozen, *(prefix + line for line in split.live_lines)]
-
-
-def _streaming_markdown_freeze_cutoff(text: str) -> int:
-    """Return an append-only cutoff for completed top-level markdown blocks.
-
-    During streaming, only the current open block needs to remain live.  Once a
-    blank-line boundary is seen outside a fenced code block, the block before
-    that boundary is structurally complete for the common assistant-output cases
-    we render here (paragraphs, headings, lists, tables, quotes, fenced code).
-    Freezing up to the latest such boundary keeps active streaming work bounded
-    to the current block instead of the whole reply.
-    """
-    boundaries: list[int] = []
-    in_fence = False
-    fence_marker = ""
-    pos = 0
-    for line in text.splitlines(keepends=True):
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
-        pos += len(line)
-        if not in_fence and stripped == "":
-            boundaries.append(pos)
-    return boundaries[-1] if boundaries else 0
 
 
 # ── Renderer ──────────────────────────────────────────────────────────────────
