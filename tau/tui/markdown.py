@@ -486,18 +486,33 @@ class StreamingMarkdownRenderer:
         moves (a new top-level block just froze, which happens once per
         paragraph/heading/etc., not once per token), and always re-prefixes
         just the small live tail.
+
+        The cache is keyed on ``frozen_generation`` and prefixes the full,
+        *untrimmed* ``self._frozen_lines`` — NOT ``split.frozen_lines``, which
+        render_split trims the trailing block-separator blank line off of when
+        there's no live tail *without bumping the generation*. Caching that
+        trimmed form let a flush that happened to land exactly on a block
+        boundary (empty tail) poison the cache, so the blank line stayed
+        dropped and paragraphs visually collapsed together once the next token
+        arrived. Re-deriving the trim per call from the untrimmed list here
+        keeps it in lockstep with render_split.
         """
         split = self.render_split(text, width, theme, preserve_soft_breaks=preserve_soft_breaks)
         if (
             self._prefixed_generation != split.frozen_generation
             or self._prefixed_prefix != prefix
         ):
-            self._prefixed_frozen = [prefix + line for line in split.frozen_lines]
+            self._prefixed_frozen = [prefix + line for line in self._frozen_lines]
             self._prefixed_generation = split.frozen_generation
             self._prefixed_prefix = prefix
+        frozen = self._prefixed_frozen
         if not split.live_lines:
-            return self._prefixed_frozen
-        return [*self._prefixed_frozen, *(prefix + line for line in split.live_lines)]
+            # Mirror render_split's trailing block-separator trim, driven by the
+            # untrimmed source list so the cached prefixed copy stays valid.
+            if self._frozen_lines[-1:] == [""]:
+                return frozen[:-1]
+            return frozen
+        return [*frozen, *(prefix + line for line in split.live_lines)]
 
 
 def _streaming_markdown_freeze_cutoff(text: str) -> int:
