@@ -151,7 +151,15 @@ class Session:
             if entry is not None:
                 entry.close()
 
-        overlay = DashboardOverlay(self.state, theme, _close)
+        def _height() -> int:
+            """Terminal height for the overlay's self-sizing (see the overlay
+            protocol note in DashboardOverlay) — same probe as _width()."""
+            layout = getattr(ui, "_layout", None)
+            tui = getattr(layout() if callable(layout) else layout, "_tui", None)
+            height = getattr(getattr(tui, "_terminal", None), "height", None)
+            return height if isinstance(height, int) and height > 0 else 40
+
+        overlay = DashboardOverlay(self.state, theme, _close, height_hint=_height)
         handle["handle"] = ui.show_overlay(overlay, width="94%", max_height="90%")
 
 

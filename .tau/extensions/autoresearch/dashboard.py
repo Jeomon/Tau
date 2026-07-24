@@ -8,6 +8,7 @@ rows; the overlay shows everything and scrolls.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.component import Component
@@ -234,15 +235,29 @@ def widget_lines(state: State, theme: Any, width: int) -> list[str]:
 
 
 class DashboardOverlay(Component):
-    """Fullscreen, scrollable view of the whole log.
+    """Scrollable view of the whole log, sized to the terminal.
 
     ↑/↓/j/k line, PageUp/PageDown/u/d page, g/G top/bottom, Esc/q close.
+
+    Overlay protocol note: the TUI host calls ``render_cells`` with a
+    **height-0 rect as a measuring pass** and blits ``min(returned rows,
+    max_height)`` — a component that paints "into" ``area.height`` and returns
+    it renders zero rows and is silently invisible. So this component sizes
+    itself: it windows its content to an estimated viewport (``height_hint``)
+    and returns how many rows it actually painted.
     """
 
-    def __init__(self, state: State, theme: Any, on_close: Any) -> None:
+    def __init__(
+        self,
+        state: State,
+        theme: Any,
+        on_close: Any,
+        height_hint: Callable[[], int] | None = None,
+    ) -> None:
         self._state = state
         self._theme = theme
         self._on_close = on_close
+        self._height_hint = height_hint
         self._offset = 0
         self._last_height = 20
 
@@ -255,30 +270,43 @@ class DashboardOverlay(Component):
         lines += table_lines(state, theme, width, max_rows=0)  # everything
         return lines
 
+    def _viewport_rows(self) -> int:
+        """Body rows to show — conservative vs the host's 90% max_height clamp,
+        so the footer always survives the ``min`` and stays visible."""
+        term_h = 0
+        if callable(self._height_hint):
+            try:
+                term_h = int(self._height_hint() or 0)
+            except (TypeError, ValueError):
+                term_h = 0
+        if term_h <= 0:
+            term_h = 40
+        return max(6, int(term_h * 0.85) - 2)
+
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_into
 
         theme = self._theme
         lines = self._lines(area.width)
-        footer = (
-            "  "
-            + apply_style(
-                theme.muted, "↑/↓ scroll  ·  PgUp/PgDn page  ·  g/G top/bottom  ·  Esc close"
-            )
-            + RESET
-        )
+        body_rows = min(len(lines), self._viewport_rows())
+        self._last_height = body_rows
+        self._offset = max(0, min(self._offset, max(0, len(lines) - body_rows)))
+        visible = lines[self._offset : self._offset + body_rows]
 
-        body_height = max(1, area.height - 2)
-        self._last_height = body_height
-        self._offset = max(0, min(self._offset, max(0, len(lines) - body_height)))
-        visible = lines[self._offset : self._offset + body_height]
+        footer_bits = ["↑/↓ scroll  ·  PgUp/PgDn page  ·  g/G top/bottom  ·  Esc close"]
+        hidden = len(lines) - body_rows
+        if hidden > 0:
+            footer_bits.append(f"line {self._offset + 1}–{self._offset + body_rows}/{len(lines)}")
+        footer = "  " + apply_style(theme.muted, "  ·  ".join(footer_bits)) + RESET
 
-        buf.grow_to(area.y + area.height)
-        for row, line in enumerate(visible):
-            parse_ansi_into(buf, area.x, area.y + row, line, area.width)
-        # Footer pinned to the bottom edge so it never floats mid-screen.
-        parse_ansi_into(buf, area.x, area.y + area.height - 1, footer, area.width)
-        return area.height
+        rows = 0
+        buf.grow_to(area.y + len(visible) + 1)
+        for line in visible:
+            parse_ansi_into(buf, area.x, area.y + rows, line, area.width)
+            rows += 1
+        parse_ansi_into(buf, area.x, area.y + rows, footer, area.width)
+        rows += 1
+        return rows
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
