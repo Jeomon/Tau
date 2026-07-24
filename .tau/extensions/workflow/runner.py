@@ -104,6 +104,7 @@ async def _run_agent_process(
     extra_tools: list[Any] | None = None,
     on_tool_start: Callable[[str], None] | None = None,
     timeout_s: float = TASK_TIMEOUT_S,
+    abort_signal: asyncio.Event | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Run one subagent task in-process, bounded by ``timeout_s``. See tau/agent/embedded.py."""
     return await run_embedded_agent(
@@ -117,6 +118,7 @@ async def _run_agent_process(
         extra_tools=extra_tools,
         on_tool_start=on_tool_start,
         timeout_s=timeout_s,
+        abort_signal=abort_signal,
     )
 
 
@@ -156,11 +158,23 @@ async def run_workflow(
     on_task_start: Callable[[str, str, str], None] | None = None,
     on_task_end: Callable[[TaskResult], None] | None = None,
     on_tool_start: Callable[[str, str, str], None] | None = None,
+    abort_signal: asyncio.Event | None = None,
 ) -> WorkflowRunResult:
+    """Run a workflow to completion (or first failure).
+
+    ``abort_signal``, if given, cancels the run cooperatively: no new task
+    starts once it is set, and it is forwarded into every embedded agent run
+    (each of which propagates it into its own engine's local signal) so
+    in-flight tasks stop too. A cancelled run comes back ``ok=False`` with a
+    "cancelled" error.
+    """
     start = time.monotonic()
     results: list[TaskResult] = []
     named_results: dict[str, str] = {}
     previous = ""
+
+    def _cancelled() -> bool:
+        return abort_signal is not None and abort_signal.is_set()
 
     def _find_agent(name: str) -> Any:
         return next((a for a in agents if a.name == name), None)
@@ -168,6 +182,15 @@ async def run_workflow(
     async def _run_one(
         phase: WorkflowPhase, task: WorkflowTask, label: str, text: str
     ) -> TaskResult:
+        if _cancelled():
+            return TaskResult(
+                phase=phase.title,
+                agent=task.agent,
+                label=label,
+                task_text=text,
+                ok=False,
+                error="cancelled",
+            )
         if on_task_start:
             on_task_start(phase.title, label, task.agent)
         agent_cfg = _find_agent(task.agent)
@@ -195,7 +218,12 @@ async def run_workflow(
                 task.schema,
                 extra_tools=extra_tools,
                 on_tool_start=tool_cb,
+                abort_signal=abort_signal,
             )
+            if not ok and _cancelled():
+                # An abort mid-task surfaces as a generic engine failure;
+                # label it as the cancellation it actually is.
+                output = "cancelled"
             r = TaskResult(
                 phase=phase.title,
                 agent=task.agent,
@@ -219,6 +247,8 @@ async def run_workflow(
         )
 
     for phase in wf.phases:
+        if _cancelled():
+            return _fail("cancelled")
         if on_phase:
             on_phase(phase.title)
 

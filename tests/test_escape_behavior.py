@@ -37,3 +37,35 @@ def test_double_escape_clears_messages_while_idle(monkeypatch: pytest.MonkeyPatc
 
     app._handle_escape()
     assert events == ["clear", "render"]
+
+
+def test_idle_escape_cancels_registered_extension_operation() -> None:
+    """A single Esc while the agent is idle cancels a registered cancellable
+    operation (e.g. a running /workflow) instead of arming double-escape."""
+    app, events = _app()
+    app._runtime.cancel_active_operation = lambda: (
+        events.append("cancel-op"),
+        "workflow 'wf'",
+    )[1]
+    app._runtime.notify = lambda msg: events.append(f"notify:{msg}")
+
+    app._handle_escape()
+
+    assert events == ["cancel-op", "notify:Cancelling workflow 'wf'...", "render"]
+    # The keypress was consumed: double-escape must not be armed.
+    assert app._last_escape == 0.0
+
+
+def test_idle_escape_falls_through_when_nothing_to_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, events = _app()
+    app._runtime.cancel_active_operation = lambda: None
+    times = iter((1.0, 1.2))
+    monkeypatch.setattr("time.monotonic", lambda: next(times))
+
+    app._handle_escape()
+    assert events == []
+
+    app._handle_escape()
+    assert events == ["clear", "render"]

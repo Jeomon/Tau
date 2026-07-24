@@ -336,6 +336,31 @@ class ExtensionContext:
         if callable(cancel_fn):
             cancel_fn()
 
+    @property
+    def command_signal(self) -> Any | None:
+        """The abort signal for the current *command dispatch*, or None.
+
+        The scope counterpart of ``ctx.signal``: ``signal`` aborts the
+        current agent *turn* (alive while the agent is busy), while this
+        aborts the current *command* (alive while a slash command handler
+        runs, which is when the agent is idle and the turn signal can't
+        exist).
+
+        The runtime creates a fresh ``asyncio.Event`` around every slash
+        command dispatch and an idle-agent Esc or Ctrl+C sets it. No
+        registration is needed: long-running command work should read this
+        and either check ``is_set()`` at its own checkpoints or pass it down
+        to signal-aware helpers (``run_embedded_agent``, ``run_workflow``,
+        ...). Handlers that ignore it simply aren't cancellable.
+
+        None outside a command dispatch (e.g. event handlers while the agent
+        is idle) and in contexts with no attached runtime.
+        """
+        runtime = self._runtime
+        if runtime is None:
+            return None
+        return getattr(runtime, "active_cancellable_signal", None)
+
     def shutdown(self) -> None:
         """Gracefully shut down tau and exit.
 
