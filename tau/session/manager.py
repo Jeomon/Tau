@@ -162,11 +162,15 @@ class SessionManager:
             # message bodies immediately so RAM tracks the live window, not history.
             # read_session_file_shedding() already stripped most of them before
             # ever constructing the heavy pydantic objects (the expensive part
-            # for a long session) -- seed _shed_ids with its result so this
-            # call is a cheap idempotent top-up instead of doing that walk from
-            # scratch.
+            # for a long session), using the exact same "before the current
+            # leaf's most recent compaction boundary" criterion as the method
+            # below -- so when it found anything to strip, walking the branch
+            # again here to re-derive the identical set is redundant. Only
+            # call it when it wasn't (nothing compacted, or the file needed
+            # the read_session_file() fallback).
             self._shed_ids |= pre_shed_ids
-            self._shed_folded_message_content()
+            if not pre_shed_ids:
+                self._shed_folded_message_content()
             self.flushed = True
 
     def new_session(self, options: SessionOptions | None = None):
