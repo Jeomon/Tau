@@ -134,6 +134,37 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
     return entries
 
 
+def _cheap_parse_lines(session_file: Path) -> list[dict[str, Any] | None]:
+    """Parse each non-blank line of a session file to a plain dict — no models.
+
+    pydantic-core's Rust JSON parser is ~2-3x faster here than the stdlib json
+    module for this shape (many/large string values), and it's already a
+    transitive dependency of every entry model, not a new one. Unparseable or
+    non-dict lines become ``None`` so callers keep positional context (the
+    header is index 0, warnings can cite a line number). Returns ``[]`` for a
+    missing, unreadable, or blank file.
+
+    Shared by :func:`read_session_file_shedding` (resume: strip doomed bodies
+    before validation) and :func:`read_entries_by_id` (jumps: validate only
+    requested ids) — the cheap pass is the same, what each validates differs.
+    """
+    try:
+        content = session_file.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    raw: list[dict[str, Any] | None] = []
+    for line in content.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = pydantic_core.from_json(line)
+        except Exception:
+            obj = None
+        raw.append(obj if isinstance(obj, dict) else None)
+    return raw
+
+
 def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntry], set[str]]:
     """Load a session file, skipping full validation of message content that
     ``SessionManager`` would immediately shed anyway.
@@ -167,25 +198,9 @@ def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntr
     compaction on the branch, etc. -- so behaviour for those stays governed
     by the one well-exercised implementation.
     """
-    if not session_file.exists():
+    raw = _cheap_parse_lines(session_file)
+    if not raw:
         return [], set()
-
-    content = session_file.read_text(encoding="utf-8")
-    lines = [line for line in content.splitlines() if line.strip()]
-    if not lines:
-        return [], set()
-
-    raw: list[dict[str, Any] | None] = []
-    for line in lines:
-        try:
-            # pydantic-core's Rust JSON parser -- ~2-3x faster here than the
-            # stdlib json module for this shape (many/large string values),
-            # and it's already a transitive dependency of every entry model
-            # below, not a new one.
-            obj = pydantic_core.from_json(line)
-        except Exception:
-            obj = None
-        raw.append(obj if isinstance(obj, dict) else None)
 
     header_obj = raw[0]
     if header_obj is None or header_obj.get("type") != SessionType.SESSION_HEADER:
@@ -322,20 +337,10 @@ def read_entries_by_id(session_file: Path, ids: set[str]) -> dict[str, SessionFi
     """
     if not ids:
         return {}
-    try:
-        content = session_file.read_text(encoding="utf-8")
-    except OSError:
-        return {}
 
     found: dict[str, SessionFileEntry] = {}
-    for lineno, line in enumerate(content.splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            obj = pydantic_core.from_json(line)
-        except Exception:
-            continue
-        if not isinstance(obj, dict) or obj.get("id") not in ids:
+    for lineno, obj in enumerate(_cheap_parse_lines(session_file), start=1):
+        if obj is None or obj.get("id") not in ids:
             continue
         try:
             found[obj["id"]] = _SESSION_FILE_ENTRY_ADAPTER.validate_python(obj)
