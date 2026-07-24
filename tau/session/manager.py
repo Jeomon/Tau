@@ -248,6 +248,12 @@ class SessionManager:
         (id/parent_id/type/timestamp) intact so tree/branch/index navigation is
         unchanged. The full content remains on disk for rehydration.
 
+        NOTE: ``read_session_file_shedding()`` (utils) re-implements this
+        criterion on raw dicts so resume can shed *before* pydantic builds the
+        heavy bodies. If you change what gets shed here, change it there too —
+        the drift tests in test_session_content_shedding.py will fail until
+        the two agree.
+
         Idempotent: already-shed ids are skipped. Only MessageEntry is shed —
         settings entries (model/thinking changes) and CustomMessage entries stay
         resident so context/model resolution and extension reads are unaffected.
