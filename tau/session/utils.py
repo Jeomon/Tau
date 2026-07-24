@@ -191,57 +191,102 @@ def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntr
     if header_obj is None or header_obj.get("type") != SessionType.SESSION_HEADER:
         return read_session_file(session_file), set()
 
-    # Lightweight index over raw JSON (id/parent_id/type only) to find the
-    # current leaf and walk its branch, mirroring SessionManager._build_index
-    # and get_branch without paying for model construction yet.
-    by_id: dict[str, dict[str, Any]] = {}
-    leaf_id: str | None = None
+    # Fast path: without any tree navigation (no LeafEntry redirecting the
+    # leaf elsewhere), append order already *is* root->leaf order -- branch()
+    # is the only thing that can make the two diverge (branch_with_summary()
+    # also reassigns leaf_id but always immediately appends a BranchSummaryEntry
+    # right where the jump happened, which the parent-id check below still
+    # catches). That's the common case (compacted but never /tree-navigated),
+    # so two flat forward scans replace building a by_id map and walking
+    # parent pointers backward through it.
+    is_linear = True
+    prev_id: str | None = None
     for obj in raw[1:]:
-        if obj is None or not isinstance(obj.get("id"), str):
+        if obj is None:
             continue
-        entry_id = obj["id"]
-        by_id[entry_id] = obj
-        leaf_id = obj.get("target_id") if obj.get("type") == SessionType.LEAF else entry_id
-
-    branch_ids: list[str] = []
-    cursor = leaf_id
-    visited: set[str] = set()
-    while cursor and cursor in by_id and cursor not in visited:
-        visited.add(cursor)
-        branch_ids.append(cursor)
-        cursor = by_id[cursor].get("parent_id")
-    branch_ids.reverse()
+        if obj.get("type") == SessionType.LEAF or obj.get("parent_id") != prev_id:
+            is_linear = False
+            break
+        prev_id = obj.get("id")
 
     first_kept_id: str | None = None
-    for entry_id in branch_ids:
-        if by_id[entry_id].get("type") == SessionType.COMPACTION:
-            first_kept_id = by_id[entry_id].get("first_kept_entry_id")
-
     shed_ids: set[str] = set()
-    if first_kept_id is not None and first_kept_id in by_id:
+
+    if is_linear:
+        seen_ids: set[str] = set()
+        for obj in raw[1:]:
+            if obj is None:
+                continue
+            entry_id = obj.get("id")
+            if isinstance(entry_id, str):
+                seen_ids.add(entry_id)
+            if obj.get("type") == SessionType.COMPACTION:
+                first_kept_id = obj.get("first_kept_entry_id")
+
+        if first_kept_id is not None and first_kept_id in seen_ids:
+            for obj in raw[1:]:
+                if obj is None:
+                    continue
+                entry_id = obj.get("id")
+                if entry_id == first_kept_id:
+                    break
+                if obj.get("type") != SessionType.SESSION_MESSAGE:
+                    continue
+                message = obj.get("message")
+                if not isinstance(message, dict) or message.get("role") not in (
+                    "user",
+                    "assistant",
+                    "tool",
+                ):
+                    continue
+                if message.get("contents"):
+                    message["contents"] = []
+                    if isinstance(entry_id, str):
+                        shed_ids.add(entry_id)
+    else:
+        # General path: entries may not all sit on the current leaf's branch
+        # (tree navigation happened at some point) -- resolve the actual
+        # branch via parent pointers, exactly like SessionManager.get_branch(),
+        # before deciding what to shed.
+        by_id: dict[str, dict[str, Any]] = {}
+        leaf_id: str | None = None
+        for obj in raw[1:]:
+            if obj is None or not isinstance(obj.get("id"), str):
+                continue
+            entry_id = obj["id"]
+            by_id[entry_id] = obj
+            leaf_id = obj.get("target_id") if obj.get("type") == SessionType.LEAF else entry_id
+
+        branch_ids: list[str] = []
+        cursor = leaf_id
+        visited: set[str] = set()
+        while cursor and cursor in by_id and cursor not in visited:
+            visited.add(cursor)
+            branch_ids.append(cursor)
+            cursor = by_id[cursor].get("parent_id")
+        branch_ids.reverse()
+
         for entry_id in branch_ids:
-            if entry_id == first_kept_id:
-                break
-            obj = by_id[entry_id]
-            if obj.get("type") != SessionType.SESSION_MESSAGE:
-                continue
-            message = obj.get("message")
-            if not isinstance(message, dict) or message.get("role") not in (
-                "user",
-                "assistant",
-                "tool",
-            ):
-                continue
-            if message.get("contents"):
-                shed_ids.add(entry_id)
+            if by_id[entry_id].get("type") == SessionType.COMPACTION:
+                first_kept_id = by_id[entry_id].get("first_kept_entry_id")
 
-    if not shed_ids:
-        # Nothing to gain -- go through the single well-exercised path
-        # instead of re-parsing what we've already loaded above.
-        return read_session_file(session_file), set()
-
-    for entry_id in shed_ids:
-        by_id[entry_id]["message"]["contents"] = []
+        if first_kept_id is not None and first_kept_id in by_id:
+            for entry_id in branch_ids:
+                if entry_id == first_kept_id:
+                    break
+                obj = by_id[entry_id]
+                if obj.get("type") != SessionType.SESSION_MESSAGE:
+                    continue
+                message = obj.get("message")
+                if not isinstance(message, dict) or message.get("role") not in (
+                    "user",
+                    "assistant",
+                    "tool",
+                ):
+                    continue
+                if message.get("contents"):
+                    message["contents"] = []
+                    shed_ids.add(entry_id)
 
     entries: list[SessionFileEntry] = []
     for lineno, obj in enumerate(raw, start=1):
