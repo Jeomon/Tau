@@ -576,7 +576,10 @@ class SessionManager:
             from_hook=from_hook,
             parent_id=branch_from_id,
         )
-        return self._append_entry(entry)
+        entry_id = self._append_entry(entry)
+        # Navigation moved the visible window — move residency with it.
+        self._reshed_for_view()
+        return entry_id
 
     def append_compaction(
         self,
@@ -800,6 +803,77 @@ class SessionManager:
         self.by_id[leaf_entry.id] = leaf_entry
         self._persist(leaf_entry)
         self.leaf_id = from_id
+        # The visible window moved with the leaf — move residency with it.
+        self._reshed_for_view()
+
+    def _reshed_for_view(self) -> None:
+        """Align resident message bodies with the current leaf's visible window.
+
+        "RAM tracks the live window, not history" — and after tree navigation
+        the live window is a different one: the new leaf's nearest-compaction →
+        leaf slice (the exact window ``build_session_context`` will show the
+        model; the whole branch when it has no compaction). Two swaps keep that
+        true across jumps:
+
+        - entries INSIDE the window that were shed get their full bodies back
+          into residence (one selective disk read — so subsequent context
+          builds don't re-read the file every turn), and
+        - durable bodies OUTSIDE the window are shed: the previously-kept
+          window that navigation just left behind, and abandoned tails. The
+          load-time criterion never touches those (off-branch entries aren't
+          "folded behind a compaction"), but for RAM purposes they're equally
+          dead weight — and equally recoverable, since disk is authoritative
+          and every reader (context, get_entries, fork) already rehydrates.
+
+        No-op without a durable file — shedding is only safe when the full
+        copy provably exists on disk.
+        """
+        if not (self.persist and self.session_file and self.session_file.exists()):
+            return
+        try:
+            branch = self.get_branch()
+        except ValueError:
+            return
+        if not branch:
+            return
+
+        # Same boundary rule as build_session_context: last compaction on the
+        # branch wins; a dangling first_kept_entry_id folds everything.
+        first_kept_idx = 0
+        id_to_idx = {entry.id: idx for idx, entry in enumerate(branch)}
+        for entry in branch:
+            if isinstance(entry, CompactionEntry):
+                first_kept_idx = id_to_idx.get(entry.first_kept_entry_id, len(branch))
+        window_ids = {entry.id for entry in branch[first_kept_idx:]}
+
+        needed = {entry_id for entry_id in window_ids if entry_id in self._shed_ids}
+        if needed:
+            full = read_entries_by_id(self.session_file, needed)
+            for entry_id, fresh in full.items():
+                resident = self.by_id.get(entry_id)
+                if (
+                    isinstance(resident, MessageEntry)
+                    and isinstance(fresh, MessageEntry)
+                    and isinstance(
+                        resident.message, (UserMessage, AssistantMessage, ToolMessage)
+                    )
+                    and isinstance(fresh.message, (UserMessage, AssistantMessage, ToolMessage))
+                ):
+                    # In-place content swap keeps entry identity (indices,
+                    # parent links, and any held references stay valid).
+                    resident.message.contents = fresh.message.contents
+                    self._shed_ids.discard(entry_id)
+
+        for entry in self.entries:
+            if entry.id in window_ids:
+                continue
+            if (
+                isinstance(entry, MessageEntry)
+                and isinstance(entry.message, (UserMessage, AssistantMessage, ToolMessage))
+                and entry.message.contents
+            ):
+                entry.message.contents = []
+                self._shed_ids.add(entry.id)
 
     def reset_leaf(self):
         """Clear the leaf pointer."""

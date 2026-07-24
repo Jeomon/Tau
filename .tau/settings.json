@@ -32,6 +32,14 @@
           "enabled": true,
           "mode": "accessibility_tree"
         }
+      },
+      {
+        "path": ".tau/extensions/autoresearch",
+        "name": null,
+        "enabled": false,
+        "source": null,
+        "author": null,
+        "settings": null
       }
     ]
   }

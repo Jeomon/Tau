@@ -260,8 +260,38 @@ def test_jump_rehydration_is_selective_not_full_file(tmp_path, monkeypatch):
     joined = " ".join(_text(msg) for msg in ctx.messages)
     assert "MIDDLE-REPLY-" in joined
 
-    # RAM bounding preserved: the resident copies stay shed; only the context
-    # got full bodies. Pre-C1 ancients were never validated or rehydrated.
-    assert m.by_id[ids["a2"]].message.contents == []
+    # Residency moved WITH the jump: the new window is resident in full
+    # (so per-turn context builds don't re-read disk), while pre-C1 ancients
+    # were never validated or rehydrated.
+    assert m.by_id[ids["a2"]].message.contents  # in-window: resident full
     assert m.by_id[ids["u1"]].message.contents == []
     assert ids["u1"] in m._shed_ids
+
+
+def test_jump_moves_residency_window_both_directions(tmp_path):
+    """Navigation swaps residency: the window you leave gets shed, the window
+    you enter gets rehydrated — round trip included."""
+    m, ids = _two_compaction_session(tmp_path)
+    tail_id = m.get_branch()[-1].id  # RECENT-REPLY-kept, resident full at start
+    assert m.by_id[tail_id].message.contents
+
+    m.branch(ids["a2"])  # jump back before C2
+    # old window (post-C2) no longer visible → shed from RAM
+    assert m.by_id[ids["u3"]].message.contents == []
+    assert m.by_id[tail_id].message.contents == []
+    assert ids["u3"] in m._shed_ids
+    # new window (C1-kept → a2) resident in full
+    assert m.by_id[ids["u2"]].message.contents
+    assert m.by_id[ids["a2"]].message.contents
+    # pre-C1 stays shed — it's behind the older summary either way
+    assert m.by_id[ids["u1"]].message.contents == []
+
+    m.branch(tail_id)  # jump forward again
+    # residency swaps back: old window rehydrated, middle shed again
+    assert m.by_id[ids["u3"]].message.contents
+    assert m.by_id[tail_id].message.contents
+    assert m.by_id[ids["a2"]].message.contents == []
+    assert ids["a2"] in m._shed_ids
+    # and the context is complete after the round trip
+    joined = " ".join(_text(msg) for msg in m.build_session_context().messages)
+    assert "RECENT-REPLY-kept" in joined
