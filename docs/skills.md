@@ -2,7 +2,7 @@
 
 # Skills
 
-Skills are self-contained instruction packages the model loads on demand. A skill encodes a project-specific workflow, convention, or multi-step procedure in plain Markdown — no Python required.
+Skills are self-contained instruction packages the model loads on demand. A skill encodes a project-specific workflow, convention, or multi-step procedure in plain Markdown, no Python required.
 
 Use a skill when the model should decide for itself that a body of instructions is relevant. Use a [prompt template](prompts.md) when *you* want to inject a fixed instruction with a slash command.
 
@@ -49,7 +49,7 @@ Project skills load only after the project is trusted. See [Project Context File
 ## How Skills Work
 
 1. At startup Tau scans every skill location and extracts each skill's name, description, and file path.
-2. The system prompt gains an `<available_skills>` block listing those three fields — never the skill body.
+2. The system prompt gains an `<available_skills>` block listing those three fields, never the skill body.
 3. When a request matches a skill's description, the model calls `read` on the listed location to load the full instructions.
 4. The model follows the instructions, resolving relative paths against the skill's own directory.
 
@@ -90,7 +90,7 @@ References are relative to /path/to.
 
 Arguments after the name are appended verbatim after the closing tag.
 
-> **Note:** Skills do **not** perform argument substitution. `$1`, `$@`, and `${1:-default}` are inert inside a skill body — they are passed through as literal text. Only [prompt templates](prompts.md#argument-substitution) substitute arguments.
+> **Note:** Skills do **not** perform argument substitution. `$1`, `$@`, and `${1:-default}` are inert inside a skill body; they are passed through as literal text. Only [prompt templates](prompts.md#argument-substitution) substitute arguments.
 
 Skills appear in the `/` command palette as `/skill:<name>`. There is no `/skills` listing command.
 
@@ -155,7 +155,7 @@ Frontmatter is a `---`-delimited block of `key: value` lines at the top of the f
 
 Unknown fields are parsed but ignored.
 
-> **Note:** Tau uses a simple line-based parser, not a full YAML parser. Nested structures, multi-line values, and lists are not supported — keep every field on one line. A value containing `:` is preserved, since only the first `:` splits the pair.
+> **Note:** Tau uses a simple line-based parser, not a full YAML parser. Nested structures, multi-line values, and lists are not supported. Keep every field on one line. A value containing `:` is preserved, since only the first `:` splits the pair.
 
 ### Description Best Practices
 
@@ -188,7 +188,7 @@ This skill never appears in `<available_skills>`, but `/skill:internal-notes` st
 
 ## Validation
 
-Tau's skill validation is deliberately minimal. A skill fails to load — and is reported as a load error — in exactly these cases:
+Tau's skill validation is deliberately minimal. A skill fails to load (and is reported as a load error) in exactly these cases:
 
 | Condition | Outcome |
 |-----------|---------|
@@ -196,7 +196,7 @@ Tau's skill validation is deliberately minimal. A skill fails to load — and is
 | Empty body after frontmatter | Not loaded; error `skill body is empty` |
 | File cannot be read | Not loaded; error `read error: <detail>` |
 
-There are no length limits on `name` or `description`, no character-set restrictions on names, and no requirement that `name` match its parent directory. Name collisions do not warn — the higher-precedence location silently wins.
+There are no length limits on `name` or `description`, no character-set restrictions on names, and no requirement that `name` match its parent directory. Name collisions do not warn; the higher-precedence location silently wins.
 
 ## Example
 
@@ -223,7 +223,7 @@ Invoke it explicitly:
 /skill:git-commit
 ```
 
-Or simply ask the agent to commit your changes — the description matches, so the model loads the skill on its own.
+Or simply ask the agent to commit your changes. The description matches, so the model loads the skill on its own.
 
 ### A Larger Skill
 
@@ -287,7 +287,7 @@ Override any of them by defining a skill with the same name in `~/.tau/skills/` 
 
 ## Next Steps
 
-- [Prompt Templates](prompts.md) — Slash commands with argument substitution
-- [Extensions](extensions.md) — Register skills and tools programmatically from Python
-- [Project Context Files](project-context.md) — Always-on project instructions and trust
-- [Settings](settings.md) — The `skills` path array and other configuration
+- [Prompt Templates](prompts.md): Slash commands with argument substitution
+- [Extensions](extensions.md): Register skills and tools programmatically from Python
+- [Project Context Files](project-context.md): Always-on project instructions and trust
+- [Settings](settings.md): The `skills` path array and other configuration

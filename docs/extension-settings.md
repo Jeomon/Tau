@@ -45,9 +45,9 @@ The values are stored in `~/.tau/settings.json` (global) or `.tau/settings.json`
 
 ### Where settings live
 
-Settings for an extension are stored in the `settings` object of its entry inside `extensions.list`. Tau matches entries by path — the path in the list must match the path or directory the extension was loaded from.
+Settings for an extension are stored in the `settings` object of its entry inside `extensions.list`. Tau matches entries by path: the path in the list must match the path or directory the extension was loaded from.
 
-**Project-local** — `.tau/settings.json` (only applies in this directory):
+**Project-local**: `.tau/settings.json` (only applies in this directory):
 
 ```json
 {
@@ -80,7 +80,7 @@ Settings for an extension are stored in the `settings` object of its entry insid
 }
 ```
 
-**Global** — `~/.tau/settings.json` (applies to every project):
+**Global**: `~/.tau/settings.json` (applies to every project):
 
 ```json
 {
@@ -106,7 +106,7 @@ Settings for an extension are stored in the `settings` object of its entry insid
 }
 ```
 
-Both files can coexist — project settings are merged on top of global settings at startup. Extensions loaded from `.tau/extensions/` read from the project file; extensions loaded from `~/.tau/extensions/` read from the global file.
+Both files can coexist: project settings are merged on top of global settings at startup. Extensions loaded from `.tau/extensions/` read from the project file; extensions loaded from `~/.tau/extensions/` read from the global file.
 
 ## Nested Structures
 
@@ -164,7 +164,7 @@ In settings.json:
 | `schema` | `type` | A dataclass type describing the expected structure. Anything else raises `ExtensionSettingsError` |
 | `raw_config` | `dict \| None` | The raw dict from `tau.config`. Defaults to `{}` |
 
-Deserialization happens once, in the constructor. A key absent from `raw_config` — or present with a JSON `null` — takes the field's `default` or `default_factory`. A field with neither becomes `None`.
+Deserialization happens once, in the constructor. A key absent from `raw_config` (or present with a JSON `null`) takes the field's `default` or `default_factory`. A field with neither becomes `None`.
 
 ### `get(key, default=None) → Any`
 
@@ -324,9 +324,9 @@ There are two ways to do this: declare the schema in `manifest.json` (recommende
 
 ---
 
-### Option A — manifest.json schema (recommended)
+### Option A: manifest.json schema (recommended)
 
-Add a `"settings"` block under the `"tau"` key in `manifest.json`. Tau reads it at load time, builds the `/settings` sub-panel automatically, reads current values from the extension's config, and persists changes back to `settings.json` — then reloads just that one extension so the change applies live, with no restart.
+Add a `"settings"` block under the `"tau"` key in `manifest.json`. Tau reads it at load time, builds the `/settings` sub-panel automatically, reads current values from the extension's config, and persists changes back to `settings.json`, then reloads just that one extension so the change applies live, with no restart.
 
 Three conditions apply:
 
@@ -464,7 +464,7 @@ Use the explicit `group` type when you want the sub-panel to have a header label
 
 ---
 
-### Option B — `tau.register_settings()` (imperative)
+### Option B: `tau.register_settings()` (imperative)
 
 #### Basic example
 
@@ -510,7 +510,7 @@ Registers a sub-panel in `/settings` containing the provided items.
 | `submenu_on_preview` | `callable \| None` | `None` | Called as the highlighted item changes, for live preview |
 | `submenu_on_cancel` | `callable \| None` | `None` | Called when the sub-panel is dismissed, to undo a preview |
 
-The list-valued fields default to empty lists, not `None` — leave them out rather than passing `None`.
+The list-valued fields default to empty lists, not `None`, so leave them out rather than passing `None`.
 
 `submenu_on_preview` and `submenu_on_cancel` are what make the built-in theme picker preview a theme live on ↑/↓ and restore the previous one on Escape.
 
@@ -557,12 +557,12 @@ tau.settings.set_extension_config_key(__file__, "retry.enabled", "true")
 
 ## Best Practices
 
-1. **Always use dataclasses** — `ExtensionSettings` only works with dataclass schemas
-2. **Provide defaults** — Every field should have a sensible default so config is optional
-3. **Use field() for nested dataclasses** — `field(default_factory=SomeClass)` to avoid mutable defaults
-4. **Document your schema** — Include example settings.json snippets in your extension docs
-5. **Validate early** — Catch config errors during `register()`, not during event handlers
-6. **Use dot notation** — `config.get_nested("section.key")` is clearer than manual traversal
+1. **Always use dataclasses**: `ExtensionSettings` only works with dataclass schemas
+2. **Provide defaults**: Every field should have a sensible default so config is optional
+3. **Use field() for nested dataclasses**: `field(default_factory=SomeClass)` to avoid mutable defaults
+4. **Document your schema**: Include example settings.json snippets in your extension docs
+5. **Validate early**: Catch config errors during `register()`, not during event handlers
+6. **Use dot notation**: `config.get_nested("section.key")` is clearer than manual traversal
 
 ## Error Handling
 
@@ -576,11 +576,11 @@ except ExtensionSettingsError as e:
     print(f"Invalid schema: {e}")
 ```
 
-If your settings.json is missing values, they'll be filled with defaults from your schema — no exception thrown.
+If your settings.json is missing values, they'll be filled with defaults from your schema, no exception thrown.
 
 ---
 
 ## See Also
 
-- [Extensions](extensions.md) — Extension system overview
-- [Settings](settings.md) — Main settings reference
+- [Extensions](extensions.md): Extension system overview
+- [Settings](settings.md): Main settings reference

@@ -1,6 +1,6 @@
 # Packages
 
-A Tau package is an ordinary Python distribution that ships Tau resources — extensions, skills, prompt templates, and themes — alongside its code. Packages install into a Tau-managed virtual environment, are recorded in `settings.json`, and are discovered on every startup. Use a package when you want to share resources through PyPI, git, or a wheel; use a plain file in `.tau/extensions/` when the code is project-specific (see [Extensions](extensions.md)).
+A Tau package is an ordinary Python distribution that ships Tau resources (extensions, skills, prompt templates, and themes) alongside its code. Packages install into a Tau-managed virtual environment, are recorded in `settings.json`, and are discovered on every startup. Use a package when you want to share resources through PyPI, git, or a wheel; use a plain file in `.tau/extensions/` when the code is project-specific (see [Extensions](extensions.md)).
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ A Tau package is an ordinary Python distribution that ships Tau resources — ex
 
 > **Security:** Packages run with full user permissions. Extension code is imported and executed at startup, and bundled skills can instruct the model to run anything. Review the source before installing a third-party package.
 
-Tau does not define its own archive format. A package is whatever `pip`/`uv` can install — a PyPI distribution, a git repository, a local directory, a wheel, or a source archive. What makes it a *Tau* package is that its installed import directory declares Tau resources, either through a `manifest.json` file, a `[tool.tau]` table in `pyproject.toml`, or conventional resource directories.
+Tau does not define its own archive format. A package is whatever `pip`/`uv` can install: a PyPI distribution, a git repository, a local directory, a wheel, or a source archive. What makes it a *Tau* package is that its installed import directory declares Tau resources, either through a `manifest.json` file, a `[tool.tau]` table in `pyproject.toml`, or conventional resource directories.
 
 A package can bundle four resource types:
 
@@ -94,7 +94,7 @@ Tau keeps package installs out of its own runtime environment by using a dedicat
 | Global (default) | `~/.tau/venv/` | `~/.tau/settings.json` |
 | Project (`--local`) | `.tau/venv/` | `.tau/settings.json` |
 
-The venv is created on first install. If `uv` is on `PATH`, Tau runs `uv venv --python <the interpreter running Tau>` — pinning the interpreter explicitly, because an unpinned `uv` picks its own default toolchain and can produce a venv whose native extensions will not import. Without `uv`, Tau falls back to `python -m venv`. Installs likewise prefer `uv pip install --python <venv python>` and fall back to the venv's `pip`.
+The venv is created on first install. If `uv` is on `PATH`, Tau runs `uv venv --python <the interpreter running Tau>`, pinning the interpreter explicitly, because an unpinned `uv` picks its own default toolchain and can produce a venv whose native extensions will not import. Without `uv`, Tau falls back to `python -m venv`. Installs likewise prefer `uv pip install --python <venv python>` and fall back to the venv's `pip`.
 
 At startup the resource loader appends each active venv's `site-packages` to the end of `sys.path`. Appending rather than prepending is deliberate: a package cannot shadow Tau's own dependencies with incompatible versions.
 
@@ -119,7 +119,7 @@ All declared paths are resolved relative to the package's import directory and r
 
 Because the manifest is read from the *installed* directory, it must be shipped as package data. With setuptools that means including it in `MANIFEST.in` and enabling `include-package-data`; other build backends have equivalents.
 
-If there is no manifest, Tau falls back to conventional directories with the same names — `extensions/`, `skills/`, `prompts/`, `themes/` — inside the package directory.
+If there is no manifest, Tau falls back to conventional directories with the same names (`extensions/`, `skills/`, `prompts/`, `themes/`) inside the package directory.
 
 ```text
 tau_tools/                 # The installed import directory
@@ -142,9 +142,9 @@ Non-extension resources (`skills`, `prompts`, `themes`) are resolved in two step
 
 Extensions get an additional fallback chain. If the manifest declares nothing for `extensions` and no filter is configured, Tau tries, in order:
 
-1. `manifest.json` — `{"tau": {"extensions": [...]}}`, taking the first list that resolves to at least one existing file.
-2. `pyproject.toml` — an `extensions` list under `[tool.tau]`, checked in the package directory and then in its parent. Declarations that escape the file's own directory are dropped.
-3. `__init__.py` — used as the entry point if its source contains `def register(` or `async def register(`.
+1. `manifest.json`: `{"tau": {"extensions": [...]}}`, taking the first list that resolves to at least one existing file.
+2. `pyproject.toml`: an `extensions` list under `[tool.tau]`, checked in the package directory and then in its parent. Declarations that escape the file's own directory are dropped.
+3. `__init__.py`: used as the entry point if its source contains `def register(` or `async def register(`.
 
 ```toml
 # pyproject.toml — the step 2 fallback
@@ -202,17 +202,17 @@ The four resource keys on a package entry narrow what a package contributes with
 | `[]` | Load nothing of that resource type |
 | `["skills", "themes/midnight.json"]` | Load only the declared paths that match |
 
-Matching is by exact path, not by glob. A declared path is selected when its path relative to the package root, its bare filename, or that relative path prefixed with `./` appears in the filter list. Filters narrow the manifest — they cannot add a path the manifest never declared.
+Matching is by exact path, not by glob. A declared path is selected when its path relative to the package root, its bare filename, or that relative path prefixed with `./` appears in the filter list. Filters narrow the manifest; they cannot add a path the manifest never declared.
 
 Setting `extensions` to `[]` also disables the extension fallback chain: the `pyproject.toml` and `__init__.py` steps only run when the filter is `null` and the manifest yielded nothing.
 
 ## Validation with `tau doctor`
 
-`tau doctor` runs eight diagnostic sections — Settings, Auth, Models, Extensions, Sessions, Logs, Environment, and Packages — and exits `1` if any check fails. Three of them bear on packages.
+`tau doctor` runs eight diagnostic sections (Settings, Auth, Models, Extensions, Sessions, Logs, Environment, and Packages) and exits `1` if any check fails. Three of them bear on packages.
 
 | Section | Check | Status on problem |
 |---------|-------|-------------------|
-| Packages | Every enabled entry's `installed_path` exists, or the name is importable in the scope's venv | `fail` — "recorded as installed but missing from the venv" |
+| Packages | Every enabled entry's `installed_path` exists, or the name is importable in the scope's venv | `fail`: "recorded as installed but missing from the venv" |
 | Environment | `~/.tau/venv` was built for the Python currently running Tau | `warn` |
 | Extensions | Each `manifest.json` is valid JSON and has a top-level `tau` key | `fail` on invalid JSON, `warn` on the missing key |
 | Extensions | Manifest-declared extension entries exist as files; declared skill paths exist as directories | `fail` / `warn` |
@@ -256,7 +256,7 @@ tau-tools/
         └── review.md
 ```
 
-**2. Write `pyproject.toml`.** The `[tool.tau]` table is optional here — the manifest takes precedence — but it keeps the declaration working for editable installs.
+**2. Write `pyproject.toml`.** The `[tool.tau]` table is optional here (the manifest takes precedence) but it keeps the declaration working for editable installs.
 
 ```toml
 [project]
@@ -374,8 +374,8 @@ To ship it, publish to PyPI and have consumers run `tau install pypi:tau-tools==
 
 ## Next Steps
 
-- [Extensions](extensions.md) — writing `register(tau)`, extension manifests, and per-extension dependencies
-- [Settings](settings.md) — the `packages` block and scope precedence
-- [CLI Reference](cli-reference.md) — full flag list for `install`, `remove`, `list`, `update`, and `doctor`
-- [Security](security.md) — project trust, which gates project-scoped package installs
-- [Development](development.md) — working on Tau itself
+- [Extensions](extensions.md): writing `register(tau)`, extension manifests, and per-extension dependencies
+- [Settings](settings.md): the `packages` block and scope precedence
+- [CLI Reference](cli-reference.md): full flag list for `install`, `remove`, `list`, `update`, and `doctor`
+- [Security](security.md): project trust, which gates project-scoped package installs
+- [Development](development.md): working on Tau itself

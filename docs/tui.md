@@ -1,6 +1,6 @@
 # Terminal UI
 
-`tau.tui` is a standalone terminal UI framework: terminal I/O, differential rendering, input parsing, focus, overlays, components, layout primitives, themes, and Markdown rendering. It depends on nothing else in Tau — not the engine, runtime, sessions, or extensions.
+`tau.tui` is a standalone terminal UI framework: terminal I/O, differential rendering, input parsing, focus, overlays, components, layout primitives, themes, and Markdown rendering. It depends on nothing else in Tau, not the engine, runtime, sessions, or extensions.
 
 Use `tau.tui` when you want to build a terminal interface. Use [`tau.modes.interactive`](architecture.md) when you want Tau's agent chat UI; that package supplies the application-specific layouts and agent wiring on top of this one.
 
@@ -21,7 +21,7 @@ Use `tau.tui` when you want to build a terminal interface. Use [`tau.modes.inter
 
 ## Public API
 
-Every name below is importable directly from `tau.tui`. Imports are lazy — the submodule is only loaded when a name is first accessed — so `from tau.tui import *` is cheap.
+Every name below is importable directly from `tau.tui`. Imports are lazy (the submodule is only loaded when a name is first accessed), so `from tau.tui import *` is cheap.
 
 | Area | Exports |
 |------|---------|
@@ -49,7 +49,7 @@ Two names are aliases to avoid collisions: `TextLine` is `tau.tui.text.Line`, an
 
 You do not need a TUI application, an event loop, or even a terminal to render a component. A component writes into a `Buffer`, and `row_to_ansi()` flattens a buffer row into an ANSI string you can print.
 
-This script defines a custom component and renders it — copy, paste, and run it:
+This script defines a custom component and renders it. Copy, paste, and run it:
 
 ```python
 """Render a custom tau.tui component with no application, event loop, or TTY."""
@@ -120,7 +120,7 @@ Upload
 [#####---------------------------]  15%
 ```
 
-Standalone rendering gives you layout, styling, and composition. It does **not** give you input handling, a redraw loop, resize handling, or overlays — those need a `TUI`, covered in [Running a Full Application](#running-a-full-application). Built-in components work standalone too, with one exception: `Spinner` requires a `TUI` because it drives its own animation through `request_render()`.
+Standalone rendering gives you layout, styling, and composition. It does **not** give you input handling, a redraw loop, resize handling, or overlays. Those need a `TUI`, covered in [Running a Full Application](#running-a-full-application). Built-in components work standalone too, with one exception: `Spinner` requires a `TUI` because it drives its own animation through `request_render()`.
 
 ## The Component Contract
 
@@ -152,7 +152,7 @@ class Component(ABC):
 
 There is no `measure()`, `on_mount()`, or `on_unmount()`. The lifecycle is: construct → `render_cells` repeatedly → `invalidate()` on resize → `dispose()` at teardown. Input dispatch is independent of rendering.
 
-> **Critical:** a `Buffer` starts at height 0 and grows on demand. Call `buf.grow_to(area.y + n)` before writing row `area.y + n - 1`. `Buffer.set()` and `set_string()` **silently no-op on an out-of-bounds row** rather than growing it for you — a missing `grow_to` shows up as blank output, not an error.
+> **Critical:** a `Buffer` starts at height 0 and grows on demand. Call `buf.grow_to(area.y + n)` before writing row `area.y + n - 1`. `Buffer.set()` and `set_string()` **silently no-op on an out-of-bounds row** rather than growing it for you. A missing `grow_to` shows up as blank output, not an error.
 
 Respect the supplied `Rect`: start at `area.x` / `area.y` and never exceed `area.width`.
 
@@ -213,7 +213,7 @@ layout = Column([
 
 ### Constraint Layout
 
-`tau.tui.layout.Layout` is a separate, grid-style constraint solver that splits a `Rect` — unrelated to the component tree.
+`tau.tui.layout.Layout` is a separate, grid-style constraint solver that splits a `Rect`, unrelated to the component tree.
 
 ```python
 from tau.tui import Constraint, Layout, Rect
@@ -252,7 +252,7 @@ picker.move_down()
 
 ## Styled Text
 
-`Style` is a frozen dataclass and a *patch* — `None` fields inherit from whatever it is applied over. It is immutable, so every builder method returns a new instance.
+`Style` is a frozen dataclass and a *patch*: `None` fields inherit from whatever it is applied over. It is immutable, so every builder method returns a new instance.
 
 ```python
 from tau.tui import Span, Style, TextLine
@@ -278,9 +278,9 @@ Colors accept a hex string (`"#a78bfa"`), a named ANSI color (`"bright_cyan"`), 
 
 There are three ways to emit styled output, in decreasing order of preference:
 
-1. **Structured** — `buf.set_line(x, y, TextLine([...]), width)` or `buf.set_span(...)`. Style stays data until the cell resolves it.
-2. **Direct** — `buf.set_string(x, y, "text", Style().bold())`.
-3. **ANSI bridge** — build a string with `apply_style()` and push it through `tau.tui.ansi_bridge.parse_ansi_into(buf, x, y, line, width)`. This is how `Text` and `StaticComponent` work internally, and it is the escape hatch for content that is already ANSI-encoded.
+1. **Structured**: `buf.set_line(x, y, TextLine([...]), width)` or `buf.set_span(...)`. Style stays data until the cell resolves it.
+2. **Direct**: `buf.set_string(x, y, "text", Style().bold())`.
+3. **ANSI bridge**: build a string with `apply_style()` and push it through `tau.tui.ansi_bridge.parse_ansi_into(buf, x, y, line, width)`. This is how `Text` and `StaticComponent` work internally, and it is the escape hatch for content that is already ANSI-encoded.
 
 ## Widgets
 
@@ -455,7 +455,7 @@ A focused overlay owns input until it is closed, hidden, or unfocused. `handle.u
 
 ## Testing
 
-Render a component to strings and assert on the result — no terminal required:
+Render a component to strings and assert on the result, no terminal required:
 
 ```python
 from tau.tui import Buffer, Rect, Text
@@ -485,7 +485,7 @@ The renderer keeps only the current transcript frame. Content wider than the ava
 
 ## Next Steps
 
-- [Keybindings](keybindings.md) — the named-action keymap and input handling
-- [Themes](themes.md) — theme dataclasses and color tokens
-- [Architecture](architecture.md) — how `tau.tui` fits under `tau.modes.interactive`
+- [Keybindings](keybindings.md): the named-action keymap and input handling
+- [Themes](themes.md): theme dataclasses and color tokens
+- [Architecture](architecture.md): how `tau.tui` fits under `tau.modes.interactive`
 </content>

@@ -1,6 +1,6 @@
 # Development
 
-Setting up, testing, and debugging Tau itself. For contribution rules — commit format, PR process, security reporting — see [CONTRIBUTING.md](../CONTRIBUTING.md); for the module-by-module layout, see [Project Structure](project-structure.md).
+Setting up, testing, and debugging Tau itself. For contribution rules (commit format, PR process, security reporting) see [CONTRIBUTING.md](../CONTRIBUTING.md); for the module-by-module layout, see [Project Structure](project-structure.md).
 
 ## Table of Contents
 
@@ -77,7 +77,7 @@ python -m pytest tests/test_doctor.py             # One module
 python -m pytest tests/test_agent_compaction.py -k compact   # One pattern
 ```
 
-There is no Makefile, tox, nox, or test shell script — `pytest` is the whole runner. The entire pytest configuration is:
+There is no Makefile, tox, nox, or test shell script. `pytest` is the whole runner. The entire pytest configuration is:
 
 ```toml
 [tool.pytest.ini_options]
@@ -86,7 +86,7 @@ testpaths = ["tests"]
 
 ### Layout
 
-`tests/` is flat — 146 `test_*.py` modules, no subpackages, named after the module under test.
+`tests/` is flat: 146 `test_*.py` modules, no subpackages, named after the module under test.
 
 ```text
 tests/
@@ -105,7 +105,7 @@ tests/
 
 ### Async tests
 
-`pytest-asyncio` runs in its default **strict** mode — no `asyncio_mode` is configured — so an async test must carry `@pytest.mark.asyncio`. Most of the suite instead drives coroutines with `asyncio.run(...)` from sync tests, which is the dominant existing pattern. No custom markers are registered.
+`pytest-asyncio` runs in its default **strict** mode (no `asyncio_mode` is configured) so an async test must carry `@pytest.mark.asyncio`. Most of the suite instead drives coroutines with `asyncio.run(...)` from sync tests, which is the dominant existing pattern. No custom markers are registered.
 
 ### No network, no API keys
 
@@ -126,11 +126,11 @@ pyright tau/              # Second type checker (CI enforces this too)
 |------|---------------|-------|
 | ruff | `[tool.ruff]` in `pyproject.toml` | `target-version = "py312"`, `line-length = 100`, rules `E, F, I, UP, B, SIM`, double quotes |
 | mypy | `mypy.ini` | `python_version = 3.12`; deliberately lenient |
-| pyright | *none* | No `pyrightconfig.json` and no `[tool.pyright]` — runs on defaults |
+| pyright | *none* | No `pyrightconfig.json` and no `[tool.pyright]`, runs on defaults |
 
-`mypy.ini` is intentionally permissive: `disallow_untyped_defs` and `check_untyped_defs` are both off, `warn_return_any` is off. It also sets `ignore_errors = True` for ~43 first-party modules — mostly inference adapters and TUI/settings hot spots, including `tau.runtime.service`, `tau.runtime.types`, `tau.engine.service`, `tau.agent.service`, `tau.settings.manager`, and `tau.session.utils`. Editing one of those means mypy will not catch your mistakes there; lean on `pyright tau/` and the tests instead.
+`mypy.ini` is intentionally permissive: `disallow_untyped_defs` and `check_untyped_defs` are both off, `warn_return_any` is off. It also sets `ignore_errors = True` for ~43 first-party modules, mostly inference adapters and TUI/settings hot spots, including `tau.runtime.service`, `tau.runtime.types`, `tau.engine.service`, `tau.agent.service`, `tau.settings.manager`, and `tau.session.utils`. Editing one of those means mypy will not catch your mistakes there; lean on `pyright tau/` and the tests instead.
 
-> Tau uses **ruff exclusively** for both linting and formatting. Black, pylint, isort, and flake8 are not dependencies — do not add editor config that invokes them.
+> Tau uses **ruff exclusively** for both linting and formatting. Black, pylint, isort, and flake8 are not dependencies. Do not add editor config that invokes them.
 
 Run all five checks before pushing, in CI's order:
 
@@ -189,7 +189,7 @@ tau doctor --fix    # Apply safe, reversible repairs
 
 Exit code is `1` if any check **fails**; warnings alone exit `0`. The Logs section scans at most 20 `*.log` files modified in the last 7 days and warns for each containing a traceback.
 
-Regression tests live in `tests/test_doctor.py`, which imports the private check functions directly — a useful pattern when adding a check.
+Regression tests live in `tests/test_doctor.py`, which imports the private check functions directly, a useful pattern when adding a check.
 
 ### Debugging techniques
 
@@ -200,7 +200,7 @@ logger = logging.getLogger(__name__)
 logger.debug("state=%s", state)   # Lazy formatting; prefer over f-strings in logs
 ```
 
-Use `breakpoint()` for interactive debugging — but **not in interactive mode**, where the TUI owns the terminal. Drop to print mode first:
+Use `breakpoint()` for interactive debugging, but **not in interactive mode**, where the TUI owns the terminal. Drop to print mode first:
 
 ```bash
 tau -p "trigger the code path" --debug
@@ -218,7 +218,7 @@ Logs are written per run to a single file:
 ~/.tau/logs/<session-id>.log
 ```
 
-The path is always global — it does not follow `--cwd` into a project-local `.tau/`. The format is `%(asctime)s %(levelname)s %(name)s: %(message)s`, and the root level defaults to `WARNING`.
+The path is always global: it does not follow `--cwd` into a project-local `.tau/`. The format is `%(asctime)s %(levelname)s %(name)s: %(message)s`, and the root level defaults to `WARNING`.
 
 ```bash
 tau --debug                                   # Raise the level to DEBUG
@@ -228,7 +228,7 @@ tail -f "$(ls -t ~/.tau/logs/*.log | head -1)"
 
 In interactive mode `--debug` output lands in the **file**, not the terminal: `basicConfig` installs a stderr handler at startup, and the TUI then removes every stream handler to protect the renderer.
 
-> **A frozen TUI with a working agent is almost always a swallowed render exception.** Check `~/.tau/logs/<session-id>.log` first — the traceback will be there even though the screen never updated.
+> **A frozen TUI with a working agent is almost always a swallowed render exception.** Check `~/.tau/logs/<session-id>.log` first: the traceback will be there even though the screen never updated.
 
 There is no `--log-level` flag and no `TAU_LOG*` environment variable. `--debug` is the only level control.
 
@@ -256,7 +256,7 @@ TAU_PROFILE=1 tau -p "read the README and summarize it"
 cat ~/.tau/logs/profile-*.log
 ```
 
-The variable is read **once at import time** and must equal exactly `"1"` — `true`, `yes`, and `0` all leave it disabled, and setting it after the process starts has no effect. When disabled, spans compile to a bare `yield` with no clock read and no lock, so instrumentation is free in normal runs.
+The variable is read **once at import time** and must equal exactly `"1"`. `true`, `yes`, and `0` all leave it disabled, and setting it after the process starts has no effect. When disabled, spans compile to a bare `yield` with no clock read and no lock, so instrumentation is free in normal runs.
 
 The report is written at exit, sorted by total time descending:
 
@@ -264,9 +264,9 @@ The report is written at exit, sorted by total time descending:
 span                                            count     total_ms     avg_ms     min_ms     max_ms
 ```
 
-Instrumented spans include `startup.*` (the six phases above), `extensions.discover`, `extensions.declared_skills`, `extension.load.<source>.<name>` with `.dependencies` / `.import` / `.register` sub-spans, `tool.<tool_name>`, `session.rewrite_file`, and `session.append_entry`. TUI spans are injected via `set_span_hook()` rather than imported, because `tau.tui` is a standalone package that must not import `tau.*` — a constraint enforced by `tests/test_tui_public_api.py`.
+Instrumented spans include `startup.*` (the six phases above), `extensions.discover`, `extensions.declared_skills`, `extension.load.<source>.<name>` with `.dependencies` / `.import` / `.register` sub-spans, `tool.<tool_name>`, `session.rewrite_file`, and `session.append_entry`. TUI spans are injected via `set_span_hook()` rather than imported, because `tau.tui` is a standalone package that must not import `tau.*`, a constraint enforced by `tests/test_tui_public_api.py`.
 
-`TAU_PROFILE=1` also auto-enables the startup stopwatch and folds its phases into the aggregate report, unless `--startup` already started it — the clock is never reset mid-run. Note the asymmetry: `--startup` alone prints to stderr and writes no file.
+`TAU_PROFILE=1` also auto-enables the startup stopwatch and folds its phases into the aggregate report, unless `--startup` already started it, the clock is never reset mid-run. Note the asymmetry: `--startup` alone prints to stderr and writes no file.
 
 To instrument new code:
 
@@ -308,8 +308,8 @@ Proxy settings in `settings.json` take precedence over the environment. See [HTT
 
 ## Next Steps
 
-- [Project Structure](project-structure.md) — module-by-module breakdown
-- [Architecture](architecture.md) — system design
-- [Python API](python-api.md) — embedding and driving Tau programmatically
-- [Extensions](extensions.md) — building extensions
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — commit format and PR process
+- [Project Structure](project-structure.md): module-by-module breakdown
+- [Architecture](architecture.md): system design
+- [Python API](python-api.md): embedding and driving Tau programmatically
+- [Extensions](extensions.md): building extensions
+- [CONTRIBUTING.md](../CONTRIBUTING.md): commit format and PR process

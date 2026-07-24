@@ -43,7 +43,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`Runtime.create()` builds the whole dependency graph and fires `session_start`. It does not call the model — `invoke()` does.
+`Runtime.create()` builds the whole dependency graph and fires `session_start`. It does not call the model. `invoke()` does.
 
 > **Always `await runtime.ashutdown()`.** It emits `runtime_stop`, cancels background tasks (version check, telemetry, local model discovery), and lets extensions reap subprocesses. It is idempotent.
 
@@ -68,7 +68,7 @@ Session-replacing operations (`new_session()`, `resume_session()`, `clone_sessio
 
 ### RuntimeConfig
 
-`RuntimeConfig` (`tau.runtime.types`) is a Pydantic model — an immutable configuration snapshot. `cwd` is the only required field. See the [Options Reference](#options-reference) for every field.
+`RuntimeConfig` (`tau.runtime.types`) is a Pydantic model, an immutable configuration snapshot. `cwd` is the only required field. See the [Options Reference](#options-reference) for every field.
 
 ```python
 from tau.runtime.types import RuntimeConfig
@@ -133,7 +133,7 @@ await runtime.invoke("Hello")
 unsubscribe()
 ```
 
-Handlers registered on the bus take exactly one argument — the event. (Extension handlers declared with `@tau.on(...)` receive `(event, context)` instead; that second argument is supplied by the extension layer, not by `Hooks`.) Handlers may be sync or async, and a raising handler is logged and skipped rather than propagated.
+Handlers registered on the bus take exactly one argument: the event. (Extension handlers declared with `@tau.on(...)` receive `(event, context)` instead; that second argument is supplied by the extension layer, not by `Hooks`.) Handlers may be sync or async, and a raising handler is logged and skipped rather than propagated.
 
 `runtime.subscribe(listener)` receives *every* event and returns the same unsubscribe callable.
 
@@ -149,7 +149,7 @@ Handlers registered on the bus take exactly one argument — the event. (Extensi
 | `session_shutdown` | The active session is being replaced |
 | `runtime_stop` | `ashutdown()` was called |
 
-Wait on `settled` — not `agent_end` — when you need the turn to be completely finished, including compaction.
+Wait on `settled` (not `agent_end`) when you need the turn to be completely finished, including compaction.
 
 ## Options Reference
 
@@ -300,7 +300,7 @@ See [Sessions](sessions.md) for the storage format and the `SessionManager` API.
 | `reload_extensions()` | Re-discover and reload all extensions, skills, prompts, and settings |
 | `reload_extension(ext_path)` | Reload a single extension by module path, leaving the others untouched |
 
-Reload calls made during an extension callback or an active agent turn are deferred and coalesced until a safe boundary. Both rebuild the system prompt and sync tools into the live engine — no new session needed.
+Reload calls made during an extension callback or an active agent turn are deferred and coalesced until a safe boundary. Both rebuild the system prompt and sync tools into the live engine, no new session needed.
 
 `set_model()` marks prior thought signatures as untrusted for the rest of the session, closes the outgoing provider's HTTP client, records a `model_change` session entry, and persists the new `text` model reference.
 
@@ -417,7 +417,7 @@ class WordCountTool(Tool):
 config = RuntimeConfig(cwd=Path.cwd(), tools=[WordCountTool()])
 ```
 
-`ToolKind` is one of `Read`, `Edit`, `Write`, `Execute`, `Web` — the engine applies its execution and approval policy from it. See [Creating Tools](creating-tools.md) for rendering, approval, and streaming details.
+`ToolKind` is one of `Read`, `Edit`, `Write`, `Execute`, `Web`. The engine applies its execution and approval policy from it. See [Creating Tools](creating-tools.md) for rendering, approval, and streaming details.
 
 ## Inline Extensions
 
@@ -487,7 +487,7 @@ class ProjectResourceLoader(DefaultResourceLoader):
 
 `ResourceSnapshot` is a dataclass with `builtins_extension_dir`, `project_extension_dir`, `global_extension_dir`, `extension_entries`, `extension_sources`, `disabled_extension_stems`, `extension_configs`, `skill_paths`, `prompt_paths`, `theme_paths`, `context_files`, `system_prompt`, and `diagnostics`.
 
-`DefaultResourceLoader` reports diagnostics for missing or invalid configured extension paths, missing installed-package directories, malformed package manifests, package selectors that match nothing, missing hook-contributed or override paths, and unreadable context files. Each `ResourceDiagnostic` carries `"warning"` or `"error"` severity, a source, a message, and an optional path. Diagnostics never stop startup — loading continues with the valid resources. Read the latest set from `runtime.resource_diagnostics`.
+`DefaultResourceLoader` reports diagnostics for missing or invalid configured extension paths, missing installed-package directories, malformed package manifests, package selectors that match nothing, missing hook-contributed or override paths, and unreadable context files. Each `ResourceDiagnostic` carries `"warning"` or `"error"` severity, a source, a message, and an optional path. Diagnostics never stop startup; loading continues with the valid resources. Read the latest set from `runtime.resource_diagnostics`.
 
 ## Ephemeral Context Injection
 
@@ -619,7 +619,7 @@ if __name__ == "__main__":
 
 ## Exports
 
-Tau has **no top-level namespace exports** — `import tau` gives you nothing but the package. Import from the specific module.
+Tau has **no top-level namespace exports**. `import tau` gives you nothing but the package. Import from the specific module.
 
 | Import | Provides |
 |--------|----------|
@@ -643,12 +643,12 @@ Tau has **no top-level namespace exports** — `import tau` gives you nothing bu
 | `tau.commands.types` | `CommandInfo`, `ParsedCommand` |
 | `tau.settings.paths` | `get_config_dir`, `get_sessions_dir`, `get_logs_dir`, `get_app_version`, and the other path helpers |
 
-`tau.session` and `tau.runtime` have no `__init__.py` re-exports — always import the submodule.
+`tau.session` and `tau.runtime` have no `__init__.py` re-exports; always import the submodule.
 
 ## Next Steps
 
-- [Engine](engine.md) — the streaming and tool-execution loop on its own
-- [Sessions](sessions.md) — session storage, format, and the `SessionManager` API
-- [Extensions](extensions.md) — the full extension API
-- [Creating Tools](creating-tools.md) — tool rendering, approval, and streaming
-- [Settings](settings.md) — configuration reference
+- [Engine](engine.md): the streaming and tool-execution loop on its own
+- [Sessions](sessions.md): session storage, format, and the `SessionManager` API
+- [Extensions](extensions.md): the full extension API
+- [Creating Tools](creating-tools.md): tool rendering, approval, and streaming
+- [Settings](settings.md): configuration reference

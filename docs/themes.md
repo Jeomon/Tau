@@ -2,7 +2,7 @@
 
 # Themes
 
-Themes are YAML files that define the colors of Tau's terminal UI. Every token is optional — an omitted token falls back to the built-in default, so a theme can be three lines or forty.
+Themes are YAML files that define the colors of Tau's terminal UI. Every token is optional. An omitted token falls back to the built-in default, so a theme can be three lines or forty.
 
 ## Table of Contents
 
@@ -28,13 +28,13 @@ Tau loads every `.yaml`, `.yml`, and `.json` file in each themes directory, non-
 | Project | `.tau/themes/` (in the working directory) | Overrides global |
 | Runtime | Registered by an extension via `tau.register_theme()` | Survives reloads |
 
-Names are matched case-insensitively. The **`name` field inside the file** determines the theme name — the filename is ignored. A file with no `name` is skipped with an error.
+Names are matched case-insensitively. The **`name` field inside the file** determines the theme name; the filename is ignored. A file with no `name` is skipped with an error.
 
 ## Built-In Themes
 
 | Theme | Colors |
 |-------|--------|
-| `dark` | Named ANSI — adapts to the terminal palette. The default |
+| `dark` | Named ANSI: adapts to the terminal palette. The default |
 | `light` | Hex |
 | `ayu-dark` | Hex |
 | `catppuccin` | Hex |
@@ -161,7 +161,7 @@ Valid names: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `whit
 
 Hex must be the full six-digit `#rrggbb`. A malformed value (`#fff`, a typo, a number) falls back to that token's built-in default rather than erroring, and is reported as a load warning.
 
-**Which to use?** Named ANSI for a theme that should blend into whatever palette the user already runs — that is why built-in `dark` uses names. Hex for a designed, branded look that must be identical everywhere.
+**Which to use?** Named ANSI for a theme that should blend into whatever palette the user already runs. That is why built-in `dark` uses names. Hex for a designed, branded look that must be identical everywhere.
 
 Some tokens have an attribute applied automatically by the loader, so you only need to supply the color:
 
@@ -191,7 +191,7 @@ All tokens live under `colors:` and are optional.
 | `warning` | Caution and highlight |
 | `error` | Error state |
 
-The six semantic roles (`muted`, `emphasis`, `success`, `warning`, `error`, `accent`) are mirrored onto the message theme, so setting one recolors it everywhere — chrome, selectors, modals, and tool renderers alike.
+The six semantic roles (`muted`, `emphasis`, `success`, `warning`, `error`, `accent`) are mirrored onto the message theme, so setting one recolors it everywhere: chrome, selectors, modals, and tool renderers alike.
 
 ### Messages
 
@@ -299,7 +299,7 @@ Pick a dark style (`monokai`, `dracula`, `nord`, `gruvbox-dark`) for dark themes
 
 ## Worked Example
 
-The bundled `tokyo-night` theme, in full — `tau/builtins/themes/tokyo-night.yaml`:
+The bundled `tokyo-night` theme, in full (`tau/builtins/themes/tokyo-night.yaml`):
 
 ```yaml
 name: tokyo-night
@@ -354,7 +354,7 @@ Note what it leaves out: no `vars`, no diff colors, no semantic roles, no `code_
 
 ## Python Theme API
 
-Themes are dataclasses under `tau.tui.theme`. Build one directly when you need behavior the YAML loader does not expose — `terminal_bg`, `selector_arrow`, `label_working`, `label_streaming`, or `stat_color`.
+Themes are dataclasses under `tau.tui.theme`. Build one directly when you need behavior the YAML loader does not expose: `terminal_bg`, `selector_arrow`, `label_working`, `label_streaming`, or `stat_color`.
 
 ```python
 from tau.tui.theme import LayoutTheme, SpinnerTheme
@@ -425,7 +425,7 @@ Color-bearing fields are `Style` objects, not functions. Build them with the flu
 
 ## Next Steps
 
-- [Settings](settings.md) — set the default theme
-- [Terminal UI](tui.md) — the component framework themes style
-- [Extensions](extensions.md) — registering themes from an extension
+- [Settings](settings.md): set the default theme
+- [Terminal UI](tui.md): the component framework themes style
+- [Extensions](extensions.md): registering themes from an extension
 </content>

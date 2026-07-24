@@ -30,7 +30,7 @@ Tau ships seven built-in tools covering file I/O, search, and shell execution. T
 
 ### read
 
-Read a UTF-8 text file. Invalid byte sequences are replaced during decoding. Every returned line is prefixed with a content-based hashline anchor in the form `<line>:<hash>|<content>`, where `<hash>` is four hex characters. Duplicate content — including blank lines — receives distinct anchors, so `edit` can target the exact displayed line.
+Read a UTF-8 text file. Invalid byte sequences are replaced during decoding. Every returned line is prefixed with a content-based hashline anchor in the form `<line>:<hash>|<content>`, where `<hash>` is four hex characters. Duplicate content (including blank lines) receives distinct anchors, so `edit` can target the exact displayed line.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -100,7 +100,7 @@ Execute a non-interactive shell command in the agent's working directory and ret
 
 Output streams through tool-update events while the command runs. Updates are throttled to at most once every 100 milliseconds, with guaranteed initial and final updates. The interactive TUI refreshes the existing result block on each update; when a long result is collapsed, its newest lines stay visible while the command runs.
 
-Timeout and cancellation terminate the command's complete process tree. Programs may still buffer their own output — use an unbuffered mode such as `python -u` when you need immediate output.
+Timeout and cancellation terminate the command's complete process tree. Programs may still buffer their own output. Use an unbuffered mode such as `python -u` when you need immediate output.
 
 > **Note:** Commands that require interactive input are unsupported and will hang until the timeout fires.
 
@@ -162,7 +162,7 @@ Invalid parameters and execution failures both come back to the model as an erro
 
 ## Tool Kinds
 
-`ToolKind` labels a tool's semantic category. It is carried on the tool call for rendering, telemetry, and hook logic — it does **not** gate execution.
+`ToolKind` labels a tool's semantic category. It is carried on the tool call for rendering, telemetry, and hook logic. It does **not** gate execution.
 
 | Kind | Meaning |
 |------|---------|
@@ -241,8 +241,8 @@ See [Project Context Files](project-context.md) for the full precedence, trust, 
 
 ## Next Steps
 
-- [Creating Tools](creating-tools.md) — Implement, register, and test a custom tool
-- [Extensions](extensions.md) — Package tools alongside commands, hooks, and UI
-- [Project Context Files](project-context.md) — Standing instructions for tool use
-- [Engine](engine.md) — The loop that schedules and executes tool calls
-- [Architecture](architecture.md) — How the tool system fits together internally
+- [Creating Tools](creating-tools.md): Implement, register, and test a custom tool
+- [Extensions](extensions.md): Package tools alongside commands, hooks, and UI
+- [Project Context Files](project-context.md): Standing instructions for tool use
+- [Engine](engine.md): The loop that schedules and executes tool calls
+- [Architecture](architecture.md): How the tool system fits together internally

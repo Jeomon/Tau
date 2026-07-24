@@ -107,7 +107,7 @@ tau --model openai/gpt-4o -p "Say hello"
 
 Tau uses the **Responses API**, not Chat Completions. When reasoning is active
 it requests `reasoning.encrypted_content` so reasoning items can be replayed
-across tool calls — see
+across tool calls, see
 [Reasoning Replay](inference.md#reasoning-replay).
 
 ### Google
@@ -116,7 +116,7 @@ Tau's `google` provider is the Gemini Developer API (Google AI Studio), through
 the Google Gen AI SDK. It is separate from `google-vertex`, which uses Google
 Cloud.
 
-1. Create a key at [Google AI Studio](https://aistudio.google.com) — no billing
+1. Create a key at [Google AI Studio](https://aistudio.google.com), no billing
    account needed.
 2. Export it:
 
@@ -186,8 +186,8 @@ leaves those fields unset rather than guessing.
 
 ### Tinker
 
-Tinker accepts the full OpenAI `reasoning_effort` string set — `none`,
-`minimal`, `low`, `medium`, `high`, `xhigh` — so Tau maps thinking levels 1:1
+Tinker accepts the full OpenAI `reasoning_effort` string set (`none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`) so Tau maps thinking levels 1:1
 instead of collapsing them to three tiers. `ThinkingLevel.Off` sends an explicit
 `"none"`, because omitting the parameter would leave reasoning on by default.
 
@@ -290,7 +290,7 @@ Cloud credentials rather than a `<PROVIDER>_API_KEY`.
 | `GOOGLE_APPLICATION_CREDENTIALS` | `google-vertex` | Service-account key file |
 
 Region defaults differ by adapter: `anthropic-vertex` falls back to `global`,
-`openai-vertex` to `us-central1`, and `google-vertex` has no fallback — set
+`openai-vertex` to `us-central1`, and `google-vertex` has no fallback. Set
 `GOOGLE_CLOUD_LOCATION` explicitly.
 
 ```bash
@@ -406,8 +406,8 @@ client, which participates in normal option merging instead of overriding it.
 ## Custom and Unlisted Models
 
 Pinning a provider that has no built-in entry for a model id is not an error.
-Tau synthesizes a descriptor from that provider's first registered model —
-copying adapter, base URL, cost, and capabilities — under the requested id:
+Tau synthesizes a descriptor from that provider's first registered model
+(copying adapter, base URL, cost, and capabilities) under the requested id:
 
 ```bash
 tau --provider openrouter --model some-vendor/brand-new-model
@@ -451,11 +451,11 @@ are requested.
 
 1. Check what Tau sees: `tau auth status`.
 2. Confirm the env var matches the provider id upper-cased with `_API_KEY`
-   appended — `huggingface` → `HUGGINGFACE_API_KEY`.
+   appended: `huggingface` → `HUGGINGFACE_API_KEY`.
 3. Remember that a **stored credential blocks the env var**. If `auth.json` has
    a stale entry, `tau auth unset <provider>` before relying on the environment.
-4. If the key is a `$ENV_VAR` or `!command` reference, verify it resolves —
-   references that produce an empty value are treated as unset.
+4. If the key is a `$ENV_VAR` or `!command` reference, verify it resolves.
+   References that produce an empty value are treated as unset.
 
 ### Model not found
 
@@ -467,7 +467,7 @@ least one other registered model for the custom-id fallback to apply. Check
 
 Tau retries a turn that produced no text and no tool call, then reports an
 error rather than committing a blank message. Repeated empty responses usually
-mean a thinking dialect mismatch on an OpenAI-compatible endpoint — try
+mean a thinking dialect mismatch on an OpenAI-compatible endpoint. Try
 `--effort off`.
 
 ### Connection timeouts
@@ -484,7 +484,7 @@ providers for the same model with `--provider`.
 
 ## Next Steps
 
-- [Authentication](auth.md) — credential storage and resolution
-- [Inference](inference.md) — the request path, events, and thinking levels
-- [HTTP Proxy](http-proxy.md) — proxy configuration
-- [Settings](settings.md) — defaults for provider, model, retries, and timeouts
+- [Authentication](auth.md): credential storage and resolution
+- [Inference](inference.md): the request path, events, and thinking levels
+- [HTTP Proxy](http-proxy.md): proxy configuration
+- [Settings](settings.md): defaults for provider, model, retries, and timeouts

@@ -4,8 +4,8 @@
 
 `tau.message` defines every message and content-block type Tau moves between the
 user, the model, and tools. Messages are plain dataclasses: a `role` and a list
-of typed `contents` blocks. Everything else in Tau — the [engine](engine.md), the
-[session store](sessions.md), the TUI transcript — operates on these types.
+of typed `contents` blocks. Everything else in Tau (the [engine](engine.md), the
+[session store](sessions.md), the TUI transcript) operates on these types.
 
 ## Table of Contents
 
@@ -83,11 +83,11 @@ def main() -> None:
 main()
 ```
 
-This list is exactly what `Engine.run(EngineContext(messages=…))` consumes — see
+This list is exactly what `Engine.run(EngineContext(messages=…))` consumes. See
 [Engine](engine.md#standalone-usage) for the script that sends it to a model.
 
 Standalone, `tau.message` does **not** persist anything, build a system prompt,
-compact context, or resolve `@file` references — those belong to
+compact context, or resolve `@file` references; those belong to
 [sessions](sessions.md), [project context](project-context.md), and the runtime.
 
 ## Content Blocks
@@ -101,7 +101,7 @@ Every block is a dataclass with a `Literal` `type` discriminator.
 | `ImageContent` | `image` | `images`, `dimension_note` | PIL images, bytes, URLs, or base64 |
 | `AudioContent` | `audio` | `audios` | Bytes, base64, or `file:`-prefixed paths |
 | `VideoContent` | `video` | `videos` | Bytes, base64, or `file:` paths |
-| `FileContent` | `file` | `files` | Documents — PDF, DOCX, XLSX |
+| `FileContent` | `file` | `files` | Documents: PDF, DOCX, XLSX |
 | `ToolCallContent` | `tool_call` | `id`, `name`, `kind`, `args`, `metadata` | Model's request to run a tool |
 | `ToolResultContent` | `tool_result` | `id`, `tool_name`, `content`, `is_error`, `metadata`, `image`, `audio`, `video`, `terminate`, `terminate_message` | Paired to a call by `id` |
 | `LinesContent` | `lines` | `lines`, `notify_type` | Pre-rendered TUI lines; not sent to models |
@@ -110,7 +110,7 @@ Every block is a dataclass with a `Literal` `type` discriminator.
 
 `ImageContent`, `AudioContent`, `VideoContent`, and `FileContent` normalize raw
 `bytes` to base64 strings in `__post_init__`. This keeps every content block
-JSON-serializable for session persistence — pydantic cannot encode non-UTF-8
+JSON-serializable for session persistence: pydantic cannot encode non-UTF-8
 bytes. Strings already present (base64 or URLs) pass through unchanged.
 
 Each of those classes offers:
@@ -127,7 +127,7 @@ Each of those classes offers:
 `ToolResultContent` can attach `image`, `audio`, or `video`. Providers with
 native tool-result media support (Anthropic, Gemini, OpenAI Responses) embed it.
 Providers without it (the Chat Completions family, Mistral, Ollama) silently
-ignore the attachment — there is no text-placeholder or replay-turn fallback.
+ignore the attachment. There is no text-placeholder or replay-turn fallback.
 
 `terminate` / `terminate_message` let a tool request that the loop stop after its
 result is recorded.
@@ -136,7 +136,7 @@ result is recorded.
 
 ### LLM Messages
 
-These four make up the `LLMMessage` union — the only messages sent to a model.
+These four make up the `LLMMessage` union, the only messages sent to a model.
 All inherit `BaseMessage`, which supplies `contents`, `id` (a UUID4), and
 `timestamp`.
 
@@ -301,7 +301,7 @@ See [Sessions](sessions.md) for entry types beyond `MessageEntry`.
 | `TerminalExecutionMessage` | `UserMessage` via `.to_user_message()`, unless `exclude` is set |
 | `CustomMessage` and other non-LLM types | Skipped |
 
-Empty assistant messages are visual-only markers — aborts, or persisted API and
+Empty assistant messages are visual-only markers: aborts, or persisted API and
 credit errors. An assistant turn with neither content nor tool calls is invalid
 to send back and triggers provider 400s, so it is dropped.
 

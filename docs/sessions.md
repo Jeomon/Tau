@@ -39,7 +39,7 @@ The project directory name encodes the absolute working directory plus a short h
 
 `/Users/alice/projects/myapp` becomes `--Users-alice-projects-myapp-3f2a91c7--`. The leading separator is stripped, and `/`, `\`, and `:` all become `-`.
 
-> **The hash suffix is required.** Flattening separators is not injective — `/x/my-app` and `/x/my/app` both encode to `--x-my-app--`. The hash disambiguates them.
+> **The hash suffix is required.** Flattening separators is not injective: `/x/my-app` and `/x/my/app` both encode to `--x-my-app--`. The hash disambiguates them.
 
 Legacy directories written before the hash was introduced have no suffix (`--Users-alice-projects-myapp--`). Tau still finds them: if the hashed directory does not exist but the legacy one does, the legacy directory is used, so existing sessions keep working. New projects always get the hashed form.
 
@@ -155,7 +155,7 @@ Filter modes are `default`, `no-tools`, `user-only`, `labeled-only`, and `all`.
 
 Selecting a plain user message moves the leaf to that message's **parent** and restores the message text into the editor, so you can edit and resubmit to create a new branch. Selecting any other entry moves the leaf to that entry and leaves the editor empty.
 
-Assistant turns with unanswered tool calls cannot be selected — pick the tool result or a later message instead.
+Assistant turns with unanswered tool calls cannot be selected. Pick the tool result or a later message instead.
 
 ### Branch summaries
 
@@ -177,7 +177,7 @@ When `/tree` moves you away from a branch, Tau can summarize the path you are le
 | Branch summary | Optional | No | No |
 | Typical use | Explore alternatives in place | Branch at a known entry ID | Snapshot before a risky change |
 
-Both `/tree` and `/fork` grow a new branch inside the current JSONL file — the original path is preserved alongside it. Only `/clone` produces a separate file; the clone records the original as its `parent_session`, and the two evolve independently.
+Both `/tree` and `/fork` grow a new branch inside the current JSONL file. The original path is preserved alongside it. Only `/clone` produces a separate file; the clone records the original as its `parent_session`, and the two evolve independently.
 
 When a branch is extracted into a new file, label entries are recreated at the end of the extracted path and retained entries are re-chained, so removing a label from the middle cannot orphan parent IDs.
 
@@ -199,7 +199,7 @@ When a branch is extracted into a new file, label entries are recreated at the e
 
 The picker loads lazily in pages of 20 and always excludes the active session. Deleting removes the file and its associated media; the active session cannot be deleted. There is no rename in the picker.
 
-After resuming, `/new` always starts an empty session — the startup resume selection is not reused for later session changes.
+After resuming, `/new` always starts an empty session. The startup resume selection is not reused for later session changes.
 
 ### Session info
 
@@ -400,7 +400,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`main()` is `async` only for symmetry with the rest of the API — `SessionManager` itself is fully synchronous.
+`main()` is `async` only for symmetry with the rest of the API. `SessionManager` itself is fully synchronous.
 
 Standalone, `tau.session` does **not** call a model, so `/compact` and branch summaries are unavailable: `compact()` and `generate_branch_summary()` in `tau.session.compaction` and `tau.session.branch_summarization` both require a `TextLLM`. It also does not load settings, extensions, or tools. For that layer, see [Python API](python-api.md). For direct parsing without a manager, `tau.session.utils.read_session_file(path)` returns the validated entry list, and `get_default_project_session_dir(cwd)` resolves a project's session directory.
 
@@ -410,25 +410,25 @@ Long sessions eventually fill the model's context window. Tau summarizes the old
 
 ### How it works
 
-1. **Cut-point detection** — Tau walks backwards accumulating token estimates until it has preserved `keep_recent_tokens` worth of messages. It never cuts between a tool call and its result; a cut landing inside a turn causes that turn's prefix to be summarized separately.
-2. **Summarization** — messages before the cut are sent to the model with a structured prompt (Goal / Progress / Decisions / Next Steps / Critical Context). The result is stored as a `compaction` entry and prepended to context in `<context-summary>` tags.
-3. **Iterative merging** — when a previous summary exists, it is included in the new prompt so history is never dropped.
+1. **Cut-point detection**: Tau walks backwards accumulating token estimates until it has preserved `keep_recent_tokens` worth of messages. It never cuts between a tool call and its result; a cut landing inside a turn causes that turn's prefix to be summarized separately.
+2. **Summarization**: messages before the cut are sent to the model with a structured prompt (Goal / Progress / Decisions / Next Steps / Critical Context). The result is stored as a `compaction` entry and prepended to context in `<context-summary>` tags.
+3. **Iterative merging**: when a previous summary exists, it is included in the new prompt so history is never dropped.
 
 ### When it runs
 
 The trigger is `context_tokens >= context_window - reserve_tokens`, checked at three points:
 
-1. **Pre-flight** — before sending a turn, catching resumed or already-oversized sessions.
-2. **Post-task** — after the agent becomes idle.
-3. **Overflow recovery** — if a request still fails with a provider context-overflow error, Tau drops the failed response, compacts, and retries the turn **once**. If it overflows again, Tau surfaces a message instead of looping.
+1. **Pre-flight**: before sending a turn, catching resumed or already-oversized sessions.
+2. **Post-task**: after the agent becomes idle.
+3. **Overflow recovery**: if a request still fails with a provider context-overflow error, Tau drops the failed response, compacts, and retries the turn **once**. If it overflows again, Tau surfaces a message instead of looping.
 
 Usage is estimated from the last response's reported usage plus a chars/4 estimate of anything after it, so the trigger reflects real provider accounting. Provider cache counters are normalized so cached input is not double-counted.
 
 Three guards keep this stable:
 
-- **Stale-anchor guard** — skips re-triggering when the usage anchor predates the latest compaction, so Tau does not compact on every subsequent turn.
-- **Circuit breaker** — after 3 consecutive automatic failures, Tau stops auto-compacting for the session and reports it. `/compact` still works.
-- **Model-switch guard** — usage reported by a previous model is discarded after a switch, falling back to a full heuristic estimate.
+- **Stale-anchor guard**: skips re-triggering when the usage anchor predates the latest compaction, so Tau does not compact on every subsequent turn.
+- **Circuit breaker**: after 3 consecutive automatic failures, Tau stops auto-compacting for the session and reports it. `/compact` still works.
+- **Model-switch guard**: usage reported by a previous model is discarded after a switch, falling back to a full heuristic estimate.
 
 ### Manual compaction
 
@@ -459,13 +459,13 @@ Under the `compaction` key in `settings.json`:
 }
 ```
 
-Both token settings are clamped at runtime to the active model's input limit, always leaving room for the generated summary. Disabling automatic compaction also disables overflow-triggered compaction and retry — provider context-overflow errors are returned directly.
+Both token settings are clamped at runtime to the active model's input limit, always leaving room for the generated summary. Disabling automatic compaction also disables overflow-triggered compaction and retry. Provider context-overflow errors are returned directly.
 
 Extensions can intercept `before_compaction` to replace the default summarization entirely. See [Extensions](extensions.md).
 
 ## Next Steps
 
-- [Python API](python-api.md) — driving sessions programmatically
-- [Usage Guide](usage.md) — session commands in interactive mode
-- [Messages & Context](messages.md) — how messages are structured
-- [Settings](settings.md) — session and compaction configuration
+- [Python API](python-api.md): driving sessions programmatically
+- [Usage Guide](usage.md): session commands in interactive mode
+- [Messages & Context](messages.md): how messages are structured
+- [Settings](settings.md): session and compaction configuration

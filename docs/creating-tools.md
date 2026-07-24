@@ -31,7 +31,7 @@ async def execute(
 ) -> ToolResult: ...
 ```
 
-There is no decorator-based registration API — `Tool` subclassing is the only way to define a tool. The base class supplies `validate()` (schema check returning `(ok, errors)`) and `to_json()` (provider-facing `{name, description, input_schema}`); you do not override them.
+There is no decorator-based registration API. `Tool` subclassing is the only way to define a tool. The base class supplies `validate()` (schema check returning `(ok, errors)`) and `to_json()` (provider-facing `{name, description, input_schema}`); you do not override them.
 
 | Object | Role |
 |--------|------|
@@ -135,7 +135,7 @@ Choose `kind` and `execution_mode` deliberately:
 
 - Tools that mutate files, launch processes, or change external state should use `ToolExecutionMode.Sequential`. A sequential tool acts as an ordering barrier for its whole batch.
 - Read-only operations may use `Parallel`, but only when they share no mutable state.
-- `kind` is descriptive metadata for rendering, telemetry, and hooks. It does not gate execution — Tau has no tool approval prompt.
+- `kind` is descriptive metadata for rendering, telemetry, and hooks. It does not gate execution. Tau has no tool approval prompt.
 
 ## Return Results
 
@@ -146,7 +146,7 @@ return ToolResult.ok(invocation.id, "Completed", metadata={"items": 3})
 return ToolResult.error(invocation.id, "The requested file does not exist")
 ```
 
-Keep `content` concise and actionable — it goes to the model. Use `metadata` for structured facts that hooks and renderers need, not to duplicate the text result.
+Keep `content` concise and actionable: it goes to the model. Use `metadata` for structured facts that hooks and renderers need, not to duplicate the text result.
 
 To render a successful result as Markdown in the TUI:
 
@@ -181,13 +181,13 @@ Set `terminate=True` (with an optional `terminate_message`) on a result to stop 
 | `llm` | Active text inference client, for tools that call a model |
 | `settings` | Active settings manager, when available |
 
-Treat every attribute as optional. Tools are unit-tested and invoked outside the full runtime, so always guard before use and fall back sensibly — as the example does with `Path.cwd()`.
+Treat every attribute as optional. Tools are unit-tested and invoked outside the full runtime, so always guard before use and fall back sensibly, as the example does with `Path.cwd()`.
 
 ## Streaming and Cancellation
 
 Long-running tools should check `signal.is_set()` at safe cancellation points and return early with `ToolResult.error`.
 
-Tools that produce incremental output call `tool_execution_update_callback` with partial `ToolResult` values. Emit an initial update when work begins and a final update matching the returned result. Throttle high-frequency producers — the built-in `terminal` tool caps updates at one per 100 milliseconds — so they do not flood engine events or terminal renders.
+Tools that produce incremental output call `tool_execution_update_callback` with partial `ToolResult` values. Emit an initial update when work begins and a final update matching the returned result. Throttle high-frequency producers (the built-in `terminal` tool caps updates at one per 100 milliseconds) so they do not flood engine events or terminal renders.
 
 ## Register the Tool
 
@@ -205,7 +205,7 @@ def register(tau: ExtensionAPI) -> None:
     tau.register_tool(WordCountTool())
 ```
 
-Run `/reload` after editing an extension — tools sync to the live engine without restarting the session. Project extensions load only after the project is trusted; see [Project Context Files](project-context.md#trust-and-security).
+Run `/reload` after editing an extension. Tools sync to the live engine without restarting the session. Project extensions load only after the project is trusted; see [Project Context Files](project-context.md#trust-and-security).
 
 ### Python Runtime
 
@@ -246,7 +246,7 @@ await engine.run(
 
 ## Standalone Usage
 
-A tool is an ordinary object. You can execute one with no model, no engine, and no session — useful for scripting and for driving a tool from your own code.
+A tool is an ordinary object. You can execute one with no model, no engine, and no session, useful for scripting and for driving a tool from your own code.
 
 ```python
 import asyncio
@@ -278,7 +278,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Executing a tool directly performs **no** schema validation, applies no execution-mode scheduling, and emits no engine events — those are the engine's responsibilities. Call `tool.validate(params)` yourself if you need the check. For the full loop, see [Engine](engine.md).
+Executing a tool directly performs **no** schema validation, applies no execution-mode scheduling, and emits no engine events. Those are the engine's responsibilities. Call `tool.validate(params)` yourself if you need the check. For the full loop, see [Engine](engine.md).
 
 ## Test the Tool
 
@@ -319,13 +319,13 @@ Also cover invalid parameters (`tool.validate`), missing resources, cancellation
 - Parameter types, defaults, and constraints live in the Pydantic schema, each with a `description`.
 - The `description` explains *when* the model should call the tool, not just what it does.
 - `kind` describes the side effect; `execution_mode` is `Parallel` only when concurrent calls are genuinely safe.
-- Failures return `ToolResult.error` — raw tracebacks never leak to the model.
+- Failures return `ToolResult.error`; raw tracebacks never leak to the model.
 - Relative paths resolve against `ToolContext.cwd`, with a fallback when context is absent.
 - Long operations check `signal.is_set()` and stream through the update callback.
 - Unit tests cover the success path, the failure path, and cancellation.
 
 ## Next Steps
 
-- [Tools](tools.md) — Built-in tool reference and execution model
-- [Extensions](extensions.md) — Package tools with commands, hooks, and UI
-- [Engine](engine.md) — Standalone lifecycle and event handling
+- [Tools](tools.md): Built-in tool reference and execution model
+- [Extensions](extensions.md): Package tools with commands, hooks, and UI
+- [Engine](engine.md): Standalone lifecycle and event handling

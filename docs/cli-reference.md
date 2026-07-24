@@ -136,7 +136,7 @@ tau --mode json -p "Count the test files" | while read -r line; do
 done
 ```
 
-RPC mode emits a larger event set — see [Events](#events).
+RPC mode emits a larger event set. See [Events](#events).
 
 ## Model Selection
 
@@ -154,7 +154,7 @@ An explicit `--provider` always overrides the provider inferred from the shortha
 
 ### Base URL override
 
-`--base-url` points the resolved provider at a different endpoint for the current run — a proxy, gateway, or self-hosted deployment. It applies to whichever provider ends up in use, whether set with `--provider`, inferred from shorthand, or taken from settings; `--provider` is not required alongside it.
+`--base-url` points the resolved provider at a different endpoint for the current run: a proxy, gateway, or self-hosted deployment. It applies to whichever provider ends up in use, whether set with `--provider`, inferred from shorthand, or taken from settings; `--provider` is not required alongside it.
 
 ```bash
 tau --base-url http://localhost:8000/v1 --provider vllm
@@ -162,7 +162,7 @@ tau --model groq/llama-3.3-70b-versatile --base-url https://gateway.internal/v1
 tau --base-url https://proxy.example.com/v1        # applies to the saved/default model
 ```
 
-The override is in-memory only. It is never written to `settings.json` or `auth.json`, and there is no persistent equivalent — pass it again on the next run.
+The override is in-memory only. It is never written to `settings.json` or `auth.json`, and there is no persistent equivalent. Pass it again on the next run.
 
 ## Session Options
 
@@ -177,7 +177,7 @@ tau --session-dir ./scratch-sessions   # store sessions outside ~/.tau/sessions
 
 `--resume` takes an optional value: bare `--resume` continues the most recent session, while `--resume ID` matches a session file whose name contains `ID`. If several match, the most recently modified wins.
 
-`--resume` and `--fork` cannot be used together — Tau exits with an error.
+`--resume` and `--fork` cannot be used together. Tau exits with an error.
 
 ## File Arguments
 
@@ -306,8 +306,8 @@ A bidirectional JSON-lines protocol for IDE extensions and programmatic clients.
 tau --mode rpc
 ```
 
-This section covers the CLI surface. For the full protocol — every command and event,
-the handshake, error handling, and a complete client — see [RPC Mode](rpc.md).
+This section covers the CLI surface. For the full protocol (every command and event,
+the handshake, error handling, and a complete client), see [RPC Mode](rpc.md).
 
 ### Framing
 
@@ -321,7 +321,7 @@ Immediately after the runtime initializes, Tau emits one `ready` line:
 {"type": "ready", "sessionId": "abc123", "cwd": "/path/to/project"}
 ```
 
-Both fields may be `null` — `sessionId` is null in ephemeral mode.
+Both fields may be `null`: `sessionId` is null in ephemeral mode.
 
 ### Commands
 
@@ -335,7 +335,7 @@ Send one JSON object per line on stdin. Every command accepts an optional `id`, 
 
 ### Responses
 
-Every command emits exactly one response line — with one exception, `extension_ui_response`, which emits nothing.
+Every command emits exactly one response line, with one exception, `extension_ui_response`, which emits nothing.
 
 ```json
 {"type": "response", "command": "prompt",    "id": "1", "success": true}
@@ -357,7 +357,7 @@ An unrecognized `type` yields `"Unknown command type: '<x>'"`.
 
 | Command | Key fields | Description |
 |---------|-----------|-------------|
-| `prompt` | `message` (required), `streamingBehavior?` | Send a user prompt. If the agent is already streaming, `streamingBehavior` is required — omitting it returns an error |
+| `prompt` | `message` (required), `streamingBehavior?` | Send a user prompt. If the agent is already streaming, `streamingBehavior` is required; omitting it returns an error |
 | `steer` | `message` (required) | Queue a steering message; errors with "No active agent" if idle |
 | `follow_up` | `message` (required) | Queue a follow-up message |
 | `abort` | — | Cancel the current agent turn |
@@ -417,7 +417,7 @@ An unrecognized `type` yields `"Unknown command type: '<x>'"`.
 | `switch_session` | `sessionPath` (required) | `{cancelled}` |
 | `fork` | `entryId` (required), `position?: "before" \| "at"` | `{text, cancelled}` |
 | `clone` | — | `{cancelled}` |
-| `get_fork_messages` | — | `{messages: [{entryId, text}]}` — user messages available for forking |
+| `get_fork_messages` | — | `{messages: [{entryId, text}]}`: user messages available for forking |
 | `get_last_assistant_text` | — | `{text: string \| null}` |
 | `set_session_name` | `name` | — |
 | `get_commands` | — | `{commands: [{name, description, source}]}`; `source` is `"extension"`, `"prompt"`, or `"skill"` |
@@ -541,7 +541,7 @@ proc.wait()
 
 ## Environment Variables
 
-Tau reads no `TAU_`-prefixed configuration variables other than `TAU_PROFILE`. Config, session, and log locations are fixed under `~/.tau/` and cannot be relocated by environment variable — use `--session-dir` for session files.
+Tau reads no `TAU_`-prefixed configuration variables other than `TAU_PROFILE`. Config, session, and log locations are fixed under `~/.tau/` and cannot be relocated by environment variable. Use `--session-dir` for session files.
 
 | Variable | Effect |
 |----------|--------|
@@ -554,7 +554,7 @@ Tau reads no `TAU_`-prefixed configuration variables other than `TAU_PROFILE`. C
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to a Google service-account JSON file |
 | `CLAUDE_CONFIG_DIR` | Windows only: where to find Claude Code credentials (default `~/.claude`) |
 
-Provider and model can be set permanently in `settings.json` — see [Settings](settings.md).
+Provider and model can be set permanently in `settings.json`. See [Settings](settings.md).
 
 ### Profiling
 
@@ -583,8 +583,8 @@ tau --startup                          # per-phase timings to stderr
 
 ## Next Steps
 
-- [Usage Guide](usage.md) — interactive mode and slash commands
-- [Installation](installation.md) — setup and credential precedence
-- [Settings](settings.md) — persistent configuration
-- [Sessions](sessions.md) — session storage and branching
-- [Extensions](extensions.md) — building extensions that use the RPC UI surface
+- [Usage Guide](usage.md): interactive mode and slash commands
+- [Installation](installation.md): setup and credential precedence
+- [Settings](settings.md): persistent configuration
+- [Sessions](sessions.md): session storage and branching
+- [Extensions](extensions.md): building extensions that use the RPC UI surface

@@ -1,6 +1,6 @@
 # Tau Documentation
 
-Tau is a self-extensible agent CLI: a terminal chat interface backed by any supported LLM provider, with tool execution, branching session history, and a plugin system for tools, commands, themes, and skills. Its core layers — inference, engine, session, and TUI — are also usable standalone as Python libraries.
+Tau is a self-extensible agent CLI: a terminal chat interface backed by any supported LLM provider, with tool execution, branching session history, and a plugin system for tools, commands, themes, and skills. Its core layers (inference, engine, session, and TUI) are also usable standalone as Python libraries.
 
 ## Quick start
 

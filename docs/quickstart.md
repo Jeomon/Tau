@@ -141,7 +141,7 @@ cat README.md | tau --print "Summarize this"   # piped stdin is merged into the 
 tau --prompt "Audit this repo" -f json         # structured JSON event stream
 ```
 
-Piped stdin, `@file` contents, and the explicit prompt are combined in that order. Use `--mode rpc` for bidirectional process integration — see [CLI Reference](cli-reference.md).
+Piped stdin, `@file` contents, and the explicit prompt are combined in that order. Use `--mode rpc` for bidirectional process integration; see [CLI Reference](cli-reference.md).
 
 ## Give Tau Project Instructions
 
@@ -161,9 +161,9 @@ Run `/reload` after editing a context file, or disable discovery entirely with `
 
 ## Next Steps
 
-- [Usage Guide](usage.md) — interactive mode, slash commands, and sessions
-- [CLI Reference](cli-reference.md) — every flag, subcommand, and run mode
-- [Installation](installation.md) — credential precedence and troubleshooting
-- [Settings](settings.md) — persistent configuration
-- [Keybindings](keybindings.md) — shortcuts and customization
-- [Extensions](extensions.md) — add custom tools and commands
+- [Usage Guide](usage.md): interactive mode, slash commands, and sessions
+- [CLI Reference](cli-reference.md): every flag, subcommand, and run mode
+- [Installation](installation.md): credential precedence and troubleshooting
+- [Settings](settings.md): persistent configuration
+- [Keybindings](keybindings.md): shortcuts and customization
+- [Extensions](extensions.md): add custom tools and commands

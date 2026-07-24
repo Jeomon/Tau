@@ -27,7 +27,7 @@ pip install tau-coding-agent      # installs the `tau` command
 uv tool install tau-coding-agent --python 3.13
 ```
 
-Pin the interpreter explicitly — uv otherwise defaults to its newest managed Python, which may exceed Tau's supported range.
+Pin the interpreter explicitly. uv otherwise defaults to its newest managed Python, which may exceed Tau's supported range.
 
 ### From source
 
@@ -45,7 +45,7 @@ tau --help                        # lists all global options and subcommands
 tau doctor                        # full configuration/credential/model health check
 ```
 
-`tau doctor` is the fastest way to confirm a working install — it checks settings and auth file integrity, credential status, model and provider resolution, extensions, session storage, logs, and installed packages in one pass.
+`tau doctor` is the fastest way to confirm a working install: it checks settings and auth file integrity, credential status, model and provider resolution, extensions, session storage, logs, and installed packages in one pass.
 
 ## Authentication
 
@@ -105,7 +105,7 @@ The Vertex providers (`google-vertex`, `anthropic-vertex`, `openai-vertex`) use 
 
 ### Credential file
 
-Store credentials in `~/.tau/auth.json`. The file is always global — there is no project-local auth file.
+Store credentials in `~/.tau/auth.json`. The file is always global: there is no project-local auth file.
 
 ```json
 {
@@ -149,7 +149,7 @@ This keeps plaintext keys out of the file while still letting `tau auth` manage 
 
 ## Where Tau Stores Things
 
-All paths are fixed relative to `~/.tau/` and `<cwd>/.tau/`. **No environment variable relocates them** — use the `--session-dir` flag if you need session files elsewhere.
+All paths are fixed relative to `~/.tau/` and `<cwd>/.tau/`. **No environment variable relocates them**. Use the `--session-dir` flag if you need session files elsewhere.
 
 ```text
 ~/.tau/                    # global config directory
@@ -213,14 +213,14 @@ env | grep -i api_key       # check which provider keys are visible
 tau auth status             # check what Tau itself resolves, env fallbacks included
 ```
 
-The variable must be `<PROVIDER_ID>_API_KEY` in uppercase — `ANTHROPIC_API_KEY`, not `ANTHROPIC_KEY`.
+The variable must be `<PROVIDER_ID>_API_KEY` in uppercase: `ANTHROPIC_API_KEY`, not `ANTHROPIC_KEY`.
 
 ### Provider connection errors
 
-1. **Network** — can you reach the provider endpoint from this machine?
-2. **Key validity** — is the key expired or revoked?
-3. **Region** — is your location or IP blocked by the provider?
-4. **Proxy** — Tau honors `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` (either case). Settings in `settings.json` take precedence over these. See [HTTP Proxy](http-proxy.md).
+1. **Network**: can you reach the provider endpoint from this machine?
+2. **Key validity**: is the key expired or revoked?
+3. **Region**: is your location or IP blocked by the provider?
+4. **Proxy**: Tau honors `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` (either case). Settings in `settings.json` take precedence over these. See [HTTP Proxy](http-proxy.md).
 
 ### Ollama connection issues
 
@@ -239,7 +239,7 @@ tau --provider ollama --base-url http://gpu-box.local:11434
 
 ### `uv tool install` fails building `pyxclip`
 
-`pyxclip` (clipboard support) ships prebuilt wheels only up to Python 3.13 — its `pyo3` bindings do not yet support 3.14. `uv tool install` picks uv's newest managed Python by default, regardless of this project's `requires-python` bound, so the install falls back to a source build that fails:
+`pyxclip` (clipboard support) ships prebuilt wheels only up to Python 3.13. Its `pyo3` bindings do not yet support 3.14. `uv tool install` picks uv's newest managed Python by default, regardless of this project's `requires-python` bound, so the install falls back to a source build that fails:
 
 ```text
 error: The configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)
@@ -266,9 +266,9 @@ $env:UV_PYTHON = "3.13"
 
 ## Next Steps
 
-- [Quickstart](quickstart.md) — run your first session
-- [Usage Guide](usage.md) — interactive mode, slash commands, and sessions
-- [CLI Reference](cli-reference.md) — every flag, subcommand, and run mode
-- [Inference Providers](inference-providers.md) — full provider reference
-- [Authentication](auth.md) — OAuth subscription logins
-- [Settings](settings.md) — persistent configuration
+- [Quickstart](quickstart.md): run your first session
+- [Usage Guide](usage.md): interactive mode, slash commands, and sessions
+- [CLI Reference](cli-reference.md): every flag, subcommand, and run mode
+- [Inference Providers](inference-providers.md): full provider reference
+- [Authentication](auth.md): OAuth subscription logins
+- [Settings](settings.md): persistent configuration

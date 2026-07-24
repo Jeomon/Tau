@@ -1,4 +1,4 @@
-> `tau.engine` is embeddable on its own. It needs an LLM and a list of tools — nothing else from Tau.
+> `tau.engine` is embeddable on its own. It needs an LLM and a list of tools, nothing else from Tau.
 
 # Engine
 
@@ -71,15 +71,15 @@ objects*, not subclasses:
 | `AgentOptions` | `EngineOptions` |
 
 New code should use the `Engine*` names. Note that `tau.agent.Agent` is a
-**different, real class** — the session-aware orchestrator — not an alias. Do not
+**different, real class** (the session-aware orchestrator), not an alias. Do not
 confuse `from tau.engine import Agent` with `from tau.agent import Agent`.
 
 `tau.agent.types.AgentContext` is an alias for `EngineContext`.
 
 ## Standalone Usage
 
-A complete, copy-pasteable script. It needs only a configured model provider —
-see [Inference Providers](inference-providers.md) for credentials.
+A complete, copy-pasteable script. It needs only a configured model provider.
+See [Inference Providers](inference-providers.md) for credentials.
 
 ```python
 import asyncio
@@ -279,7 +279,7 @@ those two from `tau.hooks.engine`.
 `AgentEndReason` is `completed`, `aborted`, or `error`.
 
 `MessageRollbackEvent` retracts the last `count` committed messages. It fires
-when an interrupted tool turn is discarded — the assistant tool-call message and
+when an interrupted tool turn is discarded: the assistant tool-call message and
 its tool-result message were already committed before the abort landed.
 
 ## Tool Execution

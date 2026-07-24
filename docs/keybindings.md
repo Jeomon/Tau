@@ -2,7 +2,7 @@
 
 Tau's keyboard shortcuts come from two places: a small set of **named actions** that an embedding application can rebind, and a larger set of **hardcoded literal keys** in individual components. This page enumerates both, grouped by the context they apply in.
 
-> **There is no keybindings config file.** Tau reads no `keybindings.json`, and `settings.json` has no keybindings key. The only override path is programmatic — see [Customizing Keybindings](#customizing-keybindings).
+> **There is no keybindings config file.** Tau reads no `keybindings.json`, and `settings.json` has no keybindings key. The only override path is programmatic, see [Customizing Keybindings](#customizing-keybindings).
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ Tau's keyboard shortcuts come from two places: a small set of **named actions** 
 
 ## Key Notation
 
-Key combos are `modifier+key` strings. Modifier order and aliases do not matter — `shift+ctrl+x`, `ctrl+shift+x`, and `control+shift+x` are the same binding.
+Key combos are `modifier+key` strings. Modifier order and aliases do not matter: `shift+ctrl+x`, `ctrl+shift+x`, and `control+shift+x` are the same binding.
 
 | Notation | Meaning |
 |----------|---------|
@@ -51,9 +51,9 @@ Active whenever no modal has captured input.
 | Key | Action |
 |-----|--------|
 | `escape` | Abort the running turn |
-| `escape` `escape` | Double-press while idle — runs the configured `double_escape_action` |
+| `escape` `escape` | Double-press while idle, runs the configured `double_escape_action` |
 | `ctrl+c` | Abort the running turn |
-| `ctrl+c` `ctrl+c` | Double-press while idle (within 0.5 s) — quit. A single press clears the editor |
+| `ctrl+c` `ctrl+c` | Double-press while idle (within 0.5 s): quit. A single press clears the editor |
 | `ctrl+d` | Quit |
 | `ctrl+o` | Toggle expanded thinking and tool-result details |
 | `ctrl+e` | Toggle template and skill invocation blocks (when the editor is empty) |
@@ -65,7 +65,7 @@ Active whenever no modal has captured input.
 to an editor, and reads the text back when it exits. The command is resolved in this
 order:
 
-1. `external_editor` in `settings.json` — e.g. `"code --wait"`, or a quoted path
+1. `external_editor` in `settings.json`: e.g. `"code --wait"`, or a quoted path
    containing spaces
 2. `$VISUAL`
 3. `$EDITOR`
@@ -251,7 +251,7 @@ Opened with `/settings`.
 | `up` / `down` | Move between rows |
 | `tab` | Cycle tabs |
 | `enter` | Cycle a value, open a sub-panel, or enter text-edit mode |
-| `space` | Same as `enter`, unless editing text — then it inserts a space |
+| `space` | Same as `enter`, unless editing text, then it inserts a space |
 | `escape` | Close a sub-panel, or close the panel |
 | `backspace` | Delete a search character, or an edit character while editing |
 | *(type)* | Fuzzy-search rows |
@@ -277,7 +277,7 @@ Editor overlays (multi-line input):
 | `up` / `down` / `left` / `right` / `home` | Move the cursor |
 | `escape` | Cancel |
 
-> The editor overlay advertises `Ctrl+S to save` in its footer, but that binding does not currently fire — the handler compares against a key string the input parser never produces. Use `escape` to dismiss.
+> The editor overlay advertises `Ctrl+S to save` in its footer, but that binding does not currently fire: the handler compares against a key string the input parser never produces. Use `escape` to dismiss.
 
 ## Trust Screen
 
@@ -323,11 +323,11 @@ These are the only bindings routed through the keymap, and therefore the only on
 
 `tui.app.abort` is checked before `tui.app.quit`, so `ctrl+c` always aborts first; quitting with `ctrl+c` happens only through the double-press timer. `ctrl+d` reaches `tui.app.quit` directly.
 
-The `tui.select.*` actions apply to every component built on `SelectList` and to the equivalent operations in specialized pickers. Not every picker supports every operation — a compact autocomplete list only handles up and down.
+The `tui.select.*` actions apply to every component built on `SelectList` and to the equivalent operations in specialized pickers. Not every picker supports every operation: a compact autocomplete list only handles up and down.
 
 ## Customizing Keybindings
 
-Overrides are supplied by the embedding application at startup, as a `KeyMap` — a `dict[str, list[str]]` mapping action name to key combos.
+Overrides are supplied by the embedding application at startup, as a `KeyMap`, a `dict[str, list[str]]` mapping action name to key combos.
 
 ```python
 import asyncio
@@ -382,7 +382,7 @@ def register(tau):
         await ctx.ui.notify("Hello")
 ```
 
-Extension shortcuts are installed at the front of the handler chain, so they take priority over the editor and global handlers. Tau checks each against the effective keymap and rejects any combo bound to a reserved action — every named action except `app.details.toggle` and `app.invocations.toggle`. See [Extensions](extensions.md#keyboard-shortcuts).
+Extension shortcuts are installed at the front of the handler chain, so they take priority over the editor and global handlers. Tau checks each against the effective keymap and rejects any combo bound to a reserved action: every named action except `app.details.toggle` and `app.invocations.toggle`. See [Extensions](extensions.md#keyboard-shortcuts).
 
 For raw, unfiltered terminal input, an extension can use `ctx.ui.on_terminal_input(handler)`, which runs before the editor and overlays.
 
@@ -400,7 +400,7 @@ If a binding does not respond, pick a different combination.
 
 ## Next Steps
 
-- [Settings](settings.md) — `double_escape_action`, `tree_filter_mode`, and other behavior toggles
-- [Terminal UI](tui.md) — the input event model behind these bindings
-- [Extensions](extensions.md) — registering custom shortcuts
+- [Settings](settings.md): `double_escape_action`, `tree_filter_mode`, and other behavior toggles
+- [Terminal UI](tui.md): the input event model behind these bindings
+- [Extensions](extensions.md): registering custom shortcuts
 </content>

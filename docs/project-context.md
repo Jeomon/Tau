@@ -22,7 +22,7 @@ Tau recognizes exactly two names, matched case-insensitively:
 | 1 | `AGENTS.md` | Checked first |
 | 2 | `CLAUDE.md` | Used only when no `AGENTS.md` is present in that directory |
 
-Within a directory, the first match wins — Tau loads **one** context file per directory, never both. When several case variants exist (`AGENTS.md` and `agents.md`), the fully uppercase spelling is preferred.
+Within a directory, the first match wins, so Tau loads **one** context file per directory, never both. When several case variants exist (`AGENTS.md` and `agents.md`), the fully uppercase spelling is preferred.
 
 ## Discovery Rules
 
@@ -33,7 +33,7 @@ Within a directory, the first match wins — Tau loads **one** context file per 
 
 Additional details:
 
-- **Empty files are ignored.** A file whose content is blank after stripping is treated as absent — `CLAUDE.md` is not consulted as a fallback in that directory.
+- **Empty files are ignored.** A file whose content is blank after stripping is treated as absent, and `CLAUDE.md` is not consulted as a fallback in that directory.
 - **Symlinks are skipped.** Only regular files are considered.
 - **Duplicates are removed.** Files resolving to the same inode are loaded once.
 - **Unreadable files are skipped**, not fatal.
@@ -54,7 +54,7 @@ Running Tau from `myrepo/services/api/src/` loads `myrepo/AGENTS.md` then `myrep
 
 ## Writing a Context File
 
-Create `AGENTS.md` in your project root. There is no required schema — the content is injected as-is, so write whatever the agent should always know.
+Create `AGENTS.md` in your project root. There is no required schema: the content is injected as-is, so write whatever the agent should always know.
 
 ````markdown
 # Project Guidelines
@@ -83,7 +83,7 @@ src/
 - Never run database migrations
 ````
 
-Keep it short and imperative. Everything here occupies context on every request, so prefer standing rules over background prose the agent can read on demand — put that in a [skill](skills.md) instead.
+Keep it short and imperative. Everything here occupies context on every request, so prefer standing rules over background prose the agent can read on demand; put that in a [skill](skills.md) instead.
 
 ## System Prompt Integration
 
@@ -121,7 +121,7 @@ The complete prompt is assembled in this order:
 | Environment | cwd, OS, architecture, shell, date |
 | Appended | `APPEND_SYSTEM.md`, verbatim and last |
 
-Passing `--system` or setting `RuntimeConfig.system_prompt` bypasses this builder entirely — tools, project context, skills, Git, and environment sections are all dropped.
+Passing `--system` or setting `RuntimeConfig.system_prompt` bypasses this builder entirely: tools, project context, skills, Git, and environment sections are all dropped.
 
 ## Trust and Security
 
@@ -187,7 +187,7 @@ For team projects `AGENTS.md` is the recommended default: it travels with the co
 - Confirm the file sits between the Git root and your current directory.
 - Confirm the name is `AGENTS.md` or `CLAUDE.md` in any letter case.
 - Confirm the file is not empty and is not a symlink.
-- Confirm the project is trusted — rerun with `tau --approve`.
+- Confirm the project is trusted: rerun with `tau --approve`.
 - Confirm you are not running with `--no-context-files`.
 
 **Only one file loads in a monorepo**
@@ -200,11 +200,11 @@ Check `~/.tau/trust.json` for the stored decision. A `project_trust` value of `"
 
 **Inspecting the effective prompt**
 
-There is no slash command for this. Build the prompt through the Python API or read it from an extension context — see [Python API](python-api.md).
+There is no slash command for this. Build the prompt through the Python API or read it from an extension context; see [Python API](python-api.md).
 
 ## Next Steps
 
-- [Skills](skills.md) — On-demand instruction sets that keep the prompt small
-- [Prompt Templates](prompts.md) — Slash commands with argument substitution
-- [Settings](settings.md) — `project_trust` and other configuration
-- [Tools](tools.md) — What the agent can actually do
+- [Skills](skills.md): On-demand instruction sets that keep the prompt small
+- [Prompt Templates](prompts.md): Slash commands with argument substitution
+- [Settings](settings.md): `project_trust` and other configuration
+- [Tools](tools.md): What the agent can actually do

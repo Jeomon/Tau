@@ -4,8 +4,8 @@ Tau uses JSON settings files with project settings overriding global settings. E
 
 | Location | Scope |
 |----------|-------|
-| `~/.tau/settings.json` | Global — defaults for all projects |
-| `.tau/settings.json` | Project — overrides for the current directory |
+| `~/.tau/settings.json` | Global: defaults for all projects |
+| `.tau/settings.json` | Project: overrides for the current directory |
 
 Edit the files directly, or use `/settings` for an interactive panel. Changes take effect on the next session start or after `/reload`.
 
@@ -55,7 +55,7 @@ Global and project settings are deep-merged at startup. A non-`null` project val
 
 Three rules govern the merge:
 
-1. Project settings are only merged when the project is **trusted**. An untrusted project contributes nothing — see [Project Trust](#project-trust).
+1. Project settings are only merged when the project is **trusted**. An untrusted project contributes nothing; see [Project Trust](#project-trust).
 2. `telemetry` is read from the **global scope only**, so a project can never re-enable telemetry a user has turned off.
 3. Every setter on `SettingsManager` writes to the **global** file. The only exception is `set_project_extension_list()`, which writes `.tau/settings.json`. `/settings` therefore always edits global settings.
 
@@ -71,7 +71,7 @@ provider base options  (tau/builtins/providers/*)
       └─ caller-supplied LLMOptions (settings, CLI flags, extensions)
 ```
 
-An override field only wins when it is **both** non-`None` **and** explicitly set by the caller. `LLMOptions` tracks assignment in `_explicit_fields` (`tau/inference/types.py`), so a field left at its dataclass default — `temperature`, `max_retries`, `timeout` — does not clobber the provider's own configured value. This is why passing a bare `LLMOptions()` is a no-op rather than a reset.
+An override field only wins when it is **both** non-`None` **and** explicitly set by the caller. `LLMOptions` tracks assignment in `_explicit_fields` (`tau/inference/types.py`), so a field left at its dataclass default (`temperature`, `max_retries`, `timeout`) does not clobber the provider's own configured value. This is why passing a bare `LLMOptions()` is a no-op rather than a reset.
 
 Settings feed this layer at runtime: when `retry.enabled` is true, `max_retries` and `retry_base_delay_ms` are assigned onto the live `llm.api.options` (`tau/runtime/types.py`).
 
@@ -126,7 +126,7 @@ Integer and string settings use inline text editing: press Enter to edit, Enter 
 
 `voice` inside a `ModelRef` is the provider's named TTS voice, not a model slot.
 
-> **Legacy format:** a flat `"model": "<id>"` with a sibling `"provider"` key still loads — it is folded into `model.text` and rewritten in nested form on the next save.
+> **Legacy format:** a flat `"model": "<id>"` with a sibling `"provider"` key still loads; it is folded into `model.text` and rewritten in nested form on the next save.
 
 ### thinking_budgets
 
@@ -315,7 +315,7 @@ The three engine-level keys leave the corresponding `EngineOptions` default in p
 |---------|------|---------|-------------|
 | `project_trust` | string | `"ask"` | Trust policy: `"ask"`, `"always"`, or `"never"` |
 
-Trust gates everything a project directory can contribute: `.tau/settings.json`, project extensions, project context files (`AGENTS.md`, `CLAUDE.md`), and project skills. Until a project is trusted, `SettingsManager` merges an empty `Settings()` for the project scope — the file is not even read.
+Trust gates everything a project directory can contribute: `.tau/settings.json`, project extensions, project context files (`AGENTS.md`, `CLAUDE.md`), and project skills. Until a project is trusted, `SettingsManager` merges an empty `Settings()` for the project scope. The file is not even read.
 
 Granting trust mid-session re-reads `.tau/settings.json` and recomputes the merged view immediately; revoking it discards the project scope.
 
@@ -416,19 +416,19 @@ Entries missing `source` or `name` are dropped on load. This block is normally m
 
 A malformed file does not stop tau from starting. Two failure modes are handled separately:
 
-1. **Total parse failure** — invalid JSON, or a root that is not an object. The whole scope loads as defaults.
-2. **Partial failure** — the file parses, but one field has the wrong shape (a string where an object was expected). Only that field resets to its default; every other field survives, and the issue is recorded.
+1. **Total parse failure**: invalid JSON, or a root that is not an object. The whole scope loads as defaults.
+2. **Partial failure**: the file parses, but one field has the wrong shape (a string where an object was expected). Only that field resets to its default; every other field survives, and the issue is recorded.
 
 Run `tau doctor` to list what was dropped, and `tau doctor --fix` to heal. Healing backs up the original alongside itself as `settings.json.corrupt-<timestamp>` before rewriting, so nothing is lost.
 
-Unknown keys are ignored silently — an old key left in the file is harmless.
+Unknown keys are ignored silently; an old key left in the file is harmless.
 
 ## Next Steps
 
-- [Extension Settings](extension-settings.md) — per-extension configuration and `/settings` integration
-- [Themes](themes.md) — theme format and color tokens
-- [Keybindings](keybindings.md) — keyboard shortcuts
-- [Sessions](sessions.md) — session storage and resumption
-- [HTTP Proxy](http-proxy.md) — proxy configuration in depth
+- [Extension Settings](extension-settings.md): per-extension configuration and `/settings` integration
+- [Themes](themes.md): theme format and color tokens
+- [Keybindings](keybindings.md): keyboard shortcuts
+- [Sessions](sessions.md): session storage and resumption
+- [HTTP Proxy](http-proxy.md): proxy configuration in depth
 </content>
 </invoke>

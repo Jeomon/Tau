@@ -40,7 +40,7 @@ Project templates load only after the project is trusted. See [Project Context F
 
 ## Format
 
-A template is frontmatter plus a body. The filename determines the command name — `explain.md` becomes `/explain`.
+A template is frontmatter plus a body. The filename determines the command name: `explain.md` becomes `/explain`.
 
 ```markdown
 ---
@@ -84,7 +84,7 @@ Type `/` followed by the template name. Autocomplete lists available templates w
 
 Arguments are split shell-style with `shlex`, so quotes group words into a single argument. If the argument string has unbalanced quotes, Tau falls back to splitting on whitespace rather than failing.
 
-If a name matches a built-in command, the command wins — templates are only consulted when no command matches.
+If a name matches a built-in command, the command wins, and templates are only consulted when no command matches.
 
 ## Argument Substitution
 
@@ -99,7 +99,7 @@ If a name matches a built-in command, the command wins — templates are only co
 
 A referenced argument that was not supplied expands to an empty string. Braced forms are substituted first, then `$@`/`$ARGUMENTS`, then bare `$1`–`$9`.
 
-> **Note:** The bare `$1`–`$9` form only covers single digits. For a tenth argument or beyond, use the brace form `${10}`. There is no `${@:-default}` form — defaults are only available for positional arguments.
+> **Note:** The bare `$1`–`$9` form only covers single digits. For a tenth argument or beyond, use the brace form `${10}`. There is no `${@:-default}` form; defaults are only available for positional arguments.
 
 ### Examples
 
@@ -172,14 +172,14 @@ Running `/commit "part of the auth refactor"` sends the body with `${1:-…}` re
 
 ## Loading Rules
 
-- Discovery is **non-recursive** — only `*.md` files directly inside a prompts directory are loaded. Subdirectories are ignored.
+- Discovery is **non-recursive**: only `*.md` files directly inside a prompts directory are loaded. Subdirectories are ignored.
 - The template name is the filename stem, lowercased.
 - Files are loaded in sorted order within each directory.
 - Templates appear in the `/` command palette. There is no separate `/prompts` command.
 
 ## Next Steps
 
-- [Skills](skills.md) — Instruction sets the model loads on its own
-- [Extensions](extensions.md) — Register templates and commands programmatically
-- [Settings](settings.md) — The `prompts` path array and other configuration
-- [Usage Guide](usage.md) — Interactive mode commands
+- [Skills](skills.md): Instruction sets the model loads on its own
+- [Extensions](extensions.md): Register templates and commands programmatically
+- [Settings](settings.md): The `prompts` path array and other configuration
+- [Usage Guide](usage.md): Interactive mode commands

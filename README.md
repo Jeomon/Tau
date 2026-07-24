@@ -82,7 +82,7 @@ Common flags:
 | Flag | Short | Description |
 |---|---|---|
 | `--prompt TEXT` | `-p` | Run a non-interactive prompt |
-| `--print` | | Print mode — run `MESSAGE` and exit (shorthand for `--mode print`) |
+| `--print` | | Print mode: run `MESSAGE` and exit (shorthand for `--mode print`) |
 | `--mode` | | `interactive` (default), `print`, `json`, `rpc` |
 | `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model` | | Model ID, or `provider/model` shorthand |
@@ -144,15 +144,15 @@ Full interactive workflow guide: [Usage](docs/usage.md).
 | Area | Pi | Tau |
 |---|---|---|
 | Language | TypeScript | Python |
-| TUI rendering | Line-level diffing — rewrites a full line if any part of it changed | Cell-level diffing (`Buffer`/`Cell`, modeled after [ratatui](https://github.com/ratatui/ratatui)'s `Buffer::diff`) — only the changed cells within a row are redrawn |
+| TUI rendering | Line-level diffing: rewrites a full line if any part of it changed | Cell-level diffing (`Buffer`/`Cell`, modeled after [ratatui](https://github.com/ratatui/ratatui)'s `Buffer::diff`): only the changed cells within a row are redrawn |
 | LLM providers | ~40, including many CN/regional and gateway vendors | 14 major providers |
 | Audio (TTS/STT) | Not supported | ElevenLabs, Sarvam, Gemini, OpenAI |
 | Image/video generation | Not supported | OpenAI, Gemini, OpenRouter, Fal, Zai |
-| Sandboxing | microVM sandbox (Gondolin) is an example extension, excluded from the main build — the user wires it in themselves | `microsandbox` microVM ships as a builtin extension, enabled by default |
+| Sandboxing | microVM sandbox (Gondolin) is an example extension, excluded from the main build, so the user wires it in themselves | `microsandbox` microVM ships as a builtin extension, enabled by default |
 | Packaging | 5 separately published npm packages | Single PyPI package |
 
-Core mechanics — built-in tools, session branching/compaction, extension and
-hook API, and the interactive/print/RPC execution modes — are functionally
+Core mechanics (built-in tools, session branching/compaction, extension and
+hook API, and the interactive/print/RPC execution modes) are functionally
 equivalent between the two.
 
 ## Referencing files
@@ -196,16 +196,16 @@ setup.
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md) — First session in five minutes
-- [Usage](docs/usage.md) — Interactive workflows and commands
-- [CLI Reference](docs/cli-reference.md) — Command-line options and modes
-- [Inference Providers](docs/inference-providers.md) — Providers and speech timestamps
-- [Sessions](docs/sessions.md) — Persistence, branching, and compaction
-- [Tools](docs/tools.md) — Built-in and custom tools
-- [Extensions](docs/extensions.md) — Tools, commands, hooks, and plugins
-- [Terminal UI](docs/tui.md) — Rendering, Markdown, math, and components
-- [Python API](docs/python-api.md) — Embed Tau in another application
-- [Architecture](docs/architecture.md) — Internal design and data flow
+- [Quickstart](docs/quickstart.md): First session in five minutes
+- [Usage](docs/usage.md): Interactive workflows and commands
+- [CLI Reference](docs/cli-reference.md): Command-line options and modes
+- [Inference Providers](docs/inference-providers.md): Providers and speech timestamps
+- [Sessions](docs/sessions.md): Persistence, branching, and compaction
+- [Tools](docs/tools.md): Built-in and custom tools
+- [Extensions](docs/extensions.md): Tools, commands, hooks, and plugins
+- [Terminal UI](docs/tui.md): Rendering, Markdown, math, and components
+- [Python API](docs/python-api.md): Embed Tau in another application
+- [Architecture](docs/architecture.md): Internal design and data flow
 
 The complete documentation index is available at [docs/index.md](docs/index.md).
 
@@ -223,7 +223,7 @@ tau
 Tau executes enabled tools with the operating-system permissions of the process
 that launched it. The built-in `sandbox` extension routes terminal execution
 through a `microsandbox` microVM by default, but requires the `microsandbox`
-package and a supported platform — otherwise it falls back to unsandboxed host
+package and a supported platform. Without them it falls back to unsandboxed host
 execution. Review project instructions and commands before approving work in
 untrusted repositories, and verify the sandbox is actually active (`/sandbox`)
 when stronger isolation matters.

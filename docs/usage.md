@@ -53,9 +53,9 @@ Pasting an image, audio, or video file attaches it as media instead of text.
 
 ## Slash Commands
 
-Type `/` to open the command palette. Commands are fuzzy-searchable — type a few characters to filter.
+Type `/` to open the command palette. Commands are fuzzy-searchable: type a few characters to filter.
 
-Most commands wait until the active turn finishes. UI-only and read-only commands — `/theme`, `/settings`, `/session`, `/copy`, `/help` — run immediately even while the agent is busy. This dispatch is separate from Enter steering and Alt+Enter follow-up messages.
+Most commands wait until the active turn finishes. UI-only and read-only commands (`/theme`, `/settings`, `/session`, `/copy`, `/help`) run immediately even while the agent is busy. This dispatch is separate from Enter steering and Alt+Enter follow-up messages.
 
 ### Session
 
@@ -119,7 +119,7 @@ Opens the session tree navigator showing every message node in the current sessi
 
 ### `/fork <entry_id>`
 
-Branches the session tree at a specific entry ID, creating a new branch from that point while preserving the original. The entry ID argument is required — Tau reports a missing-argument error without it. Entry IDs are shown in `/tree`.
+Branches the session tree at a specific entry ID, creating a new branch from that point while preserving the original. The entry ID argument is required. Tau reports a missing-argument error without it. Entry IDs are shown in `/tree`.
 
 ### `/clone`
 
@@ -129,10 +129,10 @@ Duplicates the current branch into a new session file and switches into it. Both
 
 Prints session info inline in the chat:
 
-- **Session Info** — name (if set), file path, ID
-- **Messages** — user, assistant, tool calls, tool results, total
-- **Tokens** — input, output, cache read/write if any, total, with human-readable suffixes (`1.2K`, `3.4M`) and an inline USD cost estimate per line
-- **Cost** — total USD cost, shown only when non-zero
+- **Session Info**: name (if set), file path, ID
+- **Messages**: user, assistant, tool calls, tool results, total
+- **Tokens**: input, output, cache read/write if any, total, with human-readable suffixes (`1.2K`, `3.4M`) and an inline USD cost estimate per line
+- **Cost**: total USD cost, shown only when non-zero
 
 ### `/compact [instruction]`
 
@@ -146,8 +146,8 @@ Copies the text of the last assistant message on the current branch to the syste
 
 If both OAuth and API-key providers are available, first asks which authentication type to use:
 
-- **Subscription** — OAuth flow. Opens the browser and prompts for any required input inside the TUI.
-- **API key** — lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
+- **Subscription**: OAuth flow. Opens the browser and prompts for any required input inside the TUI.
+- **API key**: lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
 
 Either way, credentials are saved to `~/.tau/auth.json`.
 
@@ -210,7 +210,7 @@ These instructions are injected into every turn. Disable discovery entirely with
 
 ## Keyboard Shortcuts
 
-These are Tau's default bindings. Every action can be rebound — see [Keybindings](keybindings.md).
+These are Tau's default bindings. Every action can be rebound, see [Keybindings](keybindings.md).
 
 ### Messages and Agent
 
@@ -254,9 +254,9 @@ These are Tau's default bindings. Every action can be rebound — see [Keybindin
 
 ## Next Steps
 
-- [CLI Reference](cli-reference.md) — flags, subcommands, and run modes
-- [Keybindings](keybindings.md) — customize keyboard shortcuts
-- [Settings](settings.md) — configure Tau behavior
-- [Sessions](sessions.md) — session management and branching
-- [Extensions](extensions.md) — add custom tools and commands
-- [Skills](skills.md) — reusable on-demand capabilities
+- [CLI Reference](cli-reference.md): flags, subcommands, and run modes
+- [Keybindings](keybindings.md): customize keyboard shortcuts
+- [Settings](settings.md): configure Tau behavior
+- [Sessions](sessions.md): session management and branching
+- [Extensions](extensions.md): add custom tools and commands
+- [Skills](skills.md): reusable on-demand capabilities

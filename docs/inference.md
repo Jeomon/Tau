@@ -2,8 +2,8 @@
 
 `tau.inference` is Tau's inference subsystem: model and provider registries,
 credential resolution, and normalized streaming adapters for text, image,
-audio, and video. It is usable entirely on its own — see
-[Standalone Usage](#standalone-usage) — or as the model layer under the full
+audio, and video. It is usable entirely on its own (see
+[Standalone Usage](#standalone-usage)) or as the model layer under the full
 Tau runtime.
 
 Provider setup and credentials are documented in
@@ -88,7 +88,7 @@ first `stream()`/`invoke()` call, on a worker thread so a cold SDK import does
 not block the event loop.
 
 Each concrete service exposes `list_available()`, returning models whose
-provider has usable authentication — a provider qualifies when its `auth_type`
+provider has usable authentication: a provider qualifies when its `auth_type`
 is `AuthType.None_` (local servers), when a matching credential is stored, or
 when `<PROVIDER>_API_KEY` is set in the environment.
 
@@ -153,7 +153,7 @@ construction, so a token refreshed between turns is picked up.
 ## Options
 
 `LLMOptions` is a dataclass that tracks which fields the caller actually set.
-Only explicitly-set fields override a provider's base options — passing a bare
+Only explicitly-set fields override a provider's base options. Passing a bare
 `LLMOptions()` never clobbers provider defaults with dataclass defaults.
 
 | Field | Type | Default | Description |
@@ -234,7 +234,7 @@ provider-specific streaming code.
    `Retry-After` when present (`get_retry_after_delay`). Each retry emits a
    `RetryEvent`.
 3. In `stream()`, once any non-`Start`/`Retry` event has been yielded, errors
-   are no longer retried — already-yielded events cannot be recalled — and are
+   are no longer retried (already-yielded events cannot be recalled) and are
    forwarded as an `ErrorEvent` instead.
 4. **OAuth recovery:** an `AUTH` error before any data arrived, on a provider
    with an OAuth credential, triggers one forced token refresh and a free retry
@@ -244,7 +244,7 @@ provider-specific streaming code.
 5. **Empty responses** are treated as failures. A turn that produced no
    `TextDeltaEvent`, `TextEndEvent`, or `ToolCallEndEvent` is retried like a
    transient error. If the final allowed attempt is still empty, an
-   `ErrorEvent` is emitted rather than returning silently — otherwise the
+   `ErrorEvent` is emitted rather than returning silently. Otherwise the
    engine would commit an empty assistant message with `StopReason.Stop` as if
    the model had genuinely said nothing.
 
@@ -264,7 +264,7 @@ Set it with `LLMOptions(thinking_level=...)`, per call with
 (non-persistent, clamped to the model's supported levels).
 
 `Model.thinking_levels` lists the levels a model genuinely accepts. An empty
-list means unconfirmed — pickers fall back to the full enum.
+list means unconfirmed. Pickers fall back to the full enum.
 `Model.clamp_thinking_level()` snaps an unsupported level to the nearest
 supported one instead of sending a value the backend will reject.
 `Model.default_thinking_level` is `Medium` when supported, else the middle of
@@ -279,9 +279,9 @@ the supported range.
 | OpenAI Codex Responses (`openai_codex_responses`) | `reasoning: {effort, summary: "auto"}` plus `reasoning.context: "all_turns"` |
 | Gemini (`gemini_generate`, `google_vertex`) | `thinking_config.thinking_level` when `Model.thinking_uses_level` (Gemini 3.x), else `thinking_config.thinking_budget` |
 | Google Antigravity (`google_antigravity`) | Always a raw token budget |
-| Mistral (`mistral_chat`) | `reasoning_effort`, binary — only `"none"` / `"high"` |
+| Mistral (`mistral_chat`) | `reasoning_effort`, binary: only `"none"` / `"high"` |
 | Ollama (`ollama_chat`) | Boolean `think` |
-| OpenAI-compatible completions (`openai_completions`) | Dispatched by `Model.thinking_format` — see below |
+| OpenAI-compatible completions (`openai_completions`) | Dispatched by `Model.thinking_format`, see below |
 
 `ThinkingBudgets` defaults, in tokens: `minimal` 1024, `low` 2048, `medium`
 4096, `high` 8192, `xhigh` 16384, `max` 32768. Override globally under the
@@ -323,21 +323,21 @@ back, or they lose the chain of thought across tool calls.
 
 `openai_responses` implements this. When a thinking level is active it sets
 `include: ["reasoning.encrypted_content"]`, and on each completed reasoning
-item it stores the full raw item — encrypted content included — as JSON in
+item it stores the full raw item (encrypted content included) as JSON in
 `ThinkingContent.signature`, alongside the human-readable summary text.
 
 On the next request, `_messages_to_input` walks assistant content **in original
 order** rather than grouping text first, because in the Responses API a
 `reasoning` item must immediately precede the `function_call` or message it
 justified. Signed thinking blocks are re-emitted as top-level input items;
-unsigned blocks — from older sessions, or left over from a provider switch —
+unsigned blocks (from older sessions, or left over from a provider switch)
 are dropped rather than sent as malformed reasoning items. The same signature
 round-trips through xAI's Grok CLI proxy, which speaks the Responses API.
 
 `openai_codex_responses` uses the same signature-carrying scheme.
 
 For models whose adapter reports no thinking support, `ThinkingContent` is
-merged into the text content (thinking first, then text) in memory only — the
+merged into the text content (thinking first, then text) in memory only. The
 session file is unaffected.
 
 ## Model Descriptors
@@ -371,7 +371,7 @@ release.
 
 It is **standalone data access**. `Catalog` fetches, caches, and maps entries
 to `Model` descriptors; it does not register anything. Whether and how to merge
-its output into a `ModelRegistry` is the caller's decision — which makes the
+its output into a `ModelRegistry` is the caller's decision, which makes the
 natural pattern an additive overlay: register built-ins first, then add catalog
 models that the built-ins do not already define.
 
@@ -393,14 +393,14 @@ models that the built-ins do not already define.
 
 - **Provider mapping is explicit.** Only providers whose model ids pass through
   to the API verbatim are mapped (`PROVIDER_MAP` and the per-modality maps).
-  Providers with curated or transformed id schemes — Bedrock ARNs, Vertex
-  publisher paths, the Codex/Copilot OAuth catalogs, local runtimes — are
+  Providers with curated or transformed id schemes (Bedrock ARNs, Vertex
+  publisher paths, the Codex/Copilot OAuth catalogs, local runtimes) are
   deliberately absent.
 - **The cache is trimmed.** Only mapped providers are kept; the full payload is
   roughly 3.5 MB, about 88% of it unmappable.
 - **Refresh is throttled** to at most once per four hours via `is_stale()`.
 - **Catalog models leave `Model.api` unset**, so they inherit the provider's
-  default adapter — the service resolves `model.api or provider.api`.
+  default adapter: the service resolves `model.api or provider.api`.
 - **Declared modalities are intersected** with what the adapter actually
   supports, so a catalog model cannot advertise content types the adapter would
   reject. Beyond text and image, only `anthropic` (file), `google` (file, audio,
@@ -412,7 +412,7 @@ models that the built-ins do not already define.
 - **Thinking levels are only trusted when clean.** An `effort` reasoning option
   whose values all parse as `ThinkingLevel` yields that list with `Off`
   prepended. `toggle`/`budget_tokens` options, or any unrecognized value, yield
-  an empty list — meaning unconfirmed, so pickers fall back to the full enum.
+  an empty list, meaning unconfirmed, so pickers fall back to the full enum.
 - `limit.input` becomes `max_input_tokens` only when it is a real bound below
   the total context window.
 
@@ -468,7 +468,7 @@ per-provider support.
 `tau.inference` runs without the Tau runtime: no session, no engine, no TUI, no
 tool loop. You supply the message list; it resolves the model, provider, and
 credentials and gives you back normalized events. It does **not** persist
-anything, execute tool calls, build system prompts, or compact context — for
+anything, execute tool calls, build system prompts, or compact context. For
 those, see [Engine](engine.md) for the tool loop and
 [Python API](python-api.md) for the full runtime.
 
@@ -565,7 +565,7 @@ if __name__ == "__main__":
 
 ### Full Dependency Control
 
-Supply your own registries to avoid the process-wide builtins entirely —
+Supply your own registries to avoid the process-wide builtins entirely,
 useful in tests and in hosts that must not read `~/.tau/auth.json`:
 
 ```python
@@ -667,8 +667,8 @@ provider, API, and auth registries to the service constructors, as shown above.
 
 ## Next Steps
 
-- [Inference Providers](inference-providers.md) — every provider, its ids, auth, and endpoints
-- [Authentication](auth.md) — credential storage and resolution order
-- [HTTP Proxy](http-proxy.md) — routing inference traffic through a proxy
-- [Engine](engine.md) — the tool-calling loop on top of this layer
-- [Python API](python-api.md) — embedding the full Tau runtime
+- [Inference Providers](inference-providers.md): every provider, its ids, auth, and endpoints
+- [Authentication](auth.md): credential storage and resolution order
+- [HTTP Proxy](http-proxy.md): routing inference traffic through a proxy
+- [Engine](engine.md): the tool-calling loop on top of this layer
+- [Python API](python-api.md): embedding the full Tau runtime

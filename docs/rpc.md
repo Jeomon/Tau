@@ -2,7 +2,7 @@
 
 RPC mode runs Tau headlessly and speaks JSON Lines over stdin and stdout. It is the integration surface for IDE plugins, editor extensions, and custom front-ends that want the full agent loop without a terminal UI.
 
-If you are writing Python, consider driving `tau.runtime.service.Runtime` in process instead — see [Python API](python-api.md). RPC mode exists for clients in other languages, or for any client that wants process isolation.
+If you are writing Python, consider driving `tau.runtime.service.Runtime` in process instead, see [Python API](python-api.md). RPC mode exists for clients in other languages, or for any client that wants process isolation.
 
 ## Table of Contents
 
@@ -72,11 +72,11 @@ See [CLI Reference](cli-reference.md) for the complete flag list.
 | Blank lines | Ignored |
 | Flushing | Every outgoing line is flushed immediately |
 
-Because framing is strictly newline-delimited, a client must split on `\n` only. Do not use a line reader that also breaks on Unicode separators such as `U+2028` and `U+2029` — those are legal inside JSON strings and will corrupt records.
+Because framing is strictly newline-delimited, a client must split on `\n` only. Do not use a line reader that also breaks on Unicode separators such as `U+2028` and `U+2029`, which are legal inside JSON strings and will corrupt records.
 
-**stdout belongs to the protocol.** On entry, RPC mode duplicates the real stdout for its own use and points file descriptor 1 at stderr. A `print` from a tool, an extension, or a subprocess therefore lands on stderr and cannot appear in the middle of a JSON line. Clients should read stderr separately (or discard it) — it carries diagnostics only, never protocol records.
+**stdout belongs to the protocol.** On entry, RPC mode duplicates the real stdout for its own use and points file descriptor 1 at stderr. A `print` from a tool, an extension, or a subprocess therefore lands on stderr and cannot appear in the middle of a JSON line. Clients should read stderr separately (or discard it). It carries diagnostics only, never protocol records.
 
-**Backpressure.** Outgoing lines go through an asyncio pipe writer, and the event forwarder waits for the pipe to drain between events. A client that reads slowly slows the event stream instead of stalling the agent's event loop inside a blocking write. A client that stops reading entirely will eventually stop the agent's progress — read continuously, even if you discard.
+**Backpressure.** Outgoing lines go through an asyncio pipe writer, and the event forwarder waits for the pipe to drain between events. A client that reads slowly slows the event stream instead of stalling the agent's event loop inside a blocking write. A client that stops reading entirely will eventually stop the agent's progress. Read continuously, even if you discard.
 
 Values that are not JSON-native are coerced rather than dropped: enums become their value, `bytes` become base64, sets and tuples become arrays, paths become strings, and anything else becomes its `str()`. A single odd field can never break the stream.
 
@@ -84,7 +84,7 @@ Commands are dispatched concurrently. Each parsed line is handed to a fire-and-f
 
 ## Lifecycle
 
-1. The client spawns `tau --mode rpc`. Tau boots the full runtime — settings, model, session manager, resources, extensions.
+1. The client spawns `tau --mode rpc`. Tau boots the full runtime: settings, model, session manager, resources, extensions.
 2. Tau subscribes to the agent event hooks and writes a single `ready` line.
 3. The client writes commands as JSON lines. Tau writes a `response` line for each (except `extension_ui_response`) plus a stream of events.
 4. Shutdown is triggered by EOF on stdin, `SIGTERM`, or `SIGHUP`. On a signal, Tau aborts the running agent first, then unsubscribes and exits.
@@ -95,7 +95,7 @@ The `ready` line is the handshake. It is the first line written and carries the 
 {"type": "ready", "sessionId": "0f9c1c4a", "cwd": "/home/user/project"}
 ```
 
-Both fields are `null` when there is no session manager. There is no version or capability negotiation — the client should treat `ready` as "the runtime is up, start sending commands".
+Both fields are `null` when there is no session manager. There is no version or capability negotiation. The client should treat `ready` as "the runtime is up, start sending commands".
 
 ## Message Shapes
 
@@ -119,7 +119,7 @@ Every command accepts an optional `id`. When present it is echoed on the respons
 | Field | Type | Present |
 |-------|------|---------|
 | `type` | `"response"` | Always |
-| `command` | string | Always — the `type` of the command being answered |
+| `command` | string | Always: the `type` of the command being answered |
 | `id` | string | Only if the command carried one |
 | `success` | bool | Always |
 | `data` | any | Only when the handler produced a payload |
@@ -186,7 +186,7 @@ The optional `streamingBehavior` field takes `"steer"` or `"followUp"` and only 
 {"id": "req-2", "type": "response", "command": "prompt", "success": false, "error": "Agent is streaming; specify streamingBehavior: 'steer' or 'followUp'"}
 ```
 
-`prompt` also accepts `attachments` — see [Attachments](#attachments) below.
+`prompt` also accepts `attachments`, see [Attachments](#attachments) below.
 
 #### steer
 
@@ -216,7 +216,7 @@ Queue a message to be delivered after the current run finishes.
 
 #### Attachments
 
-`prompt`, `steer`, and `follow_up` all accept an `attachments` array alongside (or instead of) `message` — a request with attachments and no text is valid.
+`prompt`, `steer`, and `follow_up` all accept an `attachments` array alongside (or instead of) `message`. A request with attachments and no text is valid.
 
 ```json
 {"id": "req-3", "type": "prompt", "message": "What is in this screenshot?",
@@ -225,10 +225,10 @@ Queue a message to be delivered after the current run finishes.
 
 | Field | Values |
 |-------|--------|
-| `kind` | `image`, `audio`, `video`, `file` — required |
+| `kind` | `image`, `audio`, `video`, `file`; required |
 | `data` | base64-encoded bytes |
 | `path` | server-side path, read into bytes by Tau |
-| `url` | remote URL — **images only** |
+| `url` | remote URL, **images only** |
 | `mimeType`, `name` | optional metadata |
 
 Exactly one of `data`, `path`, or `url` must be present per attachment. Violations fail the whole command with `"invalid attachment: …"` and nothing is sent to the model.
@@ -247,7 +247,7 @@ Cancel the current agent operation. Always succeeds, even when nothing is runnin
 
 #### new_session
 
-Start a fresh session. Pass `parentSession` — a session file path — to record where this one continues from; it is written to the new session's header, so a client can walk a chain of related sessions back to its origin.
+Start a fresh session. Pass `parentSession` (a session file path) to record where this one continues from; it is written to the new session's header, so a client can walk a chain of related sessions back to its origin.
 
 ```json
 {"type": "new_session"}
@@ -258,7 +258,7 @@ Start a fresh session. Pass `parentSession` — a session file path — to recor
 {"type": "response", "command": "new_session", "success": true, "data": {"cancelled": false}}
 ```
 
-If starting the session raises, the error is logged and the response reports `{"cancelled": true}` with `success: true` — not a failure response.
+If starting the session raises, the error is logged and the response reports `{"cancelled": true}` with `success: true`, not a failure response.
 
 ### State and Messages
 
@@ -383,7 +383,7 @@ Returns `{"text": null}` when there is no assistant message.
 
 `data` is `null` if there is no agent to read the new model back from.
 
-A failed swap — unknown model id, missing credentials for its provider, no active agent — answers `success: false`; the previously active model stays in place.
+A failed swap (unknown model id, missing credentials for its provider, no active agent) answers `success: false`; the previously active model stays in place.
 
 Only safe to call while the agent is idle.
 
@@ -399,7 +399,7 @@ Advances to the next model in the available list, wrapping around.
 {"type": "response", "command": "cycle_model", "success": true, "data": {"model": {"id": "gpt-5", "provider": "openai"}}}
 ```
 
-Fails with a reason rather than a silent `data: null`: no active agent, no models available (usually missing credentials), an active model that is not in the available list (nothing to cycle from — use `set_model`), or a switch that the runtime rejected.
+Fails with a reason rather than a silent `data: null`: no active agent, no models available (usually missing credentials), an active model that is not in the available list (nothing to cycle from; use `set_model`), or a switch that the runtime rejected.
 
 #### get_available_models
 
@@ -513,7 +513,7 @@ Writes through to the settings manager's retry toggle *and* to the live model, s
 {"type": "response", "command": "abort_retry", "success": true, "data": {"aborted": true}}
 ```
 
-Cuts short the backoff between inference retries so the call fails now instead of waiting out the delay; the underlying provider error is then surfaced as an `agent_error` event. `data.aborted` is `false` when no backoff was waiting. The in-flight HTTP request is not cancelled — use `abort` for that.
+Cuts short the backoff between inference retries so the call fails now instead of waiting out the delay; the underlying provider error is then surfaced as an `agent_error` event. `data.aborted` is `false` when no backoff was waiting. The in-flight HTTP request is not cancelled. Use `abort` for that.
 
 ### Terminal
 
@@ -531,7 +531,7 @@ Runs a shell command through the runtime's terminal path: extensions can interce
 
 `command` is required. Set `excludeFromContext` (alias `exclude_from_context`) to `true` to run it without adding it to the model's context.
 
-The response carries no `data` — output arrives as events instead. `terminal_execution` fires at start (`streaming: true`) and at completion (`streaming: false`), with `terminal_output` events carrying each chunk in between.
+The response carries no `data`; output arrives as events instead. `terminal_execution` fires at start (`streaming: true`) and at completion (`streaming: false`), with `terminal_output` events carrying each chunk in between.
 
 #### abort_terminal
 
@@ -557,7 +557,7 @@ Kills the shell command started by `terminal`. `data.aborted` is `false` when no
 {"type": "response", "command": "switch_session", "success": true, "data": {"cancelled": false}}
 ```
 
-`sessionPath` is required; `path` is accepted as an alias. If resuming raises — a missing or unreadable file — the response is a failure with the exception text. `cancelled` is always `false`.
+`sessionPath` is required; `path` is accepted as an alias. If resuming raises (a missing or unreadable file), the response is a failure with the exception text. `cancelled` is always `false`.
 
 #### fork
 
@@ -623,7 +623,7 @@ The name is appended to the session as an entry, so renaming is part of the sess
 
 #### export_html
 
-Writes the active branch's transcript to a standalone HTML file — no external CSS, JS, or fonts, so it can be opened straight from disk or attached to a ticket. `outputPath` is required; missing parent directories are created.
+Writes the active branch's transcript to a standalone HTML file: no external CSS, JS, or fonts, so it can be opened straight from disk or attached to a ticket. `outputPath` is required; missing parent directories are created.
 
 ```json
 {"type": "export_html", "outputPath": "/tmp/session.html"}
@@ -639,7 +639,7 @@ The export covers user and assistant text, thinking blocks, tool calls and resul
 
 #### get_entries
 
-The raw session entries — every message, model change, thinking-level change, compaction and label, not just the flattened messages `get_messages` returns.
+The raw session entries: every message, model change, thinking-level change, compaction and label, not just the flattened messages `get_messages` returns.
 
 ```json
 {"id": "e1", "type": "get_entries"}
@@ -654,13 +654,13 @@ The raw session entries — every message, model change, thinking-level change, 
   "leafId": "57a353e4"}}
 ```
 
-Pass `since` to fetch only what followed a given entry — the usual way to tail a session without re-reading it:
+Pass `since` to fetch only what followed a given entry, the usual way to tail a session without re-reading it:
 
 ```json
 {"id": "e2", "type": "get_entries", "since": "57a353e4"}
 ```
 
-The cursor entry itself is **not** included; you already have it. An unknown `since` fails with `"Entry not found: <id>"` rather than silently returning everything. `leafId` is the current branch tip — store it and use it as the next `since`.
+The cursor entry itself is **not** included; you already have it. An unknown `since` fails with `"Entry not found: <id>"` rather than silently returning everything. `leafId` is the current branch tip; store it and use it as the next `since`.
 
 Entry fields are the session model's own `snake_case` names (`parent_id`, `model_id`), like events and unlike response envelopes.
 
@@ -754,7 +754,7 @@ Serialization is mechanical: the event dataclass is converted to a dict, so fiel
 | `settled` | — |
 | `extension_error` | `extensionPath`, `event`, `error`, `stack` |
 
-`message_rollback` retracts the last `count` committed messages — an interrupted tool turn persists an assistant tool-call message and its result before the abort lands, and both must be dropped. A client that mirrors the transcript and ignores this event drifts out of sync with the session file.
+`message_rollback` retracts the last `count` committed messages. An interrupted tool turn persists an assistant tool-call message and its result before the abort lands, and both must be dropped. A client that mirrors the transcript and ignores this event drifts out of sync with the session file.
 
 `extension_error` reports an extension that failed to load or whose handler raised. Extensions that failed at startup are reported once, right after `ready`. The agent keeps running either way.
 
@@ -852,7 +852,7 @@ Correlate start, update, and end by the `id` field, which is the tool-call id.
 
 ### settled
 
-Emitted when the agent finishes a prompt with nothing queued. This is the signal a client should wait on before considering a turn complete — `agent_end` can be followed by retries or queued continuations.
+Emitted when the agent finishes a prompt with nothing queued. This is the signal a client should wait on before considering a turn complete. `agent_end` can be followed by retries or queued continuations.
 
 ```json
 {"type": "settled"}
@@ -872,9 +872,9 @@ Dialog methods block until the client replies with a matching `extension_ui_resp
 | `input` | `title`, `placeholder` | `value` or `cancelled` |
 | `editor` | `title`, `prefill` | `value` or `cancelled` |
 
-`multi_select` is Tau-specific — the reference protocol has no multi-select shape. Its reply is a list, and `[]` is a real answer meaning "none of these", distinct from `cancelled`. A client that answers it with a bare string is treated as having chosen that one option. `title` may contain newlines when the caller supplied context.
+`multi_select` is Tau-specific: the reference protocol has no multi-select shape. Its reply is a list, and `[]` is a real answer meaning "none of these", distinct from `cancelled`. A client that answers it with a bare string is treated as having chosen that one option. `title` may contain newlines when the caller supplied context.
 
-A client must reply to every request it receives, including methods it does not recognise — answer `{"cancelled": true}` rather than staying silent, or the extension waits forever (until its `timeout`, if it set one).
+A client must reply to every request it receives, including methods it does not recognise: answer `{"cancelled": true}` rather than staying silent, or the extension waits forever (until its `timeout`, if it set one).
 
 Fire-and-forget methods expect no reply:
 
@@ -891,9 +891,9 @@ Fire-and-forget methods expect no reply:
 {"type": "extension_ui_response", "id": "ui_1", "value": "Allow"}
 ```
 
-`timeout`, when present on a request, is the number of **milliseconds** Tau will wait before giving up on that dialog. A timeout resolves the same way a cancel does (`null`, or `false` for `confirm`). Dialogs sent without a `timeout` wait indefinitely — but not past the end of the session: when the client disconnects or the process shuts down, every pending dialog is resolved as cancelled so nothing blocks the exit.
+`timeout`, when present on a request, is the number of **milliseconds** Tau will wait before giving up on that dialog. A timeout resolves the same way a cancel does (`null`, or `false` for `confirm`). Dialogs sent without a `timeout` wait indefinitely, but not past the end of the session: when the client disconnects or the process shuts down, every pending dialog is resolved as cancelled so nothing blocks the exit.
 
-> **Extension reach.** `ctx.ui` is a real object in RPC mode, not `None`: dialogs (`select`, `confirm`, `prompt`/`input`, `editor`) and the fire-and-forget methods (`notify`, `set_status`, `set_widget`, `set_title`, `set_editor_text`) all become `extension_ui_request` records. `ctx.select`/`ctx.confirm` work too. Anything needing a terminal grid — `custom`, `custom_inline`, `show_overlay`, footers, headers, themes, the working indicator, raw key subscriptions — degrades to a no-op.
+> **Extension reach.** `ctx.ui` is a real object in RPC mode, not `None`: dialogs (`select`, `confirm`, `prompt`/`input`, `editor`) and the fire-and-forget methods (`notify`, `set_status`, `set_widget`, `set_title`, `set_editor_text`) all become `extension_ui_request` records. `ctx.select`/`ctx.confirm` work too. Anything needing a terminal grid (`custom`, `custom_inline`, `show_overlay`, footers, headers, themes, the working indicator, raw key subscriptions) degrades to a no-op.
 >
 > **Check `ctx.ui.supports_components` before rendering a component.** It is `False` here and `True` in the TUI. A non-`None` `ctx.ui` promises dialogs, not a surface to draw on; `custom_inline()` returns `None` in RPC mode, and an extension that assumes otherwise will fail on the result. `ctx.has_ui` answers the narrower question "can I ask the user something at all".
 >
@@ -920,9 +920,9 @@ A failed command returns a response with `success: false` and an `error` string.
 | No session for `clone`, `set_session_name`, `export_html` | `"No active session"` |
 | Unhandled exception in a handler | `error` is `str(exception)` |
 
-A parse error is reported with `command: "parse"` and never has an `id`, since the id could not be read. Parse errors do not terminate the loop — the next line is processed normally.
+A parse error is reported with `command: "parse"` and never has an `id`, since the id could not be read. Parse errors do not terminate the loop; the next line is processed normally.
 
-`data.cancelled` on `new_session`, `fork`, `clone` and `switch_session` means the operation was *declined*, not that it failed — a failure answers `success: false` with a reason.
+`data.cancelled` on `new_session`, `fork`, `clone` and `switch_session` means the operation was *declined*, not that it failed. A failure answers `success: false` with a reason.
 
 ## Known Gaps
 
@@ -930,9 +930,9 @@ Verified against the implementation.
 
 | Command / field | Behaviour | Cause |
 |-----------------|-----------|-------|
-| Component-rendering UI | `ctx.ui.custom`, `custom_inline`, `show_overlay`, footers, headers, themes | No terminal grid to render into — the protocol carries fixed dialog shapes, not arbitrary components. Gate on `ctx.ui.supports_components` |
+| Component-rendering UI | `ctx.ui.custom`, `custom_inline`, `show_overlay`, footers, headers, themes | No terminal grid to render into: the protocol carries fixed dialog shapes, not arbitrary components. Gate on `ctx.ui.supports_components` |
 
-Everything else on this page is wired to the real API and reports failure honestly. Commands that cannot do their job answer `success: false` with a reason rather than a hollow `success: true` — the [Error Handling](#error-handling) table lists the common messages.
+Everything else on this page is wired to the real API and reports failure honestly. Commands that cannot do their job answer `success: false` with a reason rather than a hollow `success: true`. The [Error Handling](#error-handling) table lists the common messages.
 
 ## Worked Example Session
 
@@ -1092,8 +1092,8 @@ Two details this client demonstrates and any real client needs:
 
 ## Next Steps
 
-- [CLI Reference](cli-reference.md) — every flag accepted alongside `--mode rpc`
-- [Python API](python-api.md) — driving the runtime in process instead of over a pipe
-- [Extensions](extensions.md) — hooks, commands, and the UI context RPC clients interact with
-- [Sessions](sessions.md) — the session file format behind `fork`, `clone`, and `switch_session`
-- [Security](security.md) — trust resolution in non-interactive modes
+- [CLI Reference](cli-reference.md): every flag accepted alongside `--mode rpc`
+- [Python API](python-api.md): driving the runtime in process instead of over a pipe
+- [Extensions](extensions.md): hooks, commands, and the UI context RPC clients interact with
+- [Sessions](sessions.md): the session file format behind `fork`, `clone`, and `switch_session`
+- [Security](security.md): trust resolution in non-interactive modes

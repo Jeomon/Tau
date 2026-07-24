@@ -202,8 +202,8 @@ in `console/cli.py`.
 
 | Module | Subcommand |
 |--------|-----------|
-| `auth.py` | `tau auth` — provider login and credential management |
-| `doctor.py` | `tau doctor` — settings, model, and extension diagnostics with `--fix` |
+| `auth.py` | `tau auth`: provider login and credential management |
+| `doctor.py` | `tau doctor`: settings, model, and extension diagnostics with `--fix` |
 | `packages.py` | `tau install` / `tau list` / `tau remove` |
 | `update.py` | `tau update` |
 
@@ -223,7 +223,7 @@ detection, git status with redacted remote URLs, and project context files
 (`AGENTS.md` / `CLAUDE.md`) discovered from the git root down to the current
 directory.
 
-`agent/embedded.py` runs a single isolated agent turn in-process — useful for
+`agent/embedded.py` runs a single isolated agent turn in-process, useful for
 subagent-style delegation without spawning a runtime.
 
 ## Data and State
@@ -231,7 +231,7 @@ subagent-style delegation without spawning a runtime.
 | Package | Purpose |
 |---------|---------|
 | `session/` | JSONL persistence, branching tree, compaction, branch summaries |
-| `message/` | Message and content-block types — see [Messages](messages.md) |
+| `message/` | Message and content-block types, see [Messages](messages.md) |
 | `settings/` | Global + project JSON settings, merged with explicit field tracking |
 | `auth/` | API keys from env or encrypted store, plus OAuth token refresh |
 | `trust/` | Per-directory trust decisions persisted to `~/.tau/trust.json` |
@@ -296,7 +296,7 @@ Tau-specific UI composition lives in `modes/interactive/`, never in `tui/`. See
 | Module | Purpose |
 |--------|---------|
 | `utils/secrets.py` | Resolve secret references (API keys, tokens, proxy creds) to values |
-| `utils/http_proxy.py` | Proxy resolution from settings or environment — see [HTTP Proxy](http-proxy.md) |
+| `utils/http_proxy.py` | Proxy resolution from settings or environment, see [HTTP Proxy](http-proxy.md) |
 | `utils/profiling.py` | Opt-in span timing via `TAU_PROFILE=1` |
 | `utils/timing.py` | Startup timing report |
 | `utils/version_check.py` | PyPI update check for the installed distribution |
@@ -306,7 +306,7 @@ Tau-specific UI composition lives in `modes/interactive/`, never in `tui/`. See
 
 ### Engine
 
-`engine/service.py` — the standalone loop. Full API in [Engine](engine.md).
+`engine/service.py`: the standalone loop. Full API in [Engine](engine.md).
 
 ```python
 class Engine:
@@ -324,7 +324,7 @@ class Engine:
 
 ### Agent
 
-`agent/service.py` — the session-aware layer above `Engine`.
+`agent/service.py`: the session-aware layer above `Engine`.
 
 ```python
 class Agent:
@@ -340,7 +340,7 @@ class Agent:
 
 ### Runtime
 
-`runtime/service.py` — wires agent, session, engine, and extensions.
+`runtime/service.py`: wires agent, session, engine, and extensions.
 
 ```python
 class Runtime:
@@ -367,7 +367,7 @@ class Runtime:
 
 ### Tool
 
-`tool/types.py` — note that `name`, `kind`, and `execution_mode` are
+`tool/types.py`: note that `name`, `kind`, and `execution_mode` are
 **constructor arguments**, not class attributes.
 
 ```python
@@ -398,7 +398,7 @@ class Tool(ABC):
 | A retained UI component | `tui/components/` | Imported directly |
 | A hook event | The matching `hooks/*.py`, then the union in `hooks/types.py` | `Hooks` |
 
-User-authored extensions do not go in this tree at all — see
+User-authored extensions do not go in this tree at all, see
 [Extensions](extensions.md).
 
 ## Next Steps

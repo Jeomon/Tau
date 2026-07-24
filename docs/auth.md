@@ -21,15 +21,15 @@ commands that manage them.
 
 `AuthManager.get_api_key(provider)` resolves in this order:
 
-1. **Runtime override** — set programmatically with
+1. **Runtime override**: set programmatically with
    `auth_manager.set_runtime_api_key(provider, key)`. Never persisted.
-2. **Stored credential** — the `~/.tau/auth.json` entry for that provider id.
+2. **Stored credential**: the `~/.tau/auth.json` entry for that provider id.
    - An `api_key` credential resolves its `key` (which may be a reference).
    - An `oauth` credential is refreshed if expired, then its access token is
      used. If no OAuth provider is registered under that id, or the refresh
-     fails, resolution returns nothing — it does **not** fall through to the
+     fails, resolution returns nothing. It does **not** fall through to the
      environment variable.
-3. **Environment variable** — `<PROVIDER>_API_KEY`, reached only when no
+3. **Environment variable**: `<PROVIDER>_API_KEY`, reached only when no
    credential is stored at all.
 
 The first source with a value wins. A stored credential deliberately blocks the
@@ -37,7 +37,7 @@ environment fallback, so a broken stored entry surfaces as an auth error rather
 than silently switching to a different key.
 
 > `<PROVIDER>` is the provider id upper-cased with no other transformation.
-> Hyphenated ids therefore have no usable env var — `google-vertex` would map to
+> Hyphenated ids therefore have no usable env var: `google-vertex` would map to
 > `GOOGLE-VERTEX_API_KEY`. Those providers use ambient cloud credentials or
 > OAuth instead. See [Environment Variables](#environment-variables).
 
@@ -79,15 +79,15 @@ are preserved.
 
 Tokens refresh automatically. A token is considered expired 30 seconds before
 its actual expiry, so it cannot lapse mid-request. Refreshes run under an
-async file lock, and the lock holder re-checks expiry before refreshing — if
+async file lock, and the lock holder re-checks expiry before refreshing. If
 another Tau instance already refreshed, its result is adopted instead of
 rotating the refresh token a second time.
 
 If a request fails with an auth error even though the token is not yet expired
 (revoked or rotated server-side), Tau force-refreshes once and retries for free.
 A **transient** refresh failure leaves the credential in place for a later
-retry; an **unrecoverable** one — `invalid_grant`, `invalid_request`,
-`invalid_token`, or HTTP 400/401/403 — deletes the stored credential so you are
+retry; an **unrecoverable** one (`invalid_grant`, `invalid_request`,
+`invalid_token`, or HTTP 400/401/403) deletes the stored credential so you are
 prompted to log in again.
 
 | `type` | Fields |
@@ -108,7 +108,7 @@ secret out of `auth.json`:
 | `"$ANTHROPIC_API_KEY"` | The named environment variable (empty string if unset) |
 | `"!op read op://vault/anthropic/key"` | The command's trimmed stdout, run in a shell |
 
-Only the bare `$NAME` form is supported — there is no `${NAME}` syntax, and
+Only the bare `$NAME` form is supported. There is no `${NAME}` syntax, and
 references are not interpolated inside longer strings.
 
 Resolution is **memoized for the process lifetime**, so a `!command` runs only
@@ -195,7 +195,7 @@ tau
 Providers requiring **no** credential (`AuthType.None_`): `ollama`, `lmstudio`,
 `vllm`, `llamacpp`, `google-vertex`, `anthropic-vertex`, `openai-vertex`.
 
-The Vertex providers read Google Cloud's own ambient environment instead — see
+The Vertex providers read Google Cloud's own ambient environment instead. See
 [Inference Providers](inference-providers.md#google-cloud-vertex-ai).
 
 ## Managing Credentials
@@ -236,9 +236,9 @@ an environment variable, or a runtime override from an embedding application.
 
 Run `/login` inside a session. Tau first asks for the authentication type:
 
-- **Subscription** — the OAuth provider list. Tau opens your browser and prompts
+- **Subscription**: the OAuth provider list. Tau opens your browser and prompts
   for any required input (device code, redirect URL) inside the TUI.
-- **API key** — the API-key provider list. Select one and enter the key into a
+- **API key**: the API-key provider list. Select one and enter the key into a
   masked input. Literals, `$ENV_VAR`, and `!command` are all accepted;
   references are stored verbatim and resolved at runtime.
 
@@ -272,7 +272,7 @@ These ids are the `auth.json` keys and the arguments to
 
 An OAuth provider is only selectable when a matching OAuth credential is
 stored. During model resolution, OAuth providers without credentials are
-skipped in favor of the next registered variant of the same model — which is
+skipped in favor of the next registered variant of the same model, which is
 how a model available both by subscription and by API key falls back cleanly.
 
 ## Checking Auth Status
@@ -340,13 +340,13 @@ with `drain_errors()`.
 - OAuth refresh tokens are written atomically under a file lock.
 - `tau auth list` masks stored keys; `tau auth status` never prints values.
 - To keep secrets off disk entirely, store a `$ENV_VAR` or `!command` reference
-  — only the reference is written; the value is fetched at runtime.
+  (only the reference is written; the value is fetched at runtime).
 - A dead refresh token causes the stored credential to be deleted, so a stale
   token is not retried indefinitely.
 
 ## Next Steps
 
-- [Inference Providers](inference-providers.md) — every provider and its setup
-- [Inference](inference.md) — how credentials reach a request
-- [Settings](settings.md) — model and provider defaults
-- [Installation](installation.md) — first-time setup
+- [Inference Providers](inference-providers.md): every provider and its setup
+- [Inference](inference.md): how credentials reach a request
+- [Settings](settings.md): model and provider defaults
+- [Installation](installation.md): first-time setup

@@ -14,7 +14,7 @@ schemas and the `/settings` panel, see [Extension Settings](extension-settings.m
 > user permissions. Only install extensions from sources you trust. Project-local
 > extensions under `.tau/extensions/` load only after the project is trusted.
 
-Working, maintained implementations live in `examples/extensions/` in this repository —
+Working, maintained implementations live in `examples/extensions/` in this repository:
 `todo`, `web`, `lsp`, `sandbox`, `subagent`, `workflow`, `loop`, `peer`, `ask_user`,
 `autoresearch`, `computer_use`, and `voice`. They are referenced throughout this document and are the
 best starting point for anything non-trivial.
@@ -79,7 +79,7 @@ best starting point for anything non-trivial.
 
 An extension is a Python file (or package directory) discovered from a known location.
 Tau imports it, looks for a module-level `register` callable, and calls it with an
-`ExtensionAPI` object — conventionally named `tau`. Everything registered there is
+`ExtensionAPI` object, conventionally named `tau`. Everything registered there is
 collected into an `Extension` record and applied to the live runtime once every
 extension has loaded.
 
@@ -205,19 +205,19 @@ Within a directory, entries are sorted alphabetically and scanned **one level de
 Disabling is driven by `extensions.list[].enabled: false` in `settings.json`, or
 interactively from the `/extensions` panel.
 
-A failing extension is recorded as an `ExtensionError` and reported — it never crashes
+A failing extension is recorded as an `ExtensionError` and reported. It never crashes
 startup, and the other extensions still load.
 
 ### Extension layouts
 
-**Single file** — the simplest case:
+**Single file**: the simplest case:
 
 ```text
 .tau/extensions/
 └── greeter.py            # must define register(tau)
 ```
 
-**Package directory** — a folder whose `__init__.py` is the entry point:
+**Package directory**: a folder whose `__init__.py` is the entry point:
 
 ```text
 .tau/extensions/
@@ -246,13 +246,13 @@ Every example in `examples/extensions/` uses exactly this pattern.
 
 > **Do not add the extension directory to `sys.path` and import siblings by bare name.**
 > Each extension gets a unique package name (`_tau_ext_<hash of path>`), so relative
-> imports are private to it — but a bare `import state` goes into the process-wide
+> imports are private to it, but a bare `import state` goes into the process-wide
 > `sys.modules`, where the first extension to claim the name wins and every later one
 > silently gets *that* module. Generic names (`state`, `tool`, `types`, `utils`, `model`)
 > collide across extensions in practice: it once left the workflow extension calling the
 > subagent extension's `discover_agents()`, which returns a different shape and crashed.
 
-**Manifest-declared entry points** — for a named entry file, multiple entry files, or
+**Manifest-declared entry points**: for a named entry file, multiple entry files, or
 any declared dependencies, skills, or settings schema:
 
 ```text
@@ -319,7 +319,7 @@ All extension metadata lives under the `"tau"` key:
 | `extensions` | list[string] | Entry files, relative to the manifest. Omit to fall back to `__init__.py` |
 | `dependencies` | list[string] | pip specs installed before the entry file runs |
 | `skills` | list[string] | Directories of skills registered at discovery time |
-| `settings` | object | Schema that auto-generates a `/settings` sub-panel — see [Extension Settings](extension-settings.md) |
+| `settings` | object | Schema that auto-generates a `/settings` sub-panel, see [Extension Settings](extension-settings.md) |
 
 A manifest declaring only `dependencies` (no `extensions`) is valid; the loader still
 falls back to `__init__.py` as the entry point.
@@ -345,7 +345,7 @@ mismatch would make those imports fail at runtime.
 
 Installation runs once per dependency set. A SHA-256 digest of the sorted specs is
 cached in `<venv>/.tau_ext_deps.json`, keyed by extension directory, and cross-process
-access is serialized with a file lock. **Failures are cached too** — a spec that cannot
+access is serialized with a file lock. **Failures are cached too**: a spec that cannot
 build on this interpreter fails fast on subsequent launches instead of retrying the
 whole install every time. Tau's own runtime environment keeps precedence, so an
 extension cannot downgrade Tau's dependencies out from under it.
@@ -353,8 +353,8 @@ extension cannot downgrade Tau's dependencies out from under it.
 ### Same-identity priority
 
 Path deduplication only catches the same file discovered twice. When the same extension
-exists as physically separate copies under two sources — for example a builtin also
-copied into `~/.tau/extensions/` — only the highest-priority copy loads:
+exists as physically separate copies under two sources (for example a builtin also
+copied into `~/.tau/extensions/`), only the highest-priority copy loads:
 
 ```text
 project  >  global  >  builtin
@@ -415,7 +415,7 @@ def register(tau):
 If the module has no such callable, the load fails with
 `No 'register(tau)' function in <file>` and is reported as an `ExtensionError`.
 
-`register` may be `async` — Tau awaits it before continuing startup, so async
+`register` may be `async`: Tau awaits it before continuing startup, so async
 initialisation completes before tools, commands, and the system prompt are applied:
 
 ```python
@@ -429,7 +429,7 @@ Top-level module code runs on a worker thread (so a slow third-party import does
 freeze the TUI), while `register` itself runs on the event loop thread. Keep top-level
 code to `def`/`class` statements and imports; do everything else inside `register`.
 
-Do not start long-lived resources — subprocesses, sockets, watchers, timers — directly
+Do not start long-lived resources (subprocesses, sockets, watchers, timers) directly
 in `register`. Defer them to `runtime_ready` or `session_start`, and release them from
 `extension_unload` and `runtime_stop`. The `sandbox`, `lsp`, and `peer` examples all
 follow this discipline.
@@ -463,7 +463,7 @@ isolated and reported as `ExtensionError`. `/reload` unloads the old inline exte
 and re-executes the factories, so hook subscriptions are never duplicated. Session
 replacement reuses the active extension runtime and does not re-run factories.
 
-Single-extension reload does not apply to inline factories — changing one falls back to
+Single-extension reload does not apply to inline factories. Changing one falls back to
 a full reload.
 
 ## Custom Tools
@@ -568,15 +568,15 @@ ToolResult.with_audio(invocation.id, "content", audio=[wav_bytes])
 ToolResult.with_video(invocation.id, "content", video=[mp4_bytes])
 ```
 
-Record in `metadata` the inputs that shaped the operation plus output statistics —
-counts, sizes, flags — not content already present in the text result. Setting
+Record in `metadata` the inputs that shaped the operation plus output statistics
+(counts, sizes, flags), not content already present in the text result. Setting
 `terminate=True` on the returned `ToolResult` stops the agent loop after this call.
 
 `ToolContext` is injected by the engine:
 
 | Attribute | Type | Description |
 |---|---|---|
-| `context.llm` | `LLM \| None` | Live LLM handle — call models from inside a tool |
+| `context.llm` | `LLM \| None` | Live LLM handle: call models from inside a tool |
 | `context.cwd` | `Path \| None` | Working directory |
 | `context.settings` | `SettingsManager \| None` | Settings access |
 
@@ -640,7 +640,7 @@ Each `<token>` in `argument_hint` disappears as the user fills in that positiona
 argument.
 
 `requires_idle=False` lets a command run mid-turn. Such commands must not mutate turn,
-model, tool, session, or extension state — the `sandbox` and `todo` examples use it for
+model, tool, session, or extension state. The `sandbox` and `todo` examples use it for
 status readouts.
 
 ### Argument completions
@@ -694,8 +694,8 @@ and application bindings are reserved and cannot be replaced. A non-reserved glo
 binding may be replaced, with a warning. If two extensions register the same key, the
 last one loaded wins and Tau reports a warning.
 
-Low-level editor operations that are not exposed as `KeyMap` actions — cursor movement,
-for instance — are still consumed directly by the focused editor, and registering a
+Low-level editor operations that are not exposed as `KeyMap` actions (cursor movement,
+for instance) are still consumed directly by the focused editor, and registering a
 shortcut does not override them. See
 [Customising keybindings](keybindings.md#customising-keybindings).
 
@@ -742,7 +742,7 @@ Only these eight events are interceptable from an extension:
 | `project_trust` | `ProjectTrustResult` | First non-`None` `trusted` decides |
 
 > **Important:** `session_before_switch` and `session_before_fork` define a
-> `cancel` field and the runtime honours it — but they are *not* in the interceptable
+> `cancel` field and the runtime honours it, but they are *not* in the interceptable
 > allowlist, so a value returned from an extension handler is discarded and the
 > operation proceeds. Only handlers registered directly on the `Hooks` bus from the
 > Python API can cancel those. Treat both as observe-only from an extension.
@@ -832,10 +832,10 @@ exit
 
 | Event | Payload | Fires when |
 |---|---|---|
-| `runtime_start` | — | Runtime construction begins. **Extensions cannot observe this** — it is emitted before any extension is loaded, so nothing is subscribed. It exists for core subscribers and the Python API |
+| `runtime_start` | — | Runtime construction begins. **Extensions cannot observe this**: it is emitted before any extension is loaded, so nothing is subscribed. It exists for core subscribers and the Python API |
 | `runtime_ready` | — | Engine, agent, tools, and extensions are all wired and `session_start` has fired, before any mode-specific loop begins. Mode-independent, so this is the right place to start background work such as warming a language server |
 | `runtime_stop` | — | The mode-specific loop has exited and the process is shutting down. Fires exactly once, regardless of mode. Bounded by a 10-second timeout |
-| `extension_unload` | `type` only | An extension is about to be replaced by a reload. Release subprocesses, sockets, tasks, and watchers here — reload does not do it for you |
+| `extension_unload` | `type` only | An extension is about to be replaced by a reload. Release subprocesses, sockets, tasks, and watchers here. Reload does not do it for you |
 | `extension_reloaded` | `type` only | A freshly loaded extension is now wired into the live runtime. Use it to re-establish state that `runtime_ready` would have set up, since `runtime_ready` fires only once at startup |
 
 `extension_unload` and `extension_reloaded` are dispatched directly to a single
@@ -847,7 +847,7 @@ These fire only in interactive mode.
 
 | Event | Payload | Fires when |
 |---|---|---|
-| `tui_ready` | — | Hooks are subscribed and the layout is fully constructed. The earliest point at which `ctx.ui` is safe — `session_start` with reason `startup` fires before the layout exists |
+| `tui_ready` | — | Hooks are subscribed and the layout is fully constructed. The earliest point at which `ctx.ui` is safe: `session_start` with reason `startup` fires before the layout exists |
 | `tui_start` | — | Immediately before the TUI event loop begins. Use it for setup that needs the layout but must precede user interaction |
 | `tui_exit` | — | The TUI is shutting down, from a `finally` block, so it fires even on error. Use it for cleanup that needs `ctx.ui`; `session_shutdown` runs later, without UI. Bounded by a 2-second timeout |
 
@@ -858,7 +858,7 @@ The `todo` example uses `tui_ready` to paint its board widget on startup.
 | Event | Payload | Result | Notes |
 |---|---|---|---|
 | `session_start` | `reason`, `previous_session_file` | — | `reason`: `startup`, `reload`, `new`, `resume`, `fork`, `clone` |
-| `session_shutdown` | `reason`, `target_session_file` | — | `reason`: `quit`, `reload`, `new`, `resume`, `fork`, `clone`. Only fires on session transitions and quit — not on process exit in every mode; pair it with `runtime_stop` |
+| `session_shutdown` | `reason`, `target_session_file` | — | `reason`: `quit`, `reload`, `new`, `resume`, `fork`, `clone`. Only fires on session transitions and quit, not on process exit in every mode; pair it with `runtime_stop` |
 | `session_before_switch` | `reason`, `target_session_file` | `SessionBeforeSwitchResult` (observe-only from extensions) | `reason`: `new`, `resume` |
 | `session_before_fork` | `entry_id`, `position` | `SessionBeforeForkResult` (observe-only from extensions) | `position`: `before`, `at` |
 | `session_before_tree` | `preparation` | `SessionBeforeTreeResult` | Interceptable. `preparation` is a `TreePreparation` and may be mutated in place |
@@ -896,7 +896,7 @@ def register(tau):
 | `agent_start` | — | The engine loop begins |
 | `agent_end` | `messages`, `reason` | `reason`: `completed`, `aborted`, `error` |
 | `agent_error` | `error` | The loop terminated with an unrecoverable error |
-| `turn_start` | `turn_index`, `timestamp` | Both fields are currently always `0` — they are never populated at the emit site. Track turn counts yourself if you need them |
+| `turn_start` | `turn_index`, `timestamp` | Both fields are currently always `0`. They are never populated at the emit site. Track turn counts yourself if you need them |
 | `turn_end` | `turn_index`, `message`, `tool_results` | `turn_index` is likewise always `0` |
 | `settled` | — | The invocation drained its queues and post-run compaction with nothing queued. An observation, not a lock against concurrent submissions |
 | `save_point` | — | Session writes are flushed; on-disk state is consistent |
@@ -907,7 +907,7 @@ def register(tau):
 |---|---|---|
 | `message_start` | `message` | The model begins streaming a message |
 | `message_update` | `message` | One incremental streaming chunk |
-| `message_end` | `message` | The message is complete. **Return values are ignored** — `MessageEndEventResult` exists but nothing consumes it |
+| `message_end` | `message` | The message is complete. **Return values are ignored**: `MessageEndEventResult` exists but nothing consumes it |
 | `message_rollback` | `count` | The last `count` committed messages are being retracted. Emitted when an interrupted tool turn is discarded, so the persisted assistant tool-call message and its result must be removed to keep history consistent |
 
 ### Tool events
@@ -918,7 +918,7 @@ def register(tau):
 | `tool_execution_update` | `partial_tool_result` (`ToolResult`) | — | One streaming progress update |
 | `tool_execution_end` | `tool_result` (`ToolResultContent`) | — | `execute()` returned |
 | `tool_execution_failure` | `tool_name`, `tool_call_id`, `input`, `error` | — | The tool raised an uncaught exception, as distinct from returning an error result |
-| `tool_result` | `tool_call_id`, `tool_name`, `input`, `content`, `is_error` | `ToolResultEventResult` | Interceptable — the only tool hook whose return value is honoured |
+| `tool_result` | `tool_call_id`, `tool_name`, `input`, `content`, `is_error` | `ToolResultEventResult` | Interceptable: the only tool hook whose return value is honoured |
 
 `ToolResultEventResult` fields:
 
@@ -958,7 +958,7 @@ def register(tau):
 | `terminal_output` | `message` | — | One output chunk from a running `!` command |
 
 `InputEventResult` declares `action: "continue" | "transform" | "handled"` and `text`.
-Only `action="transform"` with a non-`None` `text` is honoured — **`"handled"` is
+Only `action="transform"` with a non-`None` `text` is honoured. **`"handled"` is
 declared but not implemented**, and the prompt still reaches the agent.
 
 ### Provider events
@@ -1001,7 +1001,7 @@ indicates whether the aborted turn is retried after compaction (overflow recover
 ### Reserved events that never fire
 
 The following event types are defined and exported but have **no emit site** anywhere in
-Tau. Do not subscribe to them — a handler will never run.
+Tau. Do not subscribe to them: a handler will never run.
 
 | Event | Result type | Status |
 |---|---|---|
@@ -1010,8 +1010,8 @@ Tau. Do not subscribe to them — a handler will never run.
 
 Two result types are also declared but never consumed:
 `MessageEndEventResult` (returned from `message_end`), and
-`ContextEventResult.messages` — only the `ephemeral_messages` field of a
-`ContextEventResult` is read.
+`ContextEventResult.messages` (only the `ephemeral_messages` field of a
+`ContextEventResult` is read).
 
 ## Interception Recipes
 
@@ -1096,8 +1096,8 @@ def register(tau):
 
 ### Ephemeral context injection
 
-For state that must be fresh on every LLM request but must never be persisted — browser
-screenshots, computer-use state, live telemetry — return `ephemeral_messages` from a
+For state that must be fresh on every LLM request but must never be persisted (browser
+screenshots, computer-use state, live telemetry), return `ephemeral_messages` from a
 `context` handler:
 
 ```python
@@ -1119,7 +1119,7 @@ def register(tau):
 The hook runs before every inference, including after tool execution.
 `ephemeral_messages` must contain only `UserMessage` objects. They are appended to the
 provider request only, are not persisted, and are excluded from Anthropic prompt-cache
-breakpoints. Every handler's messages are accumulated — there is no short-circuit.
+breakpoints. Every handler's messages are accumulated. There is no short-circuit.
 
 `ContextEventResult.messages` exists in the dataclass but is not read; there is
 currently no way for an extension to rewrite the stable request context.
@@ -1143,7 +1143,7 @@ def register(tau):
 ### Intercepting shell commands
 
 `user_terminal` fires before Tau runs a shell command on the user's behalf. Returning
-`UserTerminalResult(handled=True, ...)` short-circuits execution entirely — the shell
+`UserTerminalResult(handled=True, ...)` short-circuits execution entirely: the shell
 never runs, and your output is recorded as the command's result.
 
 ```python
@@ -1185,7 +1185,7 @@ def register(tau):
 ```
 
 For skills that ship *inside* your extension directory, prefer the manifest `"skills"`
-field instead — it registers them synchronously right after discovery, whereas a
+field instead: it registers them synchronously right after discovery, whereas a
 `resources_discover` handler registered during `register(tau)` is always one reload
 generation late.
 
@@ -1218,12 +1218,12 @@ no user-facing surface at all (print/JSON modes). Always guard on it.
 
 | Capability | TUI | RPC | Check |
 |------------|-----|-----|-------|
-| Dialogs — `select`, `confirm`, `prompt`, `editor` | ✅ | ✅ | `ctx.has_ui` |
+| Dialogs: `select`, `confirm`, `prompt`, `editor` | ✅ | ✅ | `ctx.has_ui` |
 | `notify`, `set_status`, `set_widget` (lines), `set_title`, `set_editor_text` | ✅ | ✅ | `ctx.has_ui` |
-| `multi_select` — pick several | ✅ | ✅ | `ctx.has_ui` |
-| Components — `custom`, `custom_inline`, `show_overlay`, footers, headers, themes | ✅ | ❌ no-op | **`ctx.ui.supports_components`** |
+| `multi_select`: pick several | ✅ | ✅ | `ctx.has_ui` |
+| Components: `custom`, `custom_inline`, `show_overlay`, footers, headers, themes | ✅ | ❌ no-op | **`ctx.ui.supports_components`** |
 
-`ctx.has_ui` is defined as `ctx.ui is not None` — use whichever reads better, they are the
+`ctx.has_ui` is defined as `ctx.ui is not None`. Use whichever reads better, they are the
 same test. There is only one real branch point beyond it: `supports_components`.
 
 Rendering your own `Component` is the case that needs the capability flag:
@@ -1235,7 +1235,7 @@ if ui is None or not ui.supports_components:
 await ui.custom_inline(my_factory)
 ```
 
-`ctx.has_ui` answers the narrower question "can I ask the user something at all" — it is
+`ctx.has_ui` answers the narrower question "can I ask the user something at all": it is
 `True` in RPC mode, because dialogs do work there.
 
 In a TUI the earliest event at which `ctx.ui` is reliably available is `tui_ready`;
@@ -1397,16 +1397,16 @@ The `ask_user` example is a complete worked implementation of a custom interacti
 dialog component. It shows the patterns worth copying for any multi-step dialog:
 
 - **One question** renders bare. **Several** get a tab bar plus a review step, so the
-  user can move between them with `←`/`→`, revise an earlier answer, and submit once —
+  user can move between them with `←`/`→`, revise an earlier answer, and submit once:
   `_AskUserSequence` owns the tabs and delegates everything else to a per-question
   child component.
 - A child in text-entry mode keeps every key (`is_editing`), so the wrapper never
   steals the arrows that move the text cursor.
 - On a multi-select question, `Space` on the `Type something…` row opens an editor
-  whose `Enter` **saves** rather than submits — the answer is then the ticked options
+  whose `Enter` **saves** rather than submits: the answer is then the ticked options
   *and* the typed text. Saving an empty string clears it again.
 - **Two backends, one answer shape.** In a TUI it renders the component above. Under
-  RPC — where `ctx.ui.supports_components` is `False` — `rpc_backend.py` asks the same
+  RPC (where `ctx.ui.supports_components` is `False`), `rpc_backend.py` asks the same
   questions through the protocol's fixed dialogs (`select`, `multi_select`,
   `input`/`editor`), folding option descriptions into the labels. The model gets
   identical answers either way; what is lost is the tabs, the review step and previews.
@@ -1466,8 +1466,8 @@ def register(tau):
 ```
 
 The renderer signature is `renderer(message, theme, width) -> list[str]`. Style text
-through the theme's semantic roles — `theme.muted`, `theme.accent`, `theme.success`,
-`theme.warning`, `theme.error` — each a `Style` applied with
+through the theme's semantic roles (`theme.muted`, `theme.accent`, `theme.success`,
+`theme.warning`, `theme.error`), each a `Style` applied with
 `tau.tui.style.apply_style`. Do not import ANSI codes from internal modules; those are
 not a stable surface for extensions loaded from `~/.tau`.
 
@@ -1496,7 +1496,7 @@ def register(tau):
 ```
 
 `trigger` must be exactly one character; anything else raises `ValueError` at
-registration time. `get_items` may be sync or async — sync providers populate the picker
+registration time. `get_items` may be sync or async: sync providers populate the picker
 immediately, async providers run in the background and the picker appears when results
 arrive.
 
@@ -1561,7 +1561,7 @@ def register(tau):
 ```
 
 `register_theme` accepts either a `LayoutTheme` instance or a zero-argument factory that
-returns one — prefer the factory for lazy loading. Registration takes effect
+returns one. Prefer the factory for lazy loading. Registration takes effect
 immediately in the global theme registry, and the theme appears in the `/theme` picker.
 See [Themes](themes.md) for the full theme schema.
 
@@ -1608,7 +1608,7 @@ Valid `api` values: `openai_responses`, `openai_completions`, `openai_codex_resp
 `mistral_chat`, `ollama_chat`, `google_antigravity`, `google_vertex`, `anthropic_vertex`,
 `openai_vertex`, `xai`.
 
-Model definition fields — only `id` is required:
+Model definition fields, only `id` is required:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1658,7 +1658,7 @@ def register(tau):
 
 Publish from `register()` and resolve from a `runtime_ready` handler: by the time
 `runtime_ready` fires, every extension has finished loading, so ordering is not a
-concern. `get_service` returns `None` when nothing has registered the name — treat that
+concern. `get_service` returns `None` when nothing has registered the name. Treat that
 as a soft dependency rather than an error.
 
 The registry is cleared on a full reload, and a single-extension reload evicts only that
@@ -1691,7 +1691,7 @@ def register(tau):
 
 ### branch_entries vs session_entries
 
-A session file stores entries from every branch ever taken — forks, navigations,
+A session file stores entries from every branch ever taken: forks, navigations,
 abandoned paths.
 
 | | `ctx.branch_entries` | `ctx.session_entries` |
@@ -1768,14 +1768,14 @@ def register(tau):
 
 `ExtensionSettings` raises `ExtensionSettingsError` if the schema is not a dataclass.
 
-To expose settings in the `/settings` panel — either declaratively via `manifest.json`
-or programmatically via `tau.register_settings(...)` — and for how values are persisted
+To expose settings in the `/settings` panel (either declaratively via `manifest.json`
+or programmatically via `tau.register_settings(...)`) and for how values are persisted
 back to `settings.json`, see [Extension Settings](extension-settings.md). Extensions can
 also be enabled and disabled per scope from the `/extensions` panel.
 
 ## Flags
 
-For values that should not live in `settings.json` — tokens, machine-local switches —
+For values that should not live in `settings.json` (tokens, machine-local switches),
 declare an environment-backed flag:
 
 ```python
@@ -1875,7 +1875,7 @@ Valid thinking levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`
 ### ExtensionContext
 
 Passed to every event, command, and shortcut handler. It is a live snapshot bound to a
-runtime *generation* — see [Hot Reload](#hot-reload) for staleness rules.
+runtime *generation*. See [Hot Reload](#hot-reload) for staleness rules.
 
 **Session information**
 
@@ -1925,7 +1925,7 @@ async def guard_context(event, ctx):
             ctx.ui.notify("Context nearly full — aborting turn", "warning")
 ```
 
-**Session control** — all `async`, all available from event and command handlers.
+**Session control**: all `async`, all available from event and command handlers.
 
 | Method | Returns | Description |
 |---|---|---|
@@ -1947,7 +1947,7 @@ Option dataclasses: `NewSessionOptions(parent_session, with_session)`,
 `ForkOptions(position, with_session)`,
 `NavigateTreeOptions(summarize, custom_instructions, replace_instructions, label)`, and
 `SwitchSessionOptions(with_session)`. A `with_session(ctx)` callback runs inside the new
-session before the UI transitions — use it to seed the session with
+session before the UI transitions. Use it to seed the session with
 `ctx.send_user_message`.
 
 `send_user_message` with `deliver_as="steer"` inserts mid-turn; `"follow_up"` queues for
@@ -2176,7 +2176,7 @@ Reload is triggered by:
 | Granting project trust | All extensions |
 | Changing a value in a manifest-generated `/settings` sub-panel | That one extension, falling back to a full reload |
 
-There is no filesystem watcher — reload is always explicitly triggered.
+There is no filesystem watcher. Reload is always explicitly triggered.
 
 **Serialization.** Reload requests are serialized and coalesced. A request made from
 inside an extension callback, or while the agent is running, is deferred until both the
@@ -2204,7 +2204,7 @@ On load failure the old extension is kept and the error is surfaced.
 built, and every property and method asserts that it is still current. A context
 retained across `/reload`, `/new`, `/resume`, `/clone`, a fork, or shutdown raises
 `StaleExtensionContextError` on use. Do not hold contexts in long-lived background
-tasks — capture immutable values, or acquire a fresh context from a new callback.
+tasks: capture immutable values, or acquire a fresh context from a new callback.
 
 | Category | Behaviour across reload |
 |---|---|
@@ -2214,12 +2214,12 @@ tasks — capture immutable values, or acquire a fresh context from a new callba
 
 Because normally imported third-party modules stay cached in `sys.modules`, edits to a
 helper module that your entry file imports are *not* guaranteed to take effect on
-reload — only the entry file is re-executed with a fresh synthetic module name. Restart
+reload: only the entry file is re-executed with a fresh synthetic module name. Restart
 Tau when iterating on deep helper modules.
 
 Extensions holding external resources must release them from `extension_unload` (a
 reload is coming) and `runtime_stop` (the process is exiting). `session_shutdown` only
-fires on session transitions and quit, so it is not sufficient on its own — the
+fires on session transitions and quit, so it is not sufficient on its own. The
 `sandbox` example handles all three for exactly this reason.
 
 After reload, new tools are available to the model on the very next turn.
@@ -2240,15 +2240,15 @@ to interception.
 | Symptom | Cause |
 |---|---|
 | `No 'register(tau)' function in <file>` | The module has no module-level `register` callable |
-| `ModuleNotFoundError` for a sibling module | Import it relatively (`from .store import NoteStore`) — a directory extension is a package |
+| `ModuleNotFoundError` for a sibling module | Import it relatively (`from .store import NoteStore`). A directory extension is a package |
 | `ImportError: attempted relative import with no known parent package` | The module was imported by bare name (often in a test); load the extension package and reach submodules through it |
-| A sibling import returns another extension's module | Bare-name sibling imports share one global namespace — use relative imports |
+| A sibling import returns another extension's module | Bare-name sibling imports share one global namespace. Use relative imports |
 | Extension silently absent | Filename or directory starts with `_`, or it is disabled in `extensions.list` / `/extensions` |
 | Only one copy of a duplicated extension loads | Same-identity priority: project beats global beats builtin |
-| A handler's return value does nothing | The event is not in the interceptable allowlist — see [Dispatch model](#dispatch-model) |
+| A handler's return value does nothing | The event is not in the interceptable allowlist, see [Dispatch model](#dispatch-model) |
 | `StaleExtensionContextError` | A context was retained across a reload or session replacement |
-| `ctx.ui` is `None` early in startup | Subscribe to `tui_ready` instead of `session_start` (TUI only — in RPC mode `ctx.ui` is ready before `session_start`) |
-| `custom_inline()` returns `None` and the caller crashes | You are in RPC mode — gate on `ctx.ui.supports_components` |
+| `ctx.ui` is `None` early in startup | Subscribe to `tui_ready` instead of `session_start` (TUI only: in RPC mode `ctx.ui` is ready before `session_start`) |
+| `custom_inline()` returns `None` and the caller crashes | You are in RPC mode: gate on `ctx.ui.supports_components` |
 | Native import fails after a dependency install | The project `.venv` targets a different Python than the interpreter running Tau |
 
 **Dependency install state** can be inspected with `tau doctor`, which uses the same
@@ -2256,16 +2256,16 @@ venv resolution and dependency digest as the loader. The install cache lives in
 `<venv>/.tau_ext_deps.json`; delete the relevant entry to force a reinstall.
 
 **Runtime logs** go to `~/.tau/logs/<session>.log`. A frozen TUI with an apparently
-working agent almost always means a render exception was swallowed — check that log
+working agent almost always means a render exception was swallowed. Check that log
 first.
 
 ## Next Steps
 
-- [Creating Tools](creating-tools.md) — a deeper walkthrough of the tool contract
-- [Extension Settings](extension-settings.md) — settings schemas and the `/settings` panel
-- [Tools](tools.md) — the built-in tool set
-- [Skills](skills.md) — extending what the model knows rather than what it can do
-- [Themes](themes.md) — the full theme schema
-- [Inference Providers](inference-providers.md) — provider and model architecture
-- [Python API](python-api.md) — embedding Tau and using inline extension factories
-- [Keybindings](keybindings.md) — the action map that shortcuts compete with
+- [Creating Tools](creating-tools.md): a deeper walkthrough of the tool contract
+- [Extension Settings](extension-settings.md): settings schemas and the `/settings` panel
+- [Tools](tools.md): the built-in tool set
+- [Skills](skills.md): extending what the model knows rather than what it can do
+- [Themes](themes.md): the full theme schema
+- [Inference Providers](inference-providers.md): provider and model architecture
+- [Python API](python-api.md): embedding Tau and using inline extension factories
+- [Keybindings](keybindings.md): the action map that shortcuts compete with

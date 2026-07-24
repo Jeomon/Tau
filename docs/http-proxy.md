@@ -8,8 +8,8 @@ exist for embedding applications and extensions.
 > proxy resolver. Proxying works today because every HTTP client Tau creates is
 > `httpx`-based, and httpx reads `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` /
 > `NO_PROXY` from the environment itself. The `http_proxy` settings block and
-> `tau.utils.http_proxy` are a resolver library for code that opts into them —
-> they do not currently affect built-in provider requests. See
+> `tau.utils.http_proxy` are a resolver library for code that opts into them.
+> They do not currently affect built-in provider requests. See
 > [Current Wiring](#current-wiring).
 
 ## Table of Contents
@@ -34,7 +34,7 @@ export NO_PROXY=localhost,127.0.0.1                  # bypass list
 tau
 ```
 
-An authenticated proxy takes credentials in the URL — this is the only way to
+An authenticated proxy takes credentials in the URL. This is the only way to
 supply proxy credentials to built-in provider requests today:
 
 ```bash
@@ -112,7 +112,7 @@ Matching rules in Tau's resolver:
 | `headers` | `object \| null` | `null` | Custom headers for proxy authentication |
 
 `url` and every value in `headers` support the same secret references as API
-keys — a literal, `$ENV_VAR`, or `!command`. See
+keys: a literal, `$ENV_VAR`, or `!command`. See
 [Authentication](auth.md#credential-references).
 
 ```json
@@ -140,14 +140,14 @@ effect.
 
 | Mechanism | Affects built-in provider requests? |
 |-----------|-------------------------------------|
-| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` env vars | **Yes** — via httpx's own environment handling |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` env vars | **Yes**, via httpx's own environment handling |
 | `http_proxy.url` in settings | No |
 | `http_proxy.no_proxy` in settings | No |
 | `http_proxy.headers` in settings | No |
 
-Every HTTP client Tau constructs — the direct `httpx` clients used by the media,
+Every HTTP client Tau constructs (the direct `httpx` clients used by the media,
 Codex, Antigravity, model-catalog, and local-discovery paths, and the httpx
-clients inside the OpenAI, Anthropic, Mistral, Ollama, and Google SDKs — is
+clients inside the OpenAI, Anthropic, Mistral, Ollama, and Google SDKs) is
 built with a base URL, credentials, and headers only. None is given a proxy,
 `mounts`, or a custom transport, and none disables httpx's environment
 handling. So the env vars are honored, and the settings block is not consulted.
@@ -168,7 +168,7 @@ in with the [Resolver API](#resolver-api).
 ## Resolver API
 
 `tau.utils.http_proxy` resolves a proxy for a target URL from settings, then
-from the environment. It is pure resolution — it never mutates the environment
+from the environment. It is pure resolution: it never mutates the environment
 and never configures a client for you.
 
 ### `get_proxy_url_for_target(target_url, settings_manager=None) -> str | None`
@@ -240,8 +240,8 @@ print(f"via {proxy}" if proxy else "direct")
 
 ## TLS and Certificates
 
-Tau builds one SSL context per process — `httpx.create_ssl_context()` behind an
-`lru_cache` in `tau.utils.ssl_context.get_shared_ssl_context()` — and passes it
+Tau builds one SSL context per process (`httpx.create_ssl_context()` behind an
+`lru_cache` in `tau.utils.ssl_context.get_shared_ssl_context()`) and passes it
 to every httpx client it creates directly. This avoids re-parsing the CA bundle
 off disk for each of the many short-lived clients Tau opens.
 
@@ -265,7 +265,7 @@ store, or exported through `SSL_CERT_FILE` before Tau starts.
    HTTPS_PROXY=http://proxy.example.com:8080 tau      # also works, but only for that run
    ```
 
-2. Confirm you are not relying on `settings.json` alone — see
+2. Confirm you are not relying on `settings.json` alone, see
    [Current Wiring](#current-wiring). Export `HTTPS_PROXY`.
 
 3. Check `NO_PROXY` is not excluding the target:
@@ -312,7 +312,7 @@ SOCKS and PAC proxies are not supported.
 
 ## See Also
 
-- [Settings](settings.md) — the full settings reference
-- [Inference Providers](inference-providers.md) — provider endpoints to allowlist
-- [Authentication](auth.md) — `$ENV_VAR` and `!command` secret references
-- [Extensions](extensions.md) — extensions can use the resolver via `SettingsManager`
+- [Settings](settings.md): the full settings reference
+- [Inference Providers](inference-providers.md): provider endpoints to allowlist
+- [Authentication](auth.md): `$ENV_VAR` and `!command` secret references
+- [Extensions](extensions.md): extensions can use the resolver via `SettingsManager`
