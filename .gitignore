@@ -21,3 +21,4 @@ experiments
 
 # private extension, lives in its own repo (symlinked here for dev)
 .tau/extensions/darwin
+.darwin/
