@@ -304,6 +304,50 @@ def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntr
     return entries, shed_ids
 
 
+def read_entries_by_id(session_file: Path, ids: set[str]) -> dict[str, SessionFileEntry]:
+    """Read and fully validate ONLY the entries whose id is in ``ids``.
+
+    The selective-rehydration counterpart of :func:`read_session_file_shedding`:
+    pydantic construction is the expensive step of reading a session file, so
+    when a caller needs the full bodies of a handful of shed entries (e.g.
+    ``build_session_context`` after the user navigates back into a folded
+    region), validating the entire file to recover them pays the whole resume
+    cost again. This cheap-parses every line (Rust JSON, no model building)
+    and validates just the requested ids.
+
+    Returns ``{id: entry}`` for the ids found and parseable; missing or
+    unparseable ids are simply absent — callers fall back to the resident
+    (shed) copy, matching the previous full-read behaviour where an
+    unparseable line was skipped with a warning.
+    """
+    if not ids:
+        return {}
+    try:
+        content = session_file.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    found: dict[str, SessionFileEntry] = {}
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            obj = pydantic_core.from_json(line)
+        except Exception:
+            continue
+        if not isinstance(obj, dict) or obj.get("id") not in ids:
+            continue
+        try:
+            found[obj["id"]] = _SESSION_FILE_ENTRY_ADAPTER.validate_python(obj)
+        except Exception:
+            _log.warning(
+                "skipping unparseable line %d in session file %s", lineno, session_file
+            )
+        if len(found) == len(ids):
+            break
+    return found
+
+
 def count_session_data_lines(session_file: Path) -> int:
     """Count non-blank lines in a session file, parseable or not.
 

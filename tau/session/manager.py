@@ -47,6 +47,7 @@ from tau.session.utils import (
     generate_timestamp,
     get_default_project_session_dir,
     list_sessions_from_dir,
+    read_entries_by_id,
     read_session_file,
     read_session_file_shedding,
 )
@@ -693,9 +694,17 @@ class SessionManager:
         # Normally the kept window is post-compaction and never shed. But if the
         # user navigated the tree back into an already-folded region, a kept entry
         # may have had its content freed — rehydrate those from disk so the context
-        # is complete. Only pays the disk read when the window overlaps shed ids.
-        if self._shed_ids and any(entry.id in self._shed_ids for entry in kept_entries):
-            full = {entry.id: entry for entry in self._full_entries()}
+        # is complete. Only pays the disk read when the window overlaps shed ids,
+        # and only validates the overlapping entries: a jump is just a resume with
+        # a different leaf, so it should pay what a resume pays — never full-file
+        # validation to recover a handful of bodies. Anything before this window's
+        # own nearest compaction stays shed (the summary covers it).
+        needed = {entry.id for entry in kept_entries if entry.id in self._shed_ids}
+        if needed:
+            if self.persist and self.session_file and self.session_file.exists():
+                full = read_entries_by_id(self.session_file, needed)
+            else:  # mirrors _full_entries' guards; without a durable file there
+                full = {}  # is nothing to rehydrate from — resident copy stands.
             kept_entries = [full.get(entry.id, entry) for entry in kept_entries]
 
         for entry in kept_entries:

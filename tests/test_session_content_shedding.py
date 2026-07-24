@@ -204,3 +204,64 @@ def test_loader_shed_set_matches_manager_uncompacted(tmp_path, monkeypatch):
     m.append_message(AssistantMessage.from_text("world"))
     loader_ids, manager_ids = _shed_sets_both_ways(m.session_file, tmp_path, monkeypatch)
     assert loader_ids == manager_ids == set()
+
+
+# ── Selective rehydration on tree navigation ──────────────────────────────────
+#
+# A /tree jump back into a folded region is "a resume with a different leaf":
+# the context builder must recover ONLY the bodies inside the jump target's
+# own visible window (its nearest compaction → target), never re-validate the
+# whole file, and everything before that window's compaction stays shed.
+
+
+def _two_compaction_session(tmp_path):
+    """root: u1 a1 | C1 keeps from u2 | u2 a2 | C2 keeps from u3 | u3 (leaf)."""
+    m = _manager(tmp_path)
+    ids = {}
+    ids["u1"] = m.append_message(UserMessage.from_text("ANCIENT-" + "x" * 500))
+    ids["a1"] = m.append_message(AssistantMessage.from_text("ANCIENT-REPLY-" + "y" * 500))
+    ids["u2"] = m.append_message(UserMessage.from_text("MIDDLE-USER-" + "m" * 500))
+    m.append_compaction(summary="SUMMARY-ONE", first_kept_entry_id=ids["u2"], tokens_before=10)
+    # NB: append_compaction's entry sits after u2 in file order but the kept
+    # window starts AT u2, so u2's body is needed when we jump back to a2.
+    ids["a2"] = m.append_message(AssistantMessage.from_text("MIDDLE-REPLY-" + "n" * 500))
+    ids["u3"] = m.append_message(UserMessage.from_text("RECENT-kept"))
+    m.append_compaction(summary="SUMMARY-TWO", first_kept_entry_id=ids["u3"], tokens_before=20)
+    m.append_message(AssistantMessage.from_text("RECENT-REPLY-kept"))
+    return m, ids
+
+
+def test_jump_before_compaction_sees_older_compactions_window(tmp_path):
+    """Jumping between C1 and C2: context = C1's summary + middle window only."""
+    m, ids = _two_compaction_session(tmp_path)
+    assert ids["u1"] in m._shed_ids and ids["a2"] in m._shed_ids  # both folded now
+
+    m.branch(ids["a2"])  # jump back before C2
+    ctx = m.build_session_context()
+    joined = " ".join(_text(msg) for msg in ctx.messages) + " ".join(
+        msg.summary for msg in ctx.messages if isinstance(msg, CompactionSummaryMessage)
+    )
+    assert "SUMMARY-ONE" in joined  # the OLDER compaction governs this view
+    assert "MIDDLE-USER-" in joined and "MIDDLE-REPLY-" in joined  # window rehydrated
+    assert "ANCIENT-" not in joined  # pre-C1 stays behind the summary
+    assert "SUMMARY-TWO" not in joined  # the newer compaction is off this branch
+
+
+def test_jump_rehydration_is_selective_not_full_file(tmp_path, monkeypatch):
+    """The jump must never pay full-file validation to recover a few bodies."""
+    m, ids = _two_compaction_session(tmp_path)
+    m.branch(ids["a2"])
+
+    def _boom(self):
+        raise AssertionError("full-file rehydration (_full_entries) used on jump path")
+
+    monkeypatch.setattr(SessionManager, "_full_entries", _boom)
+    ctx = m.build_session_context()  # must succeed without _full_entries
+    joined = " ".join(_text(msg) for msg in ctx.messages)
+    assert "MIDDLE-REPLY-" in joined
+
+    # RAM bounding preserved: the resident copies stay shed; only the context
+    # got full bodies. Pre-C1 ancients were never validated or rehydrated.
+    assert m.by_id[ids["a2"]].message.contents == []
+    assert m.by_id[ids["u1"]].message.contents == []
+    assert ids["u1"] in m._shed_ids
