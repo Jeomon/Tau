@@ -22,23 +22,26 @@ if TYPE_CHECKING:
 # ScrollbackTerminal in tui/frame.py) rather than an app-owned viewport, any
 # such write makes the terminal auto-snap the view back to the live cursor
 # row if the user had scrolled up to read earlier history. 60fps flushing
-# fought a mid-stream manual scroll dozens of times a second; ~12fps is
-# still smooth-looking token streaming while cutting that down by ~5x.
-_STREAM_FLUSH_INTERVAL = 1 / 12
+# fought a mid-stream manual scroll dozens of times a second; ~24fps is a
+# middle ground that still cuts that down by more than half while giving a
+# visibly smoother, less "chunky" token reveal than the original ~12fps.
+_STREAM_FLUSH_INTERVAL = 1 / 24
 
 # Cap on how many characters of *visible assistant text* a single flush is
 # allowed to newly reveal. Deltas from the provider often arrive in uneven
 # bursts (several tokens at once, then a gap), and coalescing whatever piled
-# up during one ~83ms flush window then made that whole burst pop onto the
-# screen at once — technically "streaming", but visually chunky rather than
-# a smooth typewriter effect. Capping the reveal rate and draining any
-# backlog over the following flushes (even if no new tokens have arrived
-# yet — see ``_flush_pending``) smooths that out without changing the flush
+# up during one flush window then made that whole burst pop onto the screen
+# at once — technically "streaming", but visually chunky rather than a
+# smooth typewriter effect. Capping the reveal rate and draining any backlog
+# over the following flushes (even if no new tokens have arrived yet — see
+# ``_flush_pending``) smooths that out without changing the flush
 # *frequency* above (still bound by ``_STREAM_FLUSH_INTERVAL`` for the
-# scrollback-snap reason above). Comfortably above typical model output
-# rates (usually well under 100 chars/sec) so ordinary streaming is
-# unaffected — it only kicks in for bursts.
-_TYPEWRITER_CHARS_PER_SEC = 250
+# scrollback-snap reason above). Set generously above even fast providers'
+# sustained output (some run several hundred tokens/sec) so this only
+# smooths genuine single-window bursts — it must never become a second,
+# lower speed limit that makes the display permanently lag behind a fast
+# model, which would trade one visual problem for a worse one.
+_TYPEWRITER_CHARS_PER_SEC = 1000
 
 
 def _find_component(root: object, attr: str) -> object | None:
