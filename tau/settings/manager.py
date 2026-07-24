@@ -623,14 +623,24 @@ class SettingsManager:
         self.modified_project_fields.clear()
         self.modified_project_nested_fields.clear()
 
-        project_load = SettingsManager._try_load_from_storage(self.storage, SCOPE.PROJECT)
-        if not project_load[1]:
-            self.project_settings = project_load[0]
-            self.project_settings_load_error = None
+        # Only honour on-disk project settings when the project is trusted —
+        # mirrors __init__ and set_project_trusted, both of which keep
+        # project_settings empty while untrusted. Without this gate a reload
+        # would start merging an untrusted project's .tau/settings.json (its
+        # extensions, packages, etc.) that startup had correctly suppressed.
+        if self._project_trusted:
+            project_load = SettingsManager._try_load_from_storage(self.storage, SCOPE.PROJECT)
+            if not project_load[1]:
+                self.project_settings = project_load[0]
+                self.project_settings_load_error = None
+            else:
+                self.project_settings_load_error = project_load[1]
+                self._record_error(SCOPE.PROJECT, project_load[1])
+            self.project_settings_recovered_issues = project_load[2]
         else:
-            self.project_settings_load_error = project_load[1]
-            self._record_error(SCOPE.PROJECT, project_load[1])
-        self.project_settings_recovered_issues = project_load[2]
+            self.project_settings = Settings()
+            self.project_settings_load_error = None
+            self.project_settings_recovered_issues = []
 
         self.settings = self._deep_merge_settings(self.global_settings, self.project_settings)
 

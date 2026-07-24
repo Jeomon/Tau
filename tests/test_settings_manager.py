@@ -374,3 +374,39 @@ class TestAsyncWriteMarkClearing:
 
         asyncio.run(_run())
         assert "theme" not in mgr.modified_fields
+
+
+class TestReloadTrustGate:
+    """reload() must honour project trust the same way __init__/set_project_trusted do:
+    an untrusted project's on-disk settings must never start being merged after a
+    reload when startup correctly suppressed them.
+    """
+
+    @staticmethod
+    def _storage_with_project_extension():
+        import json
+
+        from tau.settings.storage import InMemorySettingsStorage
+        from tau.settings.types import SCOPE, LockResult
+
+        storage = InMemorySettingsStorage()
+        project = {"extensions": {"list": [{"path": "/x/ext.py", "enabled": True}]}}
+        storage.with_lock(
+            SCOPE.PROJECT,
+            lambda _: LockResult(result=None, next=json.dumps(project)),
+        )
+        return storage
+
+    def test_untrusted_project_extension_stays_suppressed_after_reload(self):
+        storage = self._storage_with_project_extension()
+        mgr = SettingsManager.from_storage(storage, project_trusted=False)
+        assert mgr.get_all_extension_entries() == []
+        asyncio.run(mgr.reload())
+        assert mgr.get_all_extension_entries() == []
+
+    def test_trusted_project_extension_survives_reload(self):
+        storage = self._storage_with_project_extension()
+        mgr = SettingsManager.from_storage(storage, project_trusted=True)
+        assert [e.path for e in mgr.get_all_extension_entries()] == ["/x/ext.py"]
+        asyncio.run(mgr.reload())
+        assert [e.path for e in mgr.get_all_extension_entries()] == ["/x/ext.py"]
