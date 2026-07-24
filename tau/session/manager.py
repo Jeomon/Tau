@@ -48,6 +48,7 @@ from tau.session.utils import (
     get_default_project_session_dir,
     list_sessions_from_dir,
     read_session_file,
+    read_session_file_shedding,
 )
 from tau.settings.paths import get_sessions_dir
 from tau.utils import profiling
@@ -118,8 +119,9 @@ class SessionManager:
     def set_session(self, session_file: Path):
         """Load or initialize a session from a file."""
         self.session_file = session_file
+        pre_shed_ids: set[str] = set()
         if session_file.exists():
-            self.entries = read_session_file(session_file)
+            self.entries, pre_shed_ids = read_session_file_shedding(session_file)
             if not self.entries:
                 raise ValueError(f"Invalid or empty session file: {session_file}")
 
@@ -158,6 +160,12 @@ class SessionManager:
             self._build_index()
             # A resumed session may be long and already compacted; free the folded
             # message bodies immediately so RAM tracks the live window, not history.
+            # read_session_file_shedding() already stripped most of them before
+            # ever constructing the heavy pydantic objects (the expensive part
+            # for a long session) -- seed _shed_ids with its result so this
+            # call is a cheap idempotent top-up instead of doing that walk from
+            # scratch.
+            self._shed_ids |= pre_shed_ids
             self._shed_folded_message_content()
             self.flushed = True
 

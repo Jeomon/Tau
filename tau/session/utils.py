@@ -1,5 +1,6 @@
 import contextlib
 import hashlib
+import json
 import logging
 import re
 import time
@@ -10,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pydantic_core
 from pydantic import TypeAdapter, ValidationError
 from uuid_extensions import uuid7str as _uuid7str
 
@@ -130,6 +132,131 @@ def read_session_file(session_file: Path) -> list[SessionFileEntry]:
         return []
 
     return entries
+
+
+def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntry], set[str]]:
+    """Load a session file, skipping full validation of message content that
+    ``SessionManager`` would immediately shed anyway.
+
+    ``SessionManager`` frees the heavy body (tool results, file contents,
+    images) of every ``MessageEntry`` before the most recent compaction's
+    kept window right after loading (see ``_shed_folded_message_content``) --
+    the full content stays authoritative on disk and is only re-read if
+    something old is navigated back into. For a long, already-compacted
+    session that means ``read_session_file`` pays full pydantic validation
+    (the dominant cost of a resume) for content that is thrown away a few
+    lines later.
+
+    This does the same lightweight ``json.loads`` pass ``read_session_file``
+    implicitly does inside pydantic's JSON parser, but as a plain Python pass
+    first so the branch (and its most recent compaction boundary) can be
+    found cheaply, *before* the expensive step. Entries before that boundary
+    have their ``message.contents`` cleared in the raw dict before
+    validation, skipping pydantic construction/validation of that nested
+    content entirely. Every other entry (kept window, non-message entries,
+    entries off the current branch) is validated in full, byte-for-byte the
+    same as ``read_session_file`` would produce.
+
+    Returns ``(entries, shed_ids)`` -- ``shed_ids`` are the ids whose content
+    was stripped, for the caller to fold directly into
+    ``SessionManager._shed_ids`` instead of re-deriving them with a second
+    branch walk.
+
+    Falls back to ``read_session_file`` (with an empty shed set) for any
+    shape it doesn't specifically optimize -- missing/invalid header, no
+    compaction on the branch, etc. -- so behaviour for those stays governed
+    by the one well-exercised implementation.
+    """
+    if not session_file.exists():
+        return [], set()
+
+    content = session_file.read_text(encoding="utf-8")
+    lines = [line for line in content.splitlines() if line.strip()]
+    if not lines:
+        return [], set()
+
+    raw: list[dict[str, Any] | None] = []
+    for line in lines:
+        try:
+            # pydantic-core's Rust JSON parser -- ~2-3x faster here than the
+            # stdlib json module for this shape (many/large string values),
+            # and it's already a transitive dependency of every entry model
+            # below, not a new one.
+            obj = pydantic_core.from_json(line)
+        except Exception:
+            obj = None
+        raw.append(obj if isinstance(obj, dict) else None)
+
+    header_obj = raw[0]
+    if header_obj is None or header_obj.get("type") != SessionType.SESSION_HEADER:
+        return read_session_file(session_file), set()
+
+    # Lightweight index over raw JSON (id/parent_id/type only) to find the
+    # current leaf and walk its branch, mirroring SessionManager._build_index
+    # and get_branch without paying for model construction yet.
+    by_id: dict[str, dict[str, Any]] = {}
+    leaf_id: str | None = None
+    for obj in raw[1:]:
+        if obj is None or not isinstance(obj.get("id"), str):
+            continue
+        entry_id = obj["id"]
+        by_id[entry_id] = obj
+        leaf_id = obj.get("target_id") if obj.get("type") == SessionType.LEAF else entry_id
+
+    branch_ids: list[str] = []
+    cursor = leaf_id
+    visited: set[str] = set()
+    while cursor and cursor in by_id and cursor not in visited:
+        visited.add(cursor)
+        branch_ids.append(cursor)
+        cursor = by_id[cursor].get("parent_id")
+    branch_ids.reverse()
+
+    first_kept_id: str | None = None
+    for entry_id in branch_ids:
+        if by_id[entry_id].get("type") == SessionType.COMPACTION:
+            first_kept_id = by_id[entry_id].get("first_kept_entry_id")
+
+    shed_ids: set[str] = set()
+    if first_kept_id is not None and first_kept_id in by_id:
+        for entry_id in branch_ids:
+            if entry_id == first_kept_id:
+                break
+            obj = by_id[entry_id]
+            if obj.get("type") != SessionType.SESSION_MESSAGE:
+                continue
+            message = obj.get("message")
+            if not isinstance(message, dict) or message.get("role") not in (
+                "user",
+                "assistant",
+                "tool",
+            ):
+                continue
+            if message.get("contents"):
+                shed_ids.add(entry_id)
+
+    if not shed_ids:
+        # Nothing to gain -- go through the single well-exercised path
+        # instead of re-parsing what we've already loaded above.
+        return read_session_file(session_file), set()
+
+    for entry_id in shed_ids:
+        by_id[entry_id]["message"]["contents"] = []
+
+    entries: list[SessionFileEntry] = []
+    for lineno, obj in enumerate(raw, start=1):
+        if obj is None:
+            continue
+        try:
+            entries.append(_SESSION_FILE_ENTRY_ADAPTER.validate_python(obj))
+        except Exception:
+            _log.warning("skipping unparseable line %d in session file %s", lineno, session_file)
+            continue
+
+    if len(entries) == 0 or entries[0].type != SessionType.SESSION_HEADER:
+        return [], set()
+
+    return entries, shed_ids
 
 
 def count_session_data_lines(session_file: Path) -> int:
@@ -264,7 +391,6 @@ def build_session_info(file: Path) -> SessionInfo | None:
     are read; ``modified`` comes from the filesystem mtime so we never deserialize
     the whole conversation history just to list sessions.
     """
-    import json
 
     try:
         stat = file.stat()
