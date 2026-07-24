@@ -26,6 +26,20 @@ if TYPE_CHECKING:
 # still smooth-looking token streaming while cutting that down by ~5x.
 _STREAM_FLUSH_INTERVAL = 1 / 12
 
+# Cap on how many characters of *visible assistant text* a single flush is
+# allowed to newly reveal. Deltas from the provider often arrive in uneven
+# bursts (several tokens at once, then a gap), and coalescing whatever piled
+# up during one ~83ms flush window then made that whole burst pop onto the
+# screen at once — technically "streaming", but visually chunky rather than
+# a smooth typewriter effect. Capping the reveal rate and draining any
+# backlog over the following flushes (even if no new tokens have arrived
+# yet — see ``_flush_pending``) smooths that out without changing the flush
+# *frequency* above (still bound by ``_STREAM_FLUSH_INTERVAL`` for the
+# scrollback-snap reason above). Comfortably above typical model output
+# rates (usually well under 100 chars/sec) so ordinary streaming is
+# unaffected — it only kicks in for bursts.
+_TYPEWRITER_CHARS_PER_SEC = 250
+
 
 def _find_component(root: object, attr: str) -> object | None:
     """Depth-first search the component tree for one exposing ``attr``."""
@@ -81,6 +95,13 @@ class AgentHookHandler:
         self._pending_msg: object = None
         self._pending_flush_handle: asyncio.TimerHandle | None = None
         self._last_flush_at: float = 0.0
+
+        # Typewriter reveal state: how much of the current turn's visible
+        # assistant text has actually been displayed so far, vs. the latest
+        # known full text (updated on every message_update, independent of
+        # whether a flush has drained it yet). See _TYPEWRITER_CHARS_PER_SEC.
+        self._reveal_source_msg: object = None
+        self._revealed_len: int = 0
 
         # Raw terminal/tool output arrives far more densely than model tokens
         # (a chatty subprocess can emit hundreds of lines/sec — see
@@ -249,6 +270,8 @@ class AgentHookHandler:
             block = self._layout.add_message(msg, streaming=False)
         self._current_block = block
         self._current_text_length = _text_length(msg)
+        self._reveal_source_msg = None
+        self._revealed_len = 0
         self._tui.request_render()
 
     async def _on_message_update(self, event: object) -> None:
@@ -270,6 +293,7 @@ class AgentHookHandler:
 
         # Buffer the latest message; schedule a flush if none pending.
         self._pending_msg = msg
+        self._reveal_source_msg = msg
         if self._pending_flush_handle is None:
             elapsed = time.monotonic() - self._last_flush_at
             delay = max(0.0, _STREAM_FLUSH_INTERVAL - elapsed)
@@ -277,24 +301,58 @@ class AgentHookHandler:
             self._pending_flush_handle = loop.call_later(delay, self._flush_pending)
 
     def _flush_pending(self) -> None:
-        """Flush the buffered token batch: re-parse markdown once, then render."""
+        """Flush the buffered token batch: re-parse markdown once, then render.
+
+        Paces how much *visible text* newly appears this flush
+        (``_TYPEWRITER_CHARS_PER_SEC``) instead of always jumping straight to
+        whatever the provider has buffered up — see the constant's docstring.
+        If that leaves a backlog (more text already received than this flush
+        revealed), reschedules itself to keep draining it even if no further
+        token arrives, so the animation doesn't stall mid-catch-up.
+        """
         from tau.session.compaction import estimate_tokens
 
         self._pending_flush_handle = None
-        msg = self._pending_msg
+        msg = self._pending_msg if self._pending_msg is not None else self._reveal_source_msg
         self._pending_msg = None
         if msg is None or self._current_block is None:
             return
-        tl = _text_length(msg)
-        self._update_block(msg, streaming=tl > self._current_text_length)
-        self._current_text_length = tl
-        self._last_flush_at = time.monotonic()
+        full_len = _text_length(msg)
+        now = time.monotonic()
+        # Floor at _STREAM_FLUSH_INTERVAL: real callbacks are never actually
+        # spaced closer together than that (see the scheduling delay above),
+        # so this only guards pathological/test invocation patterns from
+        # starving the reveal rate — it doesn't slow anything down in
+        # practice. A longer real gap (e.g. the event loop was briefly busy)
+        # correctly reveals more this tick to catch back up.
+        elapsed = max(
+            _STREAM_FLUSH_INTERVAL,
+            (now - self._last_flush_at) if self._last_flush_at else _STREAM_FLUSH_INTERVAL,
+        )
+        max_reveal = max(1, round(elapsed * _TYPEWRITER_CHARS_PER_SEC))
+        target_len = min(full_len, self._revealed_len + max_reveal)
+        display_msg = _reveal_prefix(msg, target_len)
+
+        self._update_block(display_msg, streaming=target_len > self._current_text_length)
+        self._revealed_len = target_len
+        self._current_text_length = target_len
+        self._last_flush_at = now
         # estimate_tokens covers thinking + text + any tool-call args in msg,
         # so the down-count climbs during tool-calling too, not just plain
         # text — real tokenizer counts, throttled to this ~60fps flush rather
         # than every delta so re-encoding the growing message stays cheap.
+        # Uses the full (not reveal-paced) message: the counter should track
+        # what's actually been received, not the animation catching up to it.
         self._layout.spinner.set_streaming_estimate(estimate_tokens(msg))
         self._tui.request_render()
+
+        if target_len < full_len:
+            # Backlog remains — keep draining at the same cadence even if no
+            # new message_update arrives in the meantime.
+            loop = asyncio.get_event_loop()
+            self._pending_flush_handle = loop.call_later(
+                _STREAM_FLUSH_INTERVAL, self._flush_pending
+            )
 
     async def _on_message_end(self, event: object) -> None:
         from tau.message.types import AssistantMessage, ToolMessage
@@ -304,6 +362,8 @@ class AgentHookHandler:
             self._pending_flush_handle.cancel()
             self._pending_flush_handle = None
         self._pending_msg = None
+        self._reveal_source_msg = None
+        self._revealed_len = 0
         self._last_flush_at = 0.0
 
         msg = getattr(event, "message", None)
@@ -353,6 +413,8 @@ class AgentHookHandler:
             self._pending_flush_handle.cancel()
             self._pending_flush_handle = None
         self._pending_msg = None
+        self._reveal_source_msg = None
+        self._revealed_len = 0
         for _ in range(count):
             if not self._layout.messages.remove_last():
                 break
@@ -577,6 +639,42 @@ def _text_length(message: object) -> int:
     contents = getattr(message, "contents", [])
     return sum(len(item.content) for item in contents if isinstance(item, TextContent))
 
+
+def _reveal_prefix(message: object, target_len: int) -> object:
+    """Return ``message`` with its visible text truncated to ``target_len`` characters.
+
+    Used to pace a typewriter-style reveal independently of how bursty the
+    underlying token deltas are (see ``_TYPEWRITER_CHARS_PER_SEC``): the
+    caller keeps the true, fully-received ``message`` around and asks for a
+    shorter prefix of it to actually display this flush. Only ``TextContent``
+    is paced — thinking blocks, tool calls, and media always render in full
+    immediately, matching prior (non-paced) behavior for those. Returns
+    ``message`` unchanged once there's nothing left to trim, which is the
+    common case (most flushes easily keep up with typical model output
+    rates; the cap only bites during bursts).
+    """
+    from dataclasses import replace
+
+    from tau.message.types import AssistantMessage, TextContent
+
+    if not isinstance(message, AssistantMessage) or target_len >= _text_length(message):
+        return message
+
+    remaining = max(0, target_len)
+    new_contents: list[object] = []
+    for item in message.contents:
+        if isinstance(item, TextContent):
+            if remaining <= 0:
+                continue
+            if len(item.content) <= remaining:
+                new_contents.append(item)
+                remaining -= len(item.content)
+            else:
+                new_contents.append(TextContent(content=item.content[:remaining]))
+                remaining = 0
+        else:
+            new_contents.append(item)
+    return replace(message, contents=new_contents)
 
 def _has_pending_tool_call(message: object) -> bool:
     from tau.message.types import AssistantMessage, ToolCallContent
