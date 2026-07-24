@@ -494,3 +494,66 @@ class TestSanitizePaste:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCommandPasteExpansion:
+    """Slash/terminal input must dispatch with pastes EXPANDED.
+
+    Regression: `/darwin <5KB pasted brief>` used to reach the command with the
+    literal "[paste #N ...]" placeholder while the buffer was cleared — the
+    content was destroyed before anything could read it.
+    """
+
+    def _submit_ready_handler(self, monkeypatch):
+        h = make_handler()
+        h.save_history = MagicMock()
+        h._make_slash_message = MagicMock(return_value="slash-msg")
+        h._track_task = MagicMock()
+        h._invoke = MagicMock(return_value=None)
+        h._deferred_inputs = []
+        h._runtime.agent = None
+        import asyncio as _asyncio
+
+        monkeypatch.setattr(_asyncio, "ensure_future", lambda x: x)
+        return h
+
+    def test_slash_command_dispatches_expanded_paste(self, monkeypatch):
+        h = self._submit_ready_handler(monkeypatch)
+        body = "GOAL: " + "x" * 3000
+        h._on_paste_text(body)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        assert marker.startswith("[paste #1")
+
+        h._on_submit(f"/darwin {marker}")
+
+        dispatched = h._invoke.call_args[0][0]
+        assert dispatched == f"/darwin {body}"          # content, not placeholder
+        assert h._pasted_texts == {}                     # buffers consumed
+        # transcript shows the compact original, not 3KB of paste
+        assert h._make_slash_message.call_args[0][0] == f"/darwin {marker}"
+
+    def test_terminal_command_dispatches_expanded_paste(self, monkeypatch):
+        h = self._submit_ready_handler(monkeypatch)
+        body = "\n".join(f"line {i}" for i in range(60))
+        h._on_paste_text(body)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        h._on_submit(f"!cat <<'EOF'\n{marker}")
+        dispatched = h._invoke.call_args[0][0]
+        assert body in dispatched and "[paste #" not in dispatched
+
+    def test_deferred_command_stores_expanded_text(self, monkeypatch):
+        h = self._submit_ready_handler(monkeypatch)
+        agent = MagicMock()
+        agent.is_idle.return_value = False
+        h._runtime.agent = agent
+        h._runtime.commands.get.return_value = MagicMock(requires_idle=True)
+
+        body = "y" * 3000
+        h._on_paste_text(body)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        h._on_submit(f"/darwin {marker}")
+        assert h._deferred_inputs == [f"/darwin {body}"]  # replay after settle
+        h._invoke.assert_not_called()                     # cannot re-expand later:
+        assert h._pasted_texts == {}                      # buffers already consumed

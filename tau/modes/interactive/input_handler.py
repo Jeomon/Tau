@@ -164,15 +164,20 @@ class InputHandler:
             self._extract_clipboard_audio(text)
             self._extract_clipboard_video(text)
             self._extract_clipboard_file(text)
-            self._pasted_texts.clear()
-            self._paste_counter = 0
+            # Slash/terminal input can carry large pastes too — e.g.
+            # `/darwin <pasted 5KB brief>`. Expand them into the dispatched
+            # text; clearing the buffer without expanding (the old behaviour)
+            # sent the command the literal "[paste #N ...]" placeholder and
+            # destroyed the content. Expansion clears the paste buffers.
+            # The transcript keeps the compact original for display.
+            expanded = self._expand_pasted_texts(text)
             if agent is not None and not agent.is_idle() and self._input_requires_idle(text):
-                self._defer_input(text)
+                self._defer_input(expanded)
                 return
             if text.startswith("/"):
                 self._layout.add_message(self._make_slash_message(text))
                 self._tui.request_render()
-            self._track_task(asyncio.ensure_future(self._invoke(text)))
+            self._track_task(asyncio.ensure_future(self._invoke(expanded)))
             return
 
         images, missing_images = self._extract_clipboard_images(text)
