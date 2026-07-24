@@ -5,6 +5,7 @@ import subprocess
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from tau.tui.style import Style, apply_style
@@ -136,6 +137,7 @@ def style(text: str, *codes: str) -> str:
 # ── Width calculation ─────────────────────────────────────────────────────────
 
 
+@lru_cache(maxsize=4096)
 def _char_width(ch: str) -> int:
     """Return the terminal column width of a single character."""
     cp = ord(ch)
@@ -338,7 +340,7 @@ def _leading_whitespace(line: str) -> str:
     ws: list[str] = []
     i = 0
     while i < len(line):
-        m = _ANSI_RE.match(line, i)
+        m = _ANSI_RE.match(line, i) if line[i] == "\x1b" else None
         if m:
             i += len(m.group(0))
             continue
@@ -367,8 +369,12 @@ def _split_at_columns(text: str, width: int, tracker: _AnsiStateTracker) -> tupl
     last_wb_snap: tuple | None = None
 
     while i < len(text):
-        # Check for ANSI escape at current position
-        m = _ANSI_RE.match(text, i)
+        # Check for ANSI escape at current position. The regex match is only
+        # attempted when the current char could actually start one — most
+        # streamed assistant prose is plain text, and probing every single
+        # character with a regex engine call (even a non-matching one) adds
+        # up badly over a very long response.
+        m = _ANSI_RE.match(text, i) if text[i] == "\x1b" else None
         if m:
             code = m.group(0)
             tracker.process(code)
@@ -405,7 +411,7 @@ def _take_columns(text: str, max_cols: int) -> tuple[str, int]:
     result, col = "", 0
     i = 0
     while i < len(text):
-        m = _ANSI_RE.match(text, i)
+        m = _ANSI_RE.match(text, i) if text[i] == "\x1b" else None
         if m:
             result += m.group(0)
             i += len(m.group(0))

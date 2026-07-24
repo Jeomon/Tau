@@ -324,12 +324,82 @@ class StreamingMarkdownRenderer:
         self._frozen_until = 0
         self._frozen_lines: list[str] = []
         self._frozen_generation = 0
+        # Incremental freeze-cutoff scan state (see _advance_freeze_scan).
+        # ``_scan_pos`` only ever advances past *complete* lines (ones ending
+        # in \n/\r), so an in-progress trailing line is safely re-scanned
+        # next call instead of being counted as a boundary too early.
+        self._scan_pos = 0
+        self._scan_in_fence = False
+        self._scan_fence_marker = ""
+        self._scan_last_boundary = 0
+        # Cache for render_prefixed(): the frozen half only needs re-prefixing
+        # when frozen_generation actually moves (i.e. a new top-level block
+        # just froze), not on every streamed token.
+        self._prefixed_generation = -1
+        self._prefixed_prefix = ""
+        self._prefixed_frozen: list[str] = []
 
     def reset(self) -> None:
         self._text = ""
         self._frozen_until = 0
         self._frozen_lines = []
         self._frozen_generation += 1
+        self._scan_pos = 0
+        self._scan_in_fence = False
+        self._scan_fence_marker = ""
+        self._scan_last_boundary = 0
+
+    def _advance_freeze_scan(self, text: str) -> int:
+        """Return an append-only cutoff for completed top-level markdown blocks.
+
+        During streaming, only the current open block needs to remain live.
+        Once a blank-line boundary is seen outside a fenced code block, the
+        block before it is structurally complete for the common
+        assistant-output cases we render (paragraphs, headings, lists, tables,
+        quotes, fenced code); freezing up to the latest such boundary keeps
+        active work bounded to the current block rather than the whole reply.
+
+        A naive version would re-scan the *entire* accumulated text on every
+        call — O(total response length) per streamed token, thus O(n²) over one
+        long reply. Since ``text`` only ever grows by appending (enforced by
+        the caller's ``text.startswith(self._text)`` reset check), this instead
+        resumes scanning from the last position a *complete* line ended,
+        carrying the fenced-code-block state across calls, so each call costs
+        only in the newly arrived text, not the whole reply.
+        """
+        pos = self._scan_pos
+        in_fence = self._scan_in_fence
+        fence_marker = self._scan_fence_marker
+        last_boundary = self._scan_last_boundary
+
+        chunk = text[pos:]
+        lines = chunk.splitlines(keepends=True)
+        # A trailing fragment with no line terminator is still being
+        # written to (more characters may land right after it before the
+        # next newline) — leave it unconsumed so it's re-scanned, cheaply,
+        # next call instead of being treated as a finished line now.
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines.pop()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith(("```", "~~~")):
+                marker = stripped[:3]
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                elif marker == fence_marker:
+                    in_fence = False
+                    fence_marker = ""
+            pos += len(line)
+            if not in_fence and stripped == "":
+                last_boundary = pos
+
+        self._scan_pos = pos
+        self._scan_in_fence = in_fence
+        self._scan_fence_marker = fence_marker
+        self._scan_last_boundary = last_boundary
+        return last_boundary
 
     def render_split(
         self,
@@ -352,7 +422,7 @@ class StreamingMarkdownRenderer:
             self.reset()
 
         self._text = text
-        freeze_until = _streaming_markdown_freeze_cutoff(text)
+        freeze_until = self._advance_freeze_scan(text)
         if freeze_until > self._frozen_until:
             newly_stable = text[self._frozen_until:freeze_until]
             rendered = _render_markdown(
@@ -380,7 +450,14 @@ class StreamingMarkdownRenderer:
             preserve_soft_breaks=preserve_soft_breaks,
         )
         frozen = self._frozen_lines
-        frozen_lines = list(frozen[:-1] if not tail_lines and frozen[-1:] == [""] else frozen)
+        # ``frozen`` only ever grows by appending (see above) and callers only
+        # ever iterate it, never mutate it — so it's safe (and much cheaper
+        # for a long streamed reply, avoiding an O(frozen-so-far) copy on
+        # every single token flush) to hand back the live list directly
+        # instead of copying it every call. The only case that needs an
+        # actual copy is trimming the trailing block-separator blank line
+        # when there's no live tail to keep it meaningful for.
+        frozen_lines = frozen[:-1] if not tail_lines and frozen[-1:] == [""] else frozen
         return StreamingMarkdownRender(frozen_lines, tail_lines, self._frozen_generation)
 
     def render(
@@ -398,35 +475,50 @@ class StreamingMarkdownRenderer:
             preserve_soft_breaks=preserve_soft_breaks,
         ).lines
 
+    def render_prefixed(
+        self,
+        text: str,
+        width: int,
+        theme: MarkdownTheme,
+        *,
+        preserve_soft_breaks: bool = False,
+        prefix: str,
+    ) -> list[str]:
+        """Like ``render``, but with every line prefixed (e.g. an indent).
 
-def _streaming_markdown_freeze_cutoff(text: str) -> int:
-    """Return an append-only cutoff for completed top-level markdown blocks.
+        Re-prefixing every already-frozen line on every single streamed
+        token flush is O(response-size-so-far) per flush — this instead
+        re-prefixes the frozen half only when ``frozen_generation`` actually
+        moves (a new top-level block just froze, which happens once per
+        paragraph/heading/etc., not once per token), and always re-prefixes
+        just the small live tail.
 
-    During streaming, only the current open block needs to remain live.  Once a
-    blank-line boundary is seen outside a fenced code block, the block before
-    that boundary is structurally complete for the common assistant-output cases
-    we render here (paragraphs, headings, lists, tables, quotes, fenced code).
-    Freezing up to the latest such boundary keeps active streaming work bounded
-    to the current block instead of the whole reply.
-    """
-    boundaries: list[int] = []
-    in_fence = False
-    fence_marker = ""
-    pos = 0
-    for line in text.splitlines(keepends=True):
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-                fence_marker = ""
-        pos += len(line)
-        if not in_fence and stripped == "":
-            boundaries.append(pos)
-    return boundaries[-1] if boundaries else 0
+        The cache is keyed on ``frozen_generation`` and prefixes the full,
+        *untrimmed* ``self._frozen_lines`` — NOT ``split.frozen_lines``, which
+        render_split trims the trailing block-separator blank line off of when
+        there's no live tail *without bumping the generation*. Caching that
+        trimmed form let a flush that happened to land exactly on a block
+        boundary (empty tail) poison the cache, so the blank line stayed
+        dropped and paragraphs visually collapsed together once the next token
+        arrived. Re-deriving the trim per call from the untrimmed list here
+        keeps it in lockstep with render_split.
+        """
+        split = self.render_split(text, width, theme, preserve_soft_breaks=preserve_soft_breaks)
+        if (
+            self._prefixed_generation != split.frozen_generation
+            or self._prefixed_prefix != prefix
+        ):
+            self._prefixed_frozen = [prefix + line for line in self._frozen_lines]
+            self._prefixed_generation = split.frozen_generation
+            self._prefixed_prefix = prefix
+        frozen = self._prefixed_frozen
+        if not split.live_lines:
+            # Mirror render_split's trailing block-separator trim, driven by the
+            # untrimmed source list so the cached prefixed copy stays valid.
+            if self._frozen_lines[-1:] == [""]:
+                return frozen[:-1]
+            return frozen
+        return [*frozen, *(prefix + line for line in split.live_lines)]
 
 
 # ── Renderer ──────────────────────────────────────────────────────────────────
