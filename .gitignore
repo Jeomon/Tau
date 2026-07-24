@@ -18,3 +18,6 @@ experiments
 
 # Local autoresearch session scaffolding (not part of shipped source)
 .auto/
+
+# private extension, lives in its own repo (symlinked here for dev)
+.tau/extensions/darwin
