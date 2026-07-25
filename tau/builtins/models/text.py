@@ -237,6 +237,33 @@ models = [
         output=_TEXT,
     ),
     Model(
+        id="claude-opus-5",
+        name="Claude Opus 5",
+        provider="anthropic-claude-code",
+        cost=Cost(),
+        thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Claude Code (OAuth) hits the same api.anthropic.com Messages API as the
+        # direct API-key provider — confirmed via platform.claude.com/docs/en/
+        # about-claude/models/overview: adaptive thinking only (no manual
+        # thinking.enabled extended-thinking mode), effort defaults to "high" on
+        # Claude Code. Same xhigh-available, can-disable adaptive spec as
+        # claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        input=_TEXT_IMAGE_FILE,
+        output=_TEXT,
+    ),
+    Model(
         id="claude-opus-4-8",
         name="Claude Opus 4.8",
         provider="anthropic-claude-code",
@@ -856,6 +883,31 @@ models = [
         output=_TEXT,
     ),
     Model(
+        id="claude-opus-5",
+        name="Claude Opus 5",
+        provider="anthropic-vertex",
+        cost=Cost(input=5.0, output=25.0, cache_read=0.5),
+        thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same adaptive-thinking spec as the direct API (platform.claude.com/docs/en/
+        # about-claude/models/overview + claude-on-vertex-ai confirm the Agent
+        # Platform API mirrors the Messages API): adaptive-only, off unless
+        # explicitly set, xhigh available.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        input=_TEXT_IMAGE_FILE,
+        output=_TEXT,
+    ),
+    Model(
         id="claude-opus-4-8",
         name="Claude Opus 4.8",
         provider="anthropic-vertex",
@@ -1311,6 +1363,31 @@ models = [
             ThinkingLevel.Max,
         ],
         context_window=1_048_576,
+        input=_TEXT_IMAGE_FILE,
+        output=_TEXT,
+    ),
+    Model(
+        id="claude-opus-5",
+        name="Claude Opus 5",
+        provider="anthropic",
+        cost=Cost(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25),
+        thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Confirmed via platform.claude.com/docs/en/about-claude/models/overview:
+        # adaptive thinking only (no manual thinking.enabled extended-thinking
+        # mode), effort defaults to "high" on the Claude API. Same
+        # off-unless-explicit, xhigh-available adaptive spec as claude-opus-4-8.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
+        context_window=1_048_576,
+        max_output_tokens=128_000,
         input=_TEXT_IMAGE_FILE,
         output=_TEXT,
     ),
@@ -2029,6 +2106,31 @@ models = [
         context_window=131_072,
         input=_TEXT,
         output=_TEXT,
+    ),
+    Model(
+        id="anthropic.claude-opus-5",
+        name="Claude Opus 5",
+        provider="bedrock",
+        cost=Cost(),
+        thinking=True,
+        thinking_adaptive=True,
+        thinking_suppresses_sampling=True,
+        # Same model, same adaptive-thinking spec as claude-opus-5 on
+        # provider="anthropic" — this is just the Bedrock-hosted endpoint.
+        thinking_levels=[
+            ThinkingLevel.Off,
+            ThinkingLevel.Low,
+            ThinkingLevel.Medium,
+            ThinkingLevel.High,
+            ThinkingLevel.XHigh,
+            ThinkingLevel.Max,
+        ],
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        input=_TEXT_IMAGE,
+        output=_TEXT,
+        api="anthropic_messages",
+        base_url="https://bedrock-mantle.us-east-1.api.aws/anthropic",
     ),
     Model(
         id="anthropic.claude-opus-4-7",
