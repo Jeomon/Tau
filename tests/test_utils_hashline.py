@@ -254,17 +254,35 @@ class TestResolveAnchor:
     def _anchor(self, lines, index):
         return stamp_lines(lines)[index], index + 1
 
-    def test_copy_inserted_above_resolves_to_the_original(self):
+    def test_copy_inserted_above_is_refused_not_guessed(self):
+        """A line that was unique when read, and now has an identical twin.
+
+        Neither copy carries the token the reader was given — both are salted as
+        duplicates now — so resolution falls back to the plain content hash,
+        which both match. Nothing in the anchor separates them: the line number
+        it carries describes a file that has since changed.
+
+        This used to be settled by picking whichever copy sat nearer the old
+        line number. That is a guess, and it loses whenever the file shifted:
+        with a larger insertion the COPY sits nearest and the edit lands on it
+        silently. Refusing costs a re-read; guessing cost a corrupted file.
+        """
         anchor, hint = self._anchor(self.BASE, 4)
         after = self.BASE[:2] + ["        data = fh.read()"] + self.BASE[2:]
-        # The decoy copy sits at index 2; the caller's line moved to index 5.
         assert after[2] == after[5]
-        assert resolve_anchor(after, anchor, hint) == 5
+        assert resolve_anchor(after, anchor, hint) is None
 
-    def test_copy_inserted_below_resolves_to_the_original(self):
+    def test_copy_inserted_below_is_refused_not_guessed(self):
+        """The mirror of the case above, and refused for the same reason.
+
+        The old line number happens to favour the right answer here, because
+        appending shifts nothing. That is luck, not evidence — the identical
+        situation with an insertion higher up favours the decoy instead — so
+        this refuses rather than being right by accident.
+        """
         anchor, hint = self._anchor(self.BASE, 4)
         after = self.BASE + ["        data = fh.read()"]
-        assert resolve_anchor(after, anchor, hint) == 4
+        assert resolve_anchor(after, anchor, hint) is None
 
     def test_resolves_after_lines_inserted_above(self):
         anchor, hint = self._anchor(self.BASE, 4)

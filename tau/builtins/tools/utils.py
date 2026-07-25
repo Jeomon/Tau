@@ -480,10 +480,30 @@ def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int |
     # 3. Several candidates, all literal copies of one content: the line number
     #    the anchor was displayed at picks the copy the caller meant. Inside a
     #    run this inference is unavailable, which is why those are excluded.
-    if len({contents[i] for i in alt}) != 1:
-        return None
-    wanted = hint - 1
-    return min(alt, key=lambda i: (abs(i - wanted), i))
+    # Several candidates, and no way to tell them apart. The line number the
+    # anchor carries is NOT a way: it describes where the line sat in a file
+    # that has since changed, so "nearest to the old position" is a guess. It
+    # pays off when the copy appears near the anchor and loses when the file
+    # shifted underneath it, and losing means editing the wrong line silently.
+    #
+    # Reproduced before this refusal was added: read a 4-line save(), anchor
+    # its "return None", then add a load() helper ABOVE carrying an identical
+    # line. The copy then sits nearer the old line number than the original
+    # does, so the edit rewrote load() and left save() untouched, with no
+    # error. The retained digest does not catch it either — both copies say the
+    # same thing, and a digest settles what the line SAID, not which copy was
+    # MEANT.
+    #
+    # So refuse. It costs a re-read, and it measured as costing nothing else:
+    # real-file resolution was identical (135 correct / 3 refused / 0 wrong)
+    # with the tiebreak and without it.
+    #
+    # There IS better evidence available — read retains a digest for every line,
+    # so a candidate's NEIGHBOURHOOD can be compared against the neighbourhood
+    # the reader actually saw. That is a real rule rather than a guess, and it
+    # is being evaluated in the lab rather than invented here; see
+    # NEXT-context-disambiguation.md.
+    return None
 
 
 _locks: dict[Path, tuple[asyncio.Lock, int]] = {}
