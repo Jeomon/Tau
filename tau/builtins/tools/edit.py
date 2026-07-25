@@ -10,11 +10,11 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import (
-    AnchorSpaceExhausted,
     atomic_write_text,
-    compute_line_hashes,
+    resolve_anchor,
     resolve_tool_path,
     serialize_file_mutation,
+    stamp_lines,
 )
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -42,15 +42,22 @@ class EditParams(BaseModel):
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
     start_anchor: str = Field(
-        pattern=r"^\d+:.{4}$",
+        # Token width adapts to file length (see utils.anchor_width): 4 hex
+        # characters up to 1024 lines, then 5, capped at 8. A run of identical
+        # lines additionally carries a short base-36 ordinal suffix, so the
+        # worst case is 13 characters (width 8 plus the ordinal of a 10M-line
+        # run). Character class rather than `.` so whitespace and stray
+        # punctuation are rejected before resolution is attempted.
+        pattern=r"^\d+:[0-9a-z]{4,14}$",
         description=(
             "Hashline anchor copied from read for the first line to replace, formatted "
-            "'<line>:<hash>'."
+            "'<line>:<hash>'. Copy it exactly as read printed it; hash width varies "
+            "with file size."
         ),
         examples=["12:a3f1"],
     )
     end_anchor: str = Field(
-        pattern=r"^\d+:.{4}$",
+        pattern=r"^\d+:[0-9a-z]{4,14}$",
         description=(
             "Hashline anchor for the last line to replace, formatted '<line>:<hash>'. "
             "Use the start anchor for a single-line edit."
@@ -71,10 +78,11 @@ def _line_hash(line: str) -> str:
     """Return an isolated per-line hash for cosmetic diff-preview display only.
 
     Used solely by _render_hunk_line (the human-facing TUI diff panel), which
-    only has the changed lines in front of it, not the whole file — so it
-    can't run the collision-resolved compute_line_hashes over full context.
-    Anchor *resolution* (_find_anchor) never uses this; it always hashes the
-    complete file so identical/blank lines still get distinct anchors.
+    only has the changed lines in front of it, not the whole file — so it can't
+    run stamp_lines, whose token for a duplicated line is salted from its
+    neighbours and whose width comes from the file's total length.
+    Anchor *resolution* (_find_anchor) never uses this; it always stamps the
+    complete file so identical and blank lines still get distinct anchors.
     """
     stripped = line.strip()
     return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
@@ -86,24 +94,20 @@ def _parse_anchor(anchor: str) -> tuple[int, str]:
     return int(line_number), line_hash
 
 
-def _find_anchor(lines: list[str], anchor: str, hashes: list[str] | None = None) -> int | None:
-    """Find the line matching the anchor's hash.
+def _find_anchor(lines: list[str], anchor: str) -> int | None:
+    """Find the line an anchor refers to, or None to refuse.
 
-    ``hashes`` (from ``compute_line_hashes``) are unique per file, so a match
-    is normally unambiguous — the line-number hint is only used to break a
-    tie in the pathological case where the file is long enough to exhaust the
-    collision-resolution retry budget and two lines end up sharing a hash.
+    Delegates to ``resolve_anchor``, which matches every token a line could
+    have carried rather than only the one it carries right now: a line's tier
+    depends on how many copies of it the file holds, and that can change
+    between the read and this edit.
+
+    Takes the lines rather than a precomputed hash table, because a token is no
+    longer a pure function of one line's content — a duplicate is salted from
+    its neighbours, and the width comes from the file's total length.
     """
     line_hint, expected_hash = _parse_anchor(anchor)
-    if hashes is None:
-        hashes = compute_line_hashes(lines)
-    matches = [index for index, h in enumerate(hashes) if h == expected_hash]
-    if not matches:
-        return None
-    if len(matches) == 1:
-        return matches[0]
-    expected_index = line_hint - 1
-    return min(matches, key=lambda index: abs(index - expected_index))
+    return resolve_anchor(lines, expected_hash, line_hint)
 
 
 def _format_anchored_lines(
@@ -410,21 +414,16 @@ class EditTool(Tool):
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
 
         lines = original.splitlines()
-        try:
-            hashes = compute_line_hashes(lines)
-        except AnchorSpaceExhausted as e:
-            return ToolResult.error(
-                invocation.id,
-                f"'{params.path}' has {len(lines)} lines, too many to resolve edit anchors "
-                f"unambiguously ({e}). Use terminal (sed/awk/python) to modify this file.",
-            )
-        start_index = _find_anchor(lines, params.start_anchor, hashes)
+        # No capacity ceiling any more: token width adapts to file length rather
+        # than the file being refused once it outgrows a fixed 4-hex space.
+        hashes = stamp_lines(lines)
+        start_index = _find_anchor(lines, params.start_anchor)
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
                 _anchor_not_found_message("Start", params.start_anchor, lines, hashes),
             )
-        end_index = _find_anchor(lines, params.end_anchor, hashes)
+        end_index = _find_anchor(lines, params.end_anchor)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,

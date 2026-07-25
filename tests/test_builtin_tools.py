@@ -18,7 +18,7 @@ from tau.builtins.tools.grep import GrepTool
 from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.terminal import TerminalTool
-from tau.builtins.tools.utils import OutputAccumulator, compute_line_hashes
+from tau.builtins.tools.utils import OutputAccumulator, stamp_lines
 from tau.builtins.tools.write import WriteTool
 from tau.tool.types import ToolInvocation, ToolRenderOptions
 from tau.utils.format import human_size
@@ -33,17 +33,21 @@ def run(coro):
 
 
 def _anchor(line_number: int, content: str) -> str:
-    """Isolated-hash anchor — valid for lines whose content is unique in the
-    file (the common case, where the perfect-hashed anchor equals this one)."""
+    """Tier-0 anchor, valid only when the content is unique in the file AND the
+    file is short enough for 4-character tokens (<= 1024 lines).
+
+    Duplicated content is salted from its neighbours, so this shortcut does not
+    apply there — use _anchor_in, which stamps the real file.
+    """
     stripped = content.strip()
     line_hash = "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
     return f"{line_number}:{line_hash}"
 
 
 def _anchor_in(text: str, line_number: int) -> str:
-    """Real per-file anchor (perfect-hashed) for targeting a specific line,
-    needed whenever the file has repeated or blank lines."""
-    hashes = compute_line_hashes(text.splitlines())
+    """Real per-file anchor for targeting a specific line. Required whenever the
+    file has repeated or blank lines, or is long enough to widen the token."""
+    hashes = stamp_lines(text.splitlines())
     return f"{line_number}:{hashes[line_number - 1]}"
 
 

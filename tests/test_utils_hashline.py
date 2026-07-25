@@ -1,74 +1,105 @@
-"""Tests for tau/builtins/tools/hashline.py — the shared perfect-hashing anchor scheme."""
+"""Tests for the shared hashline anchor scheme in tau/builtins/tools/utils.py.
+
+Both read and edit must derive the same token for the same line, since edit
+re-stamps the file from disk rather than trusting anything carried over from a
+prior read. Keeping the algorithm in one place is what keeps them in agreement.
+"""
 
 from __future__ import annotations
 
 import hashlib
 
-import pytest
-
 from tau.builtins.tools.utils import (
     HASH_LEN,
-    AnchorSpaceExhausted,
-    compute_line_hashes,
+    anchor_width,
     detect_binary_format,
     looks_like_binary,
+    resolve_anchor,
+    stamp_lines,
 )
 
 
 def test_unique_lines_keep_the_plain_isolated_hash():
-    """The common case (no collision) must match a naive per-line md5 hash,
-    so anchors don't change unnecessarily for the vast majority of files."""
+    """Tier 0: content that appears once in the file keeps the naive per-line
+    md5, so the common case pays nothing in width or in churn."""
     lines = ["import os", "def f():", "    return 1"]
-    hashes = compute_line_hashes(lines)
+    hashes = stamp_lines(lines)
     expected = [hashlib.md5(line.strip().encode()).hexdigest()[:HASH_LEN] for line in lines]
     assert hashes == expected
 
 
 def test_all_hashes_are_unique_within_a_file():
     lines = ["foo"] * 20 + [""] * 10 + ["bar", "foo", ""]
-    hashes = compute_line_hashes(lines)
+    hashes = stamp_lines(lines)
     assert len(hashes) == len(lines)
     assert len(set(hashes)) == len(hashes)
 
 
-def test_first_occurrence_keeps_base_hash_later_ones_differ():
-    hashes = compute_line_hashes(["foo", "foo", "foo"])
-    base = hashlib.md5(b"foo").hexdigest()[:HASH_LEN]
-    assert hashes[0] == base
-    assert hashes[1] != base
-    assert hashes[2] != base
-    assert hashes[1] != hashes[2]
+def test_duplicated_lines_are_salted_by_neighbours_not_by_position():
+    """The property the old scheme lacked, and the reason it edited wrong lines.
+
+    Previously the FIRST occurrence of a content kept the unsalted hash and
+    later ones were salted with a retry counter. That is positional: insert a
+    copy above an anchored line and the copy becomes "first", takes over the
+    token, and the original is silently relabelled. Salting from the lines
+    ABOVE a duplicate instead means a copy appearing elsewhere cannot disturb
+    it.
+    """
+    before = ["a = 1", "dup()", "b = 2", "dup()"]
+    after = ["a = 1", "dup()", "INSERTED", "b = 2", "dup()"]
+    # The insertion is above the anchored duplicate but does not touch its
+    # immediate upward context, so its token is PRESERVED. Under the old
+    # positional scheme the token moved to whichever copy came first.
+    assert stamp_lines(before)[3] == stamp_lines(after)[4]
 
 
 def test_blank_lines_are_not_all_identical():
-    hashes = compute_line_hashes(["", "", ""])
+    hashes = stamp_lines(["", "", ""])
     assert len(set(hashes)) == 3
 
 
 def test_whitespace_only_lines_treated_as_blank():
     """Indentation-only lines strip to empty, same as a truly blank line —
     they should still each get their own anchor, not collide silently."""
-    hashes = compute_line_hashes(["    ", "\t", ""])
+    hashes = stamp_lines(["    ", "\t", ""])
     assert len(set(hashes)) == 3
 
 
-def test_hash_length_is_stable():
-    hashes = compute_line_hashes(["a", "a", "a", "", "b"])
+def test_hash_width_is_uniform_within_a_small_file():
+    """Every token in one file shares a width, apart from a tier-2 ordinal
+    suffix, so a reader's output stays column-aligned."""
+    hashes = stamp_lines(["a", "b", "c", "", "d"])
     assert all(len(h) == HASH_LEN for h in hashes)
+
+
+def test_token_width_grows_with_file_length():
+    """A 4-hex token holds 65,536 values, so a large file cannot give every
+    line a distinct one. Width adapts instead of the file being refused —
+    which is what the old fixed-width scheme did once it ran out of space.
+    """
+    assert anchor_width(10) == HASH_LEN
+    assert anchor_width(1_024) == HASH_LEN
+    assert anchor_width(1_025) == HASH_LEN + 1
+    assert anchor_width(70_000) > HASH_LEN + 1
+    # Bounded, so an anchor can never grow without limit.
+    assert anchor_width(10**9) <= 8
 
 
 def test_deterministic_across_calls():
     lines = ["x"] * 5 + ["y"] * 5
-    assert compute_line_hashes(lines) == compute_line_hashes(list(lines))
+    assert stamp_lines(lines) == stamp_lines(list(lines))
 
 
 def test_stable_regardless_of_slicing_point():
-    """read.py hashes the whole file then slices for the requested chunk —
-    the hash for a given absolute line must not depend on where a chunk
-    boundary happens to fall."""
+    """read.py stamps the whole file then slices for the requested chunk — the
+    anchor for a given absolute line must not depend on where a chunk boundary
+    falls. This matters more now than it did: a duplicate's salt comes from its
+    neighbours and the width comes from the total line count, so stamping only
+    a window would produce different anchors for the same line.
+    """
     lines = ["dup"] * 8
-    full = compute_line_hashes(lines)
-    assert full[3:6] == compute_line_hashes(lines)[3:6]
+    full = stamp_lines(lines)
+    assert full[3:6] == stamp_lines(lines)[3:6]
 
 
 def test_heavily_duplicated_lines_all_stay_unique():
@@ -77,20 +108,30 @@ def test_heavily_duplicated_lines_all_stay_unique():
     was exhausted, duplicate anchors were emitted silently — which makes
     edit's anchor resolution ambiguous."""
     lines = ["dup"] * 5000
-    hashes = compute_line_hashes(lines)
+    hashes = stamp_lines(lines)
     assert len(set(hashes)) == 5000
 
 
 def test_many_blank_lines_all_stay_unique():
-    hashes = compute_line_hashes([""] * 5000)
+    hashes = stamp_lines([""] * 5000)
     assert len(set(hashes)) == 5000
 
 
-def test_first_occurrence_still_plain_hash_after_many_duplicates():
-    """The perf fix must not shift anchors: occurrence 0 of any content keeps
-    the naive md5 anchor no matter how many duplicates follow it."""
-    lines = ["dup"] * 5000
-    assert compute_line_hashes(lines)[0] == hashlib.md5(b"dup").hexdigest()[:HASH_LEN]
+def test_no_copy_holds_the_unsalted_token():
+    """Deliberate reversal of the old contract.
+
+    The previous scheme gave occurrence 0 the plain ``md5(content)`` and salted
+    the rest, and a test here asserted that. That property IS the wrong-line
+    bug: whichever copy comes first owns the plain token, so inserting a copy
+    above an anchored line hands the newcomer that token and relabels the
+    original. Now every copy of a duplicated content is salted, so there is no
+    unsalted token for a new copy to steal.
+    """
+    lines = ["dup"] * 500
+    hashes = stamp_lines(lines)
+    plain = hashlib.md5(b"dup").hexdigest()[: anchor_width(len(lines))]
+    assert plain not in hashes
+    assert len(set(hashes)) == len(lines)
 
 
 def test_duplicate_heavy_file_is_not_quadratic():
@@ -99,22 +140,35 @@ def test_duplicate_heavy_file_is_not_quadratic():
 
     lines = [f"line{i % 1000}" for i in range(60_000)]
     start = time.perf_counter()
-    hashes = compute_line_hashes(lines)
+    hashes = stamp_lines(lines)
     elapsed = time.perf_counter() - start
     assert len(set(hashes)) == 60_000
-    assert elapsed < 5.0, f"took {elapsed:.1f}s — collision probing regressed to quadratic"
+    assert elapsed < 10.0, f"took {elapsed:.1f}s — salting regressed"
 
 
-def test_file_longer_than_the_anchor_space_is_refused():
-    """More lines than distinct anchors is unsatisfiable by pigeonhole, so it
-    must raise rather than hand back duplicate anchors."""
-    with pytest.raises(AnchorSpaceExhausted):
-        compute_line_hashes(["x"] * (16**HASH_LEN + 1))
+def test_periodic_file_does_not_widen_forever():
+    """In a periodic file no neighbourhood radius ever separates the copies, so
+    widening must stop as soon as a radius separates nothing rather than paying
+    for six rounds of hashes that cannot help."""
+    import time
+
+    lines = [f"call_{i % 500}()" for i in range(40_000)]
+    start = time.perf_counter()
+    hashes = stamp_lines(lines)
+    elapsed = time.perf_counter() - start
+    assert len(hashes) == 40_000
+    assert elapsed < 10.0, f"took {elapsed:.1f}s — widening did not abort early"
 
 
-def test_exactly_the_anchor_space_still_works():
-    hashes = compute_line_hashes(["y"] * (16**HASH_LEN))
-    assert len(set(hashes)) == 16**HASH_LEN
+def test_file_larger_than_the_4hex_space_is_no_longer_refused():
+    """Previously a file with more lines than the 65,536 four-hex anchors was
+    refused outright, by pigeonhole. Width now adapts, so the file is readable
+    and its lines stay individually addressable."""
+    lines = [f"row_{i}" for i in range(16**HASH_LEN + 1)]
+    hashes = stamp_lines(lines)
+    assert len(hashes) == len(lines)
+    assert len(set(hashes)) == len(lines)
+    assert all(len(h) > HASH_LEN for h in hashes)
 
 
 class TestDetectBinaryFormat:
@@ -158,3 +212,116 @@ class TestDetectBinaryFormat:
         for header in realistic_headers:
             assert looks_like_binary(header), "sniff should already catch this"
             assert detect_binary_format(header) is None
+
+
+class TestResolveAnchor:
+    """Anchor resolution, including the wrong-line bug this scheme replaced.
+
+    The previous scheme salted every occurrence after the first with a retry
+    counter, so the FIRST copy of a content held the unsalted token. Inserting a
+    copy above an anchored line made the copy "first": it took over the token
+    and the original was silently relabelled. edit then found exactly one match,
+    saw no ambiguity, and edited the decoy — a confident wrong-line edit, which
+    is the worst possible failure for a tool that mutates files.
+    """
+
+    BASE = [
+        "import os",
+        "",
+        "def load(path):",
+        "    with open(path) as fh:",
+        "        data = fh.read()",
+        "    return data",
+    ]
+
+    def _anchor(self, lines, index):
+        return stamp_lines(lines)[index], index + 1
+
+    def test_copy_inserted_above_resolves_to_the_original(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        after = self.BASE[:2] + ["        data = fh.read()"] + self.BASE[2:]
+        # The decoy copy sits at index 2; the caller's line moved to index 5.
+        assert after[2] == after[5]
+        assert resolve_anchor(after, anchor, hint) == 5
+
+    def test_copy_inserted_below_resolves_to_the_original(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        after = self.BASE + ["        data = fh.read()"]
+        assert resolve_anchor(after, anchor, hint) == 4
+
+    def test_resolves_after_lines_inserted_above(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        after = ["# a", "# b", "# c"] + self.BASE
+        assert resolve_anchor(after, anchor, hint) == 7
+
+    def test_resolves_after_lines_deleted_above(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        assert resolve_anchor(self.BASE[2:], anchor, hint) == 2
+
+    def test_refuses_when_the_target_line_itself_changed(self):
+        """A line differing by one token is not the same line. Silently rebasing
+        onto it is the wrong-line edit the scheme exists to prevent."""
+        anchor, hint = self._anchor(self.BASE, 4)
+        after = self.BASE[:4] + ["        data = fh.readlines()"] + self.BASE[5:]
+        assert resolve_anchor(after, anchor, hint) is None
+
+    def test_refuses_when_the_target_line_was_deleted(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        assert resolve_anchor(self.BASE[:4] + self.BASE[5:], anchor, hint) is None
+
+    def test_refuses_a_fabricated_anchor(self):
+        assert resolve_anchor(self.BASE, "zzzz", 5) is None
+
+    def test_refuses_against_an_empty_file(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        assert resolve_anchor([], anchor, hint) is None
+
+    def test_picks_the_right_closer_among_identical_ones(self):
+        closers = ["def f():", "    if a:", "        b()", "        }", "    }", "}"]
+        anchor, hint = self._anchor(closers, 4)
+        after = ["# hdr"] + closers
+        assert resolve_anchor(after, anchor, hint) == 5
+
+    def test_picks_the_right_blank_line_in_a_run(self):
+        blanks = ["a = 1", "", "", "", "", "b = 2"]
+        anchor, hint = self._anchor(blanks, 3)
+        after = ["# hdr"] + blanks
+        assert resolve_anchor(after, anchor, hint) == 4
+
+    def test_survives_reindentation(self):
+        anchor, hint = self._anchor(self.BASE, 4)
+        after = [line.replace("    ", "  ") for line in self.BASE]
+        assert resolve_anchor(after, anchor, hint) == 4
+
+    def test_never_resolves_to_the_wrong_line_under_random_edits(self):
+        """Refusing is acceptable; landing on a different line is not."""
+        import random
+
+        random.seed(1234)
+        pool = ["x = 1", "}", "    }", "", "    return None", "    pass", "call()"]
+        wrong = 0
+        for _ in range(200):
+            before = [
+                random.choice(pool) if random.random() < 0.5 else f"v{i} = f({i})"
+                for i in range(random.randint(20, 80))
+            ]
+            target = random.randrange(len(before))
+            anchor, hint = self._anchor(before, target)
+            after, shift = list(before), 0
+            for _ in range(random.randint(1, 4)):
+                at = random.randrange(len(after) + 1)
+                if random.random() < 0.5:
+                    after.insert(at, f"# ins {random.random():.5f}")
+                    if at <= target + shift:
+                        shift += 1
+                elif len(after) > 2 and at < len(after) and at != target + shift:
+                    after.pop(at)
+                    if at < target + shift:
+                        shift -= 1
+            truth = target + shift
+            if not (0 <= truth < len(after)) or after[truth] != before[target]:
+                continue
+            got = resolve_anchor(after, anchor, hint)
+            if got is not None and got != truth:
+                wrong += 1
+        assert wrong == 0, f"{wrong}/200 resolved to the wrong line"

@@ -23,98 +23,257 @@ from tau.engine.types import AbortSignal
 from tau.utils.fs import atomic_write_text  # noqa: F401 — re-exported for write.py/edit.py
 
 HASH_LEN = 4
-# Every distinct anchor is HASH_LEN hex digits, so the whole space holds
-# 16**4 = 65536 anchors. HASH_LEN is not free to change: the edit tool's
-# schema pins anchors to exactly four characters (``pattern=r"^\d+:.{4}$"``),
-# so widening the hash would invalidate the tool contract and every anchor
-# the model is currently holding.
-_HASH_SPACE = 16**HASH_LEN
-# Truncated md5 over successive retry values is not a bijection, so probing
-# fills the space like a coupon-collector draw rather than a permutation:
-# reaching 50% load takes ~46k probes, 95% ~197k, and 100% ~668k. The ceiling
-# therefore has to sit well above _HASH_SPACE or a legitimately anchorable
-# file would be refused. Probing is amortized per content, so this is a total
-# budget for the file (~0.5s in the pathological all-identical case), not a
-# per-line one.
-_MAX_PROBES = _HASH_SPACE * 16
+# How far a duplicated line's neighbourhood is widened before falling back to an
+# ordinal. Each extra radius costs one more hash per duplicated line and
+# separates nothing at all in a periodic file, so the budget is deliberately
+# small.
+MAX_RADIUS = 6
+# Anchor values per line. A 4-hex token holds 65,536 values, so in a 70,000-line
+# file distinct lines MUST share one and no scheme can address them all. Rather
+# than promise global uniqueness and then refuse the whole file, the token widens
+# only for files that need it: ordinary files keep 4 characters. 64 values per
+# line keeps the collision rate under ~1%.
+LOAD_FACTOR = 64
+MAX_HASH_LEN = 8
+
+_BOF = "\x00bof"
+_EOF = "\x00eof"
+_B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
-class AnchorSpaceExhausted(RuntimeError):
-    """Raised when unique anchors cannot be assigned to every line of a file.
+def _content(line: str) -> str:
+    """Whitespace-insensitive content of a line.
 
-    With only ``_HASH_SPACE`` distinct anchors available, a file longer than
-    that cannot get one anchor per line — by the pigeonhole principle, not by
-    bad luck. Callers must surface this as a refusal rather than proceeding:
-    duplicate anchors make ``edit`` ambiguous, and a wrong-but-plausible
-    anchor resolution silently edits the wrong line.
+    Stripping is what lets a re-indented block keep its anchors. It also means
+    two lines differing only in indentation share one content key.
     """
+    return line.strip() or "\x00blank"
 
 
-def _base_hash(content: str, retry: int) -> str:
-    basis = content if retry == 0 else f"{content}\x00{retry}"
-    return hashlib.md5(basis.encode()).hexdigest()[:HASH_LEN]
+def anchor_width(n_lines: int) -> int:
+    """Token width for a file of this many lines.
 
-
-def compute_line_hashes(lines: list[str]) -> list[str]:
-    """Return one anchor hash per line, unique within this file (perfect hashing).
-
-    The base hash is ``md5(stripped content)[:4]`` — identical to a plain
-    per-line hash for the common case of non-repeated content, so most lines
-    get the same anchor a naive per-line hash would produce. When a line's
-    base hash collides with one already assigned to an earlier line in this
-    file, the hash is recomputed with an increasing retry suffix until a free
-    slot is found, so every line — including blank lines and repeated
-    boilerplate like ``}`` or ``import os`` — gets its own distinct anchor.
-    This removes any need to break ties by line-number proximity when
-    resolving an anchor back to a line.
-
-    Probing resumes from where the same content left off rather than
-    restarting at retry 0. For a line repeated ``k`` times, retries 0..k-2 are
-    necessarily already taken by that content's own earlier occurrences (the
-    assigned set only ever grows, so a slot is never freed), which made the
-    naive rescan re-derive the same doomed hashes over and over —
-    O(k^2) work for k duplicates. Resuming yields byte-identical anchors for
-    a fraction of the hashing: a 9k-line file of repetitive generated code
-    drops from ~540 ms to ~7 ms, and a pathological 570k-line input from an
-    effectively unbounded ~2 billion hashes to a prompt refusal.
-
-    Raises:
-        AnchorSpaceExhausted: If the file cannot be assigned unique anchors.
+    Public because ``edit``'s anchor schema has to admit every width this can
+    return — see ``EditParams``.
     """
-    if len(lines) > _HASH_SPACE:
-        raise AnchorSpaceExhausted(
-            f"{len(lines)} lines exceeds the {_HASH_SPACE} available anchors; "
-            "this file cannot be safely anchored for editing."
-        )
+    width = HASH_LEN
+    while width < MAX_HASH_LEN and 16**width < LOAD_FACTOR * n_lines:
+        width += 1
+    return width
 
-    assigned: set[str] = set()
-    # Highest retry already consumed per content, so occurrence k starts
-    # probing past occurrence k-1 instead of rescanning from zero.
-    next_retry: dict[str, int] = {}
-    hashes: list[str] = []
-    for line in lines:
-        content = line.strip()
-        if not content:
-            # Blank lines carry no content to hash meaningfully, but still
-            # need a unique anchor like any other line — chain off a fixed
-            # marker instead of the (also blank) stripped content.
-            content = "\x00blank"
-        retry = next_retry.get(content, 0)
-        h = _base_hash(content, retry)
-        while h in assigned:
-            retry += 1
-            if retry >= _MAX_PROBES:
-                # Unreachable while the length guard above holds, but a
-                # duplicate anchor must never be emitted silently.
-                raise AnchorSpaceExhausted(
-                    f"No free anchor for line content {content[:40]!r} after "
-                    f"{retry} probes; the anchor space is effectively full."
-                )
-            h = _base_hash(content, retry)
-        assigned.add(h)
-        next_retry[content] = retry + 1
-        hashes.append(h)
-    return hashes
+
+def _hash(blob: str, width: int) -> str:
+    return hashlib.md5(blob.encode()).hexdigest()[:width]
+
+
+def _token(line: str, width: int) -> str:
+    """Tier-0 token: hash of the line's content alone."""
+    return _hash(_content(line), width)
+
+
+def _salted(lines: list[str], i: int, radius: int, width: int) -> str:
+    """Tier-1 token: content plus the ``radius`` lines ABOVE it.
+
+    Upward-only on purpose. Context *below* a line is the fragile half — append
+    to the file or delete the line underneath and a symmetric salt changes even
+    though the anchored line never moved. Everything above the line had to be
+    read to reach it anyway, and a copy inserted elsewhere still lands in a
+    different upward context, so position-independence survives.
+    """
+    parts = [f"\x00u{radius}"]
+    for off in range(-radius, 1):
+        j = i + off
+        if j < 0:
+            parts.append(_BOF)
+        elif j >= len(lines):
+            parts.append(_EOF)
+        else:
+            parts.append(_content(lines[j]))
+    return _hash("\x00".join(parts), width)
+
+
+def _b36(n: int) -> str:
+    out = ""
+    while True:
+        n, r = divmod(n, 36)
+        out = _B36[r] + out
+        if not n:
+            return out
+
+
+def stamp_lines(lines: list[str]) -> list[str]:
+    """Return one anchor token per line, using two-tier salting.
+
+    ``tier 0`` A line whose content is unique in the file keeps the plain
+        content hash. The common case pays nothing, in width or in stability.
+
+    ``tier 1`` A line whose content is duplicated is salted with its
+        NEIGHBOURS, widening the radius until the copies separate. Neighbour
+        salting is position-INDEPENDENT, which is the whole point: inserting a
+        copy of a line elsewhere in the file leaves the original's token
+        untouched.
+
+    ``tier 2`` What even a wide neighbourhood cannot separate — a true run of
+        identical lines in identical surroundings — falls back to an ordinal
+        suffix. Only those lines pay extra width.
+
+    This replaces a scheme that made anchors unique by salting every occurrence
+    after the first with a retry counter. That guaranteed uniqueness *within one
+    read* but not stability *across* edits, which is what hashline exists to
+    provide: because the first occurrence held the unsalted token, inserting a
+    copy above an anchored line handed the copy that token and silently
+    relabelled the original. ``edit`` then found exactly one match, saw no
+    ambiguity, and edited the decoy. See ``test_copy_inserted_above_*``.
+
+    Because a line's tier depends on the file's own duplicate structure, an
+    anchor can be stamped in one tier and read back in another. ``resolve_anchor``
+    therefore matches every token a line *could* have carried, not just the one
+    it carries now.
+    """
+    return _stamp(lines, anchor_width(len(lines)))
+
+
+def _stamp(lines: list[str], width: int) -> list[str]:
+    tokens = [_token(line, width) for line in lines]
+
+    groups: dict[str, list[int]] = {}
+    for i, line in enumerate(lines):
+        groups.setdefault(_content(line), []).append(i)
+
+    for members in groups.values():
+        if len(members) == 1:
+            continue  # tier 0: unique content, plain hash
+        pending = members
+        for radius in range(1, MAX_RADIUS + 1):
+            salts = {i: _salted(lines, i, radius, width) for i in pending}
+            seen: dict[str, int] = {}
+            for salt in salts.values():
+                seen[salt] = seen.get(salt, 0) + 1
+            still: list[int] = []
+            for i in pending:
+                if seen[salts[i]] == 1:
+                    tokens[i] = salts[i]  # tier 1: neighbours separate it
+                else:
+                    still.append(i)
+            if len(still) == len(pending):
+                # This radius separated nothing. In a periodic file — the same
+                # call repeated every N lines — no wider radius will either, so
+                # stop paying for hashes that cannot help.
+                break
+            pending = still
+            if not pending:
+                break
+        if pending:
+            # tier 2: identical lines in identical surroundings. Nothing about
+            # the content can tell them apart, so pay a suffix.
+            for ordinal, i in enumerate(members, start=1):
+                if i in pending:
+                    tokens[i] = _token(lines[i], width) + _b36(ordinal)
+
+    # tier 1b: two DIFFERENT lines can still land on one token by hash
+    # collision. They are not copies, so no later stage could separate them —
+    # salt them with their upward context here instead. Without this, a
+    # collision is accepted as an exact match and the edit lands on the wrong
+    # line (the failure oh-my-pi hit in its 16-bit snapshot tags).
+    used: dict[str, int] = {}
+    for tok in tokens:
+        used[tok] = used.get(tok, 0) + 1
+    for i, tok in enumerate(tokens):
+        if used.get(tok, 0) < 2:
+            continue
+        for radius in range(1, MAX_RADIUS + 1):
+            cand = _salted(lines, i, radius, width)
+            if cand not in used:
+                used[tok] -= 1
+                used[cand] = 1
+                tokens[i] = cand
+                break
+    return tokens
+
+
+def _candidate_tokens(lines: list[str], i: int, width: int) -> set[str]:
+    """Every token line ``i`` could carry, across all tiers.
+
+    A line's tier depends on how many copies of it the file holds, and that can
+    change between the read and the edit. Matching only the current tier would
+    throw away a perfectly good anchor whenever a copy appeared or vanished.
+    """
+    out = {_token(lines[i], width)}
+    for radius in range(1, MAX_RADIUS + 1):
+        out.add(_salted(lines, i, radius, width))
+    return out
+
+
+def resolve_anchor(
+    current: list[str],
+    anchor: str,
+    hint: int,
+    snapshot: list[str] | None = None,
+) -> int | None:
+    """Find the 0-based index in ``current`` that ``anchor`` refers to.
+
+    Args:
+        current: the file as it is now.
+        anchor: the token hash the caller is holding (no line-number prefix).
+        hint: the 1-based line number the anchor was displayed at.
+        snapshot: the file as the reader saw it, when the caller kept one.
+            Optional — ``edit`` has no such record today, and the scheme is
+            designed to work without it.
+
+    Returns:
+        The line index, or None to refuse. Refusing costs the caller a re-read;
+        resolving to the wrong line silently corrupts a file, so every ambiguous
+        fork below refuses rather than guesses.
+    """
+    if not current:
+        return None
+
+    # The file's own size fixes the width. An anchor may nonetheless have been
+    # stamped at a different width — the file crossed a threshold, or it carries
+    # a tier-2 ordinal suffix and so is longer than the hash — so plausible
+    # alternatives are tried only if the natural width finds nothing.
+    natural = anchor_width(len(current))
+    widths = [natural]
+    for guess in (len(anchor), len(anchor) - 1, len(anchor) - 2):
+        if HASH_LEN <= guess <= MAX_HASH_LEN and guess not in widths:
+            widths.append(guess)
+
+    for width in widths:
+        got = _resolve_at(current, anchor, hint, width)
+        if got is not None:
+            return got
+    return None
+
+
+def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int | None:
+    """Resolve assuming the anchor was stamped with tokens ``width`` wide."""
+    # 1. The token as the file stamps it today. Two-tier salting makes this
+    #    unique for almost every line, with no snapshot needed.
+    tokens = _stamp(current, width)
+    exact = [i for i, tok in enumerate(tokens) if tok == anchor]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        # Distinct lines sharing a token: a hash collision, not a duplicate.
+        # Nothing here can separate them, so refuse.
+        return None
+
+    # 2. No line carries that token now. The anchor may have been stamped in a
+    #    different tier — a copy of the line has appeared or been removed since
+    #    the read. Look at every token each line could have carried.
+    alt = [i for i in range(len(current)) if anchor in _candidate_tokens(current, i, width)]
+    if not alt:
+        return None
+    if len(alt) == 1:
+        return alt[0]
+
+    # 3. Several candidates. Only tolerate that when they are literal copies of
+    #    one another — then every candidate holds the same text, so the line
+    #    number the anchor was displayed at picks the copy the caller meant.
+    if len({_content(current[i]) for i in alt}) != 1:
+        return None
+    wanted = hint - 1
+    return min(alt, key=lambda i: (abs(i - wanted), i))
 
 
 _locks: dict[Path, tuple[asyncio.Lock, int]] = {}
