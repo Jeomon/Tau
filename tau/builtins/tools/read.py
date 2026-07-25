@@ -11,6 +11,7 @@ from tau.builtins.tools.utils import (
     detect_image_mime,
     looks_like_binary,
     resolve_tool_path,
+    split_lines,
     stamp_lines,
 )
 from tau.tool.render import call_line
@@ -235,7 +236,7 @@ class ReadTool(Tool):
                 "first 8 KiB) and cannot be read as text.",
             )
 
-        lines = raw.decode("utf-8", errors="replace").splitlines()
+        lines = split_lines(raw.decode("utf-8", errors="replace"))
 
         total = len(lines)
         start = params.offset

@@ -11,9 +11,13 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import (
     atomic_write_text,
+    dominant_newline,
+    join_lines,
     resolve_anchor,
     resolve_tool_path,
     serialize_file_mutation,
+    split_lines,
+    split_lines_with_endings,
     stamp_lines,
 )
 from tau.tool.render import call_line
@@ -409,11 +413,28 @@ class EditTool(Tool):
             return ToolResult.error(invocation.id, f"Not a file: {params.path}")
 
         try:
-            original = path.read_text(encoding="utf-8")
+            original = path.read_bytes().decode("utf-8")
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
+        except UnicodeDecodeError as e:
+            # Previously an unhandled UnicodeDecodeError: only OSError was caught,
+            # so a latin-1 file crashed the tool call. read tolerates such a file
+            # by decoding with errors="replace", which means the anchors it shows
+            # describe replacement characters rather than the bytes on disk —
+            # writing back from them would corrupt the file. Refuse instead.
+            return ToolResult.error(
+                invocation.id,
+                f"'{params.path}' is not valid UTF-8 ({e.reason} at byte {e.start}), so it "
+                "cannot be edited safely — read displays it with replacement characters, "
+                "so its anchors do not describe the bytes on disk. Use terminal "
+                "(sed/awk/python) to modify this file.",
+            )
 
-        lines = original.splitlines()
+        # Split on real line terminators only, and keep them: str.splitlines also
+        # breaks on form feed, vertical tab, NEL and U+2028, which were then
+        # rejoined as "\n" — destroying them. Keeping each terminator also stops
+        # a CRLF file being rewritten wholesale as LF.
+        lines, endings = split_lines_with_endings(original)
         # No capacity ceiling any more: token width adapts to file length rather
         # than the file being refused once it outgrows a fixed 4-hex space.
         hashes = stamp_lines(lines)
@@ -435,11 +456,17 @@ class EditTool(Tool):
                 "Resolved end anchor is before the start anchor.",
             )
 
-        replacement_lines = params.new_content.splitlines()
+        replacement_lines = split_lines(params.new_content)
+        newline = dominant_newline(endings)
         updated_lines = lines[:start_index] + replacement_lines + lines[end_index + 1 :]
-        updated = "\n".join(updated_lines)
-        if original.endswith("\n") and updated_lines:
-            updated += "\n"
+        updated_endings = (
+            endings[:start_index] + [newline] * len(replacement_lines) + endings[end_index + 1 :]
+        )
+        if updated_endings:
+            # Whether the file ends with a terminator is a property of the file,
+            # not of whichever range happened to be replaced.
+            updated_endings[-1] = newline if (endings and endings[-1]) else ""
+        updated = join_lines(updated_lines, updated_endings)
         replacements = end_index - start_index + 1
 
         resolved = path.resolve()
@@ -452,8 +479,12 @@ class EditTool(Tool):
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot write file: {e}")
 
-        original_lines = original.splitlines(keepends=True)
-        updated_lines = updated.splitlines(keepends=True)
+        # Same line model as the anchors: a form feed is inside a line, not a
+        # break between two.
+        oc, oe = split_lines_with_endings(original)
+        uc, ue = split_lines_with_endings(updated)
+        original_lines = [c + e for c, e in zip(oc, oe, strict=True)]
+        updated_lines = [c + e for c, e in zip(uc, ue, strict=True)]
         diff_lines = list(
             difflib.unified_diff(
                 original_lines,

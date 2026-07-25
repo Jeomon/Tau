@@ -13,8 +13,12 @@ from tau.builtins.tools.utils import (
     HASH_LEN,
     anchor_width,
     detect_binary_format,
+    dominant_newline,
+    join_lines,
     looks_like_binary,
     resolve_anchor,
+    split_lines,
+    split_lines_with_endings,
     stamp_lines,
 )
 
@@ -325,3 +329,44 @@ class TestResolveAnchor:
             if got is not None and got != truth:
                 wrong += 1
         assert wrong == 0, f"{wrong}/200 resolved to the wrong line"
+
+
+class TestLineSplitting:
+    """read and edit must agree on what a line IS, since an anchor identifies a
+    position in that list. Shared helpers, so they cannot drift apart.
+
+    str.splitlines was the wrong primitive: it also breaks on form feed,
+    vertical tab, NEL and U+2028, and edit then rejoined with "\\n" — so editing
+    an unrelated line destroyed the separator, and every CRLF file was rewritten
+    as LF.
+    """
+
+    def test_matches_splitlines_for_ordinary_text(self):
+        for text in ("", "a", "a\n", "a\nb", "a\nb\n", "\n", "\n\n\n", "a\r\nb\r\n"):
+            assert split_lines(text) == text.splitlines(), repr(text)
+
+    def test_does_not_split_on_form_feed(self):
+        assert split_lines("a\nb\x0cc\nd\n") == ["a", "b\x0cc", "d"]
+        assert "a\nb\x0cc\nd\n".splitlines() == ["a", "b", "c", "d"]  # the old behaviour
+
+    def test_does_not_split_on_other_exotic_boundaries(self):
+        for ch in ("\x0b", "\x1c", "\x1d", "\x1e", "\u0085", "\u2028", "\u2029"):
+            assert split_lines(f"a\nb{ch}c\n") == ["a", f"b{ch}c"], repr(ch)
+
+    def test_round_trip_is_exact(self):
+        for text in ("", "a", "a\n", "a\nb", "a\r\nb\r\n", "a\rb\r", "a\r\nb\nc\r",
+                     "a\x0cb\n", "\ufeffa\n", "a\nb"):
+            contents, endings = split_lines_with_endings(text)
+            assert join_lines(contents, endings) == text, repr(text)
+
+    def test_endings_are_reported_per_line(self):
+        contents, endings = split_lines_with_endings("a\r\nb\nc")
+        assert contents == ["a", "b", "c"]
+        assert endings == ["\r\n", "\n", ""]   # "" = ends at EOF without one
+
+    def test_dominant_newline_picks_the_file_convention(self):
+        assert dominant_newline(["\r\n", "\r\n", "\n"]) == "\r\n"
+        assert dominant_newline(["\n", "\n", "\r\n"]) == "\n"
+        assert dominant_newline(["\r", "\r"]) == "\r"
+        assert dominant_newline([]) == "\n"          # empty file: pick a sane default
+        assert dominant_newline([""]) == "\n"        # single line, no terminator

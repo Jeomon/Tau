@@ -12,6 +12,7 @@ import asyncio
 import codecs
 import hashlib
 import os
+import re
 import tempfile
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, suppress
@@ -42,6 +43,64 @@ MAX_HASH_LEN = 8
 _BOF = "\x00bof"
 _EOF = "\x00eof"
 
+
+# Real line terminators, and nothing else. ``str.splitlines`` also breaks on
+# \x0b, \x0c, \x1c-\x1e, \x85, \u2028 and \u2029, so a file using form feeds as
+# page separators (older C, Lisp and Emacs-era sources) was split at them and
+# then rejoined with "\n" — silently destroying the separator when an unrelated
+# line was edited. Splitting only here keeps a form feed inside its line.
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+
+
+def split_lines(text: str) -> list[str]:
+    """Split text into lines on real terminators only, dropping the terminators.
+
+    Shared by ``read`` and ``edit`` on purpose: an anchor identifies a position
+    in this list, so the two tools have to agree on what a line *is*. Matches
+    ``str.splitlines`` for ordinary text and differs only for the exotic
+    boundaries noted above.
+    """
+    parts = _LINE_BREAK.split(text)
+    if parts and parts[-1] == "":
+        parts.pop()  # a trailing terminator does not start a new line
+    return parts
+
+
+def split_lines_with_endings(text: str) -> tuple[list[str], list[str]]:
+    """Return ``(contents, terminators)``, one terminator per line.
+
+    The terminator is ``""`` for a final line that ends at EOF without one.
+    ``edit`` needs these to write the file back with the endings it came with:
+    normalising CRLF to LF turns a one-line change into a whole-file diff on a
+    Windows checkout.
+    """
+    contents: list[str] = []
+    endings: list[str] = []
+    pos = 0
+    for match in _LINE_BREAK.finditer(text):
+        contents.append(text[pos : match.start()])
+        endings.append(match.group())
+        pos = match.end()
+    if pos < len(text):
+        contents.append(text[pos:])
+        endings.append("")
+    return contents, endings
+
+
+def dominant_newline(endings: list[str]) -> str:
+    """The terminator a new line in this file should use."""
+    counts: dict[str, int] = {}
+    for end in endings:
+        if end:
+            counts[end] = counts.get(end, 0) + 1
+    if not counts:
+        return "\n"
+    return max(counts, key=lambda k: counts[k])
+
+
+def join_lines(contents: list[str], endings: list[str]) -> str:
+    """Inverse of :func:`split_lines_with_endings`."""
+    return "".join(content + end for content, end in zip(contents, endings, strict=True))
 
 def _content(line: str) -> str:
     """Whitespace-insensitive content of a line.

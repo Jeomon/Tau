@@ -846,3 +846,105 @@ class TestReadDoesNotBlockTheEventLoop:
         ticks, result = asyncio.run(scenario())
         assert not result.is_error
         assert ticks > 0, "event loop never ran during read — the sync tail is back on the loop"
+
+
+class TestEditPreservesFileShape:
+    """Three pre-existing bugs, all from one root cause: edit split with
+    str.splitlines and rejoined with "\\n", and decoded with strict UTF-8 while
+    catching only OSError.
+    """
+
+    tool = EditTool()
+
+    def _anchor_at(self, tmp_path, f, index):
+        out = run(ReadTool().execute(_inv("read", cwd=tmp_path, path=str(f))))
+        rows = [
+            line.split("|")[0]
+            for line in out.content.splitlines()
+            if "|" in line and line.split("|")[0].split(":")[0].isdigit()
+        ]
+        return rows[index]
+
+    def test_crlf_endings_survive_an_edit(self, tmp_path):
+        """Normalising CRLF to LF turns a one-line change into a whole-file diff
+        on a Windows checkout."""
+        f = tmp_path / "a.py"
+        f.write_bytes(b"l0\r\nl1\r\nl2\r\n")
+        anchor = self._anchor_at(tmp_path, f, 1)
+        result = run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
+                     end_anchor=anchor, new_content="X")
+            )
+        )
+        assert not result.is_error
+        assert f.read_bytes() == b"l0\r\nX\r\nl2\r\n"
+
+    def test_cr_only_endings_survive(self, tmp_path):
+        f = tmp_path / "a.py"
+        f.write_bytes(b"l0\rl1\rl2\r")
+        anchor = self._anchor_at(tmp_path, f, 1)
+        run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
+                     end_anchor=anchor, new_content="X")
+            )
+        )
+        assert f.read_bytes() == b"l0\rX\rl2\r"
+
+    def test_form_feed_is_not_turned_into_a_newline(self, tmp_path):
+        """str.splitlines breaks on \\x0c, so editing an unrelated line used to
+        replace the form feed with a newline — silent corruption of files that
+        use it as a page separator."""
+        f = tmp_path / "a.py"
+        f.write_bytes(b"first\nmiddle\x0ctail\nlast\n")
+        anchor = self._anchor_at(tmp_path, f, 0)
+        run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
+                     end_anchor=anchor, new_content="FIRST")
+            )
+        )
+        assert f.read_bytes() == b"FIRST\nmiddle\x0ctail\nlast\n"
+
+    def test_missing_trailing_newline_is_not_invented(self, tmp_path):
+        f = tmp_path / "a.py"
+        f.write_text("l0\nl1\nl2")
+        anchor = self._anchor_at(tmp_path, f, 1)
+        run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
+                     end_anchor=anchor, new_content="X")
+            )
+        )
+        assert f.read_text() == "l0\nX\nl2"
+
+    def test_trailing_newline_is_kept_when_the_last_line_is_replaced(self, tmp_path):
+        f = tmp_path / "a.py"
+        f.write_text("l0\nl1\n")
+        anchor = self._anchor_at(tmp_path, f, 1)
+        run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
+                     end_anchor=anchor, new_content="X")
+            )
+        )
+        assert f.read_text() == "l0\nX\n"
+
+    def test_non_utf8_file_is_refused_not_crashed(self, tmp_path):
+        """read tolerates such a file with errors="replace", so its anchors
+        describe replacement characters rather than the bytes on disk. edit used
+        to raise UnicodeDecodeError from read_text; it must refuse cleanly and
+        leave the file alone."""
+        f = tmp_path / "a.py"
+        f.write_bytes(b"caf\xe9\nsecond\n")
+        original = f.read_bytes()
+        result = run(
+            self.tool.execute(
+                _inv("edit", cwd=tmp_path, path=str(f), start_anchor="1:abcd",
+                     end_anchor="1:abcd", new_content="X")
+            )
+        )
+        assert result.is_error
+        assert "utf-8" in result.content.lower()
+        assert f.read_bytes() == original
