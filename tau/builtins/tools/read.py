@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -200,6 +201,21 @@ class ReadTool(Tool):
                 metadata=metadata,
             )
 
+        # Decoding, splitting and anchor hashing are all CPU-bound and scale
+        # with file size, so they run off the event loop for the same reason
+        # edit and write push their whole body to a thread: a multi-MiB file
+        # would otherwise stall rendering and swallow input for the duration
+        # (a 17 MiB file spends ~250ms in decode/splitlines alone).
+        return await asyncio.to_thread(self._build_text_result, invocation, params, path, raw)
+
+    def _build_text_result(
+        self,
+        invocation: ToolInvocation,
+        params: ReadParams,
+        path: Path,
+        raw: bytes,
+    ) -> ToolResult:
+        """Decode, anchor and window the file body. Runs on a worker thread."""
         if looks_like_binary(raw):
             return ToolResult.error(
                 invocation.id,

@@ -807,3 +807,38 @@ class TestGlobTool:
         )
         assert result.is_error
         assert "ripgrep" in result.content.lower()
+
+
+class TestReadDoesNotBlockTheEventLoop:
+    """read's decode/split/hash tail is CPU-bound and scales with file size.
+    It must run on a worker thread like edit and write already do, or a
+    multi-MiB file freezes rendering and input for its whole duration.
+    """
+
+    def test_event_loop_keeps_ticking_during_a_large_read(self, tmp_path):
+        import asyncio
+
+        big = tmp_path / "big.py"
+        big.write_text("\n".join(f"row {i % 997}" for i in range(40_000)))
+
+        async def scenario():
+            ticks = 0
+
+            async def heartbeat():
+                nonlocal ticks
+                while True:
+                    await asyncio.sleep(0.001)
+                    ticks += 1
+
+            hb = asyncio.create_task(heartbeat())
+            await asyncio.sleep(0.05)
+            ticks = 0
+            result = await ReadTool().execute(
+                _inv("read", cwd=tmp_path, path=str(big), limit=20)
+            )
+            hb.cancel()
+            return ticks, result
+
+        ticks, result = asyncio.run(scenario())
+        assert not result.is_error
+        assert ticks > 0, "event loop never ran during read — the sync tail is back on the loop"
