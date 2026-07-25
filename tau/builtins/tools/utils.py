@@ -23,11 +23,31 @@ from tau.engine.types import AbortSignal
 from tau.utils.fs import atomic_write_text  # noqa: F401 — re-exported for write.py/edit.py
 
 HASH_LEN = 4
-# Astronomically unlikely to matter for any real file (65536 buckets per
-# retry round), but bounds the loop instead of spinning forever in a
-# pathological worst case (e.g. a file that is mostly one repeated line,
-# longer than the entire hash space).
-_MAX_RETRIES = 4096
+# Every distinct anchor is HASH_LEN hex digits, so the whole space holds
+# 16**4 = 65536 anchors. HASH_LEN is not free to change: the edit tool's
+# schema pins anchors to exactly four characters (``pattern=r"^\d+:.{4}$"``),
+# so widening the hash would invalidate the tool contract and every anchor
+# the model is currently holding.
+_HASH_SPACE = 16**HASH_LEN
+# Truncated md5 over successive retry values is not a bijection, so probing
+# fills the space like a coupon-collector draw rather than a permutation:
+# reaching 50% load takes ~46k probes, 95% ~197k, and 100% ~668k. The ceiling
+# therefore has to sit well above _HASH_SPACE or a legitimately anchorable
+# file would be refused. Probing is amortized per content, so this is a total
+# budget for the file (~0.5s in the pathological all-identical case), not a
+# per-line one.
+_MAX_PROBES = _HASH_SPACE * 16
+
+
+class AnchorSpaceExhausted(RuntimeError):
+    """Raised when unique anchors cannot be assigned to every line of a file.
+
+    With only ``_HASH_SPACE`` distinct anchors available, a file longer than
+    that cannot get one anchor per line — by the pigeonhole principle, not by
+    bad luck. Callers must surface this as a refusal rather than proceeding:
+    duplicate anchors make ``edit`` ambiguous, and a wrong-but-plausible
+    anchor resolution silently edits the wrong line.
+    """
 
 
 def _base_hash(content: str, retry: int) -> str:
@@ -47,8 +67,30 @@ def compute_line_hashes(lines: list[str]) -> list[str]:
     boilerplate like ``}`` or ``import os`` — gets its own distinct anchor.
     This removes any need to break ties by line-number proximity when
     resolving an anchor back to a line.
+
+    Probing resumes from where the same content left off rather than
+    restarting at retry 0. For a line repeated ``k`` times, retries 0..k-2 are
+    necessarily already taken by that content's own earlier occurrences (the
+    assigned set only ever grows, so a slot is never freed), which made the
+    naive rescan re-derive the same doomed hashes over and over —
+    O(k^2) work for k duplicates. Resuming yields byte-identical anchors for
+    a fraction of the hashing: a 9k-line file of repetitive generated code
+    drops from ~540 ms to ~7 ms, and a pathological 570k-line input from an
+    effectively unbounded ~2 billion hashes to a prompt refusal.
+
+    Raises:
+        AnchorSpaceExhausted: If the file cannot be assigned unique anchors.
     """
+    if len(lines) > _HASH_SPACE:
+        raise AnchorSpaceExhausted(
+            f"{len(lines)} lines exceeds the {_HASH_SPACE} available anchors; "
+            "this file cannot be safely anchored for editing."
+        )
+
     assigned: set[str] = set()
+    # Highest retry already consumed per content, so occurrence k starts
+    # probing past occurrence k-1 instead of rescanning from zero.
+    next_retry: dict[str, int] = {}
     hashes: list[str] = []
     for line in lines:
         content = line.strip()
@@ -57,12 +99,20 @@ def compute_line_hashes(lines: list[str]) -> list[str]:
             # need a unique anchor like any other line — chain off a fixed
             # marker instead of the (also blank) stripped content.
             content = "\x00blank"
-        retry = 0
+        retry = next_retry.get(content, 0)
         h = _base_hash(content, retry)
-        while h in assigned and retry < _MAX_RETRIES:
+        while h in assigned:
             retry += 1
+            if retry >= _MAX_PROBES:
+                # Unreachable while the length guard above holds, but a
+                # duplicate anchor must never be emitted silently.
+                raise AnchorSpaceExhausted(
+                    f"No free anchor for line content {content[:40]!r} after "
+                    f"{retry} probes; the anchor space is effectively full."
+                )
             h = _base_hash(content, retry)
         assigned.add(h)
+        next_retry[content] = retry + 1
         hashes.append(h)
     return hashes
 

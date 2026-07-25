@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import (
+    AnchorSpaceExhausted,
     atomic_write_text,
     compute_line_hashes,
     resolve_tool_path,
@@ -409,7 +410,14 @@ class EditTool(Tool):
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
 
         lines = original.splitlines()
-        hashes = compute_line_hashes(lines)
+        try:
+            hashes = compute_line_hashes(lines)
+        except AnchorSpaceExhausted as e:
+            return ToolResult.error(
+                invocation.id,
+                f"'{params.path}' has {len(lines)} lines, too many to resolve edit anchors "
+                f"unambiguously ({e}). Use terminal (sed/awk/python) to modify this file.",
+            )
         start_index = _find_anchor(lines, params.start_anchor, hashes)
         if start_index is None:
             return ToolResult.error(

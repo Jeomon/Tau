@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tau.builtins.tools.utils import (
+    AnchorSpaceExhausted,
     compute_line_hashes,
     detect_image_mime,
     looks_like_binary,
@@ -217,7 +218,16 @@ class ReadTool(Tool):
         # resolution (and therefore every line's anchor) stays identical
         # regardless of which offset/limit window is being displayed —
         # edit re-derives this same full-file table when resolving an anchor.
-        chunk_hashes = compute_line_hashes(lines)[start:end]
+        # This is also why offset/limit cannot rescue an unanchorable file:
+        # the cost and the capacity limit are both driven by total lines.
+        try:
+            chunk_hashes = compute_line_hashes(lines)[start:end]
+        except AnchorSpaceExhausted as e:
+            return ToolResult.error(
+                invocation.id,
+                f"Cannot read '{params.path}': {e} If this is data rather than source "
+                "code, use grep or terminal to inspect it instead of read.",
+            )
 
         numbered = "\n".join(
             f"{start + i + 1}:{h}|{_display_line(line)}"
