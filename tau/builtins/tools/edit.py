@@ -19,6 +19,7 @@ from tau.builtins.tools.utils import (
     split_lines,
     split_lines_with_endings,
     stamp_lines,
+    verify_resolved,
 )
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -46,12 +47,15 @@ class EditParams(BaseModel):
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
     start_anchor: str = Field(
-        # Token width adapts to file length (see utils.anchor_width): 4 hex
-        # characters up to 1024 lines, then 5, capped at 8. A run of identical
-        # lines additionally carries a short base-36 ordinal suffix, so the
-        # worst case is 13 characters (width 8 plus the ordinal of a 10M-line
-        # run). Character class rather than `.` so whitespace and stray
-        # punctuation are rejected before resolution is attempted.
+        # A token is 4 hex characters at every file size (see
+        # utils.anchor_width — collisions are now detected rather than avoided,
+        # so width buys nothing). A run of identical lines additionally carries a
+        # short base-36 ordinal suffix, so the worst case is longer than 4. The
+        # bound stays generous rather than exact: it costs nothing, and a schema
+        # that rejects an anchor read itself produced is a worse failure than one
+        # that admits a shape resolution will refuse anyway. Character class
+        # rather than `.` so whitespace and stray punctuation are rejected
+        # before resolution is attempted.
         pattern=r"^\d+:[0-9a-z]{4,14}$",
         description=(
             "Hashline anchor copied from read for the first line to replace, formatted "
@@ -112,6 +116,38 @@ def _find_anchor(lines: list[str], anchor: str) -> int | None:
     """
     line_hint, expected_hash = _parse_anchor(anchor)
     return resolve_anchor(lines, expected_hash, line_hint)
+
+
+def _verification_failure(
+    path: Path, label: str, anchor: str, resolved_line: str
+) -> str | None:
+    """Check the resolved line against what ``read`` displayed, or explain why not.
+
+    ``resolve_anchor`` answers "which line carries this token"; this answers "is
+    that the line the caller was actually looking at". They are different
+    questions, and only the second catches a token collision — once the whole
+    token matches, every content-derived part of it matches too, so no amount of
+    anchor width can distinguish the two lines.
+
+    Returns None when the edit may proceed, or the message to refuse with.
+    """
+    line_hint, _ = _parse_anchor(anchor)
+    verdict = verify_resolved(path, line_hint, resolved_line)
+    if verdict is True:
+        return None
+    if verdict is None:
+        return (
+            f"{label} anchor '{anchor}' cannot be verified: there is no record of "
+            f"this file having been read in this session. Anchors are only "
+            f"meaningful against the read that produced them, so re-read the file "
+            f"and use the anchors it returns."
+        )
+    return (
+        f"{label} anchor '{anchor}' resolved to a line that does not match what "
+        f"read displayed at line {line_hint} — the token is now carried by "
+        f"different content, so editing here would change the wrong line. "
+        f"Re-read the file and use the anchors it returns."
+    )
 
 
 def _format_anchored_lines(
@@ -450,6 +486,13 @@ class EditTool(Tool):
                 invocation.id,
                 _anchor_not_found_message("End", params.end_anchor, lines, hashes),
             )
+        for label, anchor, index in (
+            ("Start", params.start_anchor, start_index),
+            ("End", params.end_anchor, end_index),
+        ):
+            problem = _verification_failure(path, label, anchor, lines[index])
+            if problem is not None:
+                return ToolResult.error(invocation.id, problem)
         if end_index < start_index:
             return ToolResult.error(
                 invocation.id,

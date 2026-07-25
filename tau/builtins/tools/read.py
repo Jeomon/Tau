@@ -10,6 +10,7 @@ from tau.builtins.tools.utils import (
     detect_binary_format,
     detect_image_mime,
     looks_like_binary,
+    record_digests,
     resolve_tool_path,
     split_lines,
     stamp_lines,
@@ -249,6 +250,12 @@ class ReadTool(Tool):
         # get the same anchor no matter which window is being displayed. edit
         # re-derives the identical table when resolving.
         chunk_hashes = stamp_lines(lines)[start:end]
+
+        # Retain a content digest per line so a later edit can check that the
+        # line an anchor resolved to still says what was displayed here. Over the
+        # whole file for the same reason the stamping is: an anchor does not
+        # depend on the window it was shown in.
+        record_digests(path, lines)
 
         numbered = "\n".join(
             f"{start + i + 1}:{h}|{_display_line(line)}"

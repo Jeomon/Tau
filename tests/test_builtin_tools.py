@@ -18,7 +18,14 @@ from tau.builtins.tools.grep import GrepTool
 from tau.builtins.tools.ls import LsTool
 from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.terminal import TerminalTool
-from tau.builtins.tools.utils import OutputAccumulator, stamp_lines
+from tau.builtins.tools.utils import (
+    OutputAccumulator,
+    forget_digests,
+    record_digests,
+    split_lines,
+    stamp_lines,
+    verify_resolved,
+)
 from tau.builtins.tools.write import WriteTool
 from tau.tool.types import ToolInvocation, ToolRenderOptions
 from tau.utils.format import human_size
@@ -42,6 +49,22 @@ def _anchor(line_number: int, content: str) -> str:
     stripped = content.strip()
     line_hash = "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
     return f"{line_number}:{line_hash}"
+
+
+def _seed(f: Path, as_read: str | None = None) -> None:
+    """Record digests for a file as ``read`` would.
+
+    ``edit`` verifies the line an anchor resolved to against what ``read``
+    displayed there, and refuses when it has no record — an anchor is only
+    meaningful against the read that produced it. Tests that write a file and
+    edit it without reading have to stand in for that read.
+
+    ``as_read`` is the content the anchor was taken from, when that differs from
+    what is on disk now — a test simulating a file that moved underneath an
+    anchor has to record the state the reader actually saw, not the state after
+    the shift.
+    """
+    record_digests(f, split_lines(as_read if as_read is not None else f.read_text()))
 
 
 def _anchor_in(text: str, line_number: int) -> str:
@@ -320,6 +343,7 @@ class TestEditTool:
     def test_replaces_single_anchored_line(self, tmp_path):
         f = tmp_path / "code.py"
         f.write_text("def old_name():\n    pass\n")
+        _seed(f)
         anchor = _anchor(1, "def old_name():")
         result = run(
             self.tool.execute(
@@ -338,6 +362,7 @@ class TestEditTool:
     def test_accepts_legacy_content_parameter(self, tmp_path):
         f = tmp_path / "legacy.py"
         f.write_text("old\n")
+        _seed(f)
         anchor = _anchor(1, "old")
         result = run(
             self.tool.execute(
@@ -371,6 +396,7 @@ class TestEditTool:
     def test_anchor_not_found(self, tmp_path):
         f = tmp_path / "f.py"
         f.write_text("hello world")
+        _seed(f)
         result = run(
             self.tool.execute(
                 _inv(
@@ -426,6 +452,7 @@ class TestEditTool:
         f = tmp_path / "dup.py"
         text = "foo\nfoo\nfoo\n"
         f.write_text(text)
+        _seed(f)
         anchor = _anchor_in(text, 2)
         result = run(
             self.tool.execute(
@@ -445,6 +472,7 @@ class TestEditTool:
         f = tmp_path / "blanks.py"
         text = "a\n\n\nb\n"
         f.write_text(text)
+        _seed(f)
         anchor = _anchor_in(text, 3)
         result = run(
             self.tool.execute(
@@ -463,6 +491,7 @@ class TestEditTool:
     def test_replaces_anchored_range(self, tmp_path):
         f = tmp_path / "rep.py"
         f.write_text("one\ntwo\nthree\nfour\n")
+        _seed(f)
         result = run(
             self.tool.execute(
                 _inv(
@@ -480,6 +509,9 @@ class TestEditTool:
     def test_anchor_survives_shifted_lines(self, tmp_path):
         f = tmp_path / "shifted.py"
         f.write_text("inserted\none\ntwo\nthree\n")
+        # The anchor came from a read of the file BEFORE "inserted" was
+        # prepended, when "two" was line 2 — that is the shift being tested.
+        _seed(f, "one\ntwo\nthree\n")
         old_anchor = _anchor(2, "two")
         result = run(
             self.tool.execute(
@@ -498,6 +530,7 @@ class TestEditTool:
     def test_diff_metadata(self, tmp_path):
         f = tmp_path / "diff.py"
         f.write_text("hello world\n")
+        _seed(f)
         anchor = _anchor(1, "hello world")
         result = run(
             self.tool.execute(
@@ -517,6 +550,7 @@ class TestEditTool:
     def test_diff_renderer_includes_old_and_new_hashline_anchors(self, tmp_path):
         f = tmp_path / "diff.py"
         f.write_text("before\nold value\nafter\n")
+        _seed(f)
         anchor = _anchor(2, "old value")
         result = run(
             self.tool.execute(
@@ -545,6 +579,7 @@ class TestEditTool:
         f = tmp_path / "diff.py"
         original_lines = [f"line {number}" for number in range(1, 16)]
         f.write_text("\n".join(original_lines) + "\n")
+        _seed(f)
         result = run(
             self.tool.execute(
                 _inv(
@@ -948,3 +983,99 @@ class TestEditPreservesFileShape:
         assert result.is_error
         assert "utf-8" in result.content.lower()
         assert f.read_bytes() == original
+
+
+class TestEditVerification:
+    """``edit`` checks the line an anchor resolved to against what ``read``
+    displayed there.
+
+    ``resolve_anchor`` answers "which line carries this token". That is not the
+    same question as "is this the line the caller was looking at", and only the
+    second catches a token collision: once the whole token matches, every
+    content-derived part of it matches too, so no width can separate the two
+    lines. The digest is compared against the line instead of the anchor, which
+    is why it sees what the token cannot.
+    """
+
+    def setup_method(self):
+        self.tool = EditTool()
+        forget_digests()
+
+    def _edit(self, f, anchor, new_content="changed"):
+        return run(
+            self.tool.execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content=new_content,
+                )
+            )
+        )
+
+    def test_refuses_a_file_that_was_never_read(self, tmp_path):
+        """An anchor can only have come from a read. Without one there is no
+        record to check against, and a 4-hex token has no width behind it to
+        fall back on, so proceeding would be guessing."""
+        f = tmp_path / "unread.py"
+        f.write_text("def old():\n    pass\n")
+        result = self._edit(f, _anchor(1, "def old():"))
+        assert result.is_error
+        assert "no record" in result.content
+        assert f.read_text() == "def old():\n    pass\n", "refusal must not touch the file"
+
+    def test_refuses_after_a_restart(self, tmp_path):
+        """The one path no harness covers: the anchor is still live, but the
+        process that displayed it is gone. Dropping the digests is what a
+        restart does to this store."""
+        f = tmp_path / "restart.py"
+        f.write_text("def old():\n    pass\n")
+        _seed(f)
+        anchor = _anchor(1, "def old():")
+        assert not self._edit(f, anchor).is_error
+
+        f.write_text("def old():\n    pass\n")
+        forget_digests()  # the restart
+        result = self._edit(f, anchor)
+        assert result.is_error
+        assert "re-read" in result.content
+
+    def test_refuses_when_the_resolved_line_says_something_else(self, tmp_path):
+        """The collision case, made deterministic. The token resolves, but the
+        line it resolves to is not the line the reader was shown — which is
+        exactly what a colliding anchor looks like from inside edit."""
+        f = tmp_path / "moved.py"
+        f.write_text("alpha\nbeta\n")
+        # Recorded as though read had shown something different at line 1.
+        _seed(f, "gamma\nbeta\n")
+        result = self._edit(f, _anchor(1, "alpha"))
+        assert result.is_error
+        assert "does not match" in result.content
+        assert f.read_text() == "alpha\nbeta\n"
+
+    def test_several_edits_from_one_read(self, tmp_path):
+        """The pattern that actually happens: read once, edit repeatedly. Later
+        edits carry anchors from the original read, and the line numbers have
+        moved underneath them — verification must not reject those."""
+        f = tmp_path / "many.py"
+        f.write_text("one\ntwo\nthree\nfour\n")
+        run(ReadTool().execute(_inv("read", path=str(f))))  # the real read path
+
+        text = "one\ntwo\nthree\nfour\n"
+        for target, replacement in ((1, "ONE\nextra"), (3, "THREE"), (4, "FOUR")):
+            anchor = _anchor_in(text, target)
+            result = self._edit(f, anchor, replacement)
+            assert not result.is_error, f"line {target}: {result.content}"
+
+        assert f.read_text() == "ONE\nextra\ntwo\nTHREE\nFOUR\n"
+
+    def test_verify_resolved_reports_absence_distinctly(self, tmp_path):
+        """None means "no record", False means "wrong line". The caller refuses
+        on both, but for different reasons and with different messages."""
+        f = tmp_path / "x.py"
+        assert verify_resolved(f, 1, "anything") is None
+        record_digests(f, ["alpha", "beta"])
+        assert verify_resolved(f, 1, "alpha") is True
+        assert verify_resolved(f, 1, "beta") is False
+        assert verify_resolved(f, 99, "alpha") is None

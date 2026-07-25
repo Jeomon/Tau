@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import tempfile
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -32,13 +33,6 @@ MAX_RADIUS = 6
 # Extra radii used only to break a hash collision between two tokens, past the
 # range ordinary salting already covers.
 FIXUP_RADII = 4
-# Anchor values per line. A 4-hex token holds 65,536 values, so in a 70,000-line
-# file distinct lines MUST share one and no scheme can address them all. Rather
-# than promise global uniqueness and then refuse the whole file, the token widens
-# only for files that need it: ordinary files keep 4 characters. 64 values per
-# line keeps the collision rate under ~1%.
-LOAD_FACTOR = 64
-MAX_HASH_LEN = 8
 
 _BOF = "\x00bof"
 _EOF = "\x00eof"
@@ -111,16 +105,110 @@ def _content(line: str) -> str:
     return line.strip() or "\x00blank"
 
 
-def anchor_width(n_lines: int) -> int:
-    """Token width for a file of this many lines.
+# Characters of content digest retained per displayed line, so ``edit`` can check
+# that the line an anchor resolved to still says what ``read`` showed there.
+#
+# A digest held in STATE is a different object from a digest held in the ANCHOR.
+# Widening the anchor buys nothing once the whole token matches — any
+# content-derived part of it matches too. This digest is never compared against
+# the anchor at all; it is compared against the line the anchor landed on, which
+# is why it detects the one failure the token cannot describe.
+#
+# Two characters, not one: a 1-hex digest lets one wrong line in sixteen through
+# (measured 93.79% detection against 93.75% analytic), while 2 hex lets through
+# one in 256 (measured 99.43%). Neither is perfect and the third character is not
+# worth its byte, but the second removes a hole large enough to hit in practice.
+DIGEST_CHARS = 2
 
-    Public because ``edit``'s anchor schema has to admit every width this can
-    return — see ``EditParams``.
+# Paths whose digests are retained. Each entry is DIGEST_CHARS bytes per line, so
+# 64 files of 10,000 lines is ~1.3 MB — nothing beside a session transcript.
+_DIGEST_PATHS = 64
+
+# Keyed by resolved path, module-level rather than on the tool instance: TOOLS
+# holds singletons, but create_read_tool()/create_edit_tool() hand fresh
+# instances to extensions, and a read through one of those must still be visible
+# to the editor.
+_digests: OrderedDict[Path, str] = OrderedDict()
+
+
+def _digest(line: str) -> str:
+    """Content digest of one line, taken from the TAIL of the hash.
+
+    The tail, because the anchor token is the HEAD of the same digest. Sharing
+    characters would make this partly redundant with the token it exists to
+    check — a line that collides on the token would then be more likely to
+    collide here too, which is precisely backwards.
     """
-    width = HASH_LEN
-    while width < MAX_HASH_LEN and 16**width < LOAD_FACTOR * n_lines:
-        width += 1
-    return width
+    return hashlib.md5(_content(line).encode()).hexdigest()[-DIGEST_CHARS:]
+
+
+def record_digests(path: Path, lines: list[str]) -> None:
+    """Retain what ``read`` displayed, for a later ``edit`` to verify against.
+
+    Stored as one flat string indexed by arithmetic rather than a dict: a dict of
+    {int: str} costs roughly 100 bytes an entry in CPython, about 1 MB for a
+    10,000-line file, against 20 KB for the string.
+
+    The whole file is digested, not just the requested window. ``read`` already
+    stamps the whole file — anchors must not depend on the window — and an edit
+    may carry an anchor from a different read of the same file.
+    """
+    _digests[path] = "".join(_digest(line) for line in lines)
+    _digests.move_to_end(path)
+    while len(_digests) > _DIGEST_PATHS:
+        _digests.popitem(last=False)
+
+
+def digest_at(path: Path, line_number: int) -> str | None:
+    """The digest ``read`` recorded at this 1-based line, or None if there is none."""
+    blob = _digests.get(path)
+    if blob is None or line_number < 1:
+        return None
+    start = (line_number - 1) * DIGEST_CHARS
+    return blob[start : start + DIGEST_CHARS] or None
+
+
+def verify_resolved(path: Path, hint: int, line: str) -> bool | None:
+    """Does ``line`` match what ``read`` showed at ``hint``?
+
+    Returns None when nothing was recorded for that position — a different
+    process, an evicted entry, or a restart. The caller must treat that as a
+    refusal rather than a pass: an anchor can only have come from a read, so a
+    missing digest means the evidence is gone, and there is no token width behind
+    it to fall back on.
+    """
+    want = digest_at(path, hint)
+    if want is None:
+        return None
+    return _digest(line) == want
+
+
+def forget_digests(path: Path | None = None) -> None:
+    """Drop retained digests — for tests, and for callers that rewrite a file."""
+    if path is None:
+        _digests.clear()
+    else:
+        _digests.pop(path, None)
+
+def anchor_width(n_lines: int) -> int:
+    """Token width for a file of this many lines — now always ``HASH_LEN``.
+
+    This used to widen with the line count, and a duplicated line was widened
+    one character further still. Both existed to make a token COLLISION rare,
+    because a collision was undetectable: two lines carrying the same token were
+    indistinguishable, so the only defence was to make the space large enough
+    that it seldom happened.
+
+    ``edit`` now verifies the resolved line against the digest ``read``
+    recorded, which detects the collision instead of avoiding it — so the width
+    buys nothing and is charged on every line of every read. A 4-hex token in a
+    70,000-line file guarantees collisions; that is fine, because a collision is
+    now caught rather than silently followed.
+
+    Kept as a function, rather than inlining ``HASH_LEN``, because it is the one
+    place this reasoning belongs and ``edit``'s schema refers to it.
+    """
+    return HASH_LEN
 
 
 def _hash(blob: str, width: int) -> str:
@@ -236,31 +324,11 @@ def stamp_lines(lines: list[str]) -> list[str]:
     return _stamp(lines, anchor_width(len(lines)))
 
 
-def _dup_width(width: int) -> int:
-    """Token width for DUPLICATED lines — one character wider than the rest.
-
-    A dead anchor is only dangerous if it collides with a live token, and dead
-    anchors are overwhelmingly the tokens of duplicated lines: a unique line's
-    token comes from its content alone and survives every edit elsewhere, while
-    a run or context token dies as soon as its surroundings shift. Measured over
-    a churn probe, 82% of dead anchors were duplicate-family.
-
-    So the extra character goes only where the risk is; the ~57% of lines whose
-    content is unique keep the narrow token. Widening every line to buy the same
-    safety costs roughly 25% of the anchor budget on every read instead of 10%.
-
-    It also makes the two families different LENGTHS, so a dead duplicate token
-    can no longer collide with a unique line's token at all — which was the
-    shape of every false accept actually observed.
-    """
-    return min(width + 1, MAX_HASH_LEN)
-
 
 def _stamp(lines: list[str], width: int) -> list[str]:
     contents = [_content(line) for line in lines]
     tokens = [_hash(c, width) for c in contents]
     runs = _runs(contents)
-    dup_width = _dup_width(width)
 
     groups: dict[str, list[int]] = {}
     for i, content in enumerate(contents):
@@ -278,7 +346,7 @@ def _stamp(lines: list[str], width: int) -> list[str]:
             if not pending_runs:
                 break
             salts = {
-                i: _run_token(contents, i, runs[i], radius, dup_width) for i in pending_runs
+                i: _run_token(contents, i, runs[i], radius, width) for i in pending_runs
             }
             seen: dict[str, int] = {}
             for salt in salts.values():
@@ -297,7 +365,7 @@ def _stamp(lines: list[str], width: int) -> list[str]:
         for radius in range(1, MAX_RADIUS + 1):
             if not pending:
                 break
-            salts = {i: _salted(lines, i, radius, dup_width) for i in pending}
+            salts = {i: _salted(lines, i, radius, width) for i in pending}
             seen = {}
             for salt in salts.values():
                 seen[salt] = seen.get(salt, 0) + 1
@@ -316,7 +384,7 @@ def _stamp(lines: list[str], width: int) -> list[str]:
             count = len(members)
             for ordinal, i in enumerate(members, start=1):
                 if i in leftover:
-                    tokens[i] = _ordinal_token(content, count, ordinal, dup_width)
+                    tokens[i] = _ordinal_token(content, count, ordinal, width)
 
     # tier 1b: two DIFFERENT lines can land on one token by hash collision.
     # They are not copies, so no later stage could separate them.
@@ -331,11 +399,11 @@ def _stamp(lines: list[str], width: int) -> list[str]:
         # naming that lets member k inherit member k-1's token.
         if runs[i][0] > 1:
             forms = (
-                _run_token(contents, i, runs[i], r, _dup_width(width))
+                _run_token(contents, i, runs[i], r, width)
                 for r in range(MAX_RADIUS + 1, MAX_RADIUS + 1 + FIXUP_RADII)
             )
         else:
-            forms = (_salted(lines, i, r, _dup_width(width)) for r in range(1, MAX_RADIUS + 1))
+            forms = (_salted(lines, i, r, width) for r in range(1, MAX_RADIUS + 1))
         for cand in forms:
             if cand not in used:
                 used[tok] -= 1
@@ -369,22 +437,11 @@ def resolve_anchor(
     if not current:
         return None
 
-    # The file's own size fixes the width. A file can cross a width threshold
-    # between the read and the edit, so the neighbouring widths are tried too —
-    # but ONLY those. Deriving candidates from len(anchor) offered extra
-    # re-stampings, and every extra comparison set is another lottery ticket for
-    # a dead anchor to hit live content.
-    natural = anchor_width(len(current))
-    widths = [natural]
-    for guess in (natural - 1, natural + 1):
-        if HASH_LEN <= guess <= MAX_HASH_LEN:
-            widths.append(guess)
-
-    for width in widths:
-        got = _resolve_at(current, anchor, hint, width)
-        if got is not None:
-            return got
-    return None
+    # One width, because there is only one. When the width adapted to file
+    # length an edit had to try the neighbouring widths too, in case the file had
+    # crossed a threshold since the read — and every extra comparison set was
+    # another lottery ticket for a dead anchor to hit live content.
+    return _resolve_at(current, anchor, hint, HASH_LEN)
 
 
 def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int | None:
@@ -405,8 +462,9 @@ def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int |
     #    line was stamped with the plain content hash, which is content-derived
     #    and stable, so following it is safe.
     #
-    #    Only that one form is offered. Run members are excluded entirely — see
-    #    _dup_width for why more forms cost silent corruption.
+    #    Only that one form is offered. Run members are excluded entirely:
+    #    every extra form a dead anchor may match is another chance to follow
+    #    it onto a live line.
     contents = [_content(line) for line in current]
     runs = _runs(contents)
     alt = [

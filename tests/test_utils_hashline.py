@@ -77,16 +77,21 @@ def test_hash_width_is_uniform_within_a_small_file():
 
 
 def test_token_width_grows_with_file_length():
-    """A 4-hex token holds 65,536 values, so a large file cannot give every
-    line a distinct one. Width adapts instead of the file being refused —
-    which is what the old fixed-width scheme did once it ran out of space.
+    """Width no longer adapts, at any file size.
+
+    A 4-hex token holds 65,536 values, so a 70,000-line file MUST give two lines
+    the same token. That used to be intolerable, because a collision was
+    invisible: two lines carrying one token were indistinguishable and edit had
+    no way to tell which was meant. Width was the only defence.
+
+    ``edit`` now checks the resolved line against the digest ``read`` recorded,
+    so a collision is caught instead of avoided — and the width, which was paid
+    on every line of every read, buys nothing.
     """
     assert anchor_width(10) == HASH_LEN
-    assert anchor_width(1_024) == HASH_LEN
-    assert anchor_width(1_025) == HASH_LEN + 1
-    assert anchor_width(70_000) > HASH_LEN + 1
-    # Bounded, so an anchor can never grow without limit.
-    assert anchor_width(10**9) <= 8
+    assert anchor_width(1_025) == HASH_LEN
+    assert anchor_width(70_000) == HASH_LEN
+    assert anchor_width(10**9) == HASH_LEN
 
 
 def test_deterministic_across_calls():
@@ -146,7 +151,10 @@ def test_duplicate_heavy_file_is_not_quadratic():
     start = time.perf_counter()
     hashes = stamp_lines(lines)
     elapsed = time.perf_counter() - start
-    assert len(set(hashes)) == 60_000
+    assert len(hashes) == 60_000
+    # Deliberately not asserting uniqueness: 60,000 lines cannot all hold a
+    # distinct 4-hex token, and no longer need to. What this test guards is that
+    # salting stayed linear, which is what once made this file take minutes.
     assert elapsed < 10.0, f"took {elapsed:.1f}s — salting regressed"
 
 
@@ -166,13 +174,18 @@ def test_periodic_file_does_not_widen_forever():
 
 def test_file_larger_than_the_4hex_space_is_no_longer_refused():
     """Previously a file with more lines than the 65,536 four-hex anchors was
-    refused outright, by pigeonhole. Width now adapts, so the file is readable
-    and its lines stay individually addressable."""
+    refused outright, by pigeonhole. It is now read and stamped at the same
+    width as every other file — its collisions are caught by verification
+    rather than avoided by a wider token.
+    """
     lines = [f"row_{i}" for i in range(16**HASH_LEN + 1)]
     hashes = stamp_lines(lines)
     assert len(hashes) == len(lines)
-    assert len(set(hashes)) == len(lines)
-    assert all(len(h) > HASH_LEN for h in hashes)
+    assert all(len(h) == HASH_LEN for h in hashes)
+    # Pigeonhole: more lines than the token space holds, so some token IS
+    # shared. Width used to buy uniqueness here; the digest now buys detection
+    # instead, which is the property that actually protects the file.
+    assert len(set(hashes)) < len(lines)
 
 
 class TestDetectBinaryFormat:
