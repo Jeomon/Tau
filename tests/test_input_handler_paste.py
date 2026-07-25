@@ -337,6 +337,48 @@ class TestDetectPastedFilePath:
         h = make_handler()
         assert h._detect_pasted_file_path(str(tmp_path)) is None
 
+    def test_long_slash_prefixed_prose_returns_none(self):
+        # Regression: a "/darwin ..." brief is is_absolute() on POSIX, so it
+        # reached os.stat() as a ~400-char filename and raised ENAMETOOLONG —
+        # which Path.is_file() does not swallow. The exception escaped to the
+        # asyncio stdin callback and the whole paste was dropped: no text, no
+        # marker, no error.
+        h = make_handler()
+        prose = (
+            "/darwin Resume the tokenizer encode() session. Start with the known "
+            "lead in prompt.md (the ids.insert(0, prepend_id) O(n) shift) before "
+            "trying anything else. Noise is ~10-15%, so re-run measure.sh once "
+            "before trusting any delta under ~20%."
+        )
+        assert h._detect_pasted_file_path(prose) is None
+
+    def test_oversized_name_component_returns_none(self):
+        h = make_handler()
+        assert h._detect_pasted_file_path("/" + "x" * 300) is None
+
+    def test_stat_oserror_is_swallowed(self, monkeypatch):
+        # Any filesystem error must degrade to "not a file", never propagate.
+        h = make_handler()
+
+        def boom(self, *a, **kw):
+            raise OSError(63, "File name too long")
+
+        monkeypatch.setattr("pathlib.Path.is_file", boom)
+        assert h._detect_pasted_file_path("/tmp/whatever") is None
+
+    def test_embedded_nul_returns_none(self):
+        h = make_handler()
+        assert h._detect_pasted_file_path("/tmp/we\x00ird") is None
+
+    def test_long_slash_prefixed_prose_still_reaches_the_editor(self):
+        # End-to-end of the same regression: the paste must land as text.
+        h = make_handler()
+        prose = "/darwin " + "word " * 200
+        h._on_paste_text(prose)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        assert marker.startswith("[paste #1 ")
+        assert h._pasted_texts[1] == prose
+
     def test_on_paste_text_routes_bare_file_path_through_paste_file(self, tmp_path):
         h = make_handler()
         p = tmp_path / "clip.mp3"
@@ -557,3 +599,49 @@ class TestCommandPasteExpansion:
         assert h._deferred_inputs == [f"/darwin {body}"]  # replay after settle
         h._invoke.assert_not_called()                     # cannot re-expand later:
         assert h._pasted_texts == {}                      # buffers already consumed
+
+
+class TestCtrlVClipboardRouting:
+    """Ctrl+V arrives as a bare \\x16 keystroke, so no bracketed PasteEvent is
+    ever produced and _on_paste must read the clipboard itself. Regression: a
+    str (plain text) result matched no branch and the handler returned
+    silently — no text and no marker reached the editor.
+    """
+
+    def _handler_with_clipboard(self, monkeypatch, value):
+        import sys
+        h = make_handler()
+        fake = MagicMock()
+        fake.paste.return_value = value
+        monkeypatch.setitem(sys.modules, "pyxclip", fake)
+        return h
+
+    def test_plain_text_is_inserted(self, monkeypatch):
+        h = self._handler_with_clipboard(monkeypatch, "copied text")
+        h._on_paste()
+        h._layout.input.insert_at_cursor.assert_called_once_with("copied text")
+
+    def test_large_text_gets_a_marker(self, monkeypatch):
+        body = "\n".join(f"line {i}" for i in range(40))
+        h = self._handler_with_clipboard(monkeypatch, body)
+        h._on_paste()
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        assert marker == "[paste #1 +40 lines]"
+        assert h._pasted_texts[1] == body
+
+    def test_slash_prefixed_prose_does_not_raise(self, monkeypatch):
+        h = self._handler_with_clipboard(monkeypatch, "/darwin " + "word " * 200)
+        h._on_paste()  # must not raise
+        assert h._layout.input.insert_at_cursor.called
+
+    def test_empty_clipboard_inserts_nothing(self, monkeypatch):
+        h = self._handler_with_clipboard(monkeypatch, "")
+        h._on_paste()
+        h._layout.input.insert_at_cursor.assert_not_called()
+
+    def test_file_list_still_routes_to_paste_file(self, monkeypatch, tmp_path):
+        p = tmp_path / "clip.mp3"
+        p.write_bytes(b"ID3fake")
+        h = self._handler_with_clipboard(monkeypatch, [str(p)])
+        h._on_paste()
+        assert h._clipboard_audio

@@ -15,6 +15,13 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
+# Filesystem limits used to reject prose before it is stat()-ed as a path.
+# NAME_MAX is 255 on macOS/Linux and 255 UTF-16 units on NTFS; PATH_MAX is 1024
+# on macOS and 4096 on Linux — the smaller bound is used so the check is a cheap
+# pre-filter, not an authority (a real path never approaches it).
+_MAX_NAME_LEN = 255
+_MAX_PATH_LEN = 1024
+
 # ── InputHandler ──────────────────────────────────────────────────────────────
 
 
@@ -591,8 +598,14 @@ class InputHandler:
                 self._paste_file(str(p))
         elif isinstance(item, dict):
             self._store_pyxclip_image(item)
-        # A plain str (text) result isn't this handler's concern — Ctrl+V of
-        # text doesn't reach here in practice, but there's nothing to do if it does.
+        elif isinstance(item, str) and item:
+            # Plain text. Terminals normally deliver a paste as a bracketed
+            # PasteEvent (Cmd+V on macOS, Ctrl+Shift+V elsewhere), but Ctrl+V
+            # arrives as a bare \x16 keystroke that never produces one — so the
+            # clipboard has to be read here. Route it through the same handler
+            # the bracketed path uses to get identical sanitizing, file-path
+            # detection and large-paste marker behaviour.
+            self._on_paste_text(item)
 
     def _store_pyxclip_image(self, item: dict) -> None:
         """Convert pyxclip's raw RGBA clipboard image into a stored PNG."""
@@ -887,8 +900,26 @@ class InputHandler:
         )
         if not looks_like_path:
             return None
-        path = Path(candidate).expanduser()
-        if not path.is_file():
+        # Prose can be shaped like an absolute path without being one: a pasted
+        # "/darwin Resume the ... session." brief is `is_absolute()` on POSIX, so
+        # it reaches the filesystem probe as a single ~400-char name. stat() then
+        # raises ENAMETOOLONG, which Path.is_file() does NOT swallow (it only
+        # ignores ENOENT/ENOTDIR/ELOOP/EBADF) — and an exception escaping here
+        # unwinds all the way to the asyncio stdin callback, dropping the entire
+        # paste with no text, no marker and no visible error. Bound the candidate
+        # by the platform's name/path limits first, then treat any surviving
+        # filesystem error as a plain "not a file".
+        if len(candidate) > _MAX_PATH_LEN or any(
+            len(part) > _MAX_NAME_LEN for part in re.split(r"[/\\]", candidate)
+        ):
+            return None
+        try:
+            path = Path(candidate).expanduser()
+            if not path.is_file():
+                return None
+        except (OSError, ValueError, RuntimeError):
+            # OSError: ENAMETOOLONG and friends. ValueError: embedded NUL.
+            # RuntimeError: expanduser() with an unresolvable ~user.
             return None
         return str(path)
 
