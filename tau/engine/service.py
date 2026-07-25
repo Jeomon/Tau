@@ -32,6 +32,7 @@ from tau.engine.types import (
 )
 from tau.hooks.engine import (
     AgentEndReason,
+    LLMRetryEvent,
     MessageRollbackEvent,
     ToolResultEvent,
     ToolResultEventResult,
@@ -43,6 +44,7 @@ from tau.inference.types import (
     EndEvent,
     ErrorEvent,
     LLMContext,
+    RetryEvent,
     StopReason,
     TextDeltaEvent,
     TextEndEvent,
@@ -874,6 +876,21 @@ class Engine:
                                     _streaming_thinking = None
                                 else:
                                     message.contents.append(thinking)
+                            case RetryEvent(
+                                attempt=attempt, max_retries=max_retries, error=error
+                            ):
+                                # Purely informational: the retry itself is
+                                # handled inside the inference layer. Without
+                                # this the UI shows a spinner that looks stalled
+                                # while a provider 529 is being waited out, and
+                                # then a bare error if the attempts run out.
+                                await self.hooks.emit(
+                                    LLMRetryEvent(
+                                        attempt=attempt,
+                                        max_retries=max_retries,
+                                        error=error,
+                                    )
+                                )
                             case ErrorEvent(reason=reason, error=error, kind=kind):
                                 message.stop_reason = reason
                                 message.error = error

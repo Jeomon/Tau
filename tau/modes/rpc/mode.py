@@ -1347,6 +1347,7 @@ _FORWARDED_EVENTS = (
     "tool_execution_end",
     "tool_execution_failure",
     "agent_error",
+    "llm_retry",
     "compaction_start",
     "compaction_end",
     "compaction_cancelled",
