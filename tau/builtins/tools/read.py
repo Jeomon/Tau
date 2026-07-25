@@ -40,8 +40,36 @@ _MAX_LINE_CHARS = 4000
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
+# Characters that ``str.splitlines`` treats as line breaks but a real file format
+# does not — see utils._LINE_BREAK, which deliberately splits on \r\n, \r and \n
+# only. Emitted raw into the read output they break the format's one-anchor-per-
+# line invariant: a line containing a form feed is displayed as an anchored empty
+# line followed by a phantom line with no anchor, and the character itself is
+# invisible, so a model rewriting that line silently drops it.
+#
+# Escaping them is lossy in a different way — the displayed text is no longer
+# byte-identical to the file — but it is VISIBLY lossy, and the footer says so.
+# The anchor and the digest are still computed over the true content, so
+# resolution and verification are unaffected.
+_INVISIBLE_BREAKS = {
+    "\v": "\\v",
+    "\f": "\\f",
+    "\x1c": "\\x1c",
+    "\x1d": "\\x1d",
+    "\x1e": "\\x1e",
+    "\x85": "\\x85",
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029",
+}
+_INVISIBLE_BREAK_TABLE = str.maketrans(_INVISIBLE_BREAKS)
+
+
+def _has_invisible_break(line: str) -> bool:
+    return any(ch in line for ch in _INVISIBLE_BREAKS)
+
+
 def _display_line(line: str) -> str:
-    """Cap a single line's displayed length.
+    """Escape structure-breaking characters, then cap the displayed length.
 
     Stops one pathologically long line (a minified bundle, a one-line JSON
     blob) from dumping megabytes into the model's context through a single
@@ -49,6 +77,7 @@ def _display_line(line: str) -> str:
     line elsewhere, so this is purely a display cap — it doesn't affect
     anchor resolution for a later edit.
     """
+    line = line.translate(_INVISIBLE_BREAK_TABLE)
     if len(line) <= _MAX_LINE_CHARS:
         return line
     truncated = line[:_MAX_LINE_CHARS]
@@ -267,6 +296,20 @@ class ReadTool(Tool):
         if truncated:
             footer = (
                 f"\n\n[Showing lines {start + 1}–{end} of {total}. Use offset={end} to read more.]"
+            )
+
+        # Say so when the display is not byte-identical to the file. Without
+        # this the escape is indistinguishable from a file that really contains
+        # a backslash, and rewriting the line would introduce one.
+        if any(_has_invisible_break(line) for line in chunk):
+            footer += (
+                "\n\n[This file contains characters that would break the line "
+                "structure of this output (form feed, vertical tab, or a Unicode "
+                "line separator). They are shown escaped, e.g. \\f — the file "
+                "itself holds the real character, one byte, not two. edit writes "
+                "exactly what you give it, so rewriting such a line REPLACES the "
+                "real character with the escape text. Edit other lines freely; "
+                "use terminal (sed/python) to change a line that holds one.]"
             )
 
         metadata = {

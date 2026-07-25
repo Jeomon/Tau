@@ -1079,3 +1079,70 @@ class TestEditVerification:
         assert verify_resolved(f, 1, "alpha") is True
         assert verify_resolved(f, 1, "beta") is False
         assert verify_resolved(f, 99, "alpha") is None
+
+
+class TestReadDisplaysStructureBreakingCharacters:
+    """``str.splitlines`` breaks on form feed, vertical tab and the Unicode line
+    separators; ``utils._LINE_BREAK`` deliberately does not.
+
+    Emitted raw, those characters break the read format's one-anchor-per-line
+    invariant — the line is shown as an anchored empty line followed by a
+    phantom line with no anchor — and they are invisible, so a model rewriting
+    the line drops them without knowing. The write side of this was fixed
+    separately; this is the display side.
+    """
+
+    def setup_method(self):
+        self.tool = ReadTool()
+
+    def _read(self, f):
+        return run(self.tool.execute(_inv("read", path=str(f)))).content
+
+    def test_form_feed_does_not_create_a_phantom_line(self, tmp_path):
+        f = tmp_path / "page.c"
+        f.write_bytes(b"int main(void)\n{\n}\n\x0c\nstatic void helper(void)\n{\n}\n")
+        body = self._read(f).split("\n\n")[0].splitlines()
+        assert len(body) == 7, body
+        assert all("|" in line for line in body), "every displayed line must carry an anchor"
+
+    def test_the_character_is_visible(self, tmp_path):
+        f = tmp_path / "page.c"
+        f.write_bytes(b"a\n\x0c\nb\n")
+        assert "|\\f" in self._read(f)
+
+    def test_the_escape_is_explained(self, tmp_path):
+        f = tmp_path / "page.c"
+        f.write_bytes(b"a\n\x0c\nb\n")
+        out = self._read(f)
+        assert "shown escaped" in out
+        # It must not claim the escape can be written back: edit writes exactly
+        # what it is given, so rewriting the line replaces one byte with two.
+        assert "REPLACES the real character" in out
+
+    def test_ordinary_files_get_no_such_footer(self, tmp_path):
+        f = tmp_path / "plain.py"
+        f.write_text("import os\n\n\ndef main():\n    pass\n")
+        assert "shown escaped" not in self._read(f)
+
+    def test_the_anchor_still_addresses_the_real_line(self, tmp_path):
+        """The escape is display-only: anchors and digests are computed over the
+        true content, so the line stays editable like any other."""
+        import re
+
+        f = tmp_path / "page.c"
+        f.write_bytes(b"alpha\n\x0c\nbeta\n")
+        out = self._read(f)
+        anchor = re.match(r"^(\d+:[0-9a-z]+)\|", out.splitlines()[1]).group(1)
+        result = run(
+            EditTool().execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="PAGE BREAK WAS HERE",
+                )
+            )
+        )
+        assert not result.is_error, result.content
+        assert f.read_bytes() == b"alpha\nPAGE BREAK WAS HERE\nbeta\n"
