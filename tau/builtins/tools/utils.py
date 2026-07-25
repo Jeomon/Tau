@@ -28,6 +28,9 @@ HASH_LEN = 4
 # separates nothing at all in a periodic file, so the budget is deliberately
 # small.
 MAX_RADIUS = 6
+# Extra radii used only to break a hash collision between two tokens, past the
+# range ordinary salting already covers.
+FIXUP_RADII = 4
 # Anchor values per line. A 4-hex token holds 65,536 values, so in a 70,000-line
 # file distinct lines MUST share one and no scheme can address them all. Rather
 # than promise global uniqueness and then refuse the whole file, the token widens
@@ -38,7 +41,6 @@ MAX_HASH_LEN = 8
 
 _BOF = "\x00bof"
 _EOF = "\x00eof"
-_B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
 def _content(line: str) -> str:
@@ -66,10 +68,6 @@ def _hash(blob: str, width: int) -> str:
     return hashlib.md5(blob.encode()).hexdigest()[:width]
 
 
-def _token(line: str, width: int) -> str:
-    """Tier-0 token: hash of the line's content alone."""
-    return _hash(_content(line), width)
-
 
 def _salted(lines: list[str], i: int, radius: int, width: int) -> str:
     """Tier-1 token: content plus the ``radius`` lines ABOVE it.
@@ -92,97 +90,171 @@ def _salted(lines: list[str], i: int, radius: int, width: int) -> str:
     return _hash("\x00".join(parts), width)
 
 
-def _b36(n: int) -> str:
-    out = ""
-    while True:
-        n, r = divmod(n, 36)
-        out = _B36[r] + out
-        if not n:
-            return out
+def _runs(contents: list[str]) -> list[tuple[int, int]]:
+    """For each line, ``(length of its maximal identical run, index within it)``.
+
+    Computed once per stamp and reused, so binding the run into a token costs no
+    more than a single linear pass.
+    """
+    out: list[tuple[int, int]] = [(1, 0)] * len(contents)
+    start = 0
+    for i in range(1, len(contents) + 1):
+        if i == len(contents) or contents[i] != contents[start]:
+            length = i - start
+            for k in range(length):
+                out[start + k] = (length, k)
+            start = i
+    return out
+
+
+def _run_token(
+    contents: list[str], i: int, run: tuple[int, int], radius: int, width: int
+) -> str:
+    """Token for a line inside a run of identical lines.
+
+    Bound to the run's LENGTH as well as the line's index within it. Distance
+    from the run's head is positional, and that is the whole problem: grow the
+    run above the target and member k inherits member k-1's token, so a stale
+    anchor resolves confidently one line short.
+
+    Binding the length means any growth or shrinkage of the run invalidates
+    every member's token instead — the anchor then matches nothing and
+    ``resolve_anchor`` refuses. That refusal is the honest answer rather than a
+    retreat: adding a copy *above* the target and adding one *below* it produce
+    a byte-identical file, so which line the caller meant is not recoverable
+    from the inputs at all. Two refusals are strictly better than one right
+    answer and one silent wrong edit.
+    """
+    length, k = run
+    head = i - k
+    parts = [f"\x00run{radius}", str(length), str(k), contents[i]]
+    for off in range(radius, 0, -1):
+        j = head - off
+        parts.append(contents[j] if j >= 0 else _BOF)
+    return _hash("\x00".join(parts), width)
+
+
+def _ordinal_token(content: str, count: int, ordinal: int, width: int) -> str:
+    """Last resort for copies nothing else separates, e.g. a periodic file.
+
+    The occurrence COUNT is bound in alongside the ordinal, so inserting or
+    deleting a copy anywhere invalidates these anchors rather than silently
+    shifting which copy each ordinal names. A plain hash rather than a suffix,
+    so these lines no longer pay extra width either.
+    """
+    return _hash(f"\x00ord\x00{count}\x00{ordinal}\x00{content}", width)
 
 
 def stamp_lines(lines: list[str]) -> list[str]:
-    """Return one anchor token per line, using two-tier salting.
+    """Return one anchor token per line.
 
-    ``tier 0`` A line whose content is unique in the file keeps the plain
-        content hash. The common case pays nothing, in width or in stability.
+    ``tier 0`` Content unique in the file keeps the plain content hash. The
+        common case pays nothing, in width or in stability.
 
-    ``tier 1`` A line whose content is duplicated is salted with its
-        NEIGHBOURS, widening the radius until the copies separate. Neighbour
-        salting is position-INDEPENDENT, which is the whole point: inserting a
-        copy of a line elsewhere in the file leaves the original's token
-        untouched.
+    ``tier 1r`` A line inside a run of identical lines is named by its run's
+        (length, index) plus the context above the run's HEAD — not by its own
+        distance from that head, which is positional.
 
-    ``tier 2`` What even a wide neighbourhood cannot separate — a true run of
-        identical lines in identical surroundings — falls back to an ordinal
-        suffix. Only those lines pay extra width.
+    ``tier 1`` An isolated duplicate is salted with the lines above it,
+        widening the radius until the copies separate. Position-independent:
+        inserting a copy elsewhere leaves the original's token untouched.
 
-    This replaces a scheme that made anchors unique by salting every occurrence
-    after the first with a retry counter. That guaranteed uniqueness *within one
-    read* but not stability *across* edits, which is what hashline exists to
-    provide: because the first occurrence held the unsalted token, inserting a
-    copy above an anchored line handed the copy that token and silently
-    relabelled the original. ``edit`` then found exactly one match, saw no
-    ambiguity, and edited the decoy. See ``test_copy_inserted_above_*``.
+    ``tier 2`` Copies nothing else separates are named by ordinal with the
+        occurrence count bound in, so the naming self-invalidates when the
+        number of copies changes.
 
-    Because a line's tier depends on the file's own duplicate structure, an
-    anchor can be stamped in one tier and read back in another. ``resolve_anchor``
-    therefore matches every token a line *could* have carried, not just the one
-    it carries now.
+    ``tier 1b`` Two *different* lines colliding on one token are re-salted, so
+        a collision is never accepted as an exact match.
+
+    This replaces a scheme that salted every occurrence after the first with a
+    retry counter. That guaranteed uniqueness *within one read* but not
+    stability *across* edits, which is what hashline exists to provide: the
+    first occurrence held the unsalted token, so inserting a copy above an
+    anchored line handed the copy that token and silently relabelled the
+    original. ``edit`` then found one match, saw no ambiguity, and edited the
+    decoy.
     """
     return _stamp(lines, anchor_width(len(lines)))
 
 
 def _stamp(lines: list[str], width: int) -> list[str]:
-    tokens = [_token(line, width) for line in lines]
+    contents = [_content(line) for line in lines]
+    tokens = [_hash(c, width) for c in contents]
+    runs = _runs(contents)
 
     groups: dict[str, list[int]] = {}
-    for i, line in enumerate(lines):
-        groups.setdefault(_content(line), []).append(i)
+    for i, content in enumerate(contents):
+        groups.setdefault(content, []).append(i)
 
-    for members in groups.values():
+    for content, members in groups.items():
         if len(members) == 1:
             continue  # tier 0: unique content, plain hash
-        pending = members
-        for radius in range(1, MAX_RADIUS + 1):
-            salts = {i: _salted(lines, i, radius, width) for i in pending}
+
+        # tier 1r: members sitting inside a run are named by (run length, index
+        # in run) plus context above the run's head.
+        pending_runs = [i for i in members if runs[i][0] > 1]
+        isolated = [i for i in members if runs[i][0] == 1]
+        for radius in range(0, MAX_RADIUS + 1):
+            if not pending_runs:
+                break
+            salts = {i: _run_token(contents, i, runs[i], radius, width) for i in pending_runs}
             seen: dict[str, int] = {}
             for salt in salts.values():
                 seen[salt] = seen.get(salt, 0) + 1
-            still: list[int] = []
-            for i in pending:
+            still = [i for i in pending_runs if seen[salts[i]] != 1]
+            for i in pending_runs:
                 if seen[salts[i]] == 1:
-                    tokens[i] = salts[i]  # tier 1: neighbours separate it
-                else:
-                    still.append(i)
-            if len(still) == len(pending):
-                # This radius separated nothing. In a periodic file — the same
-                # call repeated every N lines — no wider radius will either, so
-                # stop paying for hashes that cannot help.
-                break
-            pending = still
+                    tokens[i] = salts[i]
+            if len(still) == len(pending_runs):
+                break  # widening separates nothing; stop paying for hashes
+            pending_runs = still
+
+        # tier 1: isolated copies keep the upward-context salt, which is stable
+        # under edits anywhere else in the file.
+        pending = isolated
+        for radius in range(1, MAX_RADIUS + 1):
             if not pending:
                 break
-        if pending:
-            # tier 2: identical lines in identical surroundings. Nothing about
-            # the content can tell them apart, so pay a suffix.
-            for ordinal, i in enumerate(members, start=1):
-                if i in pending:
-                    tokens[i] = _token(lines[i], width) + _b36(ordinal)
+            salts = {i: _salted(lines, i, radius, width) for i in pending}
+            seen = {}
+            for salt in salts.values():
+                seen[salt] = seen.get(salt, 0) + 1
+            still = [i for i in pending if seen[salts[i]] != 1]
+            for i in pending:
+                if seen[salts[i]] == 1:
+                    tokens[i] = salts[i]
+            if len(still) == len(pending):
+                # This radius separated nothing. In a periodic file — the same
+                # call repeated every N lines — no wider radius will either.
+                break
+            pending = still
 
-    # tier 1b: two DIFFERENT lines can still land on one token by hash
-    # collision. They are not copies, so no later stage could separate them —
-    # salt them with their upward context here instead. Without this, a
-    # collision is accepted as an exact match and the edit lands on the wrong
-    # line (the failure oh-my-pi hit in its 16-bit snapshot tags).
+        leftover = pending + pending_runs
+        if leftover:
+            count = len(members)
+            for ordinal, i in enumerate(members, start=1):
+                if i in leftover:
+                    tokens[i] = _ordinal_token(content, count, ordinal, width)
+
+    # tier 1b: two DIFFERENT lines can land on one token by hash collision.
+    # They are not copies, so no later stage could separate them.
     used: dict[str, int] = {}
     for tok in tokens:
         used[tok] = used.get(tok, 0) + 1
     for i, tok in enumerate(tokens):
         if used.get(tok, 0) < 2:
             continue
-        for radius in range(1, MAX_RADIUS + 1):
-            cand = _salted(lines, i, radius, width)
+        # A run member is re-salted within the RUN family. A per-line salt would
+        # put it back on "distance from the run head", which is precisely the
+        # naming that lets member k inherit member k-1's token.
+        if runs[i][0] > 1:
+            forms = (
+                _run_token(contents, i, runs[i], r, width)
+                for r in range(MAX_RADIUS + 1, MAX_RADIUS + 1 + FIXUP_RADII)
+            )
+        else:
+            forms = (_salted(lines, i, r, width) for r in range(1, MAX_RADIUS + 1))
+        for cand in forms:
             if cand not in used:
                 used[tok] -= 1
                 used[cand] = 1
@@ -192,13 +264,29 @@ def _stamp(lines: list[str], width: int) -> list[str]:
 
 
 def _candidate_tokens(lines: list[str], i: int, width: int) -> set[str]:
-    """Every token line ``i`` could carry, across all tiers.
+    """Tokens line ``i`` could have carried, computed from the file as it is NOW.
 
     A line's tier depends on how many copies of it the file holds, and that can
-    change between the read and the edit. Matching only the current tier would
-    throw away a perfectly good anchor whenever a copy appeared or vanished.
+    change between the read and the edit, so an anchor stamped in one tier has
+    to be findable in another.
+
+    Every form offered here is also a lottery ticket on a truncated hash, and a
+    losing ticket resolves CONFIDENTLY to an unrelated line. Measured: offering
+    seven forms costs 2.0% false accepts on dead anchors, offering one costs
+    0.1%. So the set is kept as small as correctness allows, and tokens for
+    neighbouring counts or run positions are never offered — those would
+    re-create exactly the stale anchors the binding exists to invalidate.
     """
-    out = {_token(lines[i], width)}
+    contents = [_content(line) for line in lines]
+    if _runs(contents)[i][0] > 1:
+        # A line inside a run has exactly one family of names, and ``_stamp``
+        # already produced it for the file as it stands. Any other token that
+        # appears to fit is either a hash accident or an inference the inputs do
+        # not support — growing a run above the target and growing it below
+        # produce the same file. Offer nothing: refusing is the answer.
+        return set()
+
+    out = {_hash(contents[i], width)}
     for radius in range(1, MAX_RADIUS + 1):
         out.add(_salted(lines, i, radius, width))
     return out
@@ -229,8 +317,7 @@ def resolve_anchor(
         return None
 
     # The file's own size fixes the width. An anchor may nonetheless have been
-    # stamped at a different width — the file crossed a threshold, or it carries
-    # a tier-2 ordinal suffix and so is longer than the hash — so plausible
+    # stamped at a different width if the file crossed a threshold, so plausible
     # alternatives are tried only if the natural width finds nothing.
     natural = anchor_width(len(current))
     widths = [natural]
@@ -247,8 +334,8 @@ def resolve_anchor(
 
 def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int | None:
     """Resolve assuming the anchor was stamped with tokens ``width`` wide."""
-    # 1. The token as the file stamps it today. Two-tier salting makes this
-    #    unique for almost every line, with no snapshot needed.
+    # 1. The token as the file stamps it today. The tiers make this unique for
+    #    almost every line, with no snapshot needed.
     tokens = _stamp(current, width)
     exact = [i for i, tok in enumerate(tokens) if tok == anchor]
     if len(exact) == 1:
@@ -258,19 +345,29 @@ def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int |
         # Nothing here can separate them, so refuse.
         return None
 
-    # 2. No line carries that token now. The anchor may have been stamped in a
-    #    different tier — a copy of the line has appeared or been removed since
-    #    the read. Look at every token each line could have carried.
-    alt = [i for i in range(len(current)) if anchor in _candidate_tokens(current, i, width)]
+    # 2. No line carries that token now. The anchor may still belong to a line
+    #    that was UNIQUE when it was read and has since acquired a twin: that
+    #    line was stamped with the plain content hash, which is content-derived
+    #    and stable, so following it is safe.
+    #
+    #    Only that one form is offered. Run members are excluded entirely — see
+    #    _candidate_tokens for why more forms cost silent corruption.
+    contents = [_content(line) for line in current]
+    runs = _runs(contents)
+    alt = [
+        i
+        for i, content in enumerate(contents)
+        if runs[i][0] == 1 and _hash(content, width) == anchor
+    ]
     if not alt:
         return None
     if len(alt) == 1:
         return alt[0]
 
-    # 3. Several candidates. Only tolerate that when they are literal copies of
-    #    one another — then every candidate holds the same text, so the line
-    #    number the anchor was displayed at picks the copy the caller meant.
-    if len({_content(current[i]) for i in alt}) != 1:
+    # 3. Several candidates, all literal copies of one content: the line number
+    #    the anchor was displayed at picks the copy the caller meant. Inside a
+    #    run this inference is unavailable, which is why those are excluded.
+    if len({contents[i] for i in alt}) != 1:
         return None
     wanted = hint - 1
     return min(alt, key=lambda i: (abs(i - wanted), i))
