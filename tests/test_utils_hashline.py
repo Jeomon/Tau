@@ -10,6 +10,8 @@ from tau.builtins.tools.utils import (
     HASH_LEN,
     AnchorSpaceExhausted,
     compute_line_hashes,
+    detect_binary_format,
+    looks_like_binary,
 )
 
 
@@ -113,3 +115,46 @@ def test_file_longer_than_the_anchor_space_is_refused():
 def test_exactly_the_anchor_space_still_works():
     hashes = compute_line_hashes(["y"] * (16**HASH_LEN))
     assert len(set(hashes)) == 16**HASH_LEN
+
+
+class TestDetectBinaryFormat:
+    """The null-byte sniff is blind to formats that lead with ASCII: a PDF's
+    first null byte routinely lands past the 8 KiB sample (observed 14k, 36k,
+    603k in real files) and sometimes never appears at all. Large ones then
+    failed with an unrelated "too many lines to anchor" message; small ones
+    were read as pages of mojibake.
+    """
+
+    def test_pdf_magic_is_detected(self):
+        assert detect_binary_format(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj") == "PDF"
+
+    def test_postscript_magic_is_detected(self):
+        assert detect_binary_format(b"%!PS-Adobe-3.0\n%%Title: x") == "PostScript"
+
+    def test_pdf_with_no_null_byte_at_all_is_still_detected(self):
+        assert detect_binary_format(b"%PDF-1.4 fake pdf") == "PDF"
+
+    def test_pdf_whose_null_byte_is_past_the_sniff_window(self):
+        raw = b"%PDF-1.4\n" + b"% metadata line\n" * 1200 + b"\x00stream"
+        assert not looks_like_binary(raw), "precondition: the sniff must miss this"
+        assert detect_binary_format(raw) == "PDF"
+
+    def test_plain_text_is_not_flagged(self):
+        assert detect_binary_format(b"def hello():\n    return 1\n") is None
+
+    def test_percent_comment_text_is_not_flagged(self):
+        # A LaTeX or Matlab file starts with '%' but is not PostScript.
+        assert detect_binary_format(b"% This is a LaTeX comment\n\\documentclass{article}") is None
+
+    def test_formats_the_null_sniff_already_catches_are_not_listed(self):
+        """Kept deliberately short — zip/gzip/xz/tar all put a null byte in
+        their first few bytes, so listing them adds drift and catches nothing."""
+        realistic_headers = (
+            b"PK\x03\x04\x14\x00\x00\x00\x08\x00",          # zip / docx / jar
+            b"\x1f\x8b\x08\x00\x00\x00\x00\x00",             # gzip
+            b"\xfd7zXZ\x00\x00\x04\xe6\xd6\xb4F",             # xz
+            b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8,         # ELF
+        )
+        for header in realistic_headers:
+            assert looks_like_binary(header), "sniff should already catch this"
+            assert detect_binary_format(header) is None

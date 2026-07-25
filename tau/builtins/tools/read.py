@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from tau.builtins.tools.utils import (
     AnchorSpaceExhausted,
     compute_line_hashes,
+    detect_binary_format,
     detect_image_mime,
     looks_like_binary,
     resolve_tool_path,
@@ -216,6 +217,18 @@ class ReadTool(Tool):
         raw: bytes,
     ) -> ToolResult:
         """Decode, anchor and window the file body. Runs on a worker thread."""
+        # Checked before the null-byte sniff: these formats lead with ASCII, so
+        # the sniff either misses them entirely or — for a large one — lets them
+        # through to fail later as "too many lines to anchor", which is true but
+        # tells the caller nothing useful about what the file actually is.
+        binary_format = detect_binary_format(raw)
+        if binary_format is not None:
+            return ToolResult.error(
+                invocation.id,
+                f"'{params.path}' is a {binary_format} file, not text. Extract its text "
+                "first (pdftotext, or a library such as pypdf) and read that instead.",
+            )
+
         if looks_like_binary(raw):
             return ToolResult.error(
                 invocation.id,
