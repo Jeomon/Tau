@@ -226,6 +226,23 @@ class BeforeCompactionEvent:
 
 
 @dataclass
+class LLMRetryEvent:
+    """Fires before each retry of a transient pre-stream provider failure.
+
+    Without this the UI shows a spinner that appears to have stalled, and then a
+    bare error if the attempts run out — an HTTP 529 from an overloaded provider
+    is indistinguishable from a hang. Surfacing the attempt makes the wait
+    self-explanatory and tells the user retrying by hand is pointless until the
+    count is exhausted.
+    """
+
+    type: Literal["llm_retry"] = field(default="llm_retry", init=False)
+    attempt: int = 0
+    max_retries: int = 0
+    error: str = ""
+
+
+@dataclass
 class CompactionStartEvent:
     """Fires when context compaction begins (auto or manual)."""
 

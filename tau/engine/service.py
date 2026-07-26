@@ -32,6 +32,7 @@ from tau.engine.types import (
 )
 from tau.hooks.engine import (
     AgentEndReason,
+    LLMRetryEvent,
     MessageRollbackEvent,
     ToolResultEvent,
     ToolResultEventResult,
@@ -43,6 +44,7 @@ from tau.inference.types import (
     EndEvent,
     ErrorEvent,
     LLMContext,
+    RetryEvent,
     StopReason,
     TextDeltaEvent,
     TextEndEvent,
@@ -338,6 +340,7 @@ class Engine:
                 signal_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await signal_task
+
     async def _execute(
         self,
         tool_call: ToolCallContent,
@@ -459,9 +462,7 @@ class Engine:
             # get the real root cause instead of just str(e) — see whichever
             # tool.render_result is in play (or the generic fallback) for how
             # this gets collapsed/expanded in the transcript.
-            error = (
-                f"Tool '{tool_call.name}' execution failed: {e}\n\n{traceback.format_exc()}"
-            )
+            error = f"Tool '{tool_call.name}' execution failed: {e}\n\n{traceback.format_exc()}"
             tool_result = ToolResultContent(
                 id=tool_call.id,
                 is_error=True,
@@ -874,6 +875,19 @@ class Engine:
                                     _streaming_thinking = None
                                 else:
                                     message.contents.append(thinking)
+                            case RetryEvent(attempt=attempt, max_retries=max_retries, error=error):
+                                # Purely informational: the retry itself is
+                                # handled inside the inference layer. Without
+                                # this the UI shows a spinner that looks stalled
+                                # while a provider 529 is being waited out, and
+                                # then a bare error if the attempts run out.
+                                await self.hooks.emit(
+                                    LLMRetryEvent(
+                                        attempt=attempt,
+                                        max_retries=max_retries,
+                                        error=error,
+                                    )
+                                )
                             case ErrorEvent(reason=reason, error=error, kind=kind):
                                 message.stop_reason = reason
                                 message.error = error

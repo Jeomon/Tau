@@ -13,6 +13,7 @@ from tau.hooks.engine import (
     CompactionFailureEvent,
     CompactionStartEvent,
     ContextEvent,
+    LLMRetryEvent,
     MessageEndEvent,
     MessageRollbackEvent,
     MessageStartEvent,
@@ -98,6 +99,7 @@ HookEvent = (
     | SavePointEvent
     | SettledEvent
     | BeforeCompactionEvent
+    | LLMRetryEvent
     | CompactionStartEvent
     | CompactionEndEvent
     | CompactionFailureEvent

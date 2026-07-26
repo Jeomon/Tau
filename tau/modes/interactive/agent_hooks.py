@@ -114,6 +114,7 @@ class AgentHookHandler:
             hooks.register("terminal_output", self._on_terminal_output),
             hooks.register("session_start", self._on_session_start),
             hooks.register("queue_update", self._on_queue_update),
+            hooks.register("llm_retry", self._on_llm_retry),
             hooks.register("compaction_start", self._on_compaction_start),
             hooks.register("compaction_end", self._on_compaction_end),
         ]
@@ -205,6 +206,7 @@ class AgentHookHandler:
         self._layout.spinner.start_turn(input_estimate=self._estimate_pending_input_tokens())
 
     async def _on_agent_end(self, _event: object) -> None:
+        self._clear_retry_notice()
         self._spinner(running=False)
 
     async def _on_settled(self, _event: object) -> None:
@@ -212,6 +214,31 @@ class AgentHookHandler:
         self._spinner(running=False)
         if self._on_settled_cb is not None:
             await self._on_settled_cb()
+
+    async def _on_llm_retry(self, event: object) -> None:
+        """Show that a transient provider failure is being waited out.
+
+        A 529 from an overloaded provider is retried inside the inference layer,
+        which previously looked identical to a hang: the spinner kept turning
+        with no explanation, and if the attempts ran out the user saw only a bare
+        error. Naming the attempt also tells them that retrying by hand before
+        the count is exhausted achieves nothing.
+
+        Layered like compaction so it does not clobber the turn's own spinner
+        reason, and popped on the next message activity — the retry either
+        succeeds, in which case the stream starts, or fails, in which case the
+        turn ends. Both clear it.
+        """
+        attempt = getattr(event, "attempt", 0)
+        max_retries = getattr(event, "max_retries", 0)
+        label = self._layout.spinner.theme.label_retrying
+        if max_retries:
+            label = f"{label} ({attempt}/{max_retries})"
+        self._layout.spinner.push_reason("llm_retry", label)
+        self._tui.request_render()
+
+    def _clear_retry_notice(self) -> None:
+        self._layout.spinner.pop_reason("llm_retry")
 
     async def _on_compaction_start(self, _event: object) -> None:
         # Layered reason so compaction can run alongside (and outlive) a turn's
@@ -231,6 +258,9 @@ class AgentHookHandler:
         msg = getattr(event, "message", None)
         if msg is None:
             return
+        # The stream has started, so any retry that was being waited out
+        # succeeded. (A retry that fails instead ends the turn, cleared below.)
+        self._clear_retry_notice()
         self._layout.spinner.set_label(self._layout.spinner.theme.label_working)
         if isinstance(msg, ToolMessage) and self._partial_tool_block is not None:
             block = self._partial_tool_block

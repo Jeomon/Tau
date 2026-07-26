@@ -294,9 +294,7 @@ class RpcExtensionUIContext:
     async def select(
         self, title: str, options: list[str], timeout: float | None = None
     ) -> str | None:
-        return await self._dialog(
-            {"method": "select", "title": title, "options": options}, timeout
-        )
+        return await self._dialog({"method": "select", "title": title, "options": options}, timeout)
 
     async def multi_select(
         self, title: str, options: list[str], timeout: float | None = None
@@ -336,9 +334,7 @@ class RpcExtensionUIContext:
     async def editor(
         self, title: str, prefill: str = "", timeout: float | None = None
     ) -> str | None:
-        return await self._dialog(
-            {"method": "editor", "title": title, "prefill": prefill}, timeout
-        )
+        return await self._dialog({"method": "editor", "title": title, "prefill": prefill}, timeout)
 
     def notify(self, message: str, notify_type: str = "info") -> None:
         self._fire({"method": "notify", "message": message, "notifyType": notify_type})
@@ -416,9 +412,7 @@ def _resolve_attachments(
             raise ValueError(f"attachment[{i}]: invalid or missing 'kind' ({kind!r})")
         present = [k for k in ("data", "path", "url") if att.get(k)]
         if len(present) != 1:
-            raise ValueError(
-                f"attachment[{i}]: exactly one of 'data', 'path', 'url' is required"
-            )
+            raise ValueError(f"attachment[{i}]: exactly one of 'data', 'path', 'url' is required")
         source = present[0]
         if source == "url" and kind != "image":
             raise ValueError(f"attachment[{i}]: 'url' is only supported for images")
@@ -1347,6 +1341,7 @@ _FORWARDED_EVENTS = (
     "tool_execution_end",
     "tool_execution_failure",
     "agent_error",
+    "llm_retry",
     "compaction_start",
     "compaction_end",
     "compaction_cancelled",

@@ -59,6 +59,7 @@ class SpinnerTheme:
     label_streaming: str = "Streaming…"
     label_tool_calling: str = "Tool Calling…"
     label_compacting: str = "Compacting…"
+    label_retrying: str = "Provider busy, retrying…"
 
 
 @dataclass

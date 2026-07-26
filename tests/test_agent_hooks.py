@@ -20,12 +20,14 @@ from tau.tool.types import ToolResult
 
 class _Spinner:
     def __init__(self) -> None:
+        self.reasons: dict[str, str] = {}
         self.theme = SimpleNamespace(
             label_working="Working",
             label_thinking="Thinking",
             label_streaming="Streaming",
             label_tool_calling="Running",
             label_compacting="Compacting",
+            label_retrying="Provider busy, retrying",
         )
         self.label = ""
         self.token_updates: list[tuple[int | None, int]] = []
@@ -49,10 +51,10 @@ class _Spinner:
         pass
 
     def push_reason(self, key: str, label: str) -> None:
-        pass
+        self.reasons[key] = label
 
     def pop_reason(self, key: str) -> None:
-        pass
+        self.reasons.pop(key, None)
 
 
 class _Layout:
@@ -182,3 +184,41 @@ async def test_empty_usage_does_not_reset_up_count() -> None:
     up, down = layout.spinner.token_updates[0]
     assert up is None
     assert down > 0
+
+
+@pytest.mark.asyncio
+async def test_llm_retry_is_shown_and_cleared_when_the_stream_starts() -> None:
+    """A provider 529 is retried inside the inference layer, which used to look
+    exactly like a hang: the spinner kept turning with no explanation, and a bare
+    error appeared if the attempts ran out."""
+    layout = _Layout()
+    tui = _TUI()
+    handler = AgentHookHandler(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        layout,  # type: ignore[arg-type]
+        tui,  # type: ignore[arg-type]
+    )
+
+    await handler._on_llm_retry(SimpleNamespace(attempt=2, max_retries=3, error="overloaded"))
+    assert layout.spinner.reasons["llm_retry"] == "Provider busy, retrying (2/3)"
+
+    # The retry succeeded: the stream starts, so the notice must go.
+    await handler._on_message_start(SimpleNamespace(message=AssistantMessage(contents=[])))
+    assert "llm_retry" not in layout.spinner.reasons
+
+
+@pytest.mark.asyncio
+async def test_llm_retry_notice_is_cleared_when_the_turn_ends() -> None:
+    """The other exit: the attempts ran out and the turn ended. The notice must
+    not survive into the next turn."""
+    layout = _Layout()
+    tui = _TUI()
+    handler = AgentHookHandler(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        layout,  # type: ignore[arg-type]
+        tui,  # type: ignore[arg-type]
+    )
+    await handler._on_llm_retry(SimpleNamespace(attempt=3, max_retries=3, error="overloaded"))
+    assert "llm_retry" in layout.spinner.reasons
+    await handler._on_agent_end(SimpleNamespace())
+    assert "llm_retry" not in layout.spinner.reasons

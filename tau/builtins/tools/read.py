@@ -7,12 +7,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tau.builtins.tools.utils import (
-    AnchorSpaceExhausted,
-    compute_line_hashes,
     detect_binary_format,
     detect_image_mime,
     looks_like_binary,
+    record_digests,
     resolve_tool_path,
+    split_lines,
+    stamp_lines,
 )
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -39,8 +40,36 @@ _MAX_LINE_CHARS = 4000
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
+# Characters that ``str.splitlines`` treats as line breaks but a real file format
+# does not — see utils._LINE_BREAK, which deliberately splits on \r\n, \r and \n
+# only. Emitted raw into the read output they break the format's one-anchor-per-
+# line invariant: a line containing a form feed is displayed as an anchored empty
+# line followed by a phantom line with no anchor, and the character itself is
+# invisible, so a model rewriting that line silently drops it.
+#
+# Escaping them is lossy in a different way — the displayed text is no longer
+# byte-identical to the file — but it is VISIBLY lossy, and the footer says so.
+# The anchor and the digest are still computed over the true content, so
+# resolution and verification are unaffected.
+_INVISIBLE_BREAKS = {
+    "\v": "\\v",
+    "\f": "\\f",
+    "\x1c": "\\x1c",
+    "\x1d": "\\x1d",
+    "\x1e": "\\x1e",
+    "\x85": "\\x85",
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029",
+}
+_INVISIBLE_BREAK_TABLE = str.maketrans(_INVISIBLE_BREAKS)
+
+
+def _has_invisible_break(line: str) -> bool:
+    return any(ch in line for ch in _INVISIBLE_BREAKS)
+
+
 def _display_line(line: str) -> str:
-    """Cap a single line's displayed length.
+    """Escape structure-breaking characters, then cap the displayed length.
 
     Stops one pathologically long line (a minified bundle, a one-line JSON
     blob) from dumping megabytes into the model's context through a single
@@ -48,6 +77,7 @@ def _display_line(line: str) -> str:
     line elsewhere, so this is purely a display cap — it doesn't affect
     anchor resolution for a later edit.
     """
+    line = line.translate(_INVISIBLE_BREAK_TABLE)
     if len(line) <= _MAX_LINE_CHARS:
         return line
     truncated = line[:_MAX_LINE_CHARS]
@@ -236,27 +266,25 @@ class ReadTool(Tool):
                 "first 8 KiB) and cannot be read as text.",
             )
 
-        lines = raw.decode("utf-8", errors="replace").splitlines()
+        lines = split_lines(raw.decode("utf-8", errors="replace"))
 
         total = len(lines)
         start = params.offset
         end = min(start + params.limit, total)
         chunk = lines[start:end]
 
-        # Hashed over the whole file, not just this chunk, so collision
-        # resolution (and therefore every line's anchor) stays identical
-        # regardless of which offset/limit window is being displayed —
-        # edit re-derives this same full-file table when resolving an anchor.
-        # This is also why offset/limit cannot rescue an unanchorable file:
-        # the cost and the capacity limit are both driven by total lines.
-        try:
-            chunk_hashes = compute_line_hashes(lines)[start:end]
-        except AnchorSpaceExhausted as e:
-            return ToolResult.error(
-                invocation.id,
-                f"Cannot read '{params.path}': {e} If this is data rather than source "
-                "code, use grep or terminal to inspect it instead of read.",
-            )
+        # Stamped over the whole file, not just this chunk. Two things depend on
+        # that: a duplicated line's salt is derived from its neighbours, and the
+        # token width is chosen from the total line count — so a given line must
+        # get the same anchor no matter which window is being displayed. edit
+        # re-derives the identical table when resolving.
+        chunk_hashes = stamp_lines(lines)[start:end]
+
+        # Retain a content digest per line so a later edit can check that the
+        # line an anchor resolved to still says what was displayed here. Over the
+        # whole file for the same reason the stamping is: an anchor does not
+        # depend on the window it was shown in.
+        record_digests(path, lines)
 
         numbered = "\n".join(
             f"{start + i + 1}:{h}|{_display_line(line)}"
@@ -268,6 +296,20 @@ class ReadTool(Tool):
         if truncated:
             footer = (
                 f"\n\n[Showing lines {start + 1}–{end} of {total}. Use offset={end} to read more.]"
+            )
+
+        # Say so when the display is not byte-identical to the file. Without
+        # this the escape is indistinguishable from a file that really contains
+        # a backslash, and rewriting the line would introduce one.
+        if any(_has_invisible_break(line) for line in chunk):
+            footer += (
+                "\n\n[This file contains characters that would break the line "
+                "structure of this output (form feed, vertical tab, or a Unicode "
+                "line separator). They are shown escaped, e.g. \\f — the file "
+                "itself holds the real character, one byte, not two. edit writes "
+                "exactly what you give it, so rewriting such a line REPLACES the "
+                "real character with the escape text. Edit other lines freely; "
+                "use terminal (sed/python) to change a line that holds one.]"
             )
 
         metadata = {

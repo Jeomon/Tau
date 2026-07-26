@@ -222,6 +222,7 @@ def load_theme_from_dict(data: dict) -> tuple[LayoutTheme | None, str | None]:
         label_thinking=spinner_cfg.get("label_thinking", d.spinner.label_thinking),
         label_tool_calling=spinner_cfg.get("label_tool_calling", d.spinner.label_tool_calling),
         label_compacting=spinner_cfg.get("label_compacting", d.spinner.label_compacting),
+        label_retrying=spinner_cfg.get("label_retrying", d.spinner.label_retrying),
     )
 
     select = SelectListTheme(

@@ -10,11 +10,17 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import (
-    AnchorSpaceExhausted,
     atomic_write_text,
-    compute_line_hashes,
+    digest_blob,
+    dominant_newline,
+    join_lines,
+    resolve_anchor,
     resolve_tool_path,
     serialize_file_mutation,
+    split_lines,
+    split_lines_with_endings,
+    stamp_lines,
+    verify_resolved,
 )
 from tau.tool.render import call_line
 from tau.tool.types import (
@@ -42,15 +48,25 @@ class EditParams(BaseModel):
         examples=["/home/user/project/src/main.py", "/home/user/project/config.json"],
     )
     start_anchor: str = Field(
-        pattern=r"^\d+:.{4}$",
+        # A token is 4 hex characters at every file size (see
+        # utils.anchor_width — collisions are now detected rather than avoided,
+        # so width buys nothing). A run of identical lines additionally carries a
+        # short base-36 ordinal suffix, so the worst case is longer than 4. The
+        # bound stays generous rather than exact: it costs nothing, and a schema
+        # that rejects an anchor read itself produced is a worse failure than one
+        # that admits a shape resolution will refuse anyway. Character class
+        # rather than `.` so whitespace and stray punctuation are rejected
+        # before resolution is attempted.
+        pattern=r"^\d+:[0-9a-z]{4,14}$",
         description=(
             "Hashline anchor copied from read for the first line to replace, formatted "
-            "'<line>:<hash>'."
+            "'<line>:<hash>'. Copy it exactly as read printed it; hash width varies "
+            "with file size."
         ),
         examples=["12:a3f1"],
     )
     end_anchor: str = Field(
-        pattern=r"^\d+:.{4}$",
+        pattern=r"^\d+:[0-9a-z]{4,14}$",
         description=(
             "Hashline anchor for the last line to replace, formatted '<line>:<hash>'. "
             "Use the start anchor for a single-line edit."
@@ -71,10 +87,11 @@ def _line_hash(line: str) -> str:
     """Return an isolated per-line hash for cosmetic diff-preview display only.
 
     Used solely by _render_hunk_line (the human-facing TUI diff panel), which
-    only has the changed lines in front of it, not the whole file — so it
-    can't run the collision-resolved compute_line_hashes over full context.
-    Anchor *resolution* (_find_anchor) never uses this; it always hashes the
-    complete file so identical/blank lines still get distinct anchors.
+    only has the changed lines in front of it, not the whole file — so it can't
+    run stamp_lines, whose token for a duplicated line is salted from its
+    neighbours and whose width comes from the file's total length.
+    Anchor *resolution* (_find_anchor) never uses this; it always stamps the
+    complete file so identical and blank lines still get distinct anchors.
     """
     stripped = line.strip()
     return "    " if not stripped else hashlib.md5(stripped.encode()).hexdigest()[:4]
@@ -86,24 +103,59 @@ def _parse_anchor(anchor: str) -> tuple[int, str]:
     return int(line_number), line_hash
 
 
-def _find_anchor(lines: list[str], anchor: str, hashes: list[str] | None = None) -> int | None:
-    """Find the line matching the anchor's hash.
+def _find_anchor(lines: list[str], anchor: str, path: Path | None = None) -> int | None:
+    """Find the line an anchor refers to, or None to refuse.
 
-    ``hashes`` (from ``compute_line_hashes``) are unique per file, so a match
-    is normally unambiguous — the line-number hint is only used to break a
-    tie in the pathological case where the file is long enough to exhaust the
-    collision-resolution retry budget and two lines end up sharing a hash.
+    Delegates to ``resolve_anchor``, which matches every token a line could
+    have carried rather than only the one it carries right now: a line's tier
+    depends on how many copies of it the file holds, and that can change
+    between the read and this edit.
+
+    Takes the lines rather than a precomputed hash table, because a token is no
+    longer a pure function of one line's content — a duplicate is salted from
+    its neighbours, and the width comes from the file's total length.
     """
     line_hint, expected_hash = _parse_anchor(anchor)
-    if hashes is None:
-        hashes = compute_line_hashes(lines)
-    matches = [index for index, h in enumerate(hashes) if h == expected_hash]
-    if not matches:
+    # The digests read retained let resolution tell two content-identical lines
+    # apart by the neighbourhood each one sits in. Without them that case can
+    # only be refused, since every content-derived value the anchor carries is
+    # the same for both.
+    return resolve_anchor(
+        lines,
+        expected_hash,
+        line_hint,
+        digests=digest_blob(path) if path is not None else None,
+    )
+
+
+def _verification_failure(path: Path, label: str, anchor: str, resolved_line: str) -> str | None:
+    """Check the resolved line against what ``read`` displayed, or explain why not.
+
+    ``resolve_anchor`` answers "which line carries this token"; this answers "is
+    that the line the caller was actually looking at". They are different
+    questions, and only the second catches a token collision — once the whole
+    token matches, every content-derived part of it matches too, so no amount of
+    anchor width can distinguish the two lines.
+
+    Returns None when the edit may proceed, or the message to refuse with.
+    """
+    line_hint, _ = _parse_anchor(anchor)
+    verdict = verify_resolved(path, line_hint, resolved_line)
+    if verdict is True:
         return None
-    if len(matches) == 1:
-        return matches[0]
-    expected_index = line_hint - 1
-    return min(matches, key=lambda index: abs(index - expected_index))
+    if verdict is None:
+        return (
+            f"{label} anchor '{anchor}' cannot be verified: there is no record of "
+            f"this file having been read in this session. Anchors are only "
+            f"meaningful against the read that produced them, so re-read the file "
+            f"and use the anchors it returns."
+        )
+    return (
+        f"{label} anchor '{anchor}' resolved to a line that does not match what "
+        f"read displayed at line {line_hint} — the token is now carried by "
+        f"different content, so editing here would change the wrong line. "
+        f"Re-read the file and use the anchors it returns."
+    )
 
 
 def _format_anchored_lines(
@@ -405,42 +457,67 @@ class EditTool(Tool):
             return ToolResult.error(invocation.id, f"Not a file: {params.path}")
 
         try:
-            original = path.read_text(encoding="utf-8")
+            original = path.read_bytes().decode("utf-8")
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot read file: {e}")
-
-        lines = original.splitlines()
-        try:
-            hashes = compute_line_hashes(lines)
-        except AnchorSpaceExhausted as e:
+        except UnicodeDecodeError as e:
+            # Previously an unhandled UnicodeDecodeError: only OSError was caught,
+            # so a latin-1 file crashed the tool call. read tolerates such a file
+            # by decoding with errors="replace", which means the anchors it shows
+            # describe replacement characters rather than the bytes on disk —
+            # writing back from them would corrupt the file. Refuse instead.
             return ToolResult.error(
                 invocation.id,
-                f"'{params.path}' has {len(lines)} lines, too many to resolve edit anchors "
-                f"unambiguously ({e}). Use terminal (sed/awk/python) to modify this file.",
+                f"'{params.path}' is not valid UTF-8 ({e.reason} at byte {e.start}), so it "
+                "cannot be edited safely — read displays it with replacement characters, "
+                "so its anchors do not describe the bytes on disk. Use terminal "
+                "(sed/awk/python) to modify this file.",
             )
-        start_index = _find_anchor(lines, params.start_anchor, hashes)
+
+        # Split on real line terminators only, and keep them: str.splitlines also
+        # breaks on form feed, vertical tab, NEL and U+2028, which were then
+        # rejoined as "\n" — destroying them. Keeping each terminator also stops
+        # a CRLF file being rewritten wholesale as LF.
+        lines, endings = split_lines_with_endings(original)
+        # No capacity ceiling any more: token width adapts to file length rather
+        # than the file being refused once it outgrows a fixed 4-hex space.
+        hashes = stamp_lines(lines)
+        start_index = _find_anchor(lines, params.start_anchor, path)
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
                 _anchor_not_found_message("Start", params.start_anchor, lines, hashes),
             )
-        end_index = _find_anchor(lines, params.end_anchor, hashes)
+        end_index = _find_anchor(lines, params.end_anchor, path)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,
                 _anchor_not_found_message("End", params.end_anchor, lines, hashes),
             )
+        for label, anchor, index in (
+            ("Start", params.start_anchor, start_index),
+            ("End", params.end_anchor, end_index),
+        ):
+            problem = _verification_failure(path, label, anchor, lines[index])
+            if problem is not None:
+                return ToolResult.error(invocation.id, problem)
         if end_index < start_index:
             return ToolResult.error(
                 invocation.id,
                 "Resolved end anchor is before the start anchor.",
             )
 
-        replacement_lines = params.new_content.splitlines()
+        replacement_lines = split_lines(params.new_content)
+        newline = dominant_newline(endings)
         updated_lines = lines[:start_index] + replacement_lines + lines[end_index + 1 :]
-        updated = "\n".join(updated_lines)
-        if original.endswith("\n") and updated_lines:
-            updated += "\n"
+        updated_endings = (
+            endings[:start_index] + [newline] * len(replacement_lines) + endings[end_index + 1 :]
+        )
+        if updated_endings:
+            # Whether the file ends with a terminator is a property of the file,
+            # not of whichever range happened to be replaced.
+            updated_endings[-1] = newline if (endings and endings[-1]) else ""
+        updated = join_lines(updated_lines, updated_endings)
         replacements = end_index - start_index + 1
 
         resolved = path.resolve()
@@ -453,8 +530,12 @@ class EditTool(Tool):
         except OSError as e:
             return ToolResult.error(invocation.id, f"Cannot write file: {e}")
 
-        original_lines = original.splitlines(keepends=True)
-        updated_lines = updated.splitlines(keepends=True)
+        # Same line model as the anchors: a form feed is inside a line, not a
+        # break between two.
+        oc, oe = split_lines_with_endings(original)
+        uc, ue = split_lines_with_endings(updated)
+        original_lines = [c + e for c, e in zip(oc, oe, strict=True)]
+        updated_lines = [c + e for c, e in zip(uc, ue, strict=True)]
         diff_lines = list(
             difflib.unified_diff(
                 original_lines,
