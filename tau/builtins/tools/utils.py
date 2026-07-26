@@ -183,6 +183,99 @@ def verify_resolved(path: Path, hint: int, line: str) -> bool | None:
     return _digest(line) == want
 
 
+# How far above the anchor the reader's neighbourhood is compared, when two
+# content-identical candidates have to be told apart. Upward only: context BELOW
+# an anchor near the top of a file always exists, so including it manufactures
+# agreement exactly where the upward window is honestly truncated — measured to
+# resolve 6 of 7 genuinely ambiguous cases, i.e. to guess.
+CONTEXT_RADIUS = 3
+# Lines that must agree, counted OUTWARD from the anchor and stopping at the
+# first mismatch, before a candidate is believed. Capped by how many lines the
+# reader actually saw, so it stays reachable at a file edge.
+#
+# 3 rather than 2 is a values choice with a measurement behind it. Over 800
+# constructed twin situations, 2 resolves 10 more cases correctly and commits 2
+# silent wrong edits; 3 gives up those 10 and commits none. Silent corruption is
+# priced far above a wasted re-read here, and the choice holds for any weighting
+# above ~5x.
+CONTEXT_MIN_RUN = 3
+# At least this many lines must be comparable at all, so that "every one of zero
+# comparisons agreed" resolves nothing.
+CONTEXT_MIN_COMPARABLE = 1
+
+
+def digest_blob(path: Path) -> str | None:
+    """The digests ``read`` retained for this file, or None."""
+    return _digests.get(path)
+
+
+def _by_context(
+    current: list[str], candidates: list[int], hint: int, digests: str | None
+) -> int | None:
+    """Pick the candidate whose neighbourhood matches the one ``read`` displayed.
+
+    Two lines with identical content cannot be told apart by their anchor, their
+    token, or the digest of the line itself — every content-derived value agrees.
+    What still differs is what sat AROUND them when the reader saw one of them,
+    and ``read`` retained exactly that.
+
+    Scored as an unbroken run of agreement counted outward from the anchor,
+    stopping at the first mismatch. A run is used rather than a count because the
+    insertion that created the twin necessarily perturbs distant context: the
+    original of a copied block agrees immediately above and diverges further up,
+    while a decoy diverges immediately.
+
+    The winner must then beat every rival strictly; ties refuse. Dominance alone
+    is not enough — with no run requirement, a candidate agreeing on one far line
+    dominates one agreeing on none, which measured as resolving 187 of 199
+    cases that no evidence settles.
+    """
+    if digests is None or not candidates:
+        return None
+    home = hint - 1
+    deltas = sorted((d for d in range(-CONTEXT_RADIUS, 1) if d != 0), key=abs)
+
+    best_score = -1
+    best: list[int] = []
+    for i in candidates:
+        comparable = run = 0
+        broken = False
+        for delta in deltas:
+            k, j = home + delta, i + delta
+            expected = digest_at_index(digests, k)
+            if expected is None:
+                continue  # the reader saw nothing here: no evidence either way
+            comparable += 1
+            if broken:
+                continue  # still comparable, but past the break
+            actual = _digest(current[j]) if 0 <= j < len(current) else None
+            if expected == actual:
+                run += 1
+            else:
+                broken = True
+        score = run
+        if comparable < CONTEXT_MIN_COMPARABLE or run < min(CONTEXT_MIN_RUN, comparable):
+            score = -1  # too little agreement beside the anchor to believe
+        if score > best_score:
+            best_score, best = score, [i]
+        elif score == best_score:
+            best.append(i)
+
+    if best_score < 1:
+        return None  # nothing agreed: no evidence for anyone
+    if len(best) == 1:
+        return best[0]
+    return None  # the evidence does not separate them
+
+
+def digest_at_index(digests: str, index: int) -> str | None:
+    """Digest at a 0-based line index, or None if outside what was read."""
+    if index < 0:
+        return None
+    start = index * DIGEST_CHARS
+    return digests[start : start + DIGEST_CHARS] or None
+
+
 def forget_digests(path: Path | None = None) -> None:
     """Drop retained digests — for tests, and for callers that rewrite a file."""
     if path is None:
@@ -418,6 +511,7 @@ def resolve_anchor(
     anchor: str,
     hint: int,
     snapshot: list[str] | None = None,
+    digests: str | None = None,
 ) -> int | None:
     """Find the 0-based index in ``current`` that ``anchor`` refers to.
 
@@ -441,10 +535,12 @@ def resolve_anchor(
     # length an edit had to try the neighbouring widths too, in case the file had
     # crossed a threshold since the read — and every extra comparison set was
     # another lottery ticket for a dead anchor to hit live content.
-    return _resolve_at(current, anchor, hint, HASH_LEN)
+    return _resolve_at(current, anchor, hint, HASH_LEN, digests)
 
 
-def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int | None:
+def _resolve_at(
+    current: list[str], anchor: str, hint: int, width: int, digests: str | None = None
+) -> int | None:
     """Resolve assuming the anchor was stamped with tokens ``width`` wide."""
     # 1. The token as the file stamps it today. The tiers make this unique for
     #    almost every line, with no snapshot needed.
@@ -494,16 +590,11 @@ def _resolve_at(current: list[str], anchor: str, hint: int, width: int) -> int |
     # same thing, and a digest settles what the line SAID, not which copy was
     # MEANT.
     #
-    # So refuse. It costs a re-read, and it measured as costing nothing else:
-    # real-file resolution was identical (135 correct / 3 refused / 0 wrong)
-    # with the tiebreak and without it.
-    #
-    # There IS better evidence available — read retains a digest for every line,
-    # so a candidate's NEIGHBOURHOOD can be compared against the neighbourhood
-    # the reader actually saw. That is a real rule rather than a guess, and it
-    # is being evaluated in the lab rather than invented here; see
-    # NEXT-context-disambiguation.md.
-    return None
+    # The line number is not a way to choose, but the reader's NEIGHBOURHOOD is:
+    # read retained a digest for every line it displayed, so the candidate whose
+    # surroundings match what was actually seen can be identified on evidence
+    # instead of on distance. Refuses when the evidence does not separate them.
+    return _by_context(current, alt, hint, digests)
 
 
 _locks: dict[Path, tuple[asyncio.Lock, int]] = {}

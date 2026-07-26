@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -1146,3 +1147,78 @@ class TestReadDisplaysStructureBreakingCharacters:
         )
         assert not result.is_error, result.content
         assert f.read_bytes() == b"alpha\nPAGE BREAK WAS HERE\nbeta\n"
+
+
+class TestTwinsAreSeparatedByContext:
+    """Two content-identical lines cannot be told apart by anything the anchor
+    carries — token, hash and per-line digest all agree by construction.
+
+    What still differs is what sat AROUND the one the reader saw, and ``read``
+    retained exactly that. Scored as an unbroken run of agreement counted
+    outward from the anchor: the original of a copied block agrees immediately
+    above and diverges further up, while a decoy diverges immediately.
+    """
+
+    def setup_method(self):
+        forget_digests()
+
+    def _run(self, tmp_path, before, after, line, new="EDITED"):
+        f = tmp_path / "twin.py"
+        f.write_text("\n".join(before) + "\n")
+        out = run(ReadTool().execute(_inv("read", path=str(f)))).content
+        anchor = re.match(r"^(\d+:[0-9a-z]+)\|", out.splitlines()[line - 1]).group(1)
+        f.write_text("\n".join(after) + "\n")
+        result = run(
+            EditTool().execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content=new,
+                )
+            )
+        )
+        if result.is_error:
+            return None, f.read_text()
+        return f.read_text().splitlines().index(new) + 1, f.read_text()
+
+    SAVE = ["def save(p):", "    if p is None:", "        return None", "    return write(p)"]
+    BOTH = [
+        "def load(p):", "    if p is None:", "        return None", "    return read(p)", "",
+        "def save(p):", "    if p is None:", "        return None", "    return write(p)",
+    ]
+
+    def test_the_founding_reproduction_now_resolves(self, tmp_path):
+        """Read a four-line save(), anchor its `return None`, then add a load()
+        helper ABOVE carrying an identical line. This edited the decoy silently
+        before neighbour salting, and was refused outright before context."""
+        got, _ = self._run(tmp_path, self.SAVE, self.BOTH, 3)
+        assert got == 8, "must edit save()'s line, not the copy in load()"
+
+    def test_it_resolves_with_a_full_context_window_too(self, tmp_path):
+        pad = ["import os", "import sys", ""]
+        got, _ = self._run(tmp_path, pad + self.SAVE, pad + self.BOTH, 6)
+        assert got == 11
+
+    def test_identical_neighbourhoods_are_refused(self, tmp_path):
+        """Both candidates sit in the same surroundings, so the evidence does
+        not separate them and no amount of context will. Refusing costs a
+        re-read; choosing would be a coin flip on a file."""
+        before = ["a()", "    x = 1", "        return None", "b()"]
+        after = ["a()", "    x = 1", "        return None",
+                 "a()", "    x = 1", "        return None", "b()"]
+        got, text = self._run(tmp_path, before, after, 3)
+        assert got is None
+        assert "EDITED" not in text, "a refusal must leave the file untouched"
+
+    def test_an_anchor_with_no_comparable_context_is_refused(self, tmp_path):
+        """The anchored line was the first in the file, so the reader saw
+        nothing above it. Zero comparisons all agreeing must resolve nothing."""
+        got, _ = self._run(
+            tmp_path,
+            ["        return None", "t()"],
+            ["        return None", "m()", "        return None", "t()"],
+            1,
+        )
+        assert got is None

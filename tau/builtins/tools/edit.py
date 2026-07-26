@@ -11,6 +11,7 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from tau.builtins.tools.utils import (
     atomic_write_text,
+    digest_blob,
     dominant_newline,
     join_lines,
     resolve_anchor,
@@ -102,7 +103,7 @@ def _parse_anchor(anchor: str) -> tuple[int, str]:
     return int(line_number), line_hash
 
 
-def _find_anchor(lines: list[str], anchor: str) -> int | None:
+def _find_anchor(lines: list[str], anchor: str, path: Path | None = None) -> int | None:
     """Find the line an anchor refers to, or None to refuse.
 
     Delegates to ``resolve_anchor``, which matches every token a line could
@@ -115,7 +116,16 @@ def _find_anchor(lines: list[str], anchor: str) -> int | None:
     its neighbours, and the width comes from the file's total length.
     """
     line_hint, expected_hash = _parse_anchor(anchor)
-    return resolve_anchor(lines, expected_hash, line_hint)
+    # The digests read retained let resolution tell two content-identical lines
+    # apart by the neighbourhood each one sits in. Without them that case can
+    # only be refused, since every content-derived value the anchor carries is
+    # the same for both.
+    return resolve_anchor(
+        lines,
+        expected_hash,
+        line_hint,
+        digests=digest_blob(path) if path is not None else None,
+    )
 
 
 def _verification_failure(
@@ -474,13 +484,13 @@ class EditTool(Tool):
         # No capacity ceiling any more: token width adapts to file length rather
         # than the file being refused once it outgrows a fixed 4-hex space.
         hashes = stamp_lines(lines)
-        start_index = _find_anchor(lines, params.start_anchor)
+        start_index = _find_anchor(lines, params.start_anchor, path)
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
                 _anchor_not_found_message("Start", params.start_anchor, lines, hashes),
             )
-        end_index = _find_anchor(lines, params.end_anchor)
+        end_index = _find_anchor(lines, params.end_anchor, path)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,

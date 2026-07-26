@@ -11,6 +11,7 @@ import hashlib
 
 from tau.builtins.tools.utils import (
     HASH_LEN,
+    _digest,
     anchor_width,
     detect_binary_format,
     dominant_newline,
@@ -254,35 +255,48 @@ class TestResolveAnchor:
     def _anchor(self, lines, index):
         return stamp_lines(lines)[index], index + 1
 
-    def test_copy_inserted_above_is_refused_not_guessed(self):
+    def test_copy_inserted_above_needs_the_reader_s_context(self):
         """A line that was unique when read, and now has an identical twin.
 
         Neither copy carries the token the reader was given — both are salted as
         duplicates now — so resolution falls back to the plain content hash,
-        which both match. Nothing in the anchor separates them: the line number
-        it carries describes a file that has since changed.
+        which both match. Nothing in the ANCHOR separates them: the line number
+        it carries describes a file that has since changed, and every
+        content-derived value is identical by construction.
 
-        This used to be settled by picking whichever copy sat nearer the old
-        line number. That is a guess, and it loses whenever the file shifted:
-        with a larger insertion the COPY sits nearest and the edit lands on it
-        silently. Refusing costs a re-read; guessing cost a corrupted file.
+        This was once settled by picking whichever copy sat nearer the old line
+        number, which is a guess that loses whenever the file shifted. With no
+        retained context there is nothing to do but refuse. With it, the
+        neighbourhood each candidate sits in decides — on evidence.
         """
         anchor, hint = self._anchor(self.BASE, 4)
         after = self.BASE[:2] + ["        data = fh.read()"] + self.BASE[2:]
         assert after[2] == after[5]
         assert resolve_anchor(after, anchor, hint) is None
 
-    def test_copy_inserted_below_is_refused_not_guessed(self):
-        """The mirror of the case above, and refused for the same reason.
+        # Here the reader's context runs out after two lines and the insertion
+        # perturbs the third, so the run falls one short of what is demanded and
+        # the answer is withheld rather than guessed. That is the measured trade:
+        # this class of evidence is right ten times in twelve, and the two it
+        # gets wrong are silent.
+        blob = "".join(_digest(line) for line in self.BASE)
+        assert resolve_anchor(after, anchor, hint, digests=blob) is None
 
-        The old line number happens to favour the right answer here, because
-        appending shifts nothing. That is luck, not evidence — the identical
-        situation with an insertion higher up favours the decoy instead — so
-        this refuses rather than being right by accident.
+    def test_copy_appended_below_resolves_on_context(self):
+        """The mirror of the case above, and it DOES resolve.
+
+        Appending shifts nothing, so the original still sits in exactly the
+        neighbourhood the reader saw while the new copy sits at the end of the
+        file in a different one. The old line number also favours the right
+        answer here, but only by luck — the same situation with an insertion
+        higher up favours the decoy — so the context is what earns the answer.
         """
         anchor, hint = self._anchor(self.BASE, 4)
         after = self.BASE + ["        data = fh.read()"]
-        assert resolve_anchor(after, anchor, hint) is None
+        assert resolve_anchor(after, anchor, hint) is None  # no context retained
+
+        blob = "".join(_digest(line) for line in self.BASE)
+        assert resolve_anchor(after, anchor, hint, digests=blob) == 4
 
     def test_resolves_after_lines_inserted_above(self):
         anchor, hint = self._anchor(self.BASE, 4)
