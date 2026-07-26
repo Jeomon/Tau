@@ -12,6 +12,7 @@ import hashlib
 from tau.builtins.tools.utils import (
     HASH_LEN,
     _digest,
+    _stamp_uncached,
     anchor_width,
     detect_binary_format,
     dominant_newline,
@@ -415,3 +416,40 @@ class TestLineSplitting:
         assert dominant_newline(["\r", "\r"]) == "\r"
         assert dominant_newline([]) == "\n"          # empty file: pick a sane default
         assert dominant_newline([""]) == "\n"        # single line, no terminator
+
+
+class TestStampCache:
+    """``_stamp`` is cached because one edit stamps the same file up to three
+    times. A cache on a function that decides WHICH LINE gets edited is exactly
+    the kind of optimisation that turns into silent corruption, so the two ways
+    it could do that are pinned here.
+    """
+
+    def test_changed_content_is_not_served_from_cache(self):
+        """The key is the content, so different content cannot hit. This is the
+        failure that would matter: editing a file twice in one process and
+        having the second edit resolve against the first's stale table."""
+        first = ["alpha", "beta", "gamma"]
+        second = ["alpha", "BETA", "gamma"]
+        a = stamp_lines(first)
+        b = stamp_lines(second)
+        assert a != b
+        assert stamp_lines(first) == a, "re-stamping the original must be stable"
+
+    def test_the_caller_cannot_poison_the_cache(self):
+        """A returned list is a copy. Without that, one caller mutating its
+        result would change what every later caller sees for that file."""
+        lines = ["alpha", "beta", "gamma"]
+        first = stamp_lines(lines)
+        first[0] = "POISONED"
+        assert stamp_lines(lines)[0] != "POISONED"
+
+    def test_eviction_does_not_change_answers(self):
+        """More distinct files than the cache holds: every answer must still be
+        the one the uncached function gives."""
+        files = [[f"line {i}", "shared", f"tail {i}"] for i in range(6)]
+        expected = [_stamp_uncached(f, HASH_LEN) for f in files]
+        for f, want in zip(files, expected, strict=True):
+            assert stamp_lines(f) == want
+        for f, want in zip(reversed(files), reversed(expected), strict=True):
+            assert stamp_lines(f) == want
