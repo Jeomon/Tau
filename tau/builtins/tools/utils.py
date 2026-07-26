@@ -142,6 +142,26 @@ def _digest(line: str) -> str:
     return hashlib.md5(_content(line).encode()).hexdigest()[-DIGEST_CHARS:]
 
 
+def _digest_key(path: Path) -> Path:
+    """Canonical store key for a file.
+
+    Symlinks are resolved, because the tools disagree about how to spell a path
+    and the store must not: ``glob`` and ``grep`` return fully resolved paths
+    while ``resolve_tool_path`` does not, and on macOS ``/tmp`` and ``/var`` are
+    themselves symlinks. Reading a file via a grep result and then editing it via
+    the path the user typed would otherwise look like two different files, and
+    the edit would be refused for want of a record that exists under another
+    name.
+
+    ``serialize_file_mutation`` already keys its lock this way; this makes the
+    digest store agree with it.
+    """
+    try:
+        return path.resolve()
+    except OSError:  # pragma: no cover — unreadable parent, keep the raw path
+        return path
+
+
 def record_digests(path: Path, lines: list[str]) -> None:
     """Retain what ``read`` displayed, for a later ``edit`` to verify against.
 
@@ -153,15 +173,16 @@ def record_digests(path: Path, lines: list[str]) -> None:
     stamps the whole file — anchors must not depend on the window — and an edit
     may carry an anchor from a different read of the same file.
     """
-    _digests[path] = "".join(_digest(line) for line in lines)
-    _digests.move_to_end(path)
+    key = _digest_key(path)
+    _digests[key] = "".join(_digest(line) for line in lines)
+    _digests.move_to_end(key)
     while len(_digests) > _DIGEST_PATHS:
         _digests.popitem(last=False)
 
 
 def digest_at(path: Path, line_number: int) -> str | None:
     """The digest ``read`` recorded at this 1-based line, or None if there is none."""
-    blob = _digests.get(path)
+    blob = _digests.get(_digest_key(path))
     if blob is None or line_number < 1:
         return None
     start = (line_number - 1) * DIGEST_CHARS
@@ -206,7 +227,7 @@ CONTEXT_MIN_COMPARABLE = 1
 
 def digest_blob(path: Path) -> str | None:
     """The digests ``read`` retained for this file, or None."""
-    return _digests.get(path)
+    return _digests.get(_digest_key(path))
 
 
 def _by_context(
@@ -281,7 +302,7 @@ def forget_digests(path: Path | None = None) -> None:
     if path is None:
         _digests.clear()
     else:
-        _digests.pop(path, None)
+        _digests.pop(_digest_key(path), None)
 
 def anchor_width(n_lines: int) -> int:
     """Token width for a file of this many lines — now always ``HASH_LEN``.

@@ -21,6 +21,7 @@ from tau.builtins.tools.read import ReadTool
 from tau.builtins.tools.terminal import TerminalTool
 from tau.builtins.tools.utils import (
     OutputAccumulator,
+    _digests,
     forget_digests,
     record_digests,
     split_lines,
@@ -1222,3 +1223,121 @@ class TestTwinsAreSeparatedByContext:
             1,
         )
         assert got is None
+
+
+class TestPathSpellingDoesNotMatter:
+    """``read`` and ``edit`` must agree on which file they are talking about.
+
+    They do not agree on how to SPELL it: ``glob`` and ``grep`` return fully
+    resolved paths while ``resolve_tool_path`` leaves symlinks alone, and on
+    macOS ``/tmp`` and ``/var`` are themselves symlinks. So the ordinary sequence
+    "grep for a symbol, read the hit, edit the path the user typed" reaches one
+    file by two names — and a store keyed on the raw path would refuse the edit
+    for want of a record filed under the other one.
+    """
+
+    def setup_method(self):
+        forget_digests()
+
+    def _read(self, p):
+        return run(ReadTool().execute(_inv("read", path=str(p)))).content
+
+    def _edit(self, p, anchor, new="EDITED"):
+        return run(
+            EditTool().execute(
+                _inv("edit", path=str(p), start_anchor=anchor, end_anchor=anchor, new_content=new)
+            )
+        )
+
+    def _link_pair(self, tmp_path):
+        real = tmp_path / "pkg"
+        real.mkdir()
+        (real / "mod.py").write_text("import os\nvalue = 1\nother = 2\n")
+        link = tmp_path / "linked"
+        link.symlink_to(real)
+        return real / "mod.py", link / "mod.py"
+
+    def test_read_real_then_edit_through_a_symlink(self, tmp_path):
+        real, linked = self._link_pair(tmp_path)
+        anchor = re.match(r"^(\d+:[0-9a-z]+)\|", self._read(real).splitlines()[1]).group(1)
+        result = self._edit(linked, anchor)
+        assert not result.is_error, result.content
+        assert "EDITED" in real.read_text()
+
+    def test_read_through_a_symlink_then_edit_real(self, tmp_path):
+        real, linked = self._link_pair(tmp_path)
+        anchor = re.match(r"^(\d+:[0-9a-z]+)\|", self._read(linked).splitlines()[1]).group(1)
+        result = self._edit(real, anchor)
+        assert not result.is_error, result.content
+        assert "EDITED" in real.read_text()
+
+    def test_two_names_are_not_two_records(self, tmp_path):
+        """Reading via both spellings must not consume two slots in the store,
+        or a caller alternating between them would evict its own evidence."""
+        real, linked = self._link_pair(tmp_path)
+        self._read(real)
+        self._read(linked)
+        assert len(_digests) == 1, f"one file, {len(_digests)} records"
+
+
+class TestSymlinkTargetsAreFollowed:
+    """``os.replace`` renames ONTO the path it is given, so an atomic write to a
+    symlink replaced the link with a regular file and left the real file
+    untouched — the change looked applied and landed nowhere.
+
+    Reachable through ``write`` on any branch, and through ``edit`` once the
+    digest store learned that two spellings name one file. Symlinked config, a
+    linked package in a monorepo, and anything under ``/tmp`` on macOS (itself a
+    symlink) all hit it.
+    """
+
+    def setup_method(self):
+        forget_digests()
+
+    def _linked(self, tmp_path, body):
+        real = tmp_path / "real.txt"
+        real.write_text(body)
+        link = tmp_path / "link.txt"
+        link.symlink_to(real)
+        return real, link
+
+    def test_write_through_a_symlink_updates_the_target(self, tmp_path):
+        real, link = self._linked(tmp_path, "original\n")
+        result = run(WriteTool().execute(_inv("write", path=str(link), content="new\n")))
+        assert not result.is_error
+        assert link.is_symlink(), "the symlink was replaced by a regular file"
+        assert real.read_text() == "new\n", "the write was orphaned"
+
+    def test_edit_through_a_symlink_updates_the_target(self, tmp_path):
+        real, link = self._linked(tmp_path, "alpha\nbeta\ngamma\n")
+        out = run(ReadTool().execute(_inv("read", path=str(real)))).content
+        anchor = re.match(r"^(\d+:[0-9a-z]+)\|", out.splitlines()[1]).group(1)
+        result = run(
+            EditTool().execute(
+                _inv(
+                    "edit",
+                    path=str(link),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="BETA",
+                )
+            )
+        )
+        assert not result.is_error, result.content
+        assert link.is_symlink()
+        assert real.read_text() == "alpha\nBETA\ngamma\n"
+
+    def test_an_ordinary_file_is_unaffected(self, tmp_path):
+        f = tmp_path / "plain.txt"
+        f.write_text("a\n")
+        run(WriteTool().execute(_inv("write", path=str(f), content="b\n")))
+        assert f.read_text() == "b\n"
+        assert not f.is_symlink()
+
+    def test_a_symlink_to_a_missing_file_creates_the_target(self, tmp_path):
+        missing = tmp_path / "notyet.txt"
+        link = tmp_path / "link.txt"
+        link.symlink_to(missing)
+        run(WriteTool().execute(_inv("write", path=str(link), content="made\n")))
+        assert missing.read_text() == "made\n"
+        assert link.is_symlink()
