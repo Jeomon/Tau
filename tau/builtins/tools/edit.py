@@ -128,9 +128,7 @@ def _find_anchor(lines: list[str], anchor: str, path: Path | None = None) -> int
     )
 
 
-def _verification_failure(
-    path: Path, label: str, anchor: str, resolved_line: str
-) -> str | None:
+def _verification_failure(path: Path, label: str, anchor: str, resolved_line: str) -> str | None:
     """Check the resolved line against what ``read`` displayed, or explain why not.
 
     ``resolve_anchor`` answers "which line carries this token"; this answers "is

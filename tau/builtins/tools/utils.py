@@ -96,6 +96,7 @@ def join_lines(contents: list[str], endings: list[str]) -> str:
     """Inverse of :func:`split_lines_with_endings`."""
     return "".join(content + end for content, end in zip(contents, endings, strict=True))
 
+
 def _content(line: str) -> str:
     """Whitespace-insensitive content of a line.
 
@@ -304,6 +305,7 @@ def forget_digests(path: Path | None = None) -> None:
     else:
         _digests.pop(_digest_key(path), None)
 
+
 def anchor_width(n_lines: int) -> int:
     """Token width for a file of this many lines — now always ``HASH_LEN``.
 
@@ -327,7 +329,6 @@ def anchor_width(n_lines: int) -> int:
 
 def _hash(blob: str, width: int) -> str:
     return hashlib.md5(blob.encode()).hexdigest()[:width]
-
 
 
 def _salted(lines: list[str], i: int, radius: int, width: int) -> str:
@@ -368,9 +369,7 @@ def _runs(contents: list[str]) -> list[tuple[int, int]]:
     return out
 
 
-def _run_token(
-    contents: list[str], i: int, run: tuple[int, int], radius: int, width: int
-) -> str:
+def _run_token(contents: list[str], i: int, run: tuple[int, int], radius: int, width: int) -> str:
     """Token for a line inside a run of identical lines.
 
     Bound to the run's LENGTH as well as the line's index within it. Distance
@@ -438,7 +437,6 @@ def stamp_lines(lines: list[str]) -> list[str]:
     return _stamp(lines, anchor_width(len(lines)))
 
 
-
 # One edit stamps the same file up to three times — resolving the start anchor,
 # resolving the end anchor, and building the near-miss table for an error
 # message — and on a 100,000-line file that was 2.4 of 7.6 seconds spent
@@ -496,9 +494,7 @@ def _stamp_uncached(lines: list[str], width: int) -> list[str]:
         for radius in range(0, MAX_RADIUS + 1):
             if not pending_runs:
                 break
-            salts = {
-                i: _run_token(contents, i, runs[i], radius, width) for i in pending_runs
-            }
+            salts = {i: _run_token(contents, i, runs[i], radius, width) for i in pending_runs}
             seen: dict[str, int] = {}
             for salt in salts.values():
                 seen[salt] = seen.get(salt, 0) + 1
