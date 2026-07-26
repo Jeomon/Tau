@@ -2,6 +2,48 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## 0.9.0 — 2026-07-26
+
+### Breaking
+
+-   `edit` now requires the file to have been read in the same session. An anchor is only meaningful against the read that produced it, and the retained content digests are what let a collision be detected rather than avoided; without them a narrow token has no defence, so a missing record is refused with a re-read instruction rather than resolved on a guess
+-   Anchors that resolve to two content-identical lines are refused unless the surrounding context identifies which one was read. The previous behaviour picked whichever copy sat nearer the anchor's line number, which silently edited the wrong line whenever the file had shifted
+-   Writing to a symlink now updates the file it points at instead of replacing the link. Any workflow relying on a write to *replace* a symlink with a regular file will see the target rewritten instead
+
+### Added
+
+-   Anchor collision detection: `read` retains a two-character content digest per line and `edit` verifies the line an anchor resolved to against it, catching the case where a token now names different content
+-   Content-identical lines are separated by the neighbourhood `read` displayed — an unbroken run of agreement counted outward from the anchor — so a duplicated line stays addressable after the file moves, and is refused when the evidence does not identify it
+-   Provider retries are surfaced on the spinner (`Provider busy, retrying (2/3)`) instead of appearing as a stalled turn, forwarded over RPC and themeable via `label_retrying`
+-   Magic-number detection for binary formats that lead with ASCII (PDF, PostScript), which previously read as pages of mojibake or failed with an unrelated line-count error
+-   Headless device-code authentication (RFC 8628) for xAI Grok and OpenAI Codex, plus run-local Google Vertex credentials
+-   Session-stable prompt caching, with configurable retention: 1-hour TTL for Anthropic and extended 24-hour retention for OpenAI responses
+-   Dynamic model catalog integration with provider-based model discovery; adds the Opus 5 and `kimi/kimi-k3` models
+-   External editor support with terminal suspension and round-trip text editing
+-   A first-launch setup screen for theme and telemetry configuration
+-   RPC mode gains multi-select and tree navigation, queue monitoring, thinking-level controls, multimodal attachments on prompt/steer/follow-up, and an extension UI bridge for early lifecycle access
+-   The `autoresearch` example extension, with a TUI dashboard, evaluation tools, iteration hooks and a finalize skill
+
+### Changed
+
+-   Anchor tokens are a flat four hex characters at every file size. Width previously grew with line count to make collisions rare; with collisions detected there is nothing left for it to buy
+-   Files larger than the four-hex anchor space are no longer refused. A 70,000-line file must give two lines the same token by pigeonhole, which is now caught rather than prevented
+-   A line's anchor is derived from its content and the lines above it, or from its run's identity, rather than from a retry counter assigned in file order
+-   `read` escapes characters that would break its own line structure (form feed, vertical tab, the Unicode line separators) and says so in the footer; they were previously emitted raw, splitting one anchored line into two displayed lines
+-   The anchor table is cached within a single edit, which stamped the same file up to three times
+-   Session memory is bounded by shedding folded message content after compaction, with dynamic residency tracking and rehydration of only the visible window on navigation
+-   TUI startup defers heavy imports, streaming render CPU cost is reduced, and session loading, listing and rollback moved off the interactive event loop
+
+### Fixed
+
+-   `edit` no longer reshapes the file it edits: non-UTF-8 files are refused rather than crashing, form feeds inside a line survive, and CRLF files are not rewritten as LF
+-   Anchor probing is no longer quadratic on duplicate-heavy files, and duplicate anchors are never emitted
+-   Plain-text `Ctrl+V` pastes route through standard input handling, and filesystem errors during file detection no longer abort the paste
+-   Project settings reload no longer overrides trust status; project skills, prompts, themes and extensions are gated on trust, and `tau` subcommands default to untrusted
+-   A subagent timeout no longer aborts the parent session as a spurious user interrupt
+-   `TextLLM` no longer shares the provider registry's `LLMOptions` across instances, and session IDs regenerate when account identity changes to prevent cross-account cache reuse
+-   Extension reloads refresh the command palette and no longer leave the footer lifecycle in a stale state
+
 ## 0.8.2 — 2026-07-18
 
 ### Added
