@@ -6,7 +6,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from tau.inference.types import StopReason, TextEndEvent
+from tau.inference.types import EndEvent, StopReason, TextEndEvent
 from tau.message.types import (
     AssistantMessage,
     BranchSummaryMessage,
@@ -258,6 +258,75 @@ class TestSummaryBudget:
         assert result == "summary"
         assert len(llm.prompt) <= (1_000 - 100) * 4 + 1
         assert "middle content omitted" in llm.prompt
+
+
+class TestSummaryTruncationDetection:
+    """A summary cut off by the generation's own token cap must never be
+    silently persisted — it looks complete but drops whatever was past the
+    cutoff. Regression for the same bug class pi's #7048 documents."""
+
+    def test_length_stop_reason_raises_instead_of_returning_truncated_text(self):
+        class FakeLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                return [
+                    TextEndEvent(text=TextContent(content="summary cut off mid-wo")),
+                    EndEvent(reason=StopReason.Length),
+                ]
+
+        llm = FakeLLM()
+        try:
+            asyncio.run(
+                generate_summary(
+                    [UserMessage.from_text("hello")],
+                    llm,  # type: ignore[arg-type]
+                    reserve_tokens=100,
+                )
+            )
+            raise AssertionError("expected generate_summary to raise on a truncated summary")
+        except RuntimeError as exc:
+            assert "cut off" in str(exc)
+
+    def test_normal_stop_reason_is_unaffected(self):
+        class FakeLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                return [
+                    TextEndEvent(text=TextContent(content="complete summary")),
+                    EndEvent(reason=StopReason.Stop),
+                ]
+
+        llm = FakeLLM()
+        result = asyncio.run(
+            generate_summary(
+                [UserMessage.from_text("hello")],
+                llm,  # type: ignore[arg-type]
+                reserve_tokens=100,
+            )
+        )
+        assert result == "complete summary"
+
+    def test_missing_end_event_is_unaffected(self):
+        """Older/fake LLMs that don't emit EndEvent at all must keep working —
+        absence of the signal isn't itself a truncation signal."""
+
+        class FakeLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                return [TextEndEvent(text=TextContent(content="summary"))]
+
+        llm = FakeLLM()
+        result = asyncio.run(
+            generate_summary(
+                [UserMessage.from_text("hello")],
+                llm,  # type: ignore[arg-type]
+                reserve_tokens=100,
+            )
+        )
+        assert result == "summary"
 
 
 class TestSerializeConversation:

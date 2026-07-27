@@ -689,7 +689,7 @@ async def _call_llm_for_summary(
     prompt_text: str,
     llm: TextLLM,
 ) -> str:
-    from tau.inference.types import LLMContext, TextDeltaEvent, TextEndEvent
+    from tau.inference.types import EndEvent, LLMContext, StopReason, TextDeltaEvent, TextEndEvent
     from tau.message.types import UserMessage
 
     context = LLMContext(
@@ -697,6 +697,21 @@ async def _call_llm_for_summary(
         system_prompt=SUMMARIZATION_SYSTEM_PROMPT,
     )
     events = await llm.invoke(context)
+
+    # A summary cut off mid-word by the generation's own token cap is worse
+    # than no summary: it looks complete but silently drops whatever was past
+    # the cutoff, and would otherwise get persisted as if it were the whole
+    # story. Raise instead — _apply_compaction already has a proper failure
+    # path (emits CompactionFailureEvent, re-raises; auto-compaction's caller
+    # records it with a circuit breaker, manual /compact surfaces it to the
+    # user) — better to fail loud through that than persist a corrupted summary.
+    end = next((e for e in events if isinstance(e, EndEvent)), None)
+    if end is not None and end.reason == StopReason.Length:
+        raise RuntimeError(
+            "Summary generation was cut off by the model's own output token "
+            "limit (stop_reason=length) — the summary would be truncated "
+            "mid-word if used, so it was discarded rather than persisted."
+        )
 
     # Prefer TextEndEvent (full accumulated text); fall back to concatenating deltas
     text_end = next((e for e in events if isinstance(e, TextEndEvent)), None)
