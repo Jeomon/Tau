@@ -29,6 +29,7 @@ from .state import (
     log_path,
     measure_path,
     prompt_path,
+    resolve_working_dir,
 )
 from .tools import build_tools
 
@@ -66,8 +67,14 @@ class Session:
     in headless runs where there is no widget to update.
     """
 
-    def __init__(self, cwd: Path) -> None:
+    def __init__(self, cwd: Path, launch_dir: Path | None = None) -> None:
         self.cwd = cwd
+        #: Where tau was started. Differs from ``cwd`` when config.json
+        #: redirects the session with ``working_dir``; kept so the UI can say
+        #: which repository is actually being optimised.
+        self.launch_dir = launch_dir if launch_dir is not None else cwd
+        #: Populated when a ``working_dir`` request could not be honoured.
+        self.config_problem: str | None = None
         self.state: State = load(cwd)
         #: Set by `/autoresearch off`. Everything else is derived from disk, so
         #: a session started after launch (or by another process) still shows.
@@ -224,8 +231,10 @@ def _status_text(session: Session) -> str:
 
 
 def register(tau: Any) -> None:
-    cwd = Path.cwd()
-    session = Session(cwd)
+    launch_dir = Path.cwd()
+    cwd, problem = resolve_working_dir(launch_dir)
+    session = Session(cwd, launch_dir=launch_dir)
+    session.config_problem = problem
 
     for tool in build_tools(session):
         tau.register_tool(tool)
@@ -233,6 +242,12 @@ def register(tau: Any) -> None:
     @tau.on("tui_ready")
     def _on_ready(_event: Any, ctx: Any) -> None:
         session.bind(ctx)
+        # A redirect that silently failed would optimise the wrong repository,
+        # so say so at the one moment the user is definitely looking.
+        if session.config_problem:
+            _notify(ctx, f"autoresearch: {session.config_problem}")
+        elif session.cwd != session.launch_dir:
+            _notify(ctx, f"autoresearch: working_dir → {session.cwd}")
         session.refresh()
 
     @tau.on("settled")

@@ -762,3 +762,93 @@ class TestCommand:
         registry, _ = wired
         # ctx.ui is None in print/JSON mode; notifying must not explode.
         self._run(registry, _Ctx(None), "status")
+
+
+# ── working_dir ───────────────────────────────────────────────────────────────
+
+
+class TestResolveWorkingDir:
+    """`.auto/config.json` can point a session at another directory.
+
+    Documented in state.py since the port from pi-autoresearch (which ships it
+    as `workingDir`) but never read, so the loop was pinned to wherever tau was
+    launched. It commits kept experiments and reverts discarded ones in place,
+    so a wrong directory rewrites real history — hence the loud fallbacks.
+    """
+
+    @staticmethod
+    def _config(cwd, payload):
+        (cwd / ".auto").mkdir(parents=True, exist_ok=True)
+        text = payload if isinstance(payload, str) else json.dumps(payload)
+        (cwd / ".auto" / "config.json").write_text(text, encoding="utf-8")
+
+    def test_no_config_stays_put(self, tmp_path):
+        assert _state.resolve_working_dir(tmp_path) == (tmp_path, None)
+
+    def test_config_without_the_key_stays_put(self, tmp_path):
+        self._config(tmp_path, {"max_experiments": 10})
+        assert _state.resolve_working_dir(tmp_path) == (tmp_path, None)
+
+    def test_absolute_path_is_honoured(self, tmp_path):
+        target = tmp_path / "project"
+        target.mkdir()
+        launch = tmp_path / "launch"
+        launch.mkdir()
+        self._config(launch, {"working_dir": str(target)})
+        resolved, problem = _state.resolve_working_dir(launch)
+        assert resolved == target.resolve()
+        assert problem is None
+
+    def test_relative_path_resolves_against_the_launch_dir(self, tmp_path):
+        (tmp_path / "sibling").mkdir()
+        launch = tmp_path / "launch"
+        launch.mkdir()
+        self._config(launch, {"working_dir": "../sibling"})
+        assert _state.resolve_working_dir(launch)[0] == (tmp_path / "sibling").resolve()
+
+    def test_tilde_is_expanded(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        (home / "code").mkdir(parents=True)
+        # expanduser() consults $HOME before Path.home(), so both are needed.
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        self._config(tmp_path, {"working_dir": "~/code"})
+        assert _state.resolve_working_dir(tmp_path)[0] == (home / "code").resolve()
+
+    def test_missing_directory_falls_back_and_explains(self, tmp_path):
+        self._config(tmp_path, {"working_dir": str(tmp_path / "nope")})
+        resolved, problem = _state.resolve_working_dir(tmp_path)
+        assert resolved == tmp_path
+        assert "does not exist" in problem
+
+    def test_file_instead_of_directory_falls_back(self, tmp_path):
+        target = tmp_path / "a-file"
+        target.write_text("x", encoding="utf-8")
+        self._config(tmp_path, {"working_dir": str(target)})
+        resolved, problem = _state.resolve_working_dir(tmp_path)
+        assert resolved == tmp_path
+        assert "not a directory" in problem
+
+    @pytest.mark.parametrize("value", [123, True, [], {}, "", "   "])
+    def test_non_path_values_fall_back_loudly(self, tmp_path, value):
+        self._config(tmp_path, {"working_dir": value})
+        resolved, problem = _state.resolve_working_dir(tmp_path)
+        assert resolved == tmp_path
+        assert problem is not None
+
+    def test_null_is_simply_unset(self, tmp_path):
+        self._config(tmp_path, {"working_dir": None})
+        assert _state.resolve_working_dir(tmp_path) == (tmp_path, None)
+
+    def test_corrupt_config_falls_back_silently(self, tmp_path):
+        self._config(tmp_path, "{not json")
+        assert _state.resolve_working_dir(tmp_path) == (tmp_path, None)
+
+    def test_max_experiments_still_read_after_the_refactor(self, tmp_path):
+        self._config(tmp_path, {"max_experiments": 7, "working_dir": str(tmp_path)})
+        assert _state.read_max_experiments(tmp_path) == 7
+
+    def test_max_experiments_rejects_nonsense(self, tmp_path):
+        for bad in (0, -1, "many", True, None):
+            self._config(tmp_path, {"max_experiments": bad})
+            assert _state.read_max_experiments(tmp_path) is None

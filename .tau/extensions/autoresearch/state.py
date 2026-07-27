@@ -9,6 +9,11 @@ agent lives on disk under ``.auto/`` in the working directory:
     .auto/checks.sh   optional correctness gate run after a passing benchmark
     .auto/config.json optional { "working_dir": ..., "max_experiments": ... }
 
+``working_dir`` is read from the *launch* directory's config and redirects the
+whole session elsewhere; everything else is read from the directory it resolves
+to. Without it the loop runs wherever tau was started, which is only correct by
+coincidence — and it commits and reverts in place.
+
 The log is append-only on purpose: it is the source of truth, it is readable
 by a human mid-run, and a crashed process loses at most the run in flight.
 """
@@ -348,16 +353,71 @@ def load(cwd: Path) -> State:
     return state
 
 
-def read_max_experiments(cwd: Path) -> int | None:
+def _load_config_dict(cwd: Path) -> dict[str, Any]:
+    """``.auto/config.json`` as a dict, or empty when absent or unreadable.
+
+    Every config key is optional, so a missing, truncated or hand-corrupted
+    file degrades to defaults instead of raising.
+    """
     path = config_path(cwd)
     if not path.exists():
-        return None
+        return {}
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def read_max_experiments(cwd: Path) -> int | None:
+    value = _load_config_dict(cwd).get("max_experiments")
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    value = raw.get("max_experiments") if isinstance(raw, dict) else None
-    return int(value) if isinstance(value, int | float) and value > 0 else None
+    return int(value) if value > 0 else None
+
+
+def resolve_working_dir(launch_dir: Path) -> tuple[Path, str | None]:
+    """Where the session should operate, honouring ``working_dir`` in config.
+
+    Without this the loop is pinned to whatever directory tau was launched
+    from, so it is only usable when that already happens to be the project you
+    want to optimise. That is not a cosmetic limit: the loop commits kept
+    experiments and reverts discarded ones in place, so pointing it at the
+    wrong repository rewrites real history there.
+
+    ``.auto/config.json`` in the launch directory redirects it::
+
+        { "working_dir": "~/code/project" }
+
+    ``~`` is expanded and a relative path resolves against the launch
+    directory. Returns ``(directory, problem)``; ``problem`` is a message when
+    the request could not be honoured, in which case the launch directory is
+    returned unchanged. A bad redirect is reported rather than swallowed:
+    silently optimising the wrong repository is the worst outcome here.
+
+    The key has been documented in this module since the port from
+    pi-autoresearch (which implements it as ``workingDir``) but was never read.
+    """
+    raw = _load_config_dict(launch_dir).get("working_dir")
+    if raw is None:
+        return launch_dir, None
+    if not isinstance(raw, str) or not raw.strip():
+        return launch_dir, f"ignored working_dir {raw!r}: expected a non-empty path string."
+
+    candidate = Path(raw.strip()).expanduser()
+    if not candidate.is_absolute():
+        candidate = launch_dir / candidate
+
+    try:
+        resolved = candidate.resolve()
+    except OSError as exc:
+        return launch_dir, f"ignored working_dir {raw!r}: {exc}."
+
+    if not resolved.exists():
+        return launch_dir, f"ignored working_dir {raw!r}: {resolved} does not exist."
+    if not resolved.is_dir():
+        return launch_dir, f"ignored working_dir {raw!r}: {resolved} is not a directory."
+    return resolved, None
 
 
 def clear(cwd: Path) -> None:
