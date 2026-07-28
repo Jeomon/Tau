@@ -9,6 +9,7 @@ from tau.inference.api.text import dialect
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
+    extract_openai_delta_text,
     openai_messages_to_chat,
     openai_response_format,
     parse_tool_args,
@@ -156,6 +157,41 @@ class OpenAICompletionsAPI(BaseAPI):
         has_finish_reason = False
         stop_reason = StopReason.Stop
 
+        def _finalize_open_blocks() -> list[LLMEvent]:
+            """Close any still-open thinking/text block and resolve any
+            still-open tool call. Shared between the normal finish_reason
+            branch and the no-finish-reason fallback below, so a stream that
+            never sends finish_reason at all (observed from some non-standard
+            OpenAI-compatible providers) still ends every block properly
+            instead of leaving one dangling.
+            """
+            nonlocal thinking_started, thinking_buf, text_started, text_buf
+            events: list[LLMEvent] = []
+            if thinking_started:
+                events.append(ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf)))
+                thinking_started = False
+                thinking_buf = ""
+            if text_started:
+                events.append(TextEndEvent(text=TextContent(content=text_buf)))
+                text_started = False
+                text_buf = ""
+            for idx in sorted(tool_started):
+                args_str = tool_bufs[idx].strip()
+                args = parse_tool_args(args_str)
+                events.append(
+                    ToolCallEndEvent(
+                        tool_call=ToolCallContent(
+                            id=tool_meta[idx]["id"],
+                            name=tool_meta[idx]["name"],
+                            args=args,
+                        )
+                    )
+                )
+            tool_started.clear()
+            tool_bufs.clear()
+            tool_meta.clear()
+            return events
+
         yield StartEvent()
 
         # Read live, not at client-construction time: a `before_provider_request`
@@ -205,7 +241,8 @@ class OpenAICompletionsAPI(BaseAPI):
                     thinking_buf += reasoning
                     yield ThinkingDeltaEvent(thinking=ThinkingContent(content=reasoning))
 
-                if delta.content:
+                delta_text = extract_openai_delta_text(delta.content)
+                if delta_text:
                     # If thinking was happening, end it before starting text
                     if thinking_started:
                         yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
@@ -215,8 +252,8 @@ class OpenAICompletionsAPI(BaseAPI):
                     if not text_started:
                         yield TextStartEvent(text=TextContent(content=""))
                         text_started = True
-                    text_buf += delta.content
-                    yield TextDeltaEvent(text=TextContent(content=delta.content))
+                    text_buf += delta_text
+                    yield TextDeltaEvent(text=TextContent(content=delta_text))
 
                 if delta.tool_calls:
                     # If thinking was happening, end it
@@ -248,35 +285,18 @@ class OpenAICompletionsAPI(BaseAPI):
 
                 if choice.finish_reason:
                     has_finish_reason = True
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-
-                    if text_started:
-                        yield TextEndEvent(text=TextContent(content=text_buf))
-                        text_started = False
-                        text_buf = ""
-
-                    for idx in sorted(tool_started):
-                        args_str = tool_bufs[idx].strip()
-                        args = parse_tool_args(args_str)
-
-                        yield ToolCallEndEvent(
-                            tool_call=ToolCallContent(
-                                id=tool_meta[idx]["id"],
-                                name=tool_meta[idx]["name"],
-                                args=args,
-                            )
-                        )
-                    tool_started.clear()
-                    tool_bufs.clear()
-                    tool_meta.clear()
-
+                    for event in _finalize_open_blocks():
+                        yield event
                     stop_reason = _STOP_REASON.get(choice.finish_reason, StopReason.Stop)
 
         if not has_finish_reason:
-            raise RuntimeError("Stream ended without finish_reason")
+            # Some non-standard OpenAI-compatible providers never send a
+            # finish_reason chunk at all — treat stream exhaustion as the
+            # implicit stop instead of crashing. stop_reason keeps its
+            # StopReason.Stop default: the honest answer when the provider
+            # never said why it stopped.
+            for event in _finalize_open_blocks():
+                yield event
 
         # The usage-bearing chunk (stream_options.include_usage) arrives as a
         # separate final chunk with empty choices, *after* the finish_reason

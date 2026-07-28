@@ -328,6 +328,29 @@ def anthropic_apply_message_cache(
     return messages
 
 
+def extract_openai_delta_text(content: Any) -> str:
+    """Normalize a chat-completion delta's ``content`` field to plain text.
+
+    Shared by every "openai_completions"-family provider (OpenAI Completions,
+    GitHub Copilot Chat, ...). Almost always a plain string, but some
+    non-standard OpenAI-compatible providers (Databricks-hosted Qwen3,
+    gpt-oss reasoning models) send a list of typed content-part dicts instead
+    when tools are present, e.g.
+    ``[{"type": "reasoning", ...}, {"type": "text", "text": "hi"}]``. Only the
+    "text" parts are user-facing content; anything else (reasoning parts,
+    unrecognised part types) is skipped rather than guessed at.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+        return "".join(parts)
+    return ""
+
+
 def parse_tool_args(value: Any) -> dict:
     """Parse a tool-call arguments value into a dict.
 
