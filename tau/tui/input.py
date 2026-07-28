@@ -767,6 +767,10 @@ class InputParser:
                     raw=raw,
                 )
 
+        # ESC [ 27 ; <mods> ; <codepoint> ~ — xterm modifyOtherKeys fallback
+        if final == "~" and len(parts) == 3 and parts[0] == "27":
+            return self._parse_modify_other_keys(raw, params_str)
+
         # ESC [ <n> ~ — tilde sequences
         if final == "~" and len(parts) == 1:
             try:
@@ -848,61 +852,93 @@ class InputParser:
         if isinstance(kp, int):
             codepoint = kp
 
-        # Map codepoint to key name
+        return self._key_event_from_codepoint(
+            codepoint, shift, alt, ctrl, meta, raw, released=released, repeat=repeat
+        )
+
+    def _parse_modify_other_keys(self, raw: str, params_str: str) -> KeyEvent | None:
+        """xterm ``modifyOtherKeys`` fallback: ``ESC [ 27 ; <mods> ; <codepoint> ~``.
+
+        Some terminals (older xterm with ``modifyOtherKeys`` enabled, and a
+        few others) report modified keys this way instead of Kitty's CSI-u
+        format when Kitty protocol isn't negotiated. Without this, a
+        modified key from one of those terminals falls through every branch
+        in ``_parse_csi`` and is silently dropped. Field order is reversed
+        from Kitty's (modifier before codepoint here), there's no event-type
+        or alternate-key sub-fields, but the modifier encoding (1-indexed,
+        same bit meanings) and codepoint-to-key mapping are shared with
+        ``_parse_kitty`` via ``_key_event_from_codepoint``.
+        """
+        parts = params_str.split(";")
+        if len(parts) != 3 or parts[0] != "27":
+            return None
+        try:
+            modifier = int(parts[1])
+            codepoint = int(parts[2])
+        except ValueError:
+            return None
+        shift, alt, ctrl, meta = _decode_modifier(modifier)
+        return self._key_event_from_codepoint(codepoint, shift, alt, ctrl, meta, raw)
+
+    # Special codepoints shared by the Kitty (CSI-u) and xterm modifyOtherKeys
+    # (CSI 27) encodings.
+    _SPECIAL_CODEPOINTS: dict[int, str] = {
+        27: "escape",
+        13: "enter",
+        9: "tab",
+        127: "backspace",
+        57358: "caps_lock",
+        57359: "scroll_lock",
+        57360: "num_lock",
+        57361: "print_screen",
+        57362: "pause",
+        57363: "menu",
+        57376: "f13",
+        57377: "f14",
+    }
+    # Arrow / navigation codepoints (Kitty uses Unicode private area).
+    _NAV_CODEPOINTS: dict[int, str] = {
+        57352: "up",
+        57353: "down",
+        57354: "right",
+        57355: "left",
+        57356: "end",
+        57357: "home",
+        57358: "page_up",
+        57359: "page_down",
+        57399: "kp0",
+        57400: "kp1",
+        57401: "kp2",
+        57402: "kp3",
+    }
+
+    def _key_event_from_codepoint(
+        self,
+        codepoint: int,
+        shift: bool,
+        alt: bool,
+        ctrl: bool,
+        meta: bool,
+        raw: str,
+        *,
+        released: bool = False,
+        repeat: bool = False,
+    ) -> KeyEvent | None:
+        """Map a decoded codepoint + modifiers to a KeyEvent.
+
+        Shared by ``_parse_kitty`` and ``_parse_modify_other_keys`` — both
+        formats reduce to "one Unicode codepoint plus a modifier bitmask"
+        once their surrounding field syntax is stripped.
+        """
         try:
             ch = chr(codepoint)
         except (ValueError, OverflowError):
             return None
 
-        # Special codepoints
-        _kitty_special: dict[int, str] = {
-            27: "escape",
-            13: "enter",
-            9: "tab",
-            127: "backspace",
-            57358: "caps_lock",
-            57359: "scroll_lock",
-            57360: "num_lock",
-            57361: "print_screen",
-            57362: "pause",
-            57363: "menu",
-            57376: "f13",
-            57377: "f14",
-        }
-        # Arrow / navigation codepoints (Kitty uses Unicode private area)
-        _kitty_nav: dict[int, str] = {
-            57352: "up",
-            57353: "down",
-            57354: "right",
-            57355: "left",
-            57356: "end",
-            57357: "home",
-            57358: "page_up",
-            57359: "page_down",
-            57399: "kp0",
-            57400: "kp1",
-            57401: "kp2",
-            57402: "kp3",
-        }
-
-        if codepoint in _kitty_special:
-            key = _kitty_special[codepoint]
+        name = self._SPECIAL_CODEPOINTS.get(codepoint) or self._NAV_CODEPOINTS.get(codepoint)
+        if name:
             return KeyEvent(
-                key=key,
-                char=None,
-                shift=shift,
-                alt=alt,
-                ctrl=ctrl,
-                meta=meta,
-                released=released,
-                repeat=repeat,
-                raw=raw,
-            )
-
-        if codepoint in _kitty_nav:
-            key = _kitty_nav[codepoint]
-            return KeyEvent(
-                key=key,
+                key=name,
                 char=None,
                 shift=shift,
                 alt=alt,
