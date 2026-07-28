@@ -56,6 +56,95 @@ Explain this repository, run its tests, and fix any failures.
 **Other providers:** pass `--model <provider>/<model>` with the matching API
 key set, e.g. `GOOGLE_API_KEY=... tau --model google/gemini-2.5-flash`.
 
+## Embed Tau
+
+`Runtime` is a Python SDK for driving the agent from your own app, script, or pipeline — no terminal UI required:
+
+```python
+import asyncio
+from pathlib import Path
+
+from tau.runtime.service import Runtime
+from tau.runtime.types import RuntimeConfig
+
+
+async def main() -> None:
+    config = RuntimeConfig(
+        cwd=Path.cwd(),
+        model_id="claude-sonnet-4-6",
+        provider="anthropic",
+        persist_session=False,
+    )
+    runtime = await Runtime.create(config)
+    try:
+        await runtime.invoke("What files are in this project?")
+    finally:
+        await runtime.ashutdown()
+
+
+asyncio.run(main())
+```
+
+Custom tools, inline extensions, dependency injection, and event hooks all go through the same entry point — see [Python API](docs/python-api.md) for the full reference.
+
+Want the agent/tool loop without sessions, compaction, extensions, or the TUI? `tau.engine` runs standalone — it needs only an LLM and a list of tools:
+
+```python
+import asyncio
+from pathlib import Path
+
+from tau.engine import Engine, EngineContext, EngineOptions, AgentEvent, MessageEndEvent, ToolExecutionEndEvent
+from tau.inference.api.text.service import TextLLM
+from tau.message.types import UserMessage
+
+
+async def main() -> None:
+    llm = TextLLM("claude-sonnet-4-5-20250929")
+    engine = Engine(cwd=Path.cwd(), llm=llm, tools=[], options=EngineOptions(tool_timeout_seconds=60.0))
+
+    async def on_event(event: AgentEvent) -> None:
+        match event:
+            case MessageEndEvent(message=message) if message is not None:
+                print("assistant:", message.text_content())
+            case ToolExecutionEndEvent(tool_result=result):
+                print(f"tool {result.tool_name} -> error={result.is_error}")
+
+    unsubscribe = await engine.subscribe(on_event)
+    await engine.run(
+        EngineContext(
+            system_prompt="Answer concisely.",
+            messages=[UserMessage.from_text("What does an execution engine do?")],
+        )
+    )
+    unsubscribe()
+
+
+asyncio.run(main())
+```
+
+Nothing is persisted — `engine.state.messages` is in-memory only; your app owns durable storage if it needs any. Full reference in [Engine](docs/engine.md).
+
+Just need the model, no agent/session/tools? `tau.inference` runs standalone:
+
+```python
+import asyncio
+
+from tau.inference import LLM, LLMContext, TextDeltaEvent
+from tau.message.types import UserMessage
+
+
+async def main() -> None:
+    llm = LLM("claude-sonnet-4-6", provider="anthropic")
+    context = LLMContext(messages=[UserMessage.from_text("Name three primes.")])
+    events = await llm.invoke(context)
+    print("".join(e.text.content for e in events if isinstance(e, TextDeltaEvent)))
+
+
+asyncio.run(main())
+```
+
+Credentials resolve from the same sources as the CLI (`ANTHROPIC_API_KEY`, `~/.tau/auth.json`, etc.). Streaming, model listing, and the full event taxonomy are in [Inference](docs/inference.md).
+
 ## Commands
 
 ### CLI usage
