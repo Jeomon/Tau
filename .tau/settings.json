@@ -30,6 +30,7 @@
         "author": null,
         "settings": {
           "enabled": true,
+          "browser_use": true,
           "mode": "accessibility_tree"
         }
       },
