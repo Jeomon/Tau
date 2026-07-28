@@ -76,6 +76,7 @@ class AgentHookHandler:
         self._partial_tool_results: dict[str, ToolResultContent] = {}
         self._tool_names: dict[str, str] = {}
         self._unsubs: list[Callable[[], None]] = []
+        self._replay_task: asyncio.Task | None = None
 
         # Streaming batch state — pending token flush
         self._pending_msg: object = None
@@ -126,6 +127,9 @@ class AgentHookHandler:
         if self._pending_terminal_flush_handle is not None:
             self._pending_terminal_flush_handle.cancel()
             self._pending_terminal_flush_handle = None
+        if self._replay_task is not None:
+            self._replay_task.cancel()
+            self._replay_task = None
         self._pending_msg = None
         self._current_block = None
         self._current_terminal_block = None
@@ -150,6 +154,12 @@ class AgentHookHandler:
             SessionStartReason.Clone,
         )
         if reason == SessionStartReason.New or replay:
+            # A backfill from a previous session_start (e.g. a quick second
+            # /resume before the first one's older history finished loading)
+            # must not land in this fresh session's message list.
+            if self._replay_task is not None:
+                self._replay_task.cancel()
+                self._replay_task = None
             self._layout.clear_messages()
             self._layout.spinner.stop()
             self._current_block = None
@@ -162,13 +172,22 @@ class AgentHookHandler:
                 sm = self._runtime.session_manager
                 if sm is not None:
                     ctx = sm.build_session_context()
-                    for msg in ctx.messages:
-                        # No finalize() here: a replayed AssistantMessage/ToolMessage
-                        # can still hold thinking/tool-result content the user wants
-                        # to reach via ctrl+o, which only affects still-live (not yet
-                        # frozen) blocks — finalizing on arrival would make it
-                        # permanently un-toggleable the moment it's added.
-                        self._layout.add_message(msg)
+                    # No finalize() on any of these: a replayed
+                    # AssistantMessage/ToolMessage can still hold thinking/
+                    # tool-result content the user wants to reach via ctrl+o,
+                    # which only affects still-live (not yet frozen) blocks —
+                    # finalizing on arrival would make it permanently
+                    # un-toggleable the moment it's added. See
+                    # Layout.backfill_older for why this is capped/deferred.
+                    older = self._layout.replay_recent(ctx.messages)
+                    if older:
+                        task = asyncio.ensure_future(self._layout.backfill_older(older))
+                        self._replay_task = task
+                        task.add_done_callback(
+                            lambda t: setattr(self, "_replay_task", None)
+                            if self._replay_task is t
+                            else None
+                        )
         sm = self._runtime.session_manager
         if sm is not None:
             self._layout.set_cwd(sm.cwd)

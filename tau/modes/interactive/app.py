@@ -901,8 +901,9 @@ class App:
         if sm is None:
             return
         ctx = sm.build_session_context()
-        for msg in ctx.messages:
-            self._layout.add_message(msg)
+        older = self._layout.replay_recent(ctx.messages)
+        if older:
+            self._track_task(asyncio.ensure_future(self._layout.backfill_older(older)))
 
     # -------------------------------------------------------------------------
     # Cleanup

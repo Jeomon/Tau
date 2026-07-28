@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import logging
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +35,18 @@ if TYPE_CHECKING:
     from tau.commands.types import CommandInfo
     from tau.tui.autocomplete import AutocompleteRegistration
     from tau.tui.service import TUI, CustomOptions, OverlayHandle
+
+_log = logging.getLogger(__name__)
+
+# Messages rendered eagerly by replay_messages(); everything older is built
+# and rendered off-thread, then spliced in. Without this cap, replaying a
+# long session that never hit a compaction boundary (compaction disabled, a
+# model that doesn't report its context window, or the auto-compaction
+# circuit breaker having tripped) forces the first frame to synchronously
+# markdown-parse/style every historical message — visibly freezing the TUI
+# (and its keyboard input, which shares the same event loop) for sessions
+# with hundreds to thousands of tool calls.
+_REPLAY_EAGER_MESSAGES = 100
 
 
 def _has_editor_extras(editor: object) -> bool:
@@ -698,6 +712,75 @@ class Layout(Component):
         block = self.messages.add_message(message, streaming=streaming)
         self._tui.notify_content_added()
         return block
+
+    def build_blocks(self, messages: Iterable[object]) -> list[MessageBlock]:
+        """Construct standalone blocks for ``messages`` without attaching them.
+
+        See ``MessageList.build_blocks`` — safe to call (and to call
+        ``.render(width)`` on the results) off the main thread.
+        """
+        return self.messages.build_blocks(messages)
+
+    def prepend_blocks(self, blocks: list[MessageBlock]) -> None:
+        """Splice already-built blocks in before existing message history.
+
+        See ``MessageList.prepend_blocks``. Does not itself force a redraw —
+        callers backfilling deferred history must also call
+        ``TUI.force_full_redraw()`` afterward.
+        """
+        self.messages.prepend_blocks(blocks)
+
+    def replay_recent(self, messages: Sequence[object]) -> Sequence[object]:
+        """Add the eager tail of a full session history; return the rest.
+
+        Call this synchronously so the most recent ``_REPLAY_EAGER_MESSAGES``
+        are in the message list immediately, then hand the returned "older"
+        slice to ``backfill_older`` (as a tracked background task) to fill in
+        the rest without blocking the UI. Splitting it this way — rather
+        than one ``await``able method — keeps the eager part's effect
+        synchronous with the caller instead of deferred to the next loop
+        tick, matching what callers relied on before this method existed.
+        """
+        cutoff = max(0, len(messages) - _REPLAY_EAGER_MESSAGES)
+        for msg in messages[cutoff:]:
+            self.add_message(msg)
+        return messages[:cutoff]
+
+    async def backfill_older(self, older: Sequence[object]) -> None:
+        """Build+render deferred older history off-thread, then splice it in.
+
+        Building is cheap (``MessageBlock.__init__`` only stores refs), but
+        ``.render(width)`` — the markdown parse/styling — is not, so it runs
+        via ``asyncio.to_thread`` on fresh, not-yet-attached blocks that
+        nothing else can touch concurrently. Splicing the finished blocks in
+        and forcing the one resulting redraw both happen back on the main
+        thread/event loop. Without this cap, replaying a long session that
+        never hit a compaction boundary (compaction disabled, a model that
+        doesn't report its context window, or the auto-compaction circuit
+        breaker having tripped) would force the first frame to synchronously
+        markdown-parse/style every historical message — visibly freezing the
+        TUI (and its keyboard input, which shares the same event loop) for
+        sessions with hundreds to thousands of tool calls. Shared by every
+        place that (re)displays a whole session's history — initial launch,
+        ``/resume``, and branch/tree navigation.
+        """
+        if not older:
+            return
+        width = self._tui.content_width
+
+        def build() -> list[MessageBlock]:
+            blocks = self.build_blocks(older)
+            for block in blocks:
+                block.render(width)
+            return blocks
+
+        try:
+            blocks = await asyncio.to_thread(build)
+        except Exception:
+            _log.exception("failed to backfill older session history")
+            return
+        self.prepend_blocks(blocks)
+        self._tui.force_full_redraw()
 
     def clear_messages(self) -> None:
         """Clear all messages and pending lines."""

@@ -1104,9 +1104,30 @@ class TUI(Container):
         self._unsub_resize()
         self._renderer.dispose()
 
+    @property
+    def content_width(self) -> int:
+        """Usable content width for a component render — matches Renderer.render's."""
+        return max(1, self._terminal.width - _LEFT_PAD - _RIGHT_PAD)
+
     def request_render(self) -> None:
         """Ask for a render on the next frame (debounced). Call after state changes."""
         self._request_render()
+
+    def force_full_redraw(self) -> None:
+        """Force an immediate full clear-and-redraw, bypassing the diff engine.
+
+        Needed whenever content is spliced in somewhere other than the live
+        tail (e.g. backfilling older history above what's already on
+        screen) — the differential renderer's above-viewport "pure shift"
+        optimization (frame.py's ``_render``) assumes shifted rows are
+        already physically present in the terminal's scrollback and just
+        need re-numbering. That's true for edits to content already
+        painted, but not for brand-new rows the terminal has never seen,
+        so those callers must force a real reprint rather than let the
+        diff engine take that shortcut.
+        """
+        self._renderer.reset_with_clear()
+        self._request_render(force=True)
 
     def on_input(
         self,

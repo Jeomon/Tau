@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -1151,6 +1151,52 @@ class MessageList(Component):
         )
         self.add_block(block)
         return block
+
+    def build_blocks(self, messages: Iterable[object]) -> list[MessageBlock]:
+        """Construct standalone blocks without attaching them to the list.
+
+        Mirrors ``add_message``'s construction so a caller — e.g. a
+        background thread pre-rendering deferred older history for
+        ``prepend_blocks`` — produces blocks identical to the live path.
+        Safe to call off the main thread and to call ``.render(width)`` on
+        the results there too, as long as the blocks aren't attached (and
+        so aren't reachable by ``set_theme``/``toggle_expanded``/etc.) until
+        handed to ``prepend_blocks``.
+        """
+        return [
+            MessageBlock(
+                message,
+                streaming=False,
+                theme=self._theme,
+                user_prefix=self._user_prefix,
+                tool_lookup=self._tool_lookup,
+                tool_result_preview_lines=self._tool_result_preview_lines,
+            )
+            for message in messages
+        ]
+
+    def prepend_blocks(self, blocks: list[MessageBlock]) -> None:
+        """Splice already-built blocks in before existing history.
+
+        Used to backfill older messages deferred at session-open time so
+        the initial frame only has to build the live tail. Every existing
+        block's position shifts once these land in front, so the
+        position-indexed frozen cell cache can't be patched — it's
+        dropped wholesale, same shape as ``clear()``/``set_theme()``. The
+        caller must also force a full terminal redraw (see
+        ``TUI.force_full_redraw``): these rows have never been written to
+        the terminal before, so the diff engine's above-viewport "pure
+        shift" shortcut — which assumes shifted rows are already
+        physically on screen — must not be allowed to skip the write.
+        """
+        if not blocks:
+            return
+        self._blocks[0:0] = blocks
+        self._frozen_buf = None
+        self._frozen_block_count = 0
+        self._frozen_unit_ends = []
+        self._frozen_unit_rows = []
+        self.frozen_generation += 1
 
     def set_focused(self, focused: bool) -> None:
         self._focused = focused
