@@ -543,6 +543,12 @@ class InputParser:
 
     def __init__(self) -> None:
         self._buf = ""
+        # Set once a real "CSI ? <flags> u" reply confirms the terminal
+        # actually honored our kitty-keyboard-protocol request (see
+        # Terminal.enable_kitty_keyboard). Non-Kitty terminals never reply,
+        # so this safely stays False — the default, pre-existing behavior —
+        # on anything that doesn't support the protocol.
+        self._kitty_active = False
 
     def feed(self, data: str) -> list[InputEvent]:
         self._buf += data
@@ -590,6 +596,17 @@ class InputParser:
                 text = text[:-6]
             return PasteEvent(text=_decode_csi_u_paste(text), raw=raw)
 
+        # ── Ghostty-under-Kitty quirk: shift+enter as a bare LF ──────────────
+        # Ghostty's `keybind = shift+enter=text:\n` config (and similar custom
+        # remaps in other kitty-protocol terminals) sends a lone \n for
+        # shift+enter instead of the standard CSI-u sequence. A bare LF never
+        # arises from genuine typing in raw mode (Enter sends CR, not LF), but
+        # only reinterpret it once a confirmed kitty-protocol reply makes this
+        # quirk the likely explanation — otherwise it collides with plain
+        # "enter" (tui.input.submit) below.
+        if self._kitty_active and raw == "\x0a":
+            return KeyEvent(key="enter", char=None, shift=True, raw=raw)
+
         # ── Control characters ────────────────────────────────────────────────
         if len(raw) == 1 and raw in _CTRL_CHARS:
             name, is_ctrl = _CTRL_CHARS[raw]
@@ -617,6 +634,17 @@ class InputParser:
                 inner.raw = raw
                 return inner
             return None
+
+        # ── Ghostty/Kitty quirk: shift+enter as ESC CR ───────────────────────
+        # Kitty/Ghostty's own "map shift+enter send_text all \e\r"-style config
+        # sends ESC+CR for shift+enter. Without the kitty_active gate this is
+        # indistinguishable from other terminals' legacy alt+enter encoding
+        # (e.g. iTerm2's default Option+Return), so only reinterpret it once a
+        # confirmed kitty-protocol reply makes the Ghostty/Kitty quirk more
+        # likely than plain alt+enter — otherwise it collides with
+        # app.message.followup below.
+        if self._kitty_active and raw == "\x1b\r":
+            return KeyEvent(key="enter", char=None, shift=True, raw=raw)
 
         # ── Alt + char: ESC <char> ────────────────────────────────────────────
         if len(raw) == 2 and second not in ("[", "O", "_", "]", "P", "X", "^"):
@@ -684,6 +712,16 @@ class InputParser:
             if b & 0x40:
                 button += 64  # scroll wheel
             return MouseEvent(x=x, y=y, button=button, pressed=True, raw=raw)
+
+        # ── Kitty protocol flags query reply: ESC [ ? <flags> u ─────────────
+        # Reply to the "CSI ? u" query Terminal.enable_kitty_keyboard sends
+        # after pushing flags. Only a terminal that actually implements the
+        # protocol ever sends this back — non-Kitty terminals stay silent, so
+        # receiving it is the only reliable signal that kitty-specific quirk
+        # handling (see the shift+enter case below) is safe to engage.
+        if final == "u" and params_str.startswith("?"):
+            self._kitty_active = True
+            return None
 
         # ── Kitty protocol: ESC [ <cp> ; <mods> u ────────────────────────────
         if final == "u":
@@ -938,6 +976,14 @@ _DEFAULTS: KeyMap = {
 }
 
 
+@dataclass
+class KeybindingConflict:
+    """Two or more actions whose effective keys collide on the same physical key."""
+
+    key: str  # canonical form, e.g. "ctrl+shift+p"
+    actions: list[str]
+
+
 class KeybindingsManager:
     """
     Central registry mapping named actions to key combo strings.
@@ -946,9 +992,13 @@ class KeybindingsManager:
 
     def __init__(self, overrides: KeyMap | None = None) -> None:
         self._map: KeyMap = {k: list(v) for k, v in _DEFAULTS.items()}
+        # Actions explicitly set via `overrides`/bind()/add_binding(), as
+        # opposed to untouched built-in defaults — see conflicts().
+        self._configured: set[str] = set()
         if overrides:
             for action, keys in overrides.items():
                 self._map[action] = list(keys)
+                self._configured.add(action)
 
     def matches(self, event: KeyEvent, action: str) -> bool:
         """Return True if `event` triggers the named action.
@@ -966,16 +1016,56 @@ class KeybindingsManager:
     def bind(self, action: str, keys: list[str]) -> None:
         """Replace all bindings for an action."""
         self._map[action] = list(keys)
+        self._configured.add(action)
 
     def add_binding(self, action: str, key: str) -> None:
         """Append an extra key combo for an action without removing existing ones."""
         self._map.setdefault(action, [])
         if key not in self._map[action]:
             self._map[action].append(key)
+        self._configured.add(action)
 
     def effective_map(self) -> KeyMap:
         """Return a copy of the effective action-to-keys mapping."""
         return {action: list(keys) for action, keys in self._map.items()}
+
+    def conflicts(self) -> list[KeybindingConflict]:
+        """Return every physical key claimed by more than one *configured* action.
+
+        Two actions bound to the same key means whichever one a caller
+        happens to check first (e.g. an if/elif chain over ``matches()``)
+        silently wins every time; the other never fires and nothing reports
+        it. Keys are compared via ``normalize_key_id`` so alias- and
+        modifier-order variants ('shift+ctrl+p' vs 'ctrl+shift+p') are
+        recognized as the same physical key.
+
+        Scoped to actions explicitly set via ``overrides``/``bind()``/
+        ``add_binding()`` — untouched built-in defaults are excluded, since
+        several intentionally share a key across mutually-exclusive UI
+        contexts (e.g. 'enter' for both tui.select.confirm and
+        tui.input.submit, which are never both active at once). Checking
+        those against each other would drown real misconfigurations — a
+        user override or extension shortcut colliding with something — in
+        false positives. Intended for a settings UI or startup check to warn
+        about a misconfigured override rather than leaving it silently broken.
+        """
+        claims: dict[tuple[frozenset[str], str], list[str]] = {}
+        for action in self._configured:
+            keys = self._map.get(action, [])
+            seen: set[tuple[frozenset[str], str]] = set()
+            for key in keys:
+                sig = normalize_key_id(key)
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                claims.setdefault(sig, []).append(action)
+
+        result: list[KeybindingConflict] = []
+        for (mods, base), actions in claims.items():
+            if len(actions) > 1:
+                mod_order = [m for m in ("ctrl", "alt", "shift", "meta") if m in mods]
+                result.append(KeybindingConflict(key="+".join([*mod_order, base]), actions=actions))
+        return result
 
 
 _keybindings_instance: KeybindingsManager | None = None

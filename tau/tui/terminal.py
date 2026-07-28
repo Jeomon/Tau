@@ -684,8 +684,15 @@ class Terminal:
           breaks anything relying on hold-and-release (e.g. the voice extension).
 
         Non-Kitty terminals silently ignore this sequence.
+
+        Also queries the terminal's active flags (``\\x1b[?u``) right after —
+        only a terminal that genuinely implements the protocol replies
+        (``CSI ? <flags> u``), which is what ``InputParser`` uses to gate
+        kitty-specific quirk handling (see its ``_kitty_active``). Non-Kitty
+        terminals stay silent, so that flag safely defaults to off.
         """
         self.write("\x1b[>3u")
+        self.write("\x1b[?u")
 
     def disable_kitty_keyboard(self) -> None:
         """Restore the keyboard protocol to the terminal default."""
