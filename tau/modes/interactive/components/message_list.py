@@ -113,6 +113,12 @@ class MessageBlock:
         # content. They keep full streamed output visible while avoiding a full
         # CommonMark parse of the whole growing response on every frame.
         self._streaming_markdown: dict[tuple[int, bool], StreamingMarkdownRenderer] = {}
+        # Append-only cache for terminal/tool output lines: lines that precede
+        # the rstrip() boundary are frozen for good and never restyled, so a
+        # chatty subprocess's output is only styled once per line rather than
+        # re-styled in full on every ~12fps flush (see _styled_terminal_lines).
+        self._terminal_frozen_lines: list[str] = []
+        self._terminal_frozen_len: int = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -588,11 +594,36 @@ class MessageBlock:
             label += "  " + BRIGHT_RED + f"(exit {msg.exit_code})" + RESET
         lines = [label]
         if msg.output:
-            for line in msg.output.rstrip().split("\n"):
-                lines.append("  " + apply_style(t.dim, line))
+            lines.extend(self._styled_terminal_lines(msg.output))
         if self._streaming:
             lines.append("  " + cursor_block())
         return lines
+
+    def _styled_terminal_lines(self, output: str) -> list[str]:
+        """Style terminal output lines incrementally, append-only.
+
+        `output` only grows while streaming, and the rstrip() boundary is
+        monotonically non-decreasing as it grows, so every complete line
+        before that boundary is stable for good: style it once and freeze
+        it. Only the still-open last line is restyled each call, so cost
+        per flush is proportional to newly-arrived output, not the total
+        accumulated so far.
+        """
+        t = self._theme
+        stable_end = len(output.rstrip())
+        last_nl = output.rfind("\n", 0, stable_end)
+        frozen_boundary = last_nl + 1
+        if frozen_boundary > self._terminal_frozen_len:
+            new_chunk = output[self._terminal_frozen_len : frozen_boundary]
+            self._terminal_frozen_lines.extend(
+                "  " + apply_style(t.dim, line) for line in new_chunk.split("\n")[:-1]
+            )
+            self._terminal_frozen_len = frozen_boundary
+        tail = output[self._terminal_frozen_len : stable_end]
+        result = list(self._terminal_frozen_lines)
+        if tail:
+            result.append("  " + apply_style(t.dim, tail))
+        return result
 
     def _render_custom(self, msg: Any, width: int) -> list[str]:
         from tau.message.types import CustomMessage, LinesContent, TextContent
