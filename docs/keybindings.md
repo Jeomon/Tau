@@ -371,6 +371,22 @@ print(km.effective_map())                    # Full action → keys mapping
 
 Because overrides come from the embedder rather than a settings file, `/reload` does not pick up changes. Restart with a new `KeyMap`.
 
+### Detecting Conflicts
+
+Two actions bound to the same physical key silently shadow one another — whichever is checked first always wins, with no error. `KeybindingsManager.conflicts()` catches this for anything explicitly configured (via `overrides`, `bind()`, or `add_binding()`):
+
+```python
+km = get_keybindings()
+km.bind("app.details.toggle", ["ctrl+p"])
+km.bind("app.editor.external", ["ctrl+p"])  # oops, same key
+
+for conflict in km.conflicts():
+    print(conflict.key, "claimed by", conflict.actions)
+# ctrl+p claimed by [...both actions; order not guaranteed...]
+```
+
+Key comparison is alias- and modifier-order-independent, same as `matches()`. Untouched built-in defaults are excluded — several intentionally share a key across mutually-exclusive contexts (e.g. `enter` for both `tui.select.confirm` and `tui.input.submit`, which are never both active at once), so only your own overrides are checked against each other.
+
 ## Extension Shortcuts
 
 Extensions register **literal key combos**, not named actions:
@@ -397,6 +413,8 @@ Some combinations are intercepted by the terminal before Tau sees them:
 | `ctrl+z` | Job-control suspend in some shells |
 
 If a binding does not respond, pick a different combination.
+
+Tau requests the [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) on startup for unambiguous modifier reporting, and falls back to legacy escape sequences (including xterm's `modifyOtherKeys` format) on terminals that don't support it — most combinations above work either way. One quirk is handled automatically: Ghostty's custom `shift+enter=text:\n`-style remaps send different raw bytes than the standard Kitty encoding, which Tau only reinterprets as `shift+enter` once it has confirmed the terminal actually speaks the Kitty protocol (avoiding a false match against `alt+enter` on terminals that don't).
 
 ## Next Steps
 
