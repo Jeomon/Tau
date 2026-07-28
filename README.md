@@ -24,14 +24,7 @@
 
 <br>
 
-Tau is a Python-based coding agent harness, heavily inspired by [Pi](https://github.com/earendil-works/pi) created by [Mario Zechner](https://github.com/badlogic). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
-
-> **Note:** There are several coding-agent projects also named
-> "Tau," including at least one that is itself a Python port of Pi. This
-> project (`tau`, [Jeomon/Tau](https://github.com/Jeomon/Tau)) was built
-> independently, taking inspiration only from the original
-> [Pi](https://github.com/earendil-works/pi) project. No other "Tau" project,
-> or any other Pi port, was referenced or used in its development.
+Tau is a Python-based coding agent harness, inspired by [Pi](https://github.com/earendil-works/pi). It combines an interactive terminal UI, multiple model providers, persistent sessions, tool execution, and an extension system in one package.
 
 <p align="center">
   <img src="assets/tui.jpeg" alt="Tau interactive terminal interface" width="700">
@@ -227,22 +220,6 @@ Type these inside an interactive session (`tau`):
 | `/quit`, `/q`, or `/exit` | Exit Tau |
 
 Full interactive workflow guide: [Usage](docs/usage.md).
-
-## Compared to Pi
-
-| Area | Pi | Tau |
-|---|---|---|
-| Language | TypeScript | Python |
-| TUI rendering | Line-level diffing: rewrites a full line if any part of it changed | Cell-level diffing (`Buffer`/`Cell`, modeled after [ratatui](https://github.com/ratatui/ratatui)'s `Buffer::diff`): only the changed cells within a row are redrawn |
-| LLM providers | ~40, including many CN/regional and gateway vendors | 14 major providers |
-| Audio (TTS/STT) | Not supported | ElevenLabs, Sarvam, Gemini, OpenAI |
-| Image/video generation | Not supported | OpenAI, Gemini, OpenRouter, Fal, Zai |
-| Sandboxing | microVM sandbox (Gondolin) is an example extension, excluded from the main build, so the user wires it in themselves | `microsandbox` microVM ships as a builtin extension, enabled by default |
-| Packaging | 5 separately published npm packages | Single PyPI package |
-
-Core mechanics (built-in tools, session branching/compaction, extension and
-hook API, and the interactive/print/RPC execution modes) are functionally
-equivalent between the two.
 
 ## Referencing files
 
