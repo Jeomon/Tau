@@ -1633,30 +1633,18 @@ models = [
         output=_TEXT,
     ),
     Model(
-        id="qwen/qwen3.5-397b-a17b",
-        name="Qwen3.5 397B A17B",
-        provider="nvidia",
-        cost=Cost(),
-        thinking=True,
-        thinking_format="qwen-chat-template",
-        # docs.api.nvidia.com/nim/reference/qwen-qwen3-5-397b-a17b: "operates in
-        # thinking mode by default...with an option to disable" — binary, no
-        # graded effort levels documented.
-        thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
-        context_window=131_072,
-        input=_TEXT,
-        output=_TEXT,
-    ),
-    Model(
         id="qwen/qwen3.5-122b-a10b",
         name="Qwen3.5 122B A10B",
         provider="nvidia",
         cost=Cost(),
         thinking=True,
         thinking_format="qwen-chat-template",
-        # Same qwen-chat-template family and default-on/disable-only behavior
-        # confirmed for the qwen3.5-397b-a17b sibling above; NVIDIA's own
-        # reference page for this specific model doesn't restate the detail.
+        # docs.api.nvidia.com/nim/reference/qwen-qwen3-5-397b-a17b: "operates in
+        # thinking mode by default...with an option to disable" — binary, no
+        # graded effort levels documented. (Originally noted on the
+        # qwen3.5-397b-a17b sibling, which reached end-of-life on NVIDIA on
+        # 2026-07-27 and was removed; NVIDIA's own reference page for this
+        # model doesn't restate the detail.)
         thinking_levels=[ThinkingLevel.Off, ThinkingLevel.High],
         context_window=131_072,
         input=_TEXT,
