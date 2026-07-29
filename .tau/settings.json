@@ -41,6 +41,16 @@
         "source": null,
         "author": null,
         "settings": null
+      },
+      {
+        "path": ".tau/extensions/browser_use",
+        "name": null,
+        "enabled": true,
+        "source": null,
+        "author": null,
+        "settings": {
+          "user_data_dir": "~/.browser-agent-profile"
+        }
       }
     ]
   }
