@@ -70,8 +70,34 @@ def open_config_panel(ctx: CommandContext) -> None:
         else []
     )
 
+    def _builtin_identity(path: Path) -> str:
+        """Extension identity for a builtins-dir entry: folder name for a
+        package (dir, or its __init__.py), file stem otherwise. Matches
+        ExtensionLoader._extension_identity's convention."""
+        if path.name == "__init__.py":
+            return path.parent.name
+        return path.stem if path.suffix == ".py" else path.name
+
+    def _builtin_names() -> set[str]:
+        """Identities of every extension under this install's own builtins dir."""
+        from tau.settings.paths import get_builtins_dir
+
+        ext_dir = get_builtins_dir() / "extensions"
+        if not ext_dir.is_dir():
+            return set()
+        names: set[str] = set()
+        try:
+            for entry in ext_dir.iterdir():
+                if entry.name.startswith("_"):
+                    continue
+                if entry.is_dir() or (entry.is_file() and entry.suffix == ".py"):
+                    names.add(_builtin_identity(entry).casefold())
+        except OSError:
+            pass
+        return names
+
     def _is_builtin(path: str) -> bool:
-        """True when a settings.json entry's path resolves under the builtins dir.
+        """True when a settings.json entry refers to a builtin extension.
 
         Builtins can end up with an explicit entry here purely as storage for
         their manifest-driven /settings values (see
@@ -82,21 +108,31 @@ def open_config_panel(ctx: CommandContext) -> None:
         without touching the underlying list (on_toggle still writes the full,
         unfiltered list back — see below).
 
-        Compared case-insensitively: on case-insensitive filesystems (macOS,
-        Windows) a path can be persisted with different casing than
-        ``get_builtins_dir()`` returns (e.g. captured via a differently-cased
-        symlink or working directory) while still referring to the same
-        directory. A case-sensitive comparison would then wrongly treat a
-        genuine builtins entry as a regular extension.
+        Checked two ways: an exact path-prefix match against this install's
+        builtins dir (case-insensitively, since a path can be persisted with
+        different casing than ``get_builtins_dir()`` returns on macOS/Windows
+        while still referring to the same directory) — and, when that misses,
+        by extension identity (folder/file name) against this install's known
+        builtin names. The identity check catches an entry pointing at a
+        *different* tau installation's own builtins dir (e.g. a dev checkout,
+        while a separately uv-tool-installed copy is what's actually running)
+        — same real extension, different physical path, which a pure
+        path-prefix comparison can never recognize.
         """
         from tau.settings.paths import get_builtins_dir
 
         try:
-            p = str(Path(path).expanduser().resolve()).casefold()
-            b = str(get_builtins_dir().resolve()).casefold()
-            return p == b or p.startswith(b + os.sep)
+            p = Path(path).expanduser().resolve()
         except Exception:
             return False
+        try:
+            b = str(get_builtins_dir().resolve()).casefold()
+            ps = str(p).casefold()
+            if ps == b or ps.startswith(b + os.sep):
+                return True
+        except Exception:
+            pass
+        return _builtin_identity(p).casefold() in _builtin_names()
 
     def _builtin_entries() -> list[ConfigEntry]:
         """Discover builtin extensions that declare a manifest-driven "enabled"

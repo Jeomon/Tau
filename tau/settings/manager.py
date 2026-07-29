@@ -1211,8 +1211,22 @@ class SettingsManager:
             self.global_settings.extensions = ExtensionsSettings()
         if self.global_settings.extensions.list is None:
             self.global_settings.extensions.list = []
+        target = Path(ext_path).expanduser()
         for entry in self.global_settings.extensions.list:
+            # Exact string match first; falls back to samefile() so a path
+            # that only differs by case (e.g. a typo that still resolves on
+            # a case-insensitive filesystem like macOS/Windows) updates the
+            # existing entry instead of silently appending a duplicate one
+            # pointing at the same real extension.
             if entry.path == ext_path:
+                matched = True
+            else:
+                existing = Path(entry.path).expanduser()
+                try:
+                    matched = existing.exists() and target.exists() and existing.samefile(target)
+                except OSError:
+                    matched = False
+            if matched:
                 if entry.settings is None:
                     entry.settings = {}
                 set_nested(entry.settings, key, value)

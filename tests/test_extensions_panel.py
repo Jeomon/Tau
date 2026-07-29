@@ -167,3 +167,81 @@ class TestToggling:
         written = saved["project"]
         assert len(written) == 1  # updated, not duplicated
         assert written[0].enabled is False
+
+
+class TestCrossInstallBuiltinDedup:
+    """A settings.json entry pointing at a *different* tau installation's
+    builtins dir than the one currently running (e.g. a dev checkout, while a
+    separately uv-tool-installed copy is what's actually executing) refers to
+    the same real extension by identity (folder name) even though the exact
+    resolved path differs. It must be recognized as builtin config storage and
+    excluded from the Global/Project listing — not shown as a second,
+    seemingly-independent extension alongside the real "Builtin" entry.
+    """
+
+    @staticmethod
+    def _make_builtin_dir(root: Path, name: str, *, with_manifest: bool = True) -> Path:
+        ext_dir = root / "extensions" / name
+        ext_dir.mkdir(parents=True)
+        (ext_dir / "__init__.py").write_text("def register(tau): pass\n")
+        if with_manifest:
+            import json
+
+            (ext_dir / "manifest.json").write_text(
+                json.dumps({"tau": {"settings": {"fields": [{"key": "enabled", "default": True}]}}})
+            )
+        return ext_dir
+
+    def test_global_entry_pointing_at_other_install_builtin_is_excluded(self, tmp_path, monkeypatch):
+        running_install = tmp_path / "running_install"
+        other_install = tmp_path / "other_install"
+        self._make_builtin_dir(running_install, "web")
+        other_web = self._make_builtin_dir(other_install, "web")
+
+        monkeypatch.setattr(
+            "tau.settings.paths.get_builtins_dir", lambda: running_install
+        )
+
+        ctx, layout, _, _ = _ctx(
+            tmp_path,
+            configured=[ExtensionEntry(path=str(other_web), settings={"engine": "ddgs"})],
+            loaded=[],
+        )
+        # configured list above is written to project_settings by _ctx's
+        # SimpleNamespace wiring — put it on global instead, matching how a
+        # real ~/.tau/settings.json entry would surface.
+        ctx.runtime.settings_manager.global_settings.extensions.list = [
+            ExtensionEntry(path=str(other_web), settings={"engine": "ddgs"})
+        ]
+        ctx.runtime.settings_manager.project_settings.extensions.list = []
+
+        open_config_panel(ctx)
+
+        assert not any(
+            e.scope == "global" and "web" in e.path for e in layout.entries
+        ), "cross-install builtin entry leaked into the Global listing"
+        builtin_entries = [e for e in layout.entries if e.scope == "builtin"]
+        assert any(e.name == "web" for e in builtin_entries)
+
+    def test_global_entry_for_a_genuinely_different_extension_still_shows(self, tmp_path, monkeypatch):
+        running_install = tmp_path / "running_install"
+        self._make_builtin_dir(running_install, "web")
+        monkeypatch.setattr(
+            "tau.settings.paths.get_builtins_dir", lambda: running_install
+        )
+
+        third_party = tmp_path / "third_party_ext"
+        third_party.mkdir()
+        (third_party / "__init__.py").write_text("def register(tau): pass\n")
+
+        ctx, layout, _, _ = _ctx(tmp_path, configured=[], loaded=[])
+        ctx.runtime.settings_manager.global_settings.extensions.list = [
+            ExtensionEntry(path=str(third_party), settings={})
+        ]
+        ctx.runtime.settings_manager.project_settings.extensions.list = []
+
+        open_config_panel(ctx)
+
+        assert any(
+            e.scope == "global" and e.name == "third_party_ext" for e in layout.entries
+        )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from tau.engine.types import FollowupMode, SteeringMode
 from tau.inference.types import ThinkingLevel, Transport
 from tau.settings.manager import SettingsManager
@@ -410,3 +412,73 @@ class TestReloadTrustGate:
         assert [e.path for e in mgr.get_all_extension_entries()] == ["/x/ext.py"]
         asyncio.run(mgr.reload())
         assert [e.path for e in mgr.get_all_extension_entries()] == ["/x/ext.py"]
+
+
+class TestSetExtensionConfigKeyDedup:
+    """set_extension_config_key must never silently duplicate an extension
+    entry when the same physical path is supplied with different casing —
+    e.g. a UI/typo supplying `/a/Foo/ext` when the stored entry is `/a/foo/ext`
+    (case-insensitive filesystems like macOS/Windows resolve both to the same
+    real directory). It should update the existing entry via samefile(), not
+    append a second one.
+    """
+
+    @staticmethod
+    def _run(mgr: SettingsManager, *calls: tuple) -> None:
+        async def _run() -> None:
+            for ext_path, key, value in calls:
+                mgr.set_extension_config_key(ext_path, key, value)
+            if mgr._write_queue is not None:
+                await mgr._write_queue
+
+        asyncio.run(_run())
+
+    def test_creates_new_entry_when_no_existing_match(self, tmp_path):
+        mgr = _manager()
+        self._run(mgr, (str(tmp_path / "ext"), "engine", "ddgs"))
+
+        entries = mgr.global_settings.extensions.list
+        assert entries is not None
+        assert len(entries) == 1
+        assert entries[0].settings == {"engine": "ddgs"}
+
+    def test_updates_existing_entry_on_exact_path_match(self, tmp_path):
+        ext_dir = tmp_path / "ext"
+        ext_dir.mkdir()
+        mgr = _manager({"extensions": {"list": [{"path": str(ext_dir), "settings": {"engine": "ddgs"}}]}})
+
+        self._run(mgr, (str(ext_dir), "jina.api_key", "test-key"))
+
+        entries = mgr.global_settings.extensions.list
+        assert len(entries) == 1
+        assert entries[0].settings == {"engine": "ddgs", "jina": {"api_key": "test-key"}}
+
+    def test_updates_existing_entry_when_path_differs_only_by_case(self, tmp_path):
+        ext_dir = tmp_path / "web"
+        ext_dir.mkdir()
+        differently_cased = tmp_path / "WEB"
+        if not differently_cased.exists():
+            pytest.skip("filesystem is case-sensitive; this path genuinely wouldn't collide")
+
+        mgr = _manager(
+            {"extensions": {"list": [{"path": str(ext_dir), "settings": {"engine": "ddgs"}}]}}
+        )
+
+        self._run(mgr, (str(differently_cased), "jina.api_key", "test-key"))
+
+        entries = mgr.global_settings.extensions.list
+        assert len(entries) == 1, "expected the case-mismatched path to update the existing entry, not append a duplicate"
+        assert entries[0].path == str(ext_dir)
+        assert entries[0].settings == {"engine": "ddgs", "jina": {"api_key": "test-key"}}
+
+    def test_creates_new_entry_when_case_mismatched_path_does_not_exist_on_disk(self, tmp_path):
+        # samefile() requires both paths to exist; a nonexistent mistyped path
+        # must not be treated as matching a real entry just by string shape.
+        mgr = _manager(
+            {"extensions": {"list": [{"path": str(tmp_path / "web"), "settings": {"engine": "ddgs"}}]}}
+        )
+
+        self._run(mgr, (str(tmp_path / "WEB-DOES-NOT-EXIST"), "engine", "jina"))
+
+        entries = mgr.global_settings.extensions.list
+        assert len(entries) == 2

@@ -264,6 +264,32 @@ def test_check_extensions_flags_missing_entry_path(tmp_path) -> None:
     assert result.status == "fail"
 
 
+def _filesystem_folds_case(tmp_path) -> bool:
+    """Probe whether tmp_path's filesystem treats differently-cased paths as
+    the same file (true on default macOS/Windows, false on typical Linux)."""
+    real = tmp_path / "case-probe"
+    real.mkdir()
+    return (tmp_path / "CASE-PROBE").exists()
+
+
+def test_check_extensions_warns_on_case_mismatched_path(tmp_path) -> None:
+    ext_dir = tmp_path / "web"
+    ext_dir.mkdir()
+    if not _filesystem_folds_case(tmp_path):
+        pytest.skip("filesystem is case-sensitive; mistyped-case path would just be missing")
+
+    mistyped_path = str(tmp_path / "WEB")
+    sm = SettingsManager.in_memory(
+        {"extensions": {"list": [{"path": mistyped_path, "name": "web"}]}}
+    )
+
+    section = _check_extensions(sm, tmp_path)
+
+    result = next(r for r in section.results if r.name == "web")
+    assert result.status == "warn"
+    assert "case-insensitive" in result.detail
+
+
 def test_check_extensions_flags_invalid_manifest_json(tmp_path, monkeypatch) -> None:
     ext_dir = tmp_path / "extensions" / "broken"
     ext_dir.mkdir(parents=True)

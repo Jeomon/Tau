@@ -362,10 +362,18 @@ class ExtensionLoader:
         regardless of source. This resolves that ambiguity explicitly:
         project > global > builtin.
 
-        Only applies among the three ranked sources. An unranked source
-        (explicit settings.json path, inline, package) always passes through
-        untouched — it never suppresses, and is never suppressed by, a
-        ranked entry sharing its identity; the two schemes don't interact.
+        An unranked source (explicit settings.json path, inline, package)
+        passes through untouched *unless* its identity matches an already-
+        selected ranked entry — e.g. an extensions.list entry pointing
+        straight at tau's own bundled `todo`/`web` builtin (possibly from a
+        different tau install than the one currently running, so the exact
+        resolved path differs from that install's builtins dir and the
+        path-based dedup above misses it too). That's configuring the
+        already-loaded builtin, not introducing a second copy of it: its
+        `settings` dict still applies via `_entry_configs`, which is keyed by
+        identity rather than path, so dropping the duplicate load here loses
+        no configuration — only the redundant second registration that would
+        otherwise collide with the ranked entry on tool names.
         """
         best: dict[str, tuple[Path, str]] = {}
         unranked: list[tuple[Path, str]] = []
@@ -382,7 +390,13 @@ class ExtensionLoader:
             _, current_source = best[key]
             if _SOURCE_PRIORITY[source] < _SOURCE_PRIORITY[current_source]:
                 best[key] = (path, source)
-        return [best[key] for key in order] + unranked
+        ranked_identities = set(best)
+        deduped_unranked = [
+            (path, source)
+            for path, source in unranked
+            if _extension_identity(path) not in ranked_identities
+        ]
+        return [best[key] for key in order] + deduped_unranked
 
     def _register_declared_skills(self) -> None:
         """Register skills declared by ``manifest.json``'s ``"skills"`` field.
