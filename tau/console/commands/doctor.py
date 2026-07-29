@@ -342,6 +342,31 @@ def _resolve_entry_path(entry, cwd: Path) -> Path:
     return path if path.is_absolute() else (cwd / path).resolve()
 
 
+def _exists_with_matching_case(path: Path) -> bool:
+    """Like Path.exists(), but doesn't trust case-insensitive filesystems.
+
+    On macOS (APFS) and Windows, a mistyped path component (e.g. `.../Tau/...`
+    instead of the real `.../tau/...`) still resolves via Path.exists() —
+    the OS silently matches it case-insensitively, masking the typo. This
+    walks each path component and confirms the on-disk name is an exact,
+    case-sensitive match, so a configured extension path that only "works" by
+    accident of the filesystem's case-folding gets flagged instead of passing
+    silently.
+    """
+    if not path.exists():
+        return False
+    current = Path(path.parts[0])
+    for part in path.parts[1:]:
+        try:
+            names = {child.name for child in current.iterdir()}
+        except OSError:
+            return False
+        if part not in names:
+            return False
+        current = current / part
+    return True
+
+
 def _check_dangling_entries(sm, cwd: Path, fix: bool) -> list[CheckResult]:
     """Check configured extension entries in both scopes; remove dangling ones if fix=True.
 
@@ -370,15 +395,27 @@ def _check_dangling_entries(sm, cwd: Path, fix: bool) -> list[CheckResult]:
         ext = get_settings().extensions
         entries = list(ext.list) if ext and ext.list else []
         for entry in entries:
-            if not entry.enabled or _resolve_entry_path(entry, cwd).exists():
+            if not entry.enabled:
                 continue
-            results.append(
-                CheckResult(
-                    entry.name or entry.path,
-                    "fail",
-                    f"path not found: {_resolve_entry_path(entry, cwd)}",
+            resolved = _resolve_entry_path(entry, cwd)
+            if not resolved.exists():
+                results.append(
+                    CheckResult(
+                        entry.name or entry.path,
+                        "fail",
+                        f"path not found: {resolved}",
+                    )
                 )
-            )
+            elif not _exists_with_matching_case(resolved):
+                results.append(
+                    CheckResult(
+                        entry.name or entry.path,
+                        "warn",
+                        f"configured path {entry.path!r} only resolves because this "
+                        f"filesystem is case-insensitive — the real path on disk has "
+                        f"different casing. Fix the typo in extensions.list.",
+                    )
+                )
     return results
 
 
