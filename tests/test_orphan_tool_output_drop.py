@@ -1,4 +1,4 @@
-"""Regression guard for pi #6832 — orphaned tool result must not reach the provider.
+"""Regression guard — orphaned tool result must not reach the provider.
 
 If a compaction (or extension-supplied) boundary keeps a tool RESULT whose
 originating tool CALL was folded into the summary, the OpenAI Responses/Codex
@@ -49,7 +49,7 @@ class TestDropOrphanHelper:
 
 def _orphaned_history() -> list:
     """A reconstructed context where the tool CALL was folded away (compaction),
-    leaving only its result — the pi #6832 shape."""
+    leaving only its result."""
     return [
         UserMessage.from_text("summary stand-in for folded turns"),
         ToolMessage(contents=[ToolResultContent(id="call_folded", content="orphan result")]),

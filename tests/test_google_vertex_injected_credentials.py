@@ -1,4 +1,4 @@
-"""pi #6862 — google-vertex must accept run-local, in-memory credentials.
+"""google-vertex must accept run-local, in-memory credentials.
 
 A multi-tenant caller can pass a google.auth Credentials object via
 LLMOptions.credentials to select a per-run service account without mutating

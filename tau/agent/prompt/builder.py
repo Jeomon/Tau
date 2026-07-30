@@ -211,7 +211,7 @@ def _docs_topics(docs_dir: Path) -> list[tuple[str, str]]:
     The set is deliberately narrow — extending and embedding Tau, not using it. Usage,
     settings, sessions, and installation are reachable via the docs directory when they
     are genuinely needed, and naming all 30 files spent tokens on routing the model
-    rarely acts on. pi curates the same way, naming 10 of its 29 docs.
+    rarely acts on.
 
     Adding a doc does not implicitly enlarge the prompt: opting in is an explicit edit
     to ``agentTopics``. Entries missing from disk are skipped. Returns ``[]`` when the

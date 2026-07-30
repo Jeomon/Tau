@@ -4,7 +4,7 @@
 back into the editor so you can re-send it. Branch navigation is async (it
 can run a summarization LLM call), so if the user types something into the
 editor while that's in flight, restoring the rewound text must not clobber
-what they typed — mirrors pi's #1169 fix.
+what they typed.
 """
 
 from __future__ import annotations

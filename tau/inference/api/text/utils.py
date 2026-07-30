@@ -330,8 +330,12 @@ def anthropic_apply_message_cache(
     for msg in messages[stable_start:stable_end]:
         content = msg.get("content")
         if content is None or content == "":
-            msg["cache_control"] = marker
-        elif isinstance(content, str):
+            # Nothing to cache, and `cache_control` is only accepted on content
+            # blocks, system blocks and tool definitions — never on the message
+            # object itself. Marking one here would be the same mistake as
+            # marking a thinking block, one level up. Skip it.
+            continue
+        if isinstance(content, str):
             msg["content"] = [{"type": "text", "text": content, "cache_control": marker}]
         elif isinstance(content, list) and content:
             # Walk back to the last block that can actually carry a breakpoint.

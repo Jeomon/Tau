@@ -1,4 +1,4 @@
-"""Tests for the `tau update` flags added for parity with `pi update`:
+"""Tests for the `tau update` flags:
 --extensions (packages only, not Tau) and --force (reinstall Tau even if latest).
 """
 

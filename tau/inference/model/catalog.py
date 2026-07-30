@@ -25,7 +25,7 @@ from tau.inference.types import ThinkingLevel
 CATALOG_URL = "https://models.dev/api.json"
 
 _FETCH_TIMEOUT_S = 15.0
-_MIN_REFRESH_INTERVAL_S = 4 * 60 * 60  # match pi: at most one refresh per 4 hours
+_MIN_REFRESH_INTERVAL_S = 4 * 60 * 60  # at most one refresh per 4 hours
 
 # tau provider id → models.dev provider id. Only providers whose model ids are
 # passed through to the API verbatim are listed; providers with curated or

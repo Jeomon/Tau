@@ -437,7 +437,7 @@ class TestDocsAndSkillsRequireReadTool:
 class TestDocsSectionCuratedTopics:
     """The doc list was hardcoded and named 17 of 30 real files. It is now driven by
     ``agentTopics`` in docs.json — a deliberately narrow, extend/embed-oriented set with
-    topic labels the model can route on, mirroring how pi names 10 of its 29 docs."""
+    topic labels the model can route on."""
 
     def _docs(self, tmp_path, monkeypatch, *, index: str | None, names: list[str]):
         docs = tmp_path / "docs"

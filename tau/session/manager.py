@@ -86,7 +86,7 @@ class SessionManager:
         # IDs of MessageEntry entries whose heavy content has been dropped from the
         # in-memory cache because they were folded into a compaction summary. The
         # full content stays on disk (authoritative); cold readers rehydrate via
-        # _full_entries(). Bounds RAM on long/resumed sessions (see pi #6841).
+        # _full_entries(). Bounds RAM on long/resumed sessions.
         self._shed_ids: set[str] = set()
 
         if self.persist and not self.session_dir.exists():

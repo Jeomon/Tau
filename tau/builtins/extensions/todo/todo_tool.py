@@ -233,8 +233,8 @@ def _render_call(args: dict, _streaming: bool = False) -> list[str]:
 
 
 def _render_result(content: str, opts: Any) -> list[str]:
-    # Minimal one-line confirmation, matching the pattern every real pi todo
-    # extension uses (none of them hide the tool call/result — they all show
+    # Minimal one-line confirmation, matching the pattern todo extensions
+    # conventionally use (none of them hide the tool call/result — they all show
     # a compact per-action line). The board above the input is the persistent
     # overview, so 'list' shows a count instead of repeating the itemized
     # list already visible there; 'get' is the one place full detail earns

@@ -1,4 +1,4 @@
-"""pi #6841 — bound session RAM by shedding folded message content.
+"""Bound session RAM by shedding folded message content.
 
 After compaction, the message bodies before the kept window are represented to
 the LLM only by the summary, so their heavy content (tool results, file bodies)

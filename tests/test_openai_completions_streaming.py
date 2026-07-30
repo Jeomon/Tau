@@ -1,6 +1,6 @@
 """Tests for openai_completions.py / github_copilot_chat.py stream()
 robustness against non-standard OpenAI-compatible providers — regression
-coverage for two bugs found in a related project (pi #7062): ``delta.content``
+coverage for two bugs found in a related project: ``delta.content``
 arriving as a list of typed content-part dicts instead of a plain string
 (some Databricks-hosted models), and a stream that never sends
 ``finish_reason`` at all. Both providers share the same underlying bug shape

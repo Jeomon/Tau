@@ -2,8 +2,8 @@
 
 Covers four related fixes to _messages_to_contents:
 
-1. functionResponse must correlate to its functionCall by tool *name* (matching
-   pi's convention), not by the per-call id — using the id there breaks
+1. functionResponse must correlate to its functionCall by tool *name*, not by
+   the per-call id — using the id there breaks
    correlation whenever Gemini assigns a real, distinct id.
 2. Claude models routed through this API require an explicit "id" on both
    functionCall and functionResponse parts, or multi-turn tool use fails with

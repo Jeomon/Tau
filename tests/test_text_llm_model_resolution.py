@@ -3,7 +3,7 @@
 A pinned provider with no exact-match model shouldn't hard-fail: if that
 provider already has at least one other registered model, TextLLM synthesizes
 a fallback Model (borrowing defaults from an existing model on that provider)
-under the requested id, matching pi's buildFallbackModel behavior. This lets a
+under the requested id. This lets a
 custom/unregistered model id on a known provider actually run instead of
 being rejected outright.
 """

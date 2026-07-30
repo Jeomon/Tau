@@ -263,7 +263,7 @@ class TestSummaryBudget:
 class TestSummaryTruncationDetection:
     """A summary cut off by the generation's own token cap must never be
     silently persisted — it looks complete but drops whatever was past the
-    cutoff. Regression for the same bug class pi's #7048 documents."""
+    cutoff."""
 
     def test_length_stop_reason_raises_instead_of_returning_truncated_text(self):
         class FakeLLM:
