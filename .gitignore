@@ -22,3 +22,4 @@ temp
 # private extension, lives in its own repo (symlinked here for dev)
 .tau
 .darwin/
+.euler/

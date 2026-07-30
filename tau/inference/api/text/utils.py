@@ -34,6 +34,18 @@ __all__ = [
 
 _CACHE_MARKER = {"type": "ephemeral"}
 
+#: Content-block types Anthropic accepts a ``cache_control`` breakpoint on.
+#: Everything else — notably ``thinking``/``redacted_thinking`` — is rejected
+#: outright: ``messages.N.content.0.thinking.cache_control: Extra inputs are not
+#: permitted`` 400s the whole request and kills the turn.
+#:
+#: Deliberately an allowlist. The failure modes are asymmetric: an unknown type
+#: we skip costs one breakpoint (marginally more expensive), while an unknown
+#: type we mark costs the entire turn. A denylist gets that trade backwards.
+_CACHEABLE_BLOCK_TYPES = frozenset(
+    {"text", "image", "tool_use", "tool_result", "document"}
+)
+
 _VALID_CACHE_RETENTIONS = ("none", "short", "long")
 
 
@@ -322,9 +334,19 @@ def anthropic_apply_message_cache(
         elif isinstance(content, str):
             msg["content"] = [{"type": "text", "text": content, "cache_control": marker}]
         elif isinstance(content, list) and content:
-            last = content[-1]
-            if isinstance(last, dict):
-                last["cache_control"] = marker
+            # Walk back to the last block that can actually carry a breakpoint.
+            # An assistant turn can end with — or consist entirely of — thinking
+            # blocks, and stamping one fails the *whole* request with
+            # "messages.N.content.0.thinking.cache_control: Extra inputs are not
+            # permitted". If a message has nothing cacheable it simply goes
+            # unmarked; losing one breakpoint is cheap, a 400 kills the turn.
+            for block in reversed(content):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") not in _CACHEABLE_BLOCK_TYPES:
+                    continue
+                block["cache_control"] = marker
+                break
     return messages
 
 

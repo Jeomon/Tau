@@ -188,6 +188,7 @@ class AskUserTool(Tool):
         fut: asyncio.Future[list[dict | None] | None] = loop.create_future()
         timeout_task_ref: list[asyncio.Task | None] = [None]
         close_ref: list[Any] = [None]
+        closed = [False]
 
         def _settle(value: list[dict | None] | None) -> None:
             task = timeout_task_ref[0]
@@ -195,6 +196,19 @@ class AskUserTool(Tool):
                 task.cancel()
             if not fut.done():
                 fut.set_result(value)
+
+        def _close(value: Any) -> None:
+            """Tear the dialog down, whoever gets here first.
+
+            Three different things can end the questionnaire — the user
+            answering/cancelling, the inactivity timer, and the engine
+            abandoning the call — so this has to be idempotent.
+            """
+            if closed[0]:
+                return
+            closed[0] = True
+            if close_ref[0] is not None:
+                close_ref[0](value)
 
         def _factory(_tui, _theme, _kb, done):
             close_ref[0] = done
@@ -219,7 +233,7 @@ class AskUserTool(Tool):
                     _settle(value["answers"])
                 else:
                     _settle([value])
-                done(value)
+                _close(value)
 
             if len(children) == 1:
                 children[0]._on_done = _finish
@@ -241,22 +255,36 @@ class AskUserTool(Tool):
             """(Re)arm the inactivity timer — every keystroke pushes it back."""
             if not timeout:
                 return
+            delay = timeout / 1000  # bound here so the closure sees a plain float
             task = timeout_task_ref[0]
             if task is not None and not task.done():
                 task.cancel()
 
             async def _auto_dismiss() -> None:
-                await asyncio.sleep(timeout / 1000)
+                await asyncio.sleep(delay)
                 _settle(None)
                 # Tear the dialog down too, or it stays on screen owning input
                 # after the tool call has already returned.
-                if close_ref[0] is not None:
-                    close_ref[0](None)
+                _close(None)
 
             timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
 
         await ui.custom_inline(_factory, kind="ask_user")
-        return await fut
+        try:
+            return await fut
+        finally:
+            # The engine can abandon this call while we are parked on `fut` — its
+            # own `tool_timeout_seconds` (120s by default) fires, or the user
+            # aborts the turn — which cancels this coroutine. Nothing else tears
+            # the dialog down on that path, so it stayed mounted and kept owning
+            # input while the agent had already moved on with a timeout error.
+            # Note `timeout` defaults to None, so the inactivity timer above is
+            # usually never armed and the engine timeout is the only thing that
+            # ends the wait: this is the common path, not an edge case.
+            task = timeout_task_ref[0]
+            if task is not None and not task.done():
+                task.cancel()
+            _close(None)
 
     @staticmethod
     def _format_answers(answers: list[dict], cancelled_at: str | None = None) -> str:
