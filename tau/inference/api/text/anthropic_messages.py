@@ -190,12 +190,22 @@ class AnthropicMessagesAPI(BaseAPI):
                         continue
                     btype_start = getattr(block, "type", "")
                     block_types[idx] = btype_start
+                    # Seed from the block itself rather than "". Anthropic opens
+                    # blocks empty and sends everything as deltas, but other
+                    # servers on this wire format (LiteLLM and similar gateways,
+                    # self-hosted proxies) put content in the start event — and
+                    # hardcoding "" dropped it silently. `redacted_thinking`
+                    # below already seeds real content.
                     if btype_start == "text":
-                        text_bufs[idx] = ""
-                        yield TextStartEvent(text=TextContent(content=""))
+                        seeded = getattr(block, "text", "") or ""
+                        text_bufs[idx] = seeded
+                        yield TextStartEvent(text=TextContent(content=seeded))
                     elif btype_start == "thinking":
-                        thinking_bufs[idx] = ""
-                        yield ThinkingStartEvent(thinking=None)
+                        seeded = getattr(block, "thinking", "") or ""
+                        thinking_bufs[idx] = seeded
+                        yield ThinkingStartEvent(
+                            thinking=ThinkingContent(content=seeded) if seeded else None
+                        )
                     elif btype_start == "tool_use":
                         tool_ids[idx] = getattr(block, "id", "")
                         tool_names[idx] = getattr(block, "name", "")
