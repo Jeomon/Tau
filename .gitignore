@@ -11,7 +11,6 @@ wheels/
 .claude
 temp
 .env
-.tau
 
 # Locally-installed third-party MCP servers (cloned/built, not project source)
 .tau/mcp-servers/
