@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import ssl
@@ -19,11 +20,36 @@ __all__ = [
     "OAUTH_ERROR_HTML",
     "get_oauth_ssl_context",
     "http_error_to_runtime_error",
+    "format_http_error_body",
     "parse_authorization_input",
     "start_oauth_callback_server",
     "await_oauth_code",
     "is_headless_environment",
 ]
+
+
+def format_http_error_body(body_text: str) -> str:
+    """Collapse a raw HTTP error body into a single-line human-readable message.
+
+    Token-endpoint error bodies are pretty-printed JSON (e.g. Anthropic's
+    ``{"error": {"type": ..., "message": ...}}``), which reads as a wall of
+    indented lines when embedded verbatim in a RuntimeError shown to the user.
+    Pull out ``error.message`` (or top-level ``message``) when present; fall
+    back to the raw, whitespace-collapsed text for anything else.
+    """
+    try:
+        parsed = json.loads(body_text)
+    except (json.JSONDecodeError, TypeError):
+        return " ".join(body_text.split())
+    if isinstance(parsed, dict):
+        error = parsed.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        if isinstance(error, str) and error:
+            return error
+        if parsed.get("message"):
+            return str(parsed["message"])
+    return " ".join(body_text.split())
 
 
 def http_error_to_runtime_error(e, message: str) -> RuntimeError:

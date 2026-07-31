@@ -31,6 +31,7 @@ from tau.inference.provider.oauth.types import (
 )
 from tau.inference.provider.oauth.utils import (
     await_oauth_code,
+    format_http_error_body,
     get_oauth_ssl_context,
     http_error_to_runtime_error,
     is_headless_environment,
@@ -92,7 +93,9 @@ def _post_form(url: str, body: dict) -> dict:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode(errors="replace")
-        raise http_error_to_runtime_error(e, f"Request failed ({e.code}): {body_text}") from e
+        raise http_error_to_runtime_error(
+            e, f"Request failed ({e.code}): {format_http_error_body(body_text)}"
+        ) from e
 
 
 def _exchange_code(code: str, verifier: str) -> dict:

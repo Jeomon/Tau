@@ -20,6 +20,21 @@ _TOOL_INDENT = "  "
 _RESULT_INDENT = "    "
 _DEFAULT_DETAIL_PREVIEW_LINES = 5
 
+_ERROR_KIND_LABELS = {
+    "auth": "Auth Error",
+    "auth_permanent": "Auth Error",
+    "billing": "Billing Error",
+    "rate_limit": "Rate Limit Error",
+    "overloaded": "Overloaded Error",
+    "server_error": "Server Error",
+    "timeout": "Timeout Error",
+    "context_overflow": "Context Overflow",
+    "model_not_found": "Model Error",
+    "content_blocked": "Content Blocked",
+    "format_error": "Format Error",
+    "unknown": "API Error",
+}
+
 
 def _apply_nested_style(text: str, style: Style) -> str:
     """Apply a semantic style and restore it after nested ANSI resets."""
@@ -441,9 +456,13 @@ class MessageBlock:
         )
 
         if not has_content and msg.stop_reason == StopReason.Error and msg.error:
-            lines.append(apply_style(t.error_label, "error"))
-            for line in wrap(msg.error, inner_width):
-                lines.append("  " + line)
+            label = _ERROR_KIND_LABELS.get(str(msg.error_kind), "API Error")
+            prefix = f"{label}: "
+            wrapped = wrap(msg.error, max(1, inner_width - len(prefix)))
+            indent = " " * len(prefix)
+            for i, line in enumerate(wrapped):
+                lead = apply_style(t.error_label, prefix) if i == 0 else indent
+                lines.append(lead + line)
             return lines
 
         # No "assistant" label — the content speaks for itself.

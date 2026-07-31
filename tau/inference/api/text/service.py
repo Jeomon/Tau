@@ -329,7 +329,7 @@ class TextLLM:
                 kind=ErrorKind.AUTH,
             )
         cause = self._auth_manager.last_refresh_error(self.provider_id)  # type: ignore[union-attr]
-        detail = f": {cause}" if cause else ""
+        detail = f": {str(cause).rstrip('.')}" if cause else ""
         return ErrorEvent(
             reason=StopReason.Error,
             error=(
@@ -402,7 +402,12 @@ class TextLLM:
             TextEndEvent,
             ToolCallEndEvent,
         )
-        from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
+        from tau.inference.utils import (
+            ErrorKind,
+            classify_error,
+            format_exception_message,
+            get_retry_after_delay,
+        )
 
         api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
         if api_key:
@@ -516,7 +521,11 @@ class TextLLM:
                     )
                     if refreshed is not None:
                         self.api.options.api_key = refreshed.access
-                        yield RetryEvent(attempt=attempt + 1, max_retries=max_retries, error=str(e))
+                        yield RetryEvent(
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            error=format_exception_message(e),
+                        )
                         continue  # free retry — does not consume a normal attempt
                     if not self._auth_manager.has(self.provider_id):  # type: ignore[union-attr]
                         yield ErrorEvent(
@@ -536,7 +545,11 @@ class TextLLM:
                         getattr(self.model, "name", getattr(self.model, "id", "unknown")),
                         e,
                     )
-                    yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                    yield ErrorEvent(
+                        reason=StopReason.Error,
+                        error=format_exception_message(e),
+                        kind=classified.kind,
+                    )
                     return
                 _log.warning(
                     "transient error from %s/%s: %s, retrying (attempt %d/%d)",
@@ -546,11 +559,17 @@ class TextLLM:
                     attempt + 1,
                     max_retries,
                 )
-                yield RetryEvent(attempt=attempt + 1, max_retries=max_retries, error=str(e))
+                yield RetryEvent(
+                    attempt=attempt + 1, max_retries=max_retries, error=format_exception_message(e)
+                )
                 if not await self._retry_delay(
                     get_retry_after_delay(e, base_delay_s * (2**attempt))
                 ):
-                    yield ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                    yield ErrorEvent(
+                        reason=StopReason.Error,
+                        error=format_exception_message(e),
+                        kind=classified.kind,
+                    )
                     return
                 attempt += 1
 
@@ -560,7 +579,12 @@ class TextLLM:
         thinking_level: ThinkingLevel | None = None,
     ) -> list[LLMEvent]:
         from tau.inference.types import ErrorEvent, StopReason, ThinkingLevel
-        from tau.inference.utils import ErrorKind, classify_error, get_retry_after_delay
+        from tau.inference.utils import (
+            ErrorKind,
+            classify_error,
+            format_exception_message,
+            get_retry_after_delay,
+        )
 
         api_key = await self._auth_manager.get_api_key(self.provider_id)  # type: ignore[union-attr]
         if api_key:
@@ -691,7 +715,11 @@ class TextLLM:
                             e,
                         )
                         return [
-                            ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                            ErrorEvent(
+                                reason=StopReason.Error,
+                                error=format_exception_message(e),
+                                kind=classified.kind,
+                            )
                         ]
 
                     _log.warning(
@@ -706,7 +734,11 @@ class TextLLM:
                         get_retry_after_delay(e, base_delay_s * (2**attempt))
                     ):
                         return [
-                            ErrorEvent(reason=StopReason.Error, error=str(e), kind=classified.kind)
+                            ErrorEvent(
+                                reason=StopReason.Error,
+                                error=format_exception_message(e),
+                                kind=classified.kind,
+                            )
                         ]
                     attempt += 1
         finally:

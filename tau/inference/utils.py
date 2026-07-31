@@ -242,6 +242,27 @@ def _status(error: Exception) -> int | None:
     return None
 
 
+def format_exception_message(error: Exception) -> str:
+    """Human-readable single-line message for a caught inference-API exception.
+
+    SDK exceptions (openai, anthropic, ...) stringify as
+    ``"Error code: 429 - {'error': {'type': ..., 'message': ...}}"``, embedding
+    the raw response body dict verbatim. Prefer the parsed ``error.message``
+    from ``.body`` when present so the user sees the server's actual
+    explanation instead of a Python dict repr; fall back to ``str(error)``.
+    """
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+        if isinstance(err, str) and err:
+            return err
+        if body.get("message"):
+            return str(body["message"])
+    return str(error)
+
+
 def _msg(error: Exception) -> str:
     try:
         body = getattr(error, "body", None) or getattr(error, "response", None)
