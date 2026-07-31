@@ -107,6 +107,8 @@ def _cache_body_for(model: Model, retention: str, cache_key: str) -> dict[str, A
     (`prompt_cache_key`); "long" requests the 24h extended TTL when the model
     supports it. Returns an empty dict for non-OpenAI providers.
     """
+    if model.provider != "openai":
+        return {}
     body: dict[str, Any] = {}
     if retention != "none":
         body["prompt_cache_key"] = cache_key

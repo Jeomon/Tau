@@ -288,7 +288,13 @@ class DashboardOverlay(Component):
 
         theme = self._theme
         lines = self._lines(area.width)
+        # Never exceed the area we were handed. _viewport_rows() sizes from a
+        # terminal-height hint, which is a guess about what the host will clamp
+        # to — when the real area is smaller, honouring the guess pushed the
+        # footer past the bottom and it vanished. One row is reserved for it.
         body_rows = min(len(lines), self._viewport_rows())
+        if area.height > 0:
+            body_rows = min(body_rows, max(1, area.height - 1))
         self._last_height = body_rows
         self._offset = max(0, min(self._offset, max(0, len(lines) - body_rows)))
         visible = lines[self._offset : self._offset + body_rows]
