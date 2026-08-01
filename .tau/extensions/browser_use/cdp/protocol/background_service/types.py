@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.serviceworker.types import RegistrationID
+    from ..network.types import TimeSinceEpoch
+    from ..serviceworker.types import RegistrationID
 
 ServiceName = Literal['backgroundFetch','backgroundSync','pushMessaging','notifications','paymentHandler','periodicBackgroundSync']
 """The Background Service that will be associated with the commands/events. Every Background Service operates independently, but they share the same API."""

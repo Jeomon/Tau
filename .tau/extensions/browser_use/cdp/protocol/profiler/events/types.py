@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.debugger.types import Location
-    from cdp.protocol.profiler.types import Profile
-    from cdp.protocol.profiler.types import ScriptCoverage
+    from ...debugger.types import Location
+    from ..types import Profile
+    from ..types import ScriptCoverage
 
 class consoleProfileFinishedEvent(TypedDict, total=True):
     id: str

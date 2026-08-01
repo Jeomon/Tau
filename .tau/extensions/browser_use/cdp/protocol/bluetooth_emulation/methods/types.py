@@ -4,13 +4,13 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.bluetooth_emulation.types import CentralState
-    from cdp.protocol.bluetooth_emulation.types import CharacteristicOperationType
-    from cdp.protocol.bluetooth_emulation.types import CharacteristicProperties
-    from cdp.protocol.bluetooth_emulation.types import DescriptorOperationType
-    from cdp.protocol.bluetooth_emulation.types import GATTOperationType
-    from cdp.protocol.bluetooth_emulation.types import ManufacturerData
-    from cdp.protocol.bluetooth_emulation.types import ScanEntry
+    from ..types import CentralState
+    from ..types import CharacteristicOperationType
+    from ..types import CharacteristicProperties
+    from ..types import DescriptorOperationType
+    from ..types import GATTOperationType
+    from ..types import ManufacturerData
+    from ..types import ScanEntry
 
 class enableParameters(TypedDict, total=True):
     state: CentralState

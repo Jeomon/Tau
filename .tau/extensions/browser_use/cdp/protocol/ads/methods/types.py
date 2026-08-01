@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.ads.types import AdMetrics
+    from ..types import AdMetrics
 
 
 class getAdMetricsReturns(TypedDict):

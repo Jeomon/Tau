@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.smart_card_emulation.types import ConnectionState
-    from cdp.protocol.smart_card_emulation.types import Protocol
-    from cdp.protocol.smart_card_emulation.types import ReaderStateOut
-    from cdp.protocol.smart_card_emulation.types import ResultCode
+    from ..types import ConnectionState
+    from ..types import Protocol
+    from ..types import ReaderStateOut
+    from ..types import ResultCode
 
 
 

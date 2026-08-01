@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.runtime.types import StackTrace
+    from ..dom.types import BackendNodeId
+    from ..page.types import FrameId
+    from ..runtime.types import StackTrace
 
 class Annotation(TypedDict, total=False):
     """Tool annotations"""

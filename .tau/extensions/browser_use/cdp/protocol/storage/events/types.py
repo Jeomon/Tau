@@ -4,18 +4,18 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.storage.types import InterestGroupAccessType
-    from cdp.protocol.storage.types import InterestGroupAuctionEventType
-    from cdp.protocol.storage.types import InterestGroupAuctionFetchType
-    from cdp.protocol.storage.types import InterestGroupAuctionId
-    from cdp.protocol.storage.types import SharedStorageAccessMethod
-    from cdp.protocol.storage.types import SharedStorageAccessParams
-    from cdp.protocol.storage.types import SharedStorageAccessScope
-    from cdp.protocol.storage.types import StorageBucketInfo
-    from cdp.protocol.target.types import TargetID
+    from ...network.types import RequestId
+    from ...network.types import TimeSinceEpoch
+    from ...page.types import FrameId
+    from ..types import InterestGroupAccessType
+    from ..types import InterestGroupAuctionEventType
+    from ..types import InterestGroupAuctionFetchType
+    from ..types import InterestGroupAuctionId
+    from ..types import SharedStorageAccessMethod
+    from ..types import SharedStorageAccessParams
+    from ..types import SharedStorageAccessScope
+    from ..types import StorageBucketInfo
+    from ...target.types import TargetID
 
 class cacheStorageContentUpdatedEvent(TypedDict, total=True):
     origin: str

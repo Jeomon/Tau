@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom_storage.types import Item
-    from cdp.protocol.dom_storage.types import StorageId
+    from ..types import Item
+    from ..types import StorageId
 
 class clearParameters(TypedDict, total=True):
     storageId: StorageId

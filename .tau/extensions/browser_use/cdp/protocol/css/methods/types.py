@@ -4,39 +4,39 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.css.types import CSSAnimationStyle
-    from cdp.protocol.css.types import CSSAtRule
-    from cdp.protocol.css.types import CSSComputedStyleProperty
-    from cdp.protocol.css.types import CSSContainerQuery
-    from cdp.protocol.css.types import CSSFunctionRule
-    from cdp.protocol.css.types import CSSKeyframesRule
-    from cdp.protocol.css.types import CSSLayerData
-    from cdp.protocol.css.types import CSSMedia
-    from cdp.protocol.css.types import CSSNavigation
-    from cdp.protocol.css.types import CSSPositionTryRule
-    from cdp.protocol.css.types import CSSProperty
-    from cdp.protocol.css.types import CSSPropertyRegistration
-    from cdp.protocol.css.types import CSSPropertyRule
-    from cdp.protocol.css.types import CSSRule
-    from cdp.protocol.css.types import CSSScope
-    from cdp.protocol.css.types import CSSStyle
-    from cdp.protocol.css.types import CSSSupports
-    from cdp.protocol.css.types import ComputedStyleExtraFields
-    from cdp.protocol.css.types import InheritedAnimatedStyleEntry
-    from cdp.protocol.css.types import InheritedPseudoElementMatches
-    from cdp.protocol.css.types import InheritedStyleEntry
-    from cdp.protocol.css.types import PlatformFontUsage
-    from cdp.protocol.css.types import PseudoElementMatches
-    from cdp.protocol.css.types import RuleMatch
-    from cdp.protocol.css.types import RuleUsage
-    from cdp.protocol.css.types import SelectorList
-    from cdp.protocol.css.types import SourceRange
-    from cdp.protocol.css.types import StyleDeclarationEdit
-    from cdp.protocol.css.types import Value
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import PseudoType
-    from cdp.protocol.dom.types import StyleSheetId
-    from cdp.protocol.page.types import FrameId
+    from ..types import CSSAnimationStyle
+    from ..types import CSSAtRule
+    from ..types import CSSComputedStyleProperty
+    from ..types import CSSContainerQuery
+    from ..types import CSSFunctionRule
+    from ..types import CSSKeyframesRule
+    from ..types import CSSLayerData
+    from ..types import CSSMedia
+    from ..types import CSSNavigation
+    from ..types import CSSPositionTryRule
+    from ..types import CSSProperty
+    from ..types import CSSPropertyRegistration
+    from ..types import CSSPropertyRule
+    from ..types import CSSRule
+    from ..types import CSSScope
+    from ..types import CSSStyle
+    from ..types import CSSSupports
+    from ..types import ComputedStyleExtraFields
+    from ..types import InheritedAnimatedStyleEntry
+    from ..types import InheritedPseudoElementMatches
+    from ..types import InheritedStyleEntry
+    from ..types import PlatformFontUsage
+    from ..types import PseudoElementMatches
+    from ..types import RuleMatch
+    from ..types import RuleUsage
+    from ..types import SelectorList
+    from ..types import SourceRange
+    from ..types import StyleDeclarationEdit
+    from ..types import Value
+    from ...dom.types import NodeId
+    from ...dom.types import PseudoType
+    from ...dom.types import StyleSheetId
+    from ...page.types import FrameId
 
 class addRuleParameters(TypedDict, total=True):
     styleSheetId: StyleSheetId

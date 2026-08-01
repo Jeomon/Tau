@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.indexed_db.types import DataEntry
-    from cdp.protocol.indexed_db.types import DatabaseWithObjectStores
-    from cdp.protocol.indexed_db.types import KeyRange
-    from cdp.protocol.storage.types import StorageBucket
+    from ..types import DataEntry
+    from ..types import DatabaseWithObjectStores
+    from ..types import KeyRange
+    from ...storage.types import StorageBucket
 
 class clearObjectStoreParameters(TypedDict, total=True):
     databaseName: str

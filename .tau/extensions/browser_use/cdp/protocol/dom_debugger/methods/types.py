@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom_debugger.types import CSPViolationType
-    from cdp.protocol.dom_debugger.types import DOMBreakpointType
-    from cdp.protocol.dom_debugger.types import EventListener
-    from cdp.protocol.runtime.types import RemoteObjectId
+    from ...dom.types import NodeId
+    from ..types import CSPViolationType
+    from ..types import DOMBreakpointType
+    from ..types import EventListener
+    from ...runtime.types import RemoteObjectId
 
 class getEventListenersParameters(TypedDict, total=True):
     objectId: RemoteObjectId

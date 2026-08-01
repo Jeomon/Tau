@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import TimeSinceEpoch
+    from ..network.types import TimeSinceEpoch
 
 CertificateId = int
 """An internal certificate ID value."""

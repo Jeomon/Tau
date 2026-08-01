@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.runtime.types import RemoteObjectId
+    from ..types import StreamHandle
+    from ...runtime.types import RemoteObjectId
 
 class closeParameters(TypedDict, total=True):
     handle: StreamHandle

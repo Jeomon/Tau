@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any, BinaryIO, Literal, Self
 from urllib.parse import urljoin
 
-from cdp import Client
-from dom import DOM
-from dom.types import Element
+from ..cdp import Client
+from ..dom import DOM
+from ..dom.types import Element
 
-from hooks.service import Hooks
+from ..hooks.service import Hooks
 
 from .hooks import (
     BrowserStartEvent,
@@ -149,7 +149,7 @@ class Browser:
         settings: BrowserSettings | None = None,
         hooks: Hooks | None = None,
     ) -> None:
-        from watchdog import (
+        from ..watchdog import (
             DEFAULT_WATCHDOGS,
             SecurityWatchdog,
             WatchdogRegistry,

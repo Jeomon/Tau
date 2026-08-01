@@ -1,6 +1,6 @@
 """Local Chromium management and remote CDP connections."""
 
-from hooks.service import HookHandler, Hooks, Unsubscribe
+from ..hooks.service import HookHandler, Hooks, Unsubscribe
 
 from .hooks import *
 from .hooks import __all__ as _hook_exports

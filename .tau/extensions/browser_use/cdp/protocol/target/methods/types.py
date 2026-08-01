@@ -4,13 +4,13 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.browser.types import BrowserContextID
-    from cdp.protocol.target.types import RemoteLocation
-    from cdp.protocol.target.types import SessionID
-    from cdp.protocol.target.types import TargetFilter
-    from cdp.protocol.target.types import TargetID
-    from cdp.protocol.target.types import TargetInfo
-    from cdp.protocol.target.types import WindowState
+    from ...browser.types import BrowserContextID
+    from ..types import RemoteLocation
+    from ..types import SessionID
+    from ..types import TargetFilter
+    from ..types import TargetID
+    from ..types import TargetInfo
+    from ..types import WindowState
 
 class activateTargetParameters(TypedDict, total=True):
     targetId: TargetID

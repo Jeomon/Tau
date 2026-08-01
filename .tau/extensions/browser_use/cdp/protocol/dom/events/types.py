@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNode
-    from cdp.protocol.dom.types import Node
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import StyleSheetId
-    from cdp.protocol.network.types import AdProvenance
+    from ..types import BackendNode
+    from ..types import Node
+    from ..types import NodeId
+    from ..types import StyleSheetId
+    from ...network.types import AdProvenance
 
 class attributeModifiedEvent(TypedDict, total=True):
     nodeId: NodeId

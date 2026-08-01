@@ -4,26 +4,26 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import RGBA
-    from cdp.protocol.emulation.types import DevicePosture
-    from cdp.protocol.emulation.types import DisabledImageType
-    from cdp.protocol.emulation.types import DisplayFeature
-    from cdp.protocol.emulation.types import MediaFeature
-    from cdp.protocol.emulation.types import PressureMetadata
-    from cdp.protocol.emulation.types import PressureSource
-    from cdp.protocol.emulation.types import PressureState
-    from cdp.protocol.emulation.types import SafeAreaInsets
-    from cdp.protocol.emulation.types import ScreenId
-    from cdp.protocol.emulation.types import ScreenInfo
-    from cdp.protocol.emulation.types import ScreenOrientation
-    from cdp.protocol.emulation.types import SensorMetadata
-    from cdp.protocol.emulation.types import SensorReading
-    from cdp.protocol.emulation.types import SensorType
-    from cdp.protocol.emulation.types import UserAgentMetadata
-    from cdp.protocol.emulation.types import VirtualTimePolicy
-    from cdp.protocol.emulation.types import WorkAreaInsets
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.page.types import Viewport
+    from ...dom.types import RGBA
+    from ..types import DevicePosture
+    from ..types import DisabledImageType
+    from ..types import DisplayFeature
+    from ..types import MediaFeature
+    from ..types import PressureMetadata
+    from ..types import PressureSource
+    from ..types import PressureState
+    from ..types import SafeAreaInsets
+    from ..types import ScreenId
+    from ..types import ScreenInfo
+    from ..types import ScreenOrientation
+    from ..types import SensorMetadata
+    from ..types import SensorReading
+    from ..types import SensorType
+    from ..types import UserAgentMetadata
+    from ..types import VirtualTimePolicy
+    from ..types import WorkAreaInsets
+    from ...network.types import TimeSinceEpoch
+    from ...page.types import Viewport
 
 
 

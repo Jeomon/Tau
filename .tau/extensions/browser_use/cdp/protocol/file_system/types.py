@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.storage.types import SerializedStorageKey
+    from ..network.types import TimeSinceEpoch
+    from ..storage.types import SerializedStorageKey
 
 class File(TypedDict, total=True):
     name: str

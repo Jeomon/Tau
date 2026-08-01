@@ -4,16 +4,16 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.network.types import AdAncestry
-    from cdp.protocol.network.types import ClientSecurityState
-    from cdp.protocol.network.types import CorsErrorStatus
-    from cdp.protocol.network.types import IPAddressSpace
-    from cdp.protocol.network.types import LoaderId
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.runtime.types import ScriptId
-    from cdp.protocol.runtime.types import StackTrace
+    from ..dom.types import BackendNodeId
+    from ..network.types import AdAncestry
+    from ..network.types import ClientSecurityState
+    from ..network.types import CorsErrorStatus
+    from ..network.types import IPAddressSpace
+    from ..network.types import LoaderId
+    from ..network.types import RequestId
+    from ..page.types import FrameId
+    from ..runtime.types import ScriptId
+    from ..runtime.types import StackTrace
 
 class AffectedCookie(TypedDict, total=True):
     """Information about a cookie that is affected by an inspector issue."""

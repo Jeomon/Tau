@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeVar
 from .base import BaseWatchdog
 
 if TYPE_CHECKING:
-    from browser.service import Browser
+    from ..browser.service import Browser
 
 TWatchdog = TypeVar("TWatchdog", bound=BaseWatchdog)
 

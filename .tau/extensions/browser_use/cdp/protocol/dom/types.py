@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import AdProvenance
-    from cdp.protocol.page.types import FrameId
+    from ..network.types import AdProvenance
+    from ..page.types import FrameId
 
 NodeId = int
 """Unique DOM node identifier."""

@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.target.types import TargetID
+    from ..network.types import TimeSinceEpoch
+    from ..target.types import TargetID
 
 SerializedStorageKey = str
 StorageType = Literal['cookies','file_systems','indexeddb','local_storage','shader_cache','websql','service_workers','cache_storage','interest_groups','shared_storage','storage_buckets','all','other']

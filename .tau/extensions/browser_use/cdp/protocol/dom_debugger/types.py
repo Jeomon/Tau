@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import ScriptId
+    from ..dom.types import BackendNodeId
+    from ..runtime.types import RemoteObject
+    from ..runtime.types import ScriptId
 
 DOMBreakpointType = Literal['subtree-modified','attribute-modified','node-removed']
 """DOM breakpoint type."""

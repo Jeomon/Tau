@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.background_service.types import BackgroundServiceEvent
-    from cdp.protocol.background_service.types import ServiceName
+    from ..types import BackgroundServiceEvent
+    from ..types import ServiceName
 
 class recordingStateChangedEvent(TypedDict, total=True):
     isRecording: bool

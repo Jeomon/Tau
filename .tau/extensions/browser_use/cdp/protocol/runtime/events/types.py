@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.runtime.types import ExceptionDetails
-    from cdp.protocol.runtime.types import ExecutionContextDescription
-    from cdp.protocol.runtime.types import ExecutionContextId
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import StackTrace
-    from cdp.protocol.runtime.types import Timestamp
+    from ..types import ExceptionDetails
+    from ..types import ExecutionContextDescription
+    from ..types import ExecutionContextId
+    from ..types import RemoteObject
+    from ..types import StackTrace
+    from ..types import Timestamp
 
 class bindingCalledEvent(TypedDict, total=True):
     name: str

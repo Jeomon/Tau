@@ -4,14 +4,14 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.fetch.types import AuthChallenge
-    from cdp.protocol.fetch.types import HeaderEntry
-    from cdp.protocol.fetch.types import RequestId
-    from cdp.protocol.network.types import ErrorReason
-    from cdp.protocol.network.types import Request
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.network.types import ResourceType
-    from cdp.protocol.page.types import FrameId
+    from ..types import AuthChallenge
+    from ..types import HeaderEntry
+    from ..types import RequestId
+    from ...network.types import ErrorReason
+    from ...network.types import Request
+    from ...network.types import RequestId
+    from ...network.types import ResourceType
+    from ...page.types import FrameId
 
 class requestPausedEvent(TypedDict, total=True):
     requestId: RequestId

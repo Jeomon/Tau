@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.performance.types import Metric
+    from ..types import Metric
 
 
 class enableParameters(TypedDict, total=False):

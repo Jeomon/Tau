@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.accessibility.types import AXNode
-    from cdp.protocol.accessibility.types import AXNodeId
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.runtime.types import RemoteObjectId
+    from ..types import AXNode
+    from ..types import AXNodeId
+    from ...dom.types import BackendNodeId
+    from ...dom.types import NodeId
+    from ...page.types import FrameId
+    from ...runtime.types import RemoteObjectId
 
 
 

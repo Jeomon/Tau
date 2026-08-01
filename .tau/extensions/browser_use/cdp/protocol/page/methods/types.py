@@ -4,32 +4,32 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.debugger.types import SearchMatch
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.network.types import AdAncestry
-    from cdp.protocol.network.types import LoaderId
-    from cdp.protocol.page.types import AppManifestError
-    from cdp.protocol.page.types import AppManifestParsedProperties
-    from cdp.protocol.page.types import CompilationCacheParams
-    from cdp.protocol.page.types import FontFamilies
-    from cdp.protocol.page.types import FontSizes
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.page.types import FrameResourceTree
-    from cdp.protocol.page.types import FrameTree
-    from cdp.protocol.page.types import InstallabilityError
-    from cdp.protocol.page.types import LayoutViewport
-    from cdp.protocol.page.types import NavigationEntry
-    from cdp.protocol.page.types import OriginTrial
-    from cdp.protocol.page.types import PermissionsPolicyFeatureState
-    from cdp.protocol.page.types import ReferrerPolicy
-    from cdp.protocol.page.types import ScriptFontFamilies
-    from cdp.protocol.page.types import ScriptIdentifier
-    from cdp.protocol.page.types import TransitionType
-    from cdp.protocol.page.types import Viewport
-    from cdp.protocol.page.types import VisualViewport
-    from cdp.protocol.page.types import WebAppManifest
-    from cdp.protocol.runtime.types import ExecutionContextId
+    from ...debugger.types import SearchMatch
+    from ...dom.types import Rect
+    from ...io.types import StreamHandle
+    from ...network.types import AdAncestry
+    from ...network.types import LoaderId
+    from ..types import AppManifestError
+    from ..types import AppManifestParsedProperties
+    from ..types import CompilationCacheParams
+    from ..types import FontFamilies
+    from ..types import FontSizes
+    from ..types import FrameId
+    from ..types import FrameResourceTree
+    from ..types import FrameTree
+    from ..types import InstallabilityError
+    from ..types import LayoutViewport
+    from ..types import NavigationEntry
+    from ..types import OriginTrial
+    from ..types import PermissionsPolicyFeatureState
+    from ..types import ReferrerPolicy
+    from ..types import ScriptFontFamilies
+    from ..types import ScriptIdentifier
+    from ..types import TransitionType
+    from ..types import Viewport
+    from ..types import VisualViewport
+    from ..types import WebAppManifest
+    from ...runtime.types import ExecutionContextId
 
 class addScriptToEvaluateOnNewDocumentParameters(TypedDict, total=True):
     source: str

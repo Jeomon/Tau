@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.fed_cm.types import Account
-    from cdp.protocol.fed_cm.types import DialogType
+    from ..types import Account
+    from ..types import DialogType
 
 class dialogShownEvent(TypedDict, total=True):
     dialogId: str

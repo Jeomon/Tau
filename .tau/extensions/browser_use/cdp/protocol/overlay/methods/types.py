@@ -4,24 +4,24 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import Quad
-    from cdp.protocol.dom.types import RGBA
-    from cdp.protocol.overlay.types import ColorFormat
-    from cdp.protocol.overlay.types import ContainerQueryHighlightConfig
-    from cdp.protocol.overlay.types import DisplayCutoutConfig
-    from cdp.protocol.overlay.types import FlexNodeHighlightConfig
-    from cdp.protocol.overlay.types import GridNodeHighlightConfig
-    from cdp.protocol.overlay.types import HighlightConfig
-    from cdp.protocol.overlay.types import HingeConfig
-    from cdp.protocol.overlay.types import InspectMode
-    from cdp.protocol.overlay.types import InspectedElementAnchorConfig
-    from cdp.protocol.overlay.types import IsolatedElementHighlightConfig
-    from cdp.protocol.overlay.types import ScrollSnapHighlightConfig
-    from cdp.protocol.overlay.types import SourceOrderConfig
-    from cdp.protocol.overlay.types import WindowControlsOverlayConfig
-    from cdp.protocol.runtime.types import RemoteObjectId
+    from ...dom.types import BackendNodeId
+    from ...dom.types import NodeId
+    from ...dom.types import Quad
+    from ...dom.types import RGBA
+    from ..types import ColorFormat
+    from ..types import ContainerQueryHighlightConfig
+    from ..types import DisplayCutoutConfig
+    from ..types import FlexNodeHighlightConfig
+    from ..types import GridNodeHighlightConfig
+    from ..types import HighlightConfig
+    from ..types import HingeConfig
+    from ..types import InspectMode
+    from ..types import InspectedElementAnchorConfig
+    from ..types import IsolatedElementHighlightConfig
+    from ..types import ScrollSnapHighlightConfig
+    from ..types import SourceOrderConfig
+    from ..types import WindowControlsOverlayConfig
+    from ...runtime.types import RemoteObjectId
 
 
 

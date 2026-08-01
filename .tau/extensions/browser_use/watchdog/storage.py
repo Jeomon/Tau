@@ -7,7 +7,7 @@ import contextlib
 from pathlib import Path
 from typing import ClassVar
 
-from browser.hooks import (
+from ..browser.hooks import (
     BrowserEvent,
     BrowserStartedEvent,
     BrowserStopEvent,

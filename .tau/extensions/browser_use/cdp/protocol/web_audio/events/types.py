@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.web_audio.types import AudioListener
-    from cdp.protocol.web_audio.types import AudioNode
-    from cdp.protocol.web_audio.types import AudioParam
-    from cdp.protocol.web_audio.types import BaseAudioContext
-    from cdp.protocol.web_audio.types import GraphObjectId
+    from ..types import AudioListener
+    from ..types import AudioNode
+    from ..types import AudioParam
+    from ..types import BaseAudioContext
+    from ..types import GraphObjectId
 
 class contextCreatedEvent(TypedDict, total=True):
     context: BaseAudioContext

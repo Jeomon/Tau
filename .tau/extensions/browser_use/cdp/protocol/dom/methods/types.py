@@ -4,21 +4,21 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import BoxModel
-    from cdp.protocol.dom.types import CSSComputedStyleProperty
-    from cdp.protocol.dom.types import DetachedElementInfo
-    from cdp.protocol.dom.types import LogicalAxes
-    from cdp.protocol.dom.types import Node
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import PhysicalAxes
-    from cdp.protocol.dom.types import Quad
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.runtime.types import ExecutionContextId
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import RemoteObjectId
-    from cdp.protocol.runtime.types import StackTrace
+    from ..types import BackendNodeId
+    from ..types import BoxModel
+    from ..types import CSSComputedStyleProperty
+    from ..types import DetachedElementInfo
+    from ..types import LogicalAxes
+    from ..types import Node
+    from ..types import NodeId
+    from ..types import PhysicalAxes
+    from ..types import Quad
+    from ..types import Rect
+    from ...page.types import FrameId
+    from ...runtime.types import ExecutionContextId
+    from ...runtime.types import RemoteObject
+    from ...runtime.types import RemoteObjectId
+    from ...runtime.types import StackTrace
 
 class collectClassNamesFromSubtreeParameters(TypedDict, total=True):
     nodeId: NodeId

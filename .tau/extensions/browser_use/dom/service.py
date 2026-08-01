@@ -31,8 +31,8 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from browser.service import Browser
-    from browser.state import ViewportState
+    from ..browser.service import Browser
+    from ..browser.state import ViewportState
 
 # Computed styles captured with the snapshot, in this fixed order (see the
 # index aliases below).

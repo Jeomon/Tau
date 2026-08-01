@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.web_audio.types import ContextRealtimeData
-    from cdp.protocol.web_audio.types import GraphObjectId
+    from ..types import ContextRealtimeData
+    from ..types import GraphObjectId
 
 
 

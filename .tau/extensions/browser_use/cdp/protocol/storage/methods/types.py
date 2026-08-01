@@ -4,17 +4,17 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.browser.types import BrowserContextID
-    from cdp.protocol.network.types import Cookie
-    from cdp.protocol.network.types import CookieParam
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.storage.types import RelatedWebsiteSet
-    from cdp.protocol.storage.types import SerializedStorageKey
-    from cdp.protocol.storage.types import SharedStorageEntry
-    from cdp.protocol.storage.types import SharedStorageMetadata
-    from cdp.protocol.storage.types import StorageBucket
-    from cdp.protocol.storage.types import TrustTokens
-    from cdp.protocol.storage.types import UsageForType
+    from ...browser.types import BrowserContextID
+    from ...network.types import Cookie
+    from ...network.types import CookieParam
+    from ...page.types import FrameId
+    from ..types import RelatedWebsiteSet
+    from ..types import SerializedStorageKey
+    from ..types import SharedStorageEntry
+    from ..types import SharedStorageMetadata
+    from ..types import StorageBucket
+    from ..types import TrustTokens
+    from ..types import UsageForType
 
 class getStorageKeyParameters(TypedDict, total=False):
     frameId: NotRequired[FrameId]

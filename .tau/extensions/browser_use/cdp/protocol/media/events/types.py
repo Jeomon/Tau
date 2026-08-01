@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.media.types import Player
-    from cdp.protocol.media.types import PlayerError
-    from cdp.protocol.media.types import PlayerEvent
-    from cdp.protocol.media.types import PlayerId
-    from cdp.protocol.media.types import PlayerMessage
-    from cdp.protocol.media.types import PlayerProperty
+    from ..types import Player
+    from ..types import PlayerError
+    from ..types import PlayerEvent
+    from ..types import PlayerId
+    from ..types import PlayerMessage
+    from ..types import PlayerProperty
 
 class playerPropertiesChangedEvent(TypedDict, total=True):
     playerId: PlayerId

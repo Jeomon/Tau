@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import PseudoType
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.dom.types import ShadowRootType
-    from cdp.protocol.domdebugger.types import EventListener
-    from cdp.protocol.page.types import FrameId
+    from ..dom.types import BackendNodeId
+    from ..dom.types import PseudoType
+    from ..dom.types import Rect
+    from ..dom.types import ShadowRootType
+    from ..domdebugger.types import EventListener
+    from ..page.types import FrameId
 
 class DOMNode(TypedDict, total=True):
     """A Node in the DOM tree."""

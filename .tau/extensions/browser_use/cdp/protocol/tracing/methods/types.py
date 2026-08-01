@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.tracing.types import MemoryDumpLevelOfDetail
-    from cdp.protocol.tracing.types import StreamCompression
-    from cdp.protocol.tracing.types import StreamFormat
-    from cdp.protocol.tracing.types import TraceConfig
-    from cdp.protocol.tracing.types import TracingBackend
+    from ..types import MemoryDumpLevelOfDetail
+    from ..types import StreamCompression
+    from ..types import StreamFormat
+    from ..types import TraceConfig
+    from ..types import TracingBackend
 
 
 

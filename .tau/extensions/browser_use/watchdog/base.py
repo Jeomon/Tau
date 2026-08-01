@@ -7,10 +7,10 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar
 
-from browser.hooks import BrowserEvent
+from ..browser.hooks import BrowserEvent
 
 if TYPE_CHECKING:
-    from browser.service import Browser
+    from ..browser.service import Browser
 
 _log = logging.getLogger(__name__)
 

@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import RGBA
-    from cdp.protocol.dom.types import Rect
+    from ..dom.types import BackendNodeId
+    from ..dom.types import NodeId
+    from ..dom.types import RGBA
+    from ..dom.types import Rect
 
 class SourceOrderConfig(TypedDict, total=True):
     """Configuration data for drawing the source order of an elements children."""

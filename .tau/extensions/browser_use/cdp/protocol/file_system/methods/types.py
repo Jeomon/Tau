@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.file_system.types import BucketFileSystemLocator
-    from cdp.protocol.file_system.types import Directory
+    from ..types import BucketFileSystemLocator
+    from ..types import Directory
 
 class getDirectoryParameters(TypedDict, total=True):
     bucketFileSystemLocator: BucketFileSystemLocator

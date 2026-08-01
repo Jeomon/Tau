@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.headless_experimental.types import ScreenshotParams
+    from ..types import ScreenshotParams
 
 class beginFrameParameters(TypedDict, total=False):
     frameTimeTicks: NotRequired[float]

@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.background_service.types import ServiceName
+    from ..types import ServiceName
 
 class startObservingParameters(TypedDict, total=True):
     service: ServiceName

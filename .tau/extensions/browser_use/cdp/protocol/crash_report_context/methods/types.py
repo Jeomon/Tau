@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.crash_report_context.types import CrashReportContextEntry
+    from ..types import CrashReportContextEntry
 
 
 class getEntriesReturns(TypedDict):

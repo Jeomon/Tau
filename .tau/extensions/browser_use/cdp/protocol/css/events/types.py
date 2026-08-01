@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.css.types import CSSStyleSheetHeader
-    from cdp.protocol.css.types import FontFace
-    from cdp.protocol.dom.types import NodeId
-    from cdp.protocol.dom.types import StyleSheetId
+    from ..types import CSSStyleSheetHeader
+    from ..types import FontFace
+    from ...dom.types import NodeId
+    from ...dom.types import StyleSheetId
 
 class fontsUpdatedEvent(TypedDict, total=False):
     font: NotRequired[FontFace]

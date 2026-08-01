@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.target.types import TargetID
+    from ..target.types import TargetID
 
 RegistrationID = str
 class ServiceWorkerRegistration(TypedDict, total=True):

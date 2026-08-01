@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from browser.hooks import BrowserEvent, BrowserReconnectedEvent, BrowserStartedEvent
+from ..browser.hooks import BrowserEvent, BrowserReconnectedEvent, BrowserStartedEvent
 
 from .base import BaseWatchdog
 

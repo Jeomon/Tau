@@ -4,14 +4,14 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.debugger.types import CallFrame
-    from cdp.protocol.debugger.types import DebugSymbols
-    from cdp.protocol.debugger.types import ResolvedBreakpoint
-    from cdp.protocol.debugger.types import ScriptLanguage
-    from cdp.protocol.runtime.types import ExecutionContextId
-    from cdp.protocol.runtime.types import ScriptId
-    from cdp.protocol.runtime.types import StackTrace
-    from cdp.protocol.runtime.types import StackTraceId
+    from ..types import CallFrame
+    from ..types import DebugSymbols
+    from ..types import ResolvedBreakpoint
+    from ..types import ScriptLanguage
+    from ...runtime.types import ExecutionContextId
+    from ...runtime.types import ScriptId
+    from ...runtime.types import StackTrace
+    from ...runtime.types import StackTraceId
 
 class pausedEvent(TypedDict, total=True):
     callFrames: List[CallFrame]

@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.cache_storage.types import Cache
-    from cdp.protocol.cache_storage.types import CacheId
-    from cdp.protocol.cache_storage.types import CachedResponse
-    from cdp.protocol.cache_storage.types import DataEntry
-    from cdp.protocol.cache_storage.types import Header
-    from cdp.protocol.storage.types import StorageBucket
+    from ..types import Cache
+    from ..types import CacheId
+    from ..types import CachedResponse
+    from ..types import DataEntry
+    from ..types import Header
+    from ...storage.types import StorageBucket
 
 class deleteCacheParameters(TypedDict, total=True):
     cacheId: CacheId

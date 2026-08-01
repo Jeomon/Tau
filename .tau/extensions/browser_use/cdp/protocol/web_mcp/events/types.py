@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.web_mcp.types import InvocationStatus
-    from cdp.protocol.web_mcp.types import RemovedTool
-    from cdp.protocol.web_mcp.types import Tool
+    from ...page.types import FrameId
+    from ...runtime.types import RemoteObject
+    from ..types import InvocationStatus
+    from ..types import RemovedTool
+    from ..types import Tool
 
 class toolsAddedEvent(TypedDict, total=True):
     tools: List[Tool]

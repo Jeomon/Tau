@@ -4,17 +4,17 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.runtime.types import CallArgument
-    from cdp.protocol.runtime.types import ExceptionDetails
-    from cdp.protocol.runtime.types import ExecutionContextId
-    from cdp.protocol.runtime.types import InternalPropertyDescriptor
-    from cdp.protocol.runtime.types import PrivatePropertyDescriptor
-    from cdp.protocol.runtime.types import PropertyDescriptor
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import RemoteObjectId
-    from cdp.protocol.runtime.types import ScriptId
-    from cdp.protocol.runtime.types import SerializationOptions
-    from cdp.protocol.runtime.types import TimeDelta
+    from ..types import CallArgument
+    from ..types import ExceptionDetails
+    from ..types import ExecutionContextId
+    from ..types import InternalPropertyDescriptor
+    from ..types import PrivatePropertyDescriptor
+    from ..types import PropertyDescriptor
+    from ..types import RemoteObject
+    from ..types import RemoteObjectId
+    from ..types import ScriptId
+    from ..types import SerializationOptions
+    from ..types import TimeDelta
 
 class awaitPromiseParameters(TypedDict, total=True):
     promiseObjectId: RemoteObjectId

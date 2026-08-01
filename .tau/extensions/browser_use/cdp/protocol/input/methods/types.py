@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.input.types import DragData
-    from cdp.protocol.input.types import GestureSourceType
-    from cdp.protocol.input.types import MouseButton
-    from cdp.protocol.input.types import TimeSinceEpoch
-    from cdp.protocol.input.types import TouchPoint
+    from ..types import DragData
+    from ..types import GestureSourceType
+    from ..types import MouseButton
+    from ..types import TimeSinceEpoch
+    from ..types import TouchPoint
 
 class dispatchDragEventParameters(TypedDict, total=True):
     type: Literal["dragEnter", "dragOver", "drop", "dragCancel"]

@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.audits.types import GenericIssueDetails
-    from cdp.protocol.network.types import RequestId
+    from ..types import GenericIssueDetails
+    from ...network.types import RequestId
 
 class getEncodedResponseParameters(TypedDict, total=True):
     requestId: RequestId

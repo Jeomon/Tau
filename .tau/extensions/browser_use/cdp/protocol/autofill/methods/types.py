@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.autofill.types import Address
-    from cdp.protocol.autofill.types import CreditCard
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.page.types import FrameId
+    from ..types import Address
+    from ..types import CreditCard
+    from ...dom.types import BackendNodeId
+    from ...page.types import FrameId
 
 class triggerParameters(TypedDict, total=True):
     fieldId: BackendNodeId

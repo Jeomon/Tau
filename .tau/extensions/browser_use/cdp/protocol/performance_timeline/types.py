@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.page.types import FrameId
+    from ..dom.types import BackendNodeId
+    from ..dom.types import Rect
+    from ..network.types import TimeSinceEpoch
+    from ..page.types import FrameId
 
 class LargestContentfulPaint(TypedDict, total=True):
     """See https://github.com/WICG/LargestContentfulPaint and largest_contentful_paint.idl"""

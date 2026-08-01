@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.runtime.types import CallFrame
-    from cdp.protocol.runtime.types import ScriptId
+    from ..runtime.types import CallFrame
+    from ..runtime.types import ScriptId
 
 class ProfileNode(TypedDict, total=True):
     """Profile node. Holds callsite information, execution statistics and child nodes."""

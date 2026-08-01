@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.layer_tree.types import Layer
-    from cdp.protocol.layer_tree.types import LayerId
+    from ...dom.types import Rect
+    from ..types import Layer
+    from ..types import LayerId
 
 class layerPaintedEvent(TypedDict, total=True):
     layerId: LayerId

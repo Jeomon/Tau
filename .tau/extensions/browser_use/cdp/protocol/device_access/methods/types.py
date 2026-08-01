@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.device_access.types import DeviceId
-    from cdp.protocol.device_access.types import RequestId
+    from ..types import DeviceId
+    from ..types import RequestId
 
 
 

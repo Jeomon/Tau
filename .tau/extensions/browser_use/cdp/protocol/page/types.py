@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import LoaderId
-    from cdp.protocol.network.types import ResourceType
-    from cdp.protocol.network.types import TimeSinceEpoch
+    from ..network.types import LoaderId
+    from ..network.types import ResourceType
+    from ..network.types import TimeSinceEpoch
 
 FrameId = str
 """Unique frame identifier."""

@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import Rect
-    from cdp.protocol.layer_tree.types import LayerId
-    from cdp.protocol.layer_tree.types import PaintProfile
-    from cdp.protocol.layer_tree.types import PictureTile
-    from cdp.protocol.layer_tree.types import SnapshotId
+    from ...dom.types import Rect
+    from ..types import LayerId
+    from ..types import PaintProfile
+    from ..types import PictureTile
+    from ..types import SnapshotId
 
 class compositingReasonsParameters(TypedDict, total=True):
     layerId: LayerId

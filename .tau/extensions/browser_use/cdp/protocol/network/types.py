@@ -4,13 +4,13 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.runtime.types import ScriptId
-    from cdp.protocol.runtime.types import StackTrace
-    from cdp.protocol.runtime.types import UniqueDebuggerId
-    from cdp.protocol.security.types import CertificateId
-    from cdp.protocol.security.types import MixedContentType
-    from cdp.protocol.security.types import SecurityState
+    from ..io.types import StreamHandle
+    from ..runtime.types import ScriptId
+    from ..runtime.types import StackTrace
+    from ..runtime.types import UniqueDebuggerId
+    from ..security.types import CertificateId
+    from ..security.types import MixedContentType
+    from ..security.types import SecurityState
 
 ResourceType = Literal['Document','Stylesheet','Image','Media','Font','Script','TextTrack','XHR','Fetch','Prefetch','EventSource','WebSocket','Manifest','SignedExchange','Ping','CSPViolationReport','Preflight','FedCM','Other']
 """Resource type as it was perceived by the rendering engine."""

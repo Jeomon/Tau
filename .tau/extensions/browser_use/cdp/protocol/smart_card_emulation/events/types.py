@@ -4,11 +4,11 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.smart_card_emulation.types import Disposition
-    from cdp.protocol.smart_card_emulation.types import Protocol
-    from cdp.protocol.smart_card_emulation.types import ProtocolSet
-    from cdp.protocol.smart_card_emulation.types import ReaderStateIn
-    from cdp.protocol.smart_card_emulation.types import ShareMode
+    from ..types import Disposition
+    from ..types import Protocol
+    from ..types import ProtocolSet
+    from ..types import ReaderStateIn
+    from ..types import ShareMode
 
 class establishContextRequestedEvent(TypedDict, total=True):
     requestId: str

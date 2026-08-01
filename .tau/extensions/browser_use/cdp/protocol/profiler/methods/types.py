@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.profiler.types import Profile
-    from cdp.protocol.profiler.types import ScriptCoverage
+    from ..types import Profile
+    from ..types import ScriptCoverage
 
 
 

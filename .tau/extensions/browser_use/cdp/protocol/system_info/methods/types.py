@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.system_info.types import GPUInfo
-    from cdp.protocol.system_info.types import ProcessInfo
+    from ..types import GPUInfo
+    from ..types import ProcessInfo
 
 
 class getFeatureStateParameters(TypedDict, total=True):

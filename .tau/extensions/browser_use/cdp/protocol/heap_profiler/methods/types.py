@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.heap_profiler.types import HeapSnapshotObjectId
-    from cdp.protocol.heap_profiler.types import SamplingHeapProfile
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import RemoteObjectId
+    from ..types import HeapSnapshotObjectId
+    from ..types import SamplingHeapProfile
+    from ...runtime.types import RemoteObject
+    from ...runtime.types import RemoteObjectId
 
 class addInspectedHeapObjectParameters(TypedDict, total=True):
     heapObjectId: HeapSnapshotObjectId

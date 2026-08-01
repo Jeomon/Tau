@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.page.types import FrameId
+    from ..page.types import FrameId
 
 class AdFrameData(TypedDict, total=True):
     """Ad frame data."""

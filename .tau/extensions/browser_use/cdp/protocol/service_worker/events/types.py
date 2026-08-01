@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.service_worker.types import ServiceWorkerErrorMessage
-    from cdp.protocol.service_worker.types import ServiceWorkerRegistration
-    from cdp.protocol.service_worker.types import ServiceWorkerVersion
+    from ..types import ServiceWorkerErrorMessage
+    from ..types import ServiceWorkerRegistration
+    from ..types import ServiceWorkerVersion
 
 class workerErrorReportedEvent(TypedDict, total=True):
     errorMessage: ServiceWorkerErrorMessage

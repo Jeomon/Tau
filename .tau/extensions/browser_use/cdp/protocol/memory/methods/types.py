@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.memory.types import DOMCounter
-    from cdp.protocol.memory.types import PressureLevel
-    from cdp.protocol.memory.types import SamplingProfile
+    from ..types import DOMCounter
+    from ..types import PressureLevel
+    from ..types import SamplingProfile
 
 
 

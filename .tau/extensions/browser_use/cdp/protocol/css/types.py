@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import LogicalAxes
-    from cdp.protocol.dom.types import PhysicalAxes
-    from cdp.protocol.dom.types import PseudoType
-    from cdp.protocol.dom.types import StyleSheetId
-    from cdp.protocol.page.types import FrameId
+    from ..dom.types import BackendNodeId
+    from ..dom.types import LogicalAxes
+    from ..dom.types import PhysicalAxes
+    from ..dom.types import PseudoType
+    from ..dom.types import StyleSheetId
+    from ..page.types import FrameId
 
 StyleSheetOrigin = Literal['injected','user-agent','inspector','regular']
 """Stylesheet type: "injected" for stylesheets injected via extension, "user-agent" for user-agent stylesheets, "inspector" for stylesheets created by the inspector (i.e. those holding the "via inspector" rules), "regular" for regular stylesheets."""

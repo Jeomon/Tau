@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom_storage.types import StorageId
+    from ..types import StorageId
 
 class domStorageItemAddedEvent(TypedDict, total=True):
     storageId: StorageId

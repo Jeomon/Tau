@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.cast.types import Sink
+    from ..types import Sink
 
 class sinksUpdatedEvent(TypedDict, total=True):
     sinks: List[Sink]

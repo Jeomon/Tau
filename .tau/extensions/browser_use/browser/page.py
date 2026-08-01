@@ -6,7 +6,7 @@ from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal
 
-from dom.types import Element
+from ..dom.types import Element
 
 from .types import LoadState, SessionID, TargetID
 

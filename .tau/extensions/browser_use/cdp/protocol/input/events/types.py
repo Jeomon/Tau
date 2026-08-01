@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.input.types import DragData
+    from ..types import DragData
 
 class dragInterceptedEvent(TypedDict, total=True):
     data: DragData

@@ -6,13 +6,13 @@ import ipaddress
 from typing import ClassVar
 from urllib.parse import urlsplit
 
-from browser.hooks import (
+from ..browser.hooks import (
     BrowserErrorEvent,
     BrowserEvent,
     NavigationCompleteEvent,
     TabCreatedEvent,
 )
-from browser.types import NavigationBlockedError
+from ..browser.types import NavigationBlockedError
 
 from .base import BaseWatchdog
 

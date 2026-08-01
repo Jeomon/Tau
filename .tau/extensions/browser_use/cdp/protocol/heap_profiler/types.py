@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.runtime.types import CallFrame
+    from ..runtime.types import CallFrame
 
 HeapSnapshotObjectId = str
 """Heap snapshot object id."""

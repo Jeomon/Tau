@@ -4,12 +4,12 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.fetch.types import AuthChallengeResponse
-    from cdp.protocol.fetch.types import HeaderEntry
-    from cdp.protocol.fetch.types import RequestId
-    from cdp.protocol.fetch.types import RequestPattern
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.network.types import ErrorReason
+    from ..types import AuthChallengeResponse
+    from ..types import HeaderEntry
+    from ..types import RequestId
+    from ..types import RequestPattern
+    from ...io.types import StreamHandle
+    from ...network.types import ErrorReason
 
 
 class enableParameters(TypedDict, total=False):

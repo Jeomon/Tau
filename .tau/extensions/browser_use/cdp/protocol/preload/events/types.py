@@ -4,18 +4,18 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import LoaderId
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.preload.types import PrefetchStatus
-    from cdp.protocol.preload.types import PreloadPipelineId
-    from cdp.protocol.preload.types import PreloadingAttemptKey
-    from cdp.protocol.preload.types import PreloadingAttemptSource
-    from cdp.protocol.preload.types import PreloadingStatus
-    from cdp.protocol.preload.types import PrerenderFinalStatus
-    from cdp.protocol.preload.types import PrerenderMismatchedHeaders
-    from cdp.protocol.preload.types import RuleSet
-    from cdp.protocol.preload.types import RuleSetId
+    from ...network.types import LoaderId
+    from ...network.types import RequestId
+    from ...page.types import FrameId
+    from ..types import PrefetchStatus
+    from ..types import PreloadPipelineId
+    from ..types import PreloadingAttemptKey
+    from ..types import PreloadingAttemptSource
+    from ..types import PreloadingStatus
+    from ..types import PrerenderFinalStatus
+    from ..types import PrerenderMismatchedHeaders
+    from ..types import RuleSet
+    from ..types import RuleSetId
 
 class ruleSetUpdatedEvent(TypedDict, total=True):
     ruleSet: RuleSet

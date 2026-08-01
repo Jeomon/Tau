@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import ScriptId
+    from ..runtime.types import RemoteObject
+    from ..runtime.types import ScriptId
 
 BreakpointId = str
 """Breakpoint identifier."""

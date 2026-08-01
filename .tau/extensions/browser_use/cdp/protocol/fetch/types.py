@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import ResourceType
+    from ..network.types import ResourceType
 
 RequestId = str
 """Unique request identifier. Note that this does not identify individual HTTP requests that are part of a network request."""

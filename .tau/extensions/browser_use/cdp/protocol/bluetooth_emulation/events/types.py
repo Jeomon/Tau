@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.bluetooth_emulation.types import CharacteristicOperationType
-    from cdp.protocol.bluetooth_emulation.types import CharacteristicWriteType
-    from cdp.protocol.bluetooth_emulation.types import DescriptorOperationType
-    from cdp.protocol.bluetooth_emulation.types import GATTOperationType
+    from ..types import CharacteristicOperationType
+    from ..types import CharacteristicWriteType
+    from ..types import DescriptorOperationType
+    from ..types import GATTOperationType
 
 class gattOperationReceivedEvent(TypedDict, total=True):
     address: str

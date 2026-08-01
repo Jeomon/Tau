@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.dom.types import ScrollOrientation
+    from ..dom.types import BackendNodeId
+    from ..dom.types import ScrollOrientation
 
 class Animation(TypedDict, total=True):
     """Animation instance."""

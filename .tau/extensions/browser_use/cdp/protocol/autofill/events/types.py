@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.autofill.types import AddressUI
-    from cdp.protocol.autofill.types import FilledField
+    from ..types import AddressUI
+    from ..types import FilledField
 
 class addressFormFilledEvent(TypedDict, total=True):
     filledFields: List[FilledField]

@@ -4,7 +4,7 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.security.types import VisibleSecurityState
+    from ..types import VisibleSecurityState
 
 class visibleSecurityStateChangedEvent(TypedDict, total=True):
     visibleSecurityState: VisibleSecurityState

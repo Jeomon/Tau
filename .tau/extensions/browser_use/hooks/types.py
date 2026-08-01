@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TypeAlias
 
-from browser.hooks import BrowserEvent
+from ..browser.hooks import BrowserEvent
 
 HookEvent: TypeAlias = BrowserEvent | Any
 

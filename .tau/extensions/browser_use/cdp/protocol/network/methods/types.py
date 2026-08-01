@@ -4,28 +4,28 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.debugger.types import SearchMatch
-    from cdp.protocol.emulation.types import UserAgentMetadata
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.network.types import BlockPattern
-    from cdp.protocol.network.types import ConnectionType
-    from cdp.protocol.network.types import ContentEncoding
-    from cdp.protocol.network.types import Cookie
-    from cdp.protocol.network.types import CookieParam
-    from cdp.protocol.network.types import CookiePartitionKey
-    from cdp.protocol.network.types import CookiePriority
-    from cdp.protocol.network.types import CookieSameSite
-    from cdp.protocol.network.types import CookieSourceScheme
-    from cdp.protocol.network.types import DeviceBoundSessionKey
-    from cdp.protocol.network.types import Headers
-    from cdp.protocol.network.types import InterceptionId
-    from cdp.protocol.network.types import LoadNetworkResourceOptions
-    from cdp.protocol.network.types import LoadNetworkResourcePageResult
-    from cdp.protocol.network.types import NetworkConditions
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.network.types import SecurityIsolationStatus
-    from cdp.protocol.network.types import TimeSinceEpoch
-    from cdp.protocol.page.types import FrameId
+    from ...debugger.types import SearchMatch
+    from ...emulation.types import UserAgentMetadata
+    from ...io.types import StreamHandle
+    from ..types import BlockPattern
+    from ..types import ConnectionType
+    from ..types import ContentEncoding
+    from ..types import Cookie
+    from ..types import CookieParam
+    from ..types import CookiePartitionKey
+    from ..types import CookiePriority
+    from ..types import CookieSameSite
+    from ..types import CookieSourceScheme
+    from ..types import DeviceBoundSessionKey
+    from ..types import Headers
+    from ..types import InterceptionId
+    from ..types import LoadNetworkResourceOptions
+    from ..types import LoadNetworkResourcePageResult
+    from ..types import NetworkConditions
+    from ..types import RequestId
+    from ..types import SecurityIsolationStatus
+    from ..types import TimeSinceEpoch
+    from ...page.types import FrameId
 
 class setAcceptedEncodingsParameters(TypedDict, total=True):
     encodings: List[ContentEncoding]

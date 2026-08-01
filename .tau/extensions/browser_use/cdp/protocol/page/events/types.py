@@ -4,19 +4,19 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.network.types import LoaderId
-    from cdp.protocol.network.types import MonotonicTime
-    from cdp.protocol.page.types import BackForwardCacheNotRestoredExplanation
-    from cdp.protocol.page.types import BackForwardCacheNotRestoredExplanationTree
-    from cdp.protocol.page.types import ClientNavigationDisposition
-    from cdp.protocol.page.types import ClientNavigationReason
-    from cdp.protocol.page.types import DialogType
-    from cdp.protocol.page.types import Frame
-    from cdp.protocol.page.types import FrameId
-    from cdp.protocol.page.types import NavigationType
-    from cdp.protocol.page.types import ScreencastFrameMetadata
-    from cdp.protocol.runtime.types import StackTrace
+    from ...dom.types import BackendNodeId
+    from ...network.types import LoaderId
+    from ...network.types import MonotonicTime
+    from ..types import BackForwardCacheNotRestoredExplanation
+    from ..types import BackForwardCacheNotRestoredExplanationTree
+    from ..types import ClientNavigationDisposition
+    from ..types import ClientNavigationReason
+    from ..types import DialogType
+    from ..types import Frame
+    from ..types import FrameId
+    from ..types import NavigationType
+    from ..types import ScreencastFrameMetadata
+    from ...runtime.types import StackTrace
 
 class domContentEventFiredEvent(TypedDict, total=True):
     timestamp: MonotonicTime

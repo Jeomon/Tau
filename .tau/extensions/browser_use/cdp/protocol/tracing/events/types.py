@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.io.types import StreamHandle
-    from cdp.protocol.tracing.types import StreamCompression
-    from cdp.protocol.tracing.types import StreamFormat
+    from ...io.types import StreamHandle
+    from ..types import StreamCompression
+    from ..types import StreamFormat
 
 class bufferUsageEvent(TypedDict, total=False):
     percentFull: NotRequired[float]

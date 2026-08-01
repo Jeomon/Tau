@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.target.types import SessionID
-    from cdp.protocol.target.types import TargetID
-    from cdp.protocol.target.types import TargetInfo
+    from ..types import SessionID
+    from ..types import TargetID
+    from ..types import TargetInfo
 
 class attachedToTargetEvent(TypedDict, total=True):
     sessionId: SessionID

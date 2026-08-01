@@ -4,24 +4,24 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.debugger.types import BreakLocation
-    from cdp.protocol.debugger.types import BreakpointId
-    from cdp.protocol.debugger.types import CallFrame
-    from cdp.protocol.debugger.types import CallFrameId
-    from cdp.protocol.debugger.types import Location
-    from cdp.protocol.debugger.types import LocationRange
-    from cdp.protocol.debugger.types import ScriptPosition
-    from cdp.protocol.debugger.types import SearchMatch
-    from cdp.protocol.debugger.types import WasmDisassemblyChunk
-    from cdp.protocol.runtime.types import CallArgument
-    from cdp.protocol.runtime.types import ExceptionDetails
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import RemoteObjectId
-    from cdp.protocol.runtime.types import ScriptId
-    from cdp.protocol.runtime.types import StackTrace
-    from cdp.protocol.runtime.types import StackTraceId
-    from cdp.protocol.runtime.types import TimeDelta
-    from cdp.protocol.runtime.types import UniqueDebuggerId
+    from ..types import BreakLocation
+    from ..types import BreakpointId
+    from ..types import CallFrame
+    from ..types import CallFrameId
+    from ..types import Location
+    from ..types import LocationRange
+    from ..types import ScriptPosition
+    from ..types import SearchMatch
+    from ..types import WasmDisassemblyChunk
+    from ...runtime.types import CallArgument
+    from ...runtime.types import ExceptionDetails
+    from ...runtime.types import RemoteObject
+    from ...runtime.types import RemoteObjectId
+    from ...runtime.types import ScriptId
+    from ...runtime.types import StackTrace
+    from ...runtime.types import StackTraceId
+    from ...runtime.types import TimeDelta
+    from ...runtime.types import UniqueDebuggerId
 
 class continueToLocationParameters(TypedDict, total=True):
     location: Location

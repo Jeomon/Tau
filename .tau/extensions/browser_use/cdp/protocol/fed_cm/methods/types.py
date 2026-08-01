@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.fed_cm.types import AccountUrlType
-    from cdp.protocol.fed_cm.types import DialogButton
+    from ..types import AccountUrlType
+    from ..types import DialogButton
 
 class enableParameters(TypedDict, total=False):
     disableRejectionDelay: NotRequired[bool]

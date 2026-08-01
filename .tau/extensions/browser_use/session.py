@@ -1,16 +1,14 @@
 """Owns the Browser instance and the currently controlled tab for the tau extension.
 
 The Browser project's packages (``browser``, ``dom``, ``cdp``, ``watchdog``,
-``hooks``) are vendored directly alongside this file as plain top-level
-packages, not an installed distribution, so they are put on ``sys.path`` here
-ahead of site-packages — an unrelated PyPI package is literally named ``cdp``.
+``hooks``) are vendored directly alongside this file and imported relative to
+this extension's own package, so no sys.path setup is needed for them.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -18,46 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from browser import Browser
-    from dom.types import Element
-
-_SHADOWED_PACKAGES = ("cdp", "browser", "dom", "watchdog", "hooks")
-_bootstrapped: Path | None = None
-
-
-def _find_src_dir() -> Path:
-    """Locate this extension's own directory, which holds the vendored
-    `browser`/`dom`/`cdp`/`watchdog`/`hooks` packages directly (no separate
-    `src/` layout). `.resolve()` follows symlinks, so this also works when
-    the extension is symlinked into `~/.tau/extensions/`.
-    """
-    start = Path(__file__).resolve().parent
-    if (start / "browser" / "service.py").is_file():
-        return start
-    raise RuntimeError(
-        f"could not find the vendored `browser` package next to {start}"
-    )
-
-
-def bootstrap_browser_imports() -> Path:
-    """Put this extension's directory first on sys.path, evicting any
-    same-named packages already imported from elsewhere. Idempotent: repeat
-    calls are no-ops so already-imported classes keep their identity."""
-    global _bootstrapped
-    if _bootstrapped is not None:
-        return _bootstrapped
-
-    src = _find_src_dir()
-    entry = str(src)
-    if entry in sys.path:
-        sys.path.remove(entry)
-    sys.path.insert(0, entry)
-    for name in _SHADOWED_PACKAGES:
-        for module_name in list(sys.modules):
-            if module_name == name or module_name.startswith(f"{name}."):
-                del sys.modules[module_name]
-    _bootstrapped = src
-    return src
+    from .browser import Browser
+    from .dom.types import Element
 
 
 def _resolve_ws_url(value: str, timeout: float = 10.0) -> str:
@@ -218,8 +178,7 @@ class BrowserSession:
             return "Browser is already open."
         import asyncio
 
-        bootstrap_browser_imports()
-        from browser import Browser, BrowserSettings
+        from .browser import Browser, BrowserSettings
 
         profile = None
         if self._cdp_url:

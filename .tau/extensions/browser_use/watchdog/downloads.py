@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import unquote, urlsplit
 
-from browser.hooks import (
+from ..browser.hooks import (
     BrowserEvent,
     BrowserReconnectedEvent,
     BrowserStartedEvent,

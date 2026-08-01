@@ -4,8 +4,8 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.dom.types import BackendNodeId
-    from cdp.protocol.page.types import FrameId
+    from ..dom.types import BackendNodeId
+    from ..page.types import FrameId
 
 class CreditCard(TypedDict, total=True):
     number: str

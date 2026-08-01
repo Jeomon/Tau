@@ -4,15 +4,15 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.browser.types import Bounds
-    from cdp.protocol.browser.types import BrowserCommandId
-    from cdp.protocol.browser.types import BrowserContextID
-    from cdp.protocol.browser.types import Histogram
-    from cdp.protocol.browser.types import PermissionDescriptor
-    from cdp.protocol.browser.types import PermissionSetting
-    from cdp.protocol.browser.types import PrivacySandboxAPI
-    from cdp.protocol.browser.types import WindowID
-    from cdp.protocol.target.types import TargetID
+    from ..types import Bounds
+    from ..types import BrowserCommandId
+    from ..types import BrowserContextID
+    from ..types import Histogram
+    from ..types import PermissionDescriptor
+    from ..types import PermissionSetting
+    from ..types import PrivacySandboxAPI
+    from ..types import WindowID
+    from ...target.types import TargetID
 
 class setPermissionParameters(TypedDict, total=True):
     permission: PermissionDescriptor

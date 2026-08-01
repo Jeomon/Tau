@@ -4,10 +4,10 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.network.types import RequestId
-    from cdp.protocol.runtime.types import RemoteObject
-    from cdp.protocol.runtime.types import StackTrace
-    from cdp.protocol.runtime.types import Timestamp
+    from ..network.types import RequestId
+    from ..runtime.types import RemoteObject
+    from ..runtime.types import StackTrace
+    from ..runtime.types import Timestamp
 
 class LogEntry(TypedDict, total=True):
     """Log entry."""

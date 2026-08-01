@@ -4,9 +4,9 @@ from typing import TypedDict, NotRequired, Required, Literal, Any, Dict, Union, 
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from cdp.protocol.pwa.types import DisplayMode
-    from cdp.protocol.pwa.types import FileHandler
-    from cdp.protocol.target.types import TargetID
+    from ..types import DisplayMode
+    from ..types import FileHandler
+    from ...target.types import TargetID
 
 class getOsAppStateParameters(TypedDict, total=True):
     manifestId: str
