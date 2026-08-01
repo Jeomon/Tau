@@ -17,6 +17,11 @@ from browser.types import NavigationBlockedError
 from .base import BaseWatchdog
 
 
+_BLANK_TAB_URLS = frozenset(
+    {"chrome://newtab/", "chrome://new-tab-page/", "chrome://new-tab-page"}
+)
+
+
 class SecurityWatchdog(BaseWatchdog):
     LISTENS_TO: ClassVar[tuple[type[BrowserEvent], ...]] = (
         TabCreatedEvent,
@@ -25,6 +30,17 @@ class SecurityWatchdog(BaseWatchdog):
     EMITS: ClassVar[tuple[type[BrowserEvent], ...]] = (BrowserErrorEvent,)
 
     def is_url_allowed(self, url: str) -> tuple[bool, str | None]:
+        # Chrome's own new-tab bootstrap page — every manually opened tab
+        # (Cmd+T, "+", "open link in new tab") starts here before the user
+        # (or a navigation) picks a real destination. It isn't in
+        # allowed_url_schemes (only http/https/about/data), so without this
+        # exemption on_TabCreatedEvent below would close_target() it on
+        # sight — killing every manually opened tab within milliseconds,
+        # even though the tool's own new_page("about:blank") path is fine.
+        # Treated like about:blank: a neutral starting state, not a real
+        # navigation to police.
+        if url in _BLANK_TAB_URLS:
+            return True, None
         try:
             parsed = urlsplit(url)
         except ValueError:

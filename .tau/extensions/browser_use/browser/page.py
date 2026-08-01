@@ -172,12 +172,14 @@ class Page:
         *,
         button: Literal["left", "right", "middle"] = "left",
         click_count: int = 1,
-    ) -> None:
-        await self.browser.click_element(
+        new_tab: bool = False,
+    ) -> Page | None:
+        return await self.browser.click_element(
             await self.session_id(),
             element,
             button=button,
             click_count=click_count,
+            new_tab=new_tab,
         )
 
     async def hover(self, x: float, y: float) -> None:

@@ -431,11 +431,20 @@ class Session:
 
     async def _handle_attached(self, params: dict[str, Any]) -> None:
         target = await self._upsert_target(params["targetInfo"])
-        await self._store_session(target, params["sessionId"])
         if params.get("waitingForDebugger"):
+            # Must resume before _store_session below: it enables Page/DOM/
+            # Runtime/etc. domains via commands that hang indefinitely (CDP
+            # times out at 60s) against a target still paused waiting for a
+            # debugger — Runtime.runIfWaitingForDebugger works pre-domain-
+            # enable by design, so it has to go first. Hit this via a
+            # target=_blank click: even with waitForDebuggerOnStart=False on
+            # the top-level auto-attach, Chrome still attaches
+            # renderer-initiated child targets (window.open, target=_blank)
+            # with waitingForDebugger=true.
             await self._client().runtime.run_if_waiting_for_debugger(
                 session_id=params["sessionId"]
             )
+        await self._store_session(target, params["sessionId"])
 
     def _on_detached(
         self, params: dict[str, Any], _parent_session_id: SessionID | None

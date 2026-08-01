@@ -73,7 +73,17 @@ class BrowserSchema(BaseModel):
         )
     )
     url: str | None = Field(default=None, description="Destination for action=navigate.")
-    new_tab: bool = Field(default=False, description="Open the navigate URL in a new tab.")
+    new_tab: bool = Field(
+        default=False,
+        description=(
+            "Open the destination in a new tab instead of in place. For "
+            "action=navigate: the url. For action=click: element_id must be "
+            "an <a href=...> link — Chromium doesn't honor middle-click/"
+            "Ctrl+click 'open in new tab' for synthetic clicks, so this "
+            "resolves the link's href and opens it directly rather than "
+            "trying to fake that gesture; not supported with loc clicks."
+        ),
+    )
     element_id: int | None = Field(
         default=None,
         description=(
@@ -130,6 +140,8 @@ class BrowserSchema(BaseModel):
             raise ValueError("'url' is required when action='navigate'")
         if self.action == BrowserAction.click and self.element_id is None and self.loc is None:
             raise ValueError("'element_id' or 'loc' is required when action='click'")
+        if self.action == BrowserAction.click and self.new_tab and self.element_id is None:
+            raise ValueError("'new_tab' with action='click' requires 'element_id' (a link element), not 'loc'")
         if self.action == BrowserAction.type and self.text is None:
             raise ValueError("'text' is required when action='type'")
         if self.action == BrowserAction.press and not self.keys:
@@ -299,11 +311,18 @@ class BrowserTool(Tool):
         if params.action == BrowserAction.click:
             if params.element_id is not None:
                 element = await self._require_element(params.element_id)
-                await browser.click_element(
+                new_page = await browser.click_element(
                     session_id, element,
                     button=params.button.value, click_count=params.clicks,
+                    new_tab=params.new_tab,
                 )
                 label = (element.text or "").strip().replace("\n", " ")[:40]
+                if params.new_tab and new_page is not None:
+                    await session.adopt_target(new_page.target_id)
+                    return ToolResult.ok(
+                        call_id,
+                        f"Opened [{params.element_id}] <{element.tag_name}> {label!r} in a new tab.",
+                    )
                 return ToolResult.ok(
                     call_id,
                     f"Clicked [{params.element_id}] <{element.tag_name}> {label!r}.",

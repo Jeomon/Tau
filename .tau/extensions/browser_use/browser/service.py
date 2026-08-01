@@ -13,6 +13,7 @@ import tempfile
 from asyncio.subprocess import Process
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, Self
+from urllib.parse import urljoin
 
 from cdp import Client
 from dom import DOM
@@ -450,7 +451,33 @@ class Browser:
         *,
         button: Literal["left", "right", "middle"] = "left",
         click_count: int = 1,
-    ) -> None:
+        new_tab: bool = False,
+    ) -> Page | None:
+        if new_tab:
+            # Chromium does not honor middle-click/Ctrl+click "open in new
+            # tab" gestures for synthetic (CDP-injected) input — that
+            # behavior is gated on trusted OS-level input, not just a
+            # dispatched mousedown/mouseup with the right button/modifiers
+            # (verified: neither reproduces it). A plain click only lands in
+            # a new tab if the link itself carries target="_blank", which is
+            # up to the page, not something we control. So the only
+            # reliable way to force a link open in a new tab is to resolve
+            # its href ourselves and open it the same way navigate(new_tab=
+            # True) does, instead of trying to fake the click gesture.
+            href = element.attributes.get("href") if element.tag_name == "a" else None
+            if not href:
+                raise NavigationError(
+                    "click(new_tab=True) only works on <a href=...> elements: "
+                    f"got <{element.tag_name}> with no href. Chromium doesn't "
+                    "honor middle-click/Ctrl+click for synthetic input, so a "
+                    "non-link element can't be reliably forced into a new tab."
+                )
+            target_id = self.session.target_for_session(session_id)
+            base_url = self.session.targets[target_id].url if target_id else ""
+            page = await self.new_page(urljoin(base_url, href))
+            await self.hooks.emit(ClickElementEvent(node=element, button=button))
+            return page
+
         x, y = await self._stable_element_center(session_id, element)
         await self._validate_element_hit(session_id, element, x, y)
         await self.click(
@@ -461,6 +488,7 @@ class Browser:
             click_count=click_count,
         )
         await self.hooks.emit(ClickElementEvent(node=element, button=button))
+        return None
 
     async def hover(self, session_id: SessionID, x: float, y: float) -> None:
         client = self._require_client()
