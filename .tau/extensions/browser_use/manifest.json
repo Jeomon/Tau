@@ -1,0 +1,72 @@
+{
+  "tau": {
+    "name": "Browser use",
+    "author": "jeomon",
+    "dependencies": [
+      "websockets>=14",
+      "pillow"
+    ],
+    "settings": {
+      "title": "Browser use",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true,
+          "description": "Register the browser tool, letting the agent drive a Chromium browser over CDP."
+        },
+        {
+          "key": "mode",
+          "label": "Observation Mode",
+          "type": "enum",
+          "values": ["screenshot", "accessibility_tree", "both"],
+          "default": "both",
+          "description": "What browser state is injected into context each turn: an annotated screenshot, the interactive-element accessibility tree (role + name + states, referenced by element_id), or both."
+        },
+        {
+          "key": "highlight",
+          "label": "Highlight elements",
+          "type": "bool",
+          "default": true,
+          "description": "After each element scan, flash labeled bounding boxes over the interactive elements in the live page for 5 seconds (never visible in the agent's screenshots)."
+        },
+        {
+          "key": "headless",
+          "label": "Headless",
+          "type": "bool",
+          "default": false,
+          "description": "Launch Chromium without a visible window. Ignored when attaching to an existing browser via CDP URL."
+        },
+        {
+          "key": "cdp_url",
+          "label": "CDP URL or port",
+          "type": "string",
+          "default": "",
+          "description": "Attach to an already-running Chrome instead of launching one. Accepts a ws:// URL, an http://host:port endpoint, or a bare debug port like 9222. Leave empty to launch a browser owned by the agent."
+        },
+        {
+          "key": "user_data_dir",
+          "label": "Persistent profile directory",
+          "type": "string",
+          "default": "",
+          "description": "Reuse a persistent Chrome profile dir across runs instead of a throwaway one. Sign into sites (e.g. Google) once as a human in this profile and the agent stays logged in. Leave empty for an ephemeral profile."
+        },
+        {
+          "key": "stealth",
+          "label": "Stealth",
+          "type": "bool",
+          "default": false,
+          "description": "Inject anti-detection fingerprint patches (hides navigator.webdriver, etc.). Helps with basic bot checks; does not defeat Google's sign-in block on its own."
+        },
+        {
+          "key": "browser_src",
+          "label": "Browser src directory",
+          "type": "string",
+          "default": "",
+          "description": "Path to the Browser project's src directory. Leave empty to auto-detect by walking up from this extension."
+        }
+      ]
+    }
+  }
+}
