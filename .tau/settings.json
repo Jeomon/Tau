@@ -25,7 +25,7 @@
       {
         "path": ".tau/extensions/computer_use",
         "name": null,
-        "enabled": true,
+        "enabled": false,
         "source": null,
         "author": null,
         "settings": {
