@@ -46,7 +46,6 @@ def register(tau: ExtensionAPI) -> None:
     session = BrowserSession(
         headless=bool(config.get("headless", False)),
         cdp_url=(config.get("cdp_url") or "").strip() or None,
-        src_override=(config.get("browser_src") or "").strip() or None,
         highlight=bool(config.get("highlight", True)),
         user_data_dir=(config.get("user_data_dir") or "").strip() or None,
         stealth=bool(config.get("stealth", False)),

@@ -58,13 +58,6 @@
           "type": "bool",
           "default": false,
           "description": "Inject anti-detection fingerprint patches (hides navigator.webdriver, etc.). Helps with basic bot checks; does not defeat Google's sign-in block on its own."
-        },
-        {
-          "key": "browser_src",
-          "label": "Browser src directory",
-          "type": "string",
-          "default": "",
-          "description": "Path to the Browser project's src directory. Leave empty to auto-detect by walking up from this extension."
         }
       ]
     }

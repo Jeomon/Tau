@@ -1,10 +1,9 @@
 """Owns the Browser instance and the currently controlled tab for the tau extension.
 
 The Browser project's packages (``browser``, ``dom``, ``cdp``, ``watchdog``,
-``hooks``) are plain top-level packages under its ``src`` directory, not an
-installed distribution, so they are put on ``sys.path`` here the same way the
-project's own ``tests/conftest.py`` does it — inserted ahead of site-packages
-because an unrelated PyPI package is literally named ``cdp``.
+``hooks``) are vendored directly alongside this file as plain top-level
+packages, not an installed distribution, so they are put on ``sys.path`` here
+ahead of site-packages — an unrelated PyPI package is literally named ``cdp``.
 """
 
 from __future__ import annotations
@@ -27,42 +26,28 @@ _bootstrapped: Path | None = None
 
 
 def _find_src_dir() -> Path:
-    """Locate the Browser project's `src` directory from this extension's path.
-
-    The extension lives at `<repo>/.tau/extensions/browser_use/`, so walking
-    up from here finds `<repo>/src` — but the walk also covers the extension
-    being symlinked into `~/.tau/extensions/` as long as `__file__` resolves
-    back into the repo checkout.
+    """Locate this extension's own directory, which holds the vendored
+    `browser`/`dom`/`cdp`/`watchdog`/`hooks` packages directly (no separate
+    `src/` layout). `.resolve()` follows symlinks, so this also works when
+    the extension is symlinked into `~/.tau/extensions/`.
     """
     start = Path(__file__).resolve().parent
     if (start / "browser" / "service.py").is_file():
         return start
-    for candidate in (start, *start.parents):
-        src = candidate / "src"
-        if (src / "browser" / "service.py").is_file():
-            return src
     raise RuntimeError(
-        "could not locate the Browser project's `src` directory from "
-        f"{start} — set the extension's `browser_src` setting to it explicitly."
+        f"could not find the vendored `browser` package next to {start}"
     )
 
 
-def bootstrap_browser_imports(src_override: str | None = None) -> Path:
-    """Put the Browser project's `src` first on sys.path, evicting any
+def bootstrap_browser_imports() -> Path:
+    """Put this extension's directory first on sys.path, evicting any
     same-named packages already imported from elsewhere. Idempotent: repeat
     calls are no-ops so already-imported classes keep their identity."""
     global _bootstrapped
     if _bootstrapped is not None:
         return _bootstrapped
 
-    src = (
-        Path(src_override).expanduser().resolve()
-        if src_override
-        else _find_src_dir()
-    )
-    if not (src / "browser" / "service.py").is_file():
-        raise RuntimeError(f"`{src}` does not look like the Browser project's src directory")
-
+    src = _find_src_dir()
     entry = str(src)
     if entry in sys.path:
         sys.path.remove(entry)
@@ -203,14 +188,12 @@ class BrowserSession:
         *,
         headless: bool = False,
         cdp_url: str | None = None,
-        src_override: str | None = None,
         highlight: bool = True,
         user_data_dir: str | None = None,
         stealth: bool = False,
     ) -> None:
         self._headless = headless
         self._cdp_url = cdp_url
-        self._src_override = src_override
         self._highlight = highlight
         self._user_data_dir = user_data_dir
         self._stealth = stealth
@@ -235,7 +218,7 @@ class BrowserSession:
             return "Browser is already open."
         import asyncio
 
-        bootstrap_browser_imports(self._src_override)
+        bootstrap_browser_imports()
         from browser import Browser, BrowserSettings
 
         profile = None
