@@ -62,9 +62,15 @@ class NavigationWatchdog(BaseWatchdog):
         if session_id is None or session_id not in self._urls_by_session:
             return
         url = self._urls_by_session.pop(session_id)
+        # SecurityWatchdog.on_NavigationCompleteEvent (and StorageStateWatchdog)
+        # both bail out early when target_id is empty, so this must be
+        # populated for the event to actually do anything.
+        target_id = self.browser.session.target_for_session(session_id) or ""
         self.create_task(
             self.browser.hooks.emit(
-                NavigationCompleteEvent(url=url, loading_status="complete")
+                NavigationCompleteEvent(
+                    target_id=target_id, url=url, loading_status="complete"
+                )
             ),
             name="navigation-complete",
         )

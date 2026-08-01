@@ -45,7 +45,6 @@ from .hooks import (
     KeyUpEvent,
     NavigateToUrlEvent,
     NavigationStartedEvent,
-    NavigationCompleteEvent,
     RefreshEvent,
     ScreenshotEvent,
     ScrollEvent,
@@ -383,14 +382,16 @@ class Browser:
                 timeout_ms=int(timeout * 1000),
             )
         )
-        await self.hooks.emit(
-            NavigationCompleteEvent(
-                target_id=target_id,
-                url=final_url,
-                status=status,
-                loading_status=wait_until,
-            )
-        )
+        # NavigationCompleteEvent is no longer emitted here: NavigationWatchdog
+        # now emits it for every main-frame navigation (Page.frameNavigated +
+        # Page.frameStoppedLoading), not just ones that went through this
+        # method. Emitting it here too would double-fire it for agent-
+        # initiated navigation (SecurityWatchdog/StorageStateWatchdog would
+        # process the same navigation twice) while still leaving click-
+        # triggered, JS-redirected, back/forward, and refresh navigations
+        # with no post-navigation event at all — exactly the gap that made
+        # SecurityWatchdog's post-navigation check a no-op for anything but
+        # explicit navigate() calls.
         if status is not None:
             result["status"] = status
         return result

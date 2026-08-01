@@ -15,6 +15,13 @@ DEFAULT_WATCHDOGS = (
     PermissionsWatchdog,
     CrashWatchdog,
     SecurityWatchdog,
+    # Emits NavigationCompleteEvent for every main-frame navigation (CDP
+    # Page.frameNavigated/frameStoppedLoading), not just explicit navigate()
+    # calls — so SecurityWatchdog's post-navigation check and
+    # StorageStateWatchdog's session-storage sync also apply to plain link
+    # clicks, JS redirects, back/forward, and refresh, which previously left
+    # those checks a no-op for anything but an agent-issued navigate().
+    NavigationWatchdog,
     DownloadsWatchdog,
     StorageStateWatchdog,
     PopupsWatchdog,
