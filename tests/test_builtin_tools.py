@@ -722,6 +722,70 @@ class TestGrepTool:
         assert result.is_error
         assert "ripgrep" in result.content.lower()
 
+    # ── Directory-scoped `include` filters ────────────────────────────────────
+    # Regression: same root cause as TestGlobTool's directory-scoped cases.
+    # `include` is handed to `rg --glob`, and ripgrep anchors a glob containing
+    # "/" against the whole walked path, so "src/**/*.py" matched nothing while
+    # the search root was the absolute base.
+
+    def _tree(self, tmp_path):
+        (tmp_path / "src" / "pkg").mkdir(parents=True)
+        (tmp_path / "vendor" / "src").mkdir(parents=True)
+        (tmp_path / "src" / "pkg" / "deep.py").write_text("needle deep\n")
+        (tmp_path / "src" / "top.py").write_text("needle top\n")
+        (tmp_path / "other.py").write_text("needle other\n")
+        (tmp_path / "vendor" / "src" / "dep.py").write_text("needle dep\n")
+
+    def _grep(self, tmp_path, **kw):
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), **kw)
+        result = run(self.tool.execute(inv))
+        assert not result.is_error, result.content
+        return result
+
+    def test_directory_scoped_include(self, tmp_path):
+        self._tree(tmp_path)
+        result = self._grep(tmp_path, include="src/**/*.py")
+        assert result.metadata["match_count"] == 2
+        assert str(tmp_path / "src" / "top.py") in result.content
+        assert str(tmp_path / "src" / "pkg" / "deep.py") in result.content
+
+    def test_directory_scoped_include_stays_anchored_at_base(self, tmp_path):
+        self._tree(tmp_path)
+        result = self._grep(tmp_path, include="src/**/*.py")
+        assert str(tmp_path / "vendor" / "src" / "dep.py") not in result.content
+
+    def test_basename_include_still_matches_at_any_depth(self, tmp_path):
+        self._tree(tmp_path)
+        assert self._grep(tmp_path, include="*.py").metadata["match_count"] == 4
+
+    def test_match_lines_keep_absolute_paths_and_line_numbers(self, tmp_path):
+        """Output stays `<abs path>:<lineno>:<text>` — the renderer splits on ":"."""
+        self._tree(tmp_path)
+        result = self._grep(tmp_path, include="src/*.py")
+        line = result.content.splitlines()[0]
+        assert line == f"{tmp_path / 'src' / 'top.py'}:1:needle top"
+
+    def test_files_searched_counts_distinct_files(self, tmp_path):
+        self._tree(tmp_path)
+        assert self._grep(tmp_path, include="src/**/*.py").metadata["files_searched"] == 2
+
+    def test_single_file_target_still_searched(self, tmp_path):
+        """`path` may be a file, not a directory — the walk root differs there."""
+        self._tree(tmp_path)
+        result = run(
+            self.tool.execute(
+                _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path / "other.py"))
+            )
+        )
+        assert not result.is_error, result.content
+        assert result.metadata["match_count"] == 1
+        assert result.content.startswith(f"{tmp_path / 'other.py'}:1:")
+
+    def test_text_containing_colons_is_not_mangled(self, tmp_path):
+        (tmp_path / "cfg.py").write_text('needle = {"a": 1, "b": 2}\n')
+        result = self._grep(tmp_path, include="*.py")
+        assert result.content == f'{tmp_path / "cfg.py"}:1:needle = {{"a": 1, "b": 2}}'
+
 
 # ---------------------------------------------------------------------------
 # LsTool

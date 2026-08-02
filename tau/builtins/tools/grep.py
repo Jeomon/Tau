@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,17 @@ _MAX_MATCHES = 500
 # own timeout), a search taking this long means something's wrong — a huge
 # or network-mounted tree, rg stuck on a special file — not intentional work.
 _TIMEOUT_SECONDS = 30.0
+
+
+def _absolutize(line: str, base: Path) -> str:
+    """Re-attach ``base`` to a match line produced with "." as the search root.
+
+    Only the leading "./" (or ".\\" on Windows) is replaced, so the rest of the
+    line — ``:<lineno>:<text>``, where the text may itself contain colons — is
+    left exactly as ripgrep emitted it.
+    """
+    rel = line[2:] if line.startswith(("./", ".\\")) else line
+    return f"{base}{os.sep}{rel}"
 
 
 def _render_grep_call(args: dict, _streaming: bool) -> list[str]:
@@ -145,15 +157,27 @@ class GrepTool(Tool):
         )
 
     async def _rg(self, params: GrepParams, target: Path, signal: AbortSignal | None) -> dict:
+        # Same anchoring problem as glob.py's _rg_files: ripgrep matches a glob
+        # containing "/" against the entire path it walks, so an `include` like
+        # "src/**/*.py" matches nothing when the search root is absolute.
+        # Anchoring the glob instead (--glob /abs/base/src/**/*.py) does not
+        # work — ripgrep does not match absolute globs. Rooting the walk at "."
+        # with cwd=base is what makes `include` relative to the search path.
+        if target.is_dir():
+            root, cwd, base = ".", target, target
+        else:
+            # A single file can be searched directly. ripgrep does not apply
+            # --glob to explicitly-passed files, so `include` is a no-op here.
+            root, cwd, base = target.name, target.parent, target.parent
         cmd = ["rg", "--line-number", "--no-heading", "--with-filename"]
         if not params.case_sensitive:
             cmd.append("--ignore-case")
         if params.include:
             cmd += ["--glob", params.include]
-        cmd += [params.pattern, str(target)]
+        cmd += [params.pattern, root]
         try:
             returncode, lines, cancelled, timed_out = await run_bounded_lines(
-                cmd, max_lines=_MAX_MATCHES, signal=signal, timeout=_TIMEOUT_SECONDS
+                cmd, max_lines=_MAX_MATCHES, signal=signal, timeout=_TIMEOUT_SECONDS, cwd=cwd
             )
         except FileNotFoundError:
             return {
@@ -181,7 +205,11 @@ class GrepTool(Tool):
             }
         truncated = len(lines) > _MAX_MATCHES
         lines = lines[:_MAX_MATCHES]
+        # Count distinct files while the paths are still relative: splitting an
+        # absolute Windows path on ":" yields the drive letter, not the file.
         files_with_matches = len({ln.split(":")[0] for ln in lines})
+        # Callers expect fully resolved paths, and `base` is already resolved.
+        lines = [_absolutize(ln, base) for ln in lines]
         metadata = {
             "pattern": params.pattern,
             "files_searched": files_with_matches,
