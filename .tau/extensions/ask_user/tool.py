@@ -269,14 +269,19 @@ class AskUserTool(Tool):
 
             timeout_task_ref[0] = asyncio.ensure_future(_auto_dismiss())
 
-        await ui.custom_inline(_factory, kind="ask_user")
         try:
+            # `custom_inline` does not return once the dialog is mounted — it
+            # awaits its own future internally and only `done` resolves it — so
+            # this call, not the `await fut` below, is where the coroutine parks
+            # for the whole question. It has to sit inside the try: with it
+            # outside, a cancellation here skipped the teardown entirely.
+            await ui.custom_inline(_factory, kind="ask_user")
             return await fut
         finally:
-            # The engine can abandon this call while we are parked on `fut` — its
-            # own `tool_timeout_seconds` (120s by default) fires, or the user
-            # aborts the turn — which cancels this coroutine. Nothing else tears
-            # the dialog down on that path, so it stayed mounted and kept owning
+            # The engine can abandon this call while the dialog is up — its own
+            # `tool_timeout_seconds` (120s by default) fires, or the user aborts
+            # the turn — which cancels this coroutine. Nothing else tears the
+            # dialog down on that path, so it stayed mounted and kept owning
             # input while the agent had already moved on with a timeout error.
             # Note `timeout` defaults to None, so the inactivity timer above is
             # usually never armed and the engine timeout is the only thing that

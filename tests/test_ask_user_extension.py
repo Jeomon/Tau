@@ -906,3 +906,87 @@ class TestDividers:
 
         assert len(rules) == 2
         assert "Enter to submit" in rows[rules[1] + 1]
+
+
+class _BlockingUI:
+    """Models the real ``ui.custom_inline`` (modes/interactive/ui_context.py:453).
+
+    The real one does not return once the dialog is mounted — it awaits an
+    internal future that only ``done`` resolves, and closing the inline
+    selector is what restores the normal input editor. ``_FakeUI`` above
+    returns straight away instead, so it cannot observe what happens when the
+    engine abandons the tool while the dialog is still up.
+    """
+
+    def __init__(self) -> None:
+        self.mounted = asyncio.Event()
+        self.closed = False
+
+    async def custom_inline(self, factory, kind="custom"):
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        def _done(value):
+            if not fut.done():
+                fut.set_result(value)
+            self.closed = True  # == layout.close_custom_selector(kind)
+
+        self.component = factory(None, None, None, _done)
+        self.mounted.set()
+        return await fut
+
+
+class TestDialogTornDownWhenEngineAbandonsTheCall:
+    """Regression: the engine cancels a tool that outruns ``tool_timeout_seconds``
+    (default 120s) at engine/service.py:330. ``ask_user`` parks for the whole
+    wait inside ``ui.custom_inline``, so cancellation has to tear the dialog
+    down — otherwise it stays mounted owning the input area while the agent has
+    already moved on with a timeout error, and the TUI never returns to the
+    normal prompt.
+    """
+
+    def _cancel_mid_question(self):
+        async def exercise():
+            ui = _BlockingUI()
+            runtime = SimpleNamespace(
+                session_manager=None,
+                agent=SimpleNamespace(_engine=SimpleNamespace(llm=None, tools=[], _tools={})),
+                extension_generation=0,
+                settings_manager=None,
+                _layout=object(),
+            )
+            runtime_ref = _RuntimeRef()
+            runtime_ref.runtime = runtime
+
+            tool = AskUserTool(runtime_ref)
+            invocation = ToolInvocation(
+                id="c1",
+                name="ask_user",
+                cwd=Path.cwd(),
+                params={"questions": [{"question": "Ship it?", "options": ["Yes", "No"]}]},
+            )
+
+            import tau.extensions.context as ctx_mod
+
+            original = ctx_mod.ExtensionContext.ui
+            ctx_mod.ExtensionContext.ui = property(lambda self: ui)
+            try:
+                task = asyncio.create_task(tool.execute(invocation))
+                await asyncio.wait_for(ui.mounted.wait(), timeout=5)
+
+                # Exactly what the engine does once the tool overruns.
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+                return ui
+            finally:
+                ctx_mod.ExtensionContext.ui = original
+
+        return asyncio.run(exercise())
+
+    def test_dialog_is_closed_so_the_input_box_comes_back(self):
+        ui = self._cancel_mid_question()
+        assert ui.closed, (
+            "the inline dialog was left mounted after the engine cancelled the "
+            "tool — the TUI keeps showing the question instead of the prompt"
+        )

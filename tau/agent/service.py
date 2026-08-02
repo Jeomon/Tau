@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tau.agent.types import AgentConfig, AgentPhase, ContextUsage, PromptOptions
 from tau.engine.types import EngineContext
@@ -231,7 +232,12 @@ class Agent:
         Hard cap on tool output size 50 KB / 2000-line
         Head-truncation keeps the first N lines/bytes; a trailing marker
         reports how much was omitted and the total size.
+
+        Images a tool produced are bounded here too — see
+        ``_bound_result_images``.
         """
+        self._bound_result_images(result)
+
         content = result.content
         raw = content.encode("utf-8", errors="replace")
         total_bytes = len(raw)
@@ -280,7 +286,62 @@ class Agent:
             metadata=result.metadata,
             terminate=result.terminate,
             terminate_message=result.terminate_message,
+            # Carry the media over: truncating *text* must not delete the
+            # screenshot a tool returned alongside it. Rebuilding without these
+            # dropped the image whenever the same result also overran the text
+            # cap — e.g. a browser tool returning a page dump plus a capture.
+            image=result.image,
+            audio=result.audio,
+            video=result.video,
         )
+
+    def _bound_result_images(self, result: ToolResult) -> None:
+        """Resize images a tool produced before they enter the context window.
+
+        Providers validate every image in a request, not just the newest one:
+        Anthropic drops its per-image cap from 8000px to 2000px once a request
+        carries many images, so an oversized screenshot that was accepted early
+        in a session starts failing *every* later request. The image is written
+        to the transcript, so it comes back on reload — that wedges the session
+        permanently rather than for a turn, and only starting a new one clears
+        it. `read`'s byte limit is not a substitute: a 3 MB PNG can still be
+        8000px wide.
+
+        Only tool results are handled here. Pasted images already go through
+        `process_image` in the interactive input handler.
+        """
+        image = result.image
+        if image is None or not image.images:
+            return
+
+        from tau.utils.image_processing import process_image
+
+        settings = self._engine._settings
+        auto_resize = settings.get_image_auto_resize() if settings is not None else True
+
+        processed: list[Any] = []
+        note: str | None = None
+        for item in image.images:
+            # URLs are passed through by image_to_base64 with nothing to decode.
+            if isinstance(item, str) and item.startswith("http"):
+                processed.append(item)
+                continue
+            try:
+                data = base64.b64decode(item) if isinstance(item, str) else item
+                out = process_image(data, auto_resize=auto_resize)
+            except Exception:
+                # The tool already produced this image and the failure may just
+                # be an unavailable backend, so pass it through rather than
+                # silently deleting tool output.
+                processed.append(item)
+                continue
+            processed.append(base64.b64encode(out.data).decode())
+            note = note or out.dimension_note()
+
+        image.images = processed
+        # Keep a note the tool set itself; ours only fills the gap.
+        if note and not image.dimension_note:
+            image.dimension_note = note
 
     async def _transform_context(
         self,
