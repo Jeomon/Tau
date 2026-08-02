@@ -549,6 +549,16 @@ class InputParser:
         # so this safely stays False — the default, pre-existing behavior —
         # on anything that doesn't support the protocol.
         self._kitty_active = False
+        # Set once a bracketed paste actually arrives. There is no query for
+        # bracketed-paste support (unlike the kitty protocol above), so having
+        # seen one is the only positive evidence the terminal wraps pastes —
+        # and it is enough to switch the CR heuristic in feed() off for good.
+        self._bracketed_paste_seen = False
+        # A CR reinterpreted as a paste newline swallows an immediately
+        # following LF, so a CRLF paste does not insert two blank lines. Kept
+        # on the instance because a large paste can split across reads exactly
+        # between the CR and the LF.
+        self._paste_cr_pending = False
 
     def feed(self, data: str) -> list[InputEvent]:
         self._buf += data
@@ -562,7 +572,25 @@ class InputParser:
             # collapse into a single bogus multi-char event.
             if not self._buf.startswith("\x1b"):
                 unit, self._buf = _split_text_unit(self._buf)
+                if self._paste_cr_pending:
+                    self._paste_cr_pending = False
+                    # CRLF from a paste: the CR already produced the newline.
+                    if unit == "\n":
+                        continue
                 event = self._parse_one(unit)
+                if self._is_unbracketed_paste_newline(unit, event):
+                    # Terminals without bracketed paste (Termux, some tmux
+                    # setups) deliver a paste as plain bytes, so its embedded
+                    # CRs are indistinguishable from Enter and the first one
+                    # submitted the prompt — losing the rest of the paste.
+                    # A CR with more bytes behind it in the *same* read is a
+                    # paste: a real Enter keypress arrives as a lone CR in its
+                    # own read, because os.read returns as soon as it is typed.
+                    # Report it the way shift+enter already is — a newline that
+                    # does not submit (see the Ghostty/Kitty branches in
+                    # _parse_one) — rather than guessing from keystroke timing.
+                    event.shift = True  # type: ignore[union-attr]
+                    self._paste_cr_pending = unit == "\r"
                 if event is not None:
                     events.append(event)
                 continue
@@ -574,6 +602,25 @@ class InputParser:
             if event is not None:
                 events.append(event)
         return events
+
+    def _is_unbracketed_paste_newline(self, unit: str, event: InputEvent | None) -> bool:
+        """True when this CR/LF is part of a paste rather than a real Enter.
+
+        Gated on never having seen a bracketed paste: once the terminal has
+        proved it wraps pastes, its pastes arrive as PasteEvent and any
+        remaining CR really is Enter, so the heuristic is switched off rather
+        than left to second-guess a terminal that is behaving correctly.
+        """
+        return (
+            not self._bracketed_paste_seen
+            and bool(self._buf)  # more bytes from the same read follow
+            and unit in ("\r", "\n")
+            and isinstance(event, KeyEvent)
+            and event.key == "enter"
+            and not event.shift
+            and not event.ctrl
+            and not event.alt
+        )
 
     def flush(self) -> list[InputEvent]:
         """
@@ -594,6 +641,9 @@ class InputParser:
             text = raw[6:]
             if text.endswith("\x1b[201~"):
                 text = text[:-6]
+            # Positive proof the terminal brackets its pastes — see
+            # _is_unbracketed_paste_newline, which stands down from here on.
+            self._bracketed_paste_seen = True
             return PasteEvent(text=_decode_csi_u_paste(text), raw=raw)
 
         # ── Ghostty-under-Kitty quirk: shift+enter as a bare LF ──────────────

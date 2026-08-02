@@ -533,3 +533,95 @@ class TestKittyEventTypeArrows:
         e = self._events("\x1b[A")
         assert e[0].key == "up"
         assert e[0].released is False
+
+
+class TestUnbracketedPaste:
+    """Terminals without bracketed paste (Termux, some tmux setups) deliver a
+    paste as plain bytes, so its embedded CRs look exactly like Enter. The
+    first one used to submit the prompt, losing the rest of the paste.
+
+    A real Enter arrives as a lone CR in its own read — os.read returns as soon
+    as the key is pressed — whereas a paste puts more bytes behind the CR in
+    the same read. That is a synchronous signal, so no keystroke timing is
+    involved and Enter keeps its zero-latency path.
+    """
+
+    def _feed(self, *chunks: str):
+        from tau.tui.input import InputParser
+
+        parser = InputParser()
+        events = []
+        for chunk in chunks:
+            events.extend(parser.feed(chunk))
+        return events
+
+    def _shape(self, *chunks: str) -> str:
+        """Render the event stream as text, with [S]ubmit and [N]ewline marked."""
+        out = []
+        for event in self._feed(*chunks):
+            if isinstance(event, PasteEvent):
+                out.append(f"[paste:{event.text}]")
+            elif isinstance(event, KeyEvent) and event.key == "enter":
+                out.append("[N]" if event.shift else "[S]")
+            elif isinstance(event, KeyEvent) and event.char:
+                out.append(event.char)
+        return "".join(out)
+
+    # ── The bug ───────────────────────────────────────────────────────────────
+
+    def test_embedded_cr_does_not_submit(self):
+        assert self._shape("ab\rcd\ref") == "ab[N]cd[N]ef"
+
+    def test_lf_only_paste_does_not_submit(self):
+        assert self._shape("ab\ncd") == "ab[N]cd"
+
+    def test_crlf_paste_inserts_one_newline_not_two(self):
+        assert self._shape("ab\r\ncd") == "ab[N]cd"
+
+    def test_crlf_split_across_reads_still_inserts_one_newline(self):
+        """A large paste can break between the CR and the LF."""
+        assert self._shape("ab\r\n", "cd") == "ab[N]cd"
+
+    def test_known_limit_cr_at_a_read_boundary_still_submits(self):
+        """Documents the one case this cannot catch.
+
+        If a paste is split exactly after a CR, that read ends with nothing
+        behind the CR and it is indistinguishable from Enter, so it submits.
+        Detecting it would need the keystroke timing this deliberately avoids.
+        Requires a paste larger than the 4096-byte read, landing on the split.
+        """
+        assert self._shape("ab\r", "\ncd") == "ab[S][N]cd"
+
+    # ── Enter must still submit ───────────────────────────────────────────────
+
+    def test_lone_cr_submits(self):
+        assert self._shape("\r") == "[S]"
+
+    def test_typing_then_enter_submits(self):
+        """The CR is last in the read, so nothing follows it."""
+        assert self._shape("hi\r") == "hi[S]"
+
+    def test_enter_in_its_own_read_submits(self):
+        assert self._shape("hi", "\r") == "hi[S]"
+
+    def test_repeated_enters_each_submit(self):
+        assert self._shape("a", "\r", "b", "\r") == "a[S]b[S]"
+
+    # ── Gating: stand down once the terminal proves itself ────────────────────
+
+    def test_heuristic_disabled_after_a_real_bracketed_paste(self):
+        """Seeing \x1b[200~ proves pastes are wrapped, so a later CR is Enter."""
+        assert self._shape("\x1b[200~x\ry\x1b[201~", "ab\rcd") == "[paste:x\ry]ab[S]cd"
+
+    def test_bracketed_paste_is_unaffected(self):
+        assert self._shape("\x1b[200~one\rtwo\x1b[201~") == "[paste:one\rtwo]"
+
+    # ── Not misfiring on ordinary batched input ───────────────────────────────
+
+    def test_held_key_autorepeat_is_unaffected(self):
+        assert self._shape("aaa") == "aaa"
+
+    def test_escape_sequence_after_cr_is_still_parsed(self):
+        events = self._feed("a\r\x1b[A")
+        assert [e.key for e in events if isinstance(e, KeyEvent)] == ["a", "enter", "up"]
+        assert events[1].shift is True  # the CR became a newline
