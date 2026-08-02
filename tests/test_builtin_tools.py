@@ -849,6 +849,76 @@ class TestGlobTool:
         assert result.is_error
         assert "ripgrep" in result.content.lower()
 
+    # ── Directory-scoped patterns ─────────────────────────────────────────────
+    # Regression: these all returned zero matches. The tool passed the absolute
+    # base as ripgrep's search root, and ripgrep anchors a glob containing "/"
+    # against the whole walked path, so "src/**/*.py" was tested against
+    # "/abs/base/src/pkg/mod.py" and never matched. Only basename patterns
+    # ("*.py", "**/*.py") worked, which is exactly what the old tests covered.
+
+    def _tree(self, tmp_path):
+        """base/src/pkg/deep.py, base/src/top.py, base/other.py, base/vendor/src/dep.py"""
+        (tmp_path / "src" / "pkg").mkdir(parents=True)
+        (tmp_path / "vendor" / "src").mkdir(parents=True)
+        (tmp_path / "src" / "pkg" / "deep.py").write_text("")
+        (tmp_path / "src" / "top.py").write_text("")
+        (tmp_path / "other.py").write_text("")
+        (tmp_path / "vendor" / "src" / "dep.py").write_text("")
+
+    def _paths(self, tmp_path, pattern):
+        result = run(
+            self.tool.execute(_inv("glob", cwd=tmp_path, pattern=pattern, path=str(tmp_path)))
+        )
+        assert not result.is_error, result.content
+        if result.metadata["match_count"] == 0:
+            return []
+        return sorted(result.content.splitlines())
+
+    def test_directory_scoped_recursive_pattern(self, tmp_path):
+        self._tree(tmp_path)
+        assert self._paths(tmp_path, "src/**/*.py") == [
+            str(tmp_path / "src" / "pkg" / "deep.py"),
+            str(tmp_path / "src" / "top.py"),
+        ]
+
+    def test_directory_scoped_shallow_pattern(self, tmp_path):
+        """One level only — must not reach src/pkg/deep.py."""
+        self._tree(tmp_path)
+        assert self._paths(tmp_path, "src/*.py") == [str(tmp_path / "src" / "top.py")]
+
+    def test_directory_scoped_pattern_stays_anchored_at_base(self, tmp_path):
+        """vendor/src/dep.py must NOT match — the pattern anchors at the base.
+
+        This is what rules out the cheaper "prefix the glob with **/" fix.
+        """
+        self._tree(tmp_path)
+        assert str(tmp_path / "vendor" / "src" / "dep.py") not in self._paths(
+            tmp_path, "src/**/*.py"
+        )
+
+    def test_basename_patterns_still_match_at_any_depth(self, tmp_path):
+        self._tree(tmp_path)
+        assert len(self._paths(tmp_path, "**/*.py")) == 4
+
+    def test_returns_absolute_resolved_paths(self, tmp_path):
+        """TestPathSpellingDoesNotMatter depends on glob emitting resolved paths."""
+        self._tree(tmp_path)
+        paths = self._paths(tmp_path, "src/**/*.py")
+        assert paths, "no matches — this assertion would otherwise pass vacuously"
+        for path in paths:
+            assert Path(path).is_absolute()
+            assert Path(path).exists()
+            assert Path(path) == Path(path).resolve()
+
+    def test_directory_scoped_pattern_with_implicit_base(self, tmp_path):
+        """No explicit `path` — the base falls back to the invocation cwd."""
+        self._tree(tmp_path)
+        result = run(self.tool.execute(_inv("glob", cwd=tmp_path, pattern="src/*.py")))
+        assert not result.is_error, result.content
+        assert result.metadata["match_count"] == 1
+
+
+
 
 class TestReadDoesNotBlockTheEventLoop:
     """read's decode/split/hash tail is CPU-bound and scales with file size.

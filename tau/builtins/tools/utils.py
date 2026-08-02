@@ -882,6 +882,7 @@ async def run_bounded_lines(
     max_lines: int,
     signal: AbortSignal | None = None,
     timeout: float | None = None,
+    cwd: str | Path | None = None,
 ) -> tuple[int, list[str], bool, bool]:
     """Run a subprocess, retaining at most max_lines plus one truncation sentinel.
 
@@ -893,6 +894,10 @@ async def run_bounded_lines(
     Ctrl+C); ``timeout`` is the automatic one, matching terminal.py's
     ``timed_out``/``cancelled`` split so callers can tell the two apart.
 
+    ``cwd`` sets the child's working directory. Search tools need it because
+    ripgrep anchors a glob containing ``/`` against the whole path it walks, so
+    a pattern is only meaningful relative to the directory the walk started in.
+
     Returns ``(returncode, lines, cancelled, timed_out)``.
     """
     process = await asyncio.create_subprocess_exec(
@@ -900,6 +905,7 @@ async def run_bounded_lines(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
+        cwd=str(cwd) if cwd is not None else None,
     )
     assert process.stdout is not None
     lines: list[str] = []

@@ -30,6 +30,14 @@ _MAX_RESULTS = 1000
 _TIMEOUT_SECONDS = 30.0
 
 
+def _strip_dot_slash(line: str) -> str:
+    """Drop the leading "./" (or ".\\" on Windows) ripgrep prefixes when the
+    search root is ".", so the remainder can be joined onto the base path."""
+    if line.startswith("./") or line.startswith(".\\"):
+        return line[2:]
+    return line
+
+
 def _render_glob_result(content: str, opts: Any) -> list[str]:
     from tau.tui.utils import DIM, RESET
 
@@ -145,9 +153,16 @@ class GlobTool(Tool):
         return ToolResult.ok(invocation.id, result, metadata=metadata)
 
     async def _rg_files(self, pattern: str, base: Path, signal: AbortSignal | None) -> list[str]:
-        cmd = ["rg", "--files", "--glob", pattern, str(base)]
+        # Walk from "." with cwd=base rather than passing the absolute base as
+        # the search root. ripgrep matches a glob containing "/" against the
+        # entire path it walks, so with an absolute root every such pattern is
+        # tested against "/abs/base/src/foo.ts" and silently matches nothing —
+        # including the "src/**/*.py" form this tool's own schema advertises.
+        # Rooting the walk at "." makes the walked paths relative, so the
+        # pattern anchors at the base the way the description promises.
+        cmd = ["rg", "--files", "--glob", pattern, "."]
         returncode, lines, cancelled, timed_out = await run_bounded_lines(
-            cmd, max_lines=_MAX_RESULTS, signal=signal, timeout=_TIMEOUT_SECONDS
+            cmd, max_lines=_MAX_RESULTS, signal=signal, timeout=_TIMEOUT_SECONDS, cwd=base
         )
         if cancelled:
             raise RuntimeError("File search cancelled.")
@@ -156,4 +171,6 @@ class GlobTool(Tool):
         if returncode not in (0, 1) and len(lines) <= _MAX_RESULTS:
             error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             raise RuntimeError(error)
-        return [line for line in lines if line]
+        # Re-absolutize: callers (and the tool description) expect fully
+        # resolved paths, and `base` is already resolved.
+        return [str(base / _strip_dot_slash(line)) for line in lines if line]

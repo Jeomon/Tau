@@ -190,7 +190,6 @@ class BrowserSession:
                 profile = str(Path(self._user_data_dir).expanduser())
             settings = BrowserSettings(
                 headless=self._headless,
-                keep_one_blank_tab_alive=True,
                 user_data_dir=profile,
                 stealth=self._stealth,
             )
@@ -284,6 +283,17 @@ class BrowserSession:
         self._elements = {}
 
     async def close_tab(self, target_id: str) -> bool:
+        if len(await self.browser.pages()) <= 1:
+            # Closing the *agent's own* last tab shouldn't be able to take
+            # down the whole Chromium process — Chrome can exit within
+            # milliseconds of hitting zero tabs, so the replacement has to
+            # exist *before* the old tab closes, not be reactively created
+            # after (that races the process teardown and reliably loses
+            # it). Scoped to this explicit close_tab call only — not a
+            # blanket "always keep one tab alive" watchdog — so a human
+            # manually closing tabs/the window is respected instead of
+            # being fought with an auto-reopened blank tab.
+            await self.browser.new_page("about:blank")
         closed = await self.browser.close_tab(target_id)
         if closed and target_id == self._target_id:
             self._target_id = None
