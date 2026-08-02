@@ -122,11 +122,17 @@ Events emitted in JSON mode:
 | `agent_start` | — |
 | `agent_end` | `messages`, `reason` |
 | `message_start` | `message` |
-| `message_update` | `message` |
+| `message_update` | `delta`, `thinking_delta` |
 | `message_end` | `message` |
 | `tool_execution_start` | `tool_call` |
 | `tool_execution_end` | `tool_result` |
 | `settled` | — |
+
+`message_update` carries only the text appended since the previous update, not
+the message so far: `delta` for assistant text, `thinking_delta` for reasoning.
+Either field is omitted when that stream did not advance, so an update that
+only records a tool call carries neither. Concatenate the deltas to follow the
+reply live, or ignore them and read the finished message from `message_end`.
 
 Consume the stream until `settled`:
 

@@ -450,17 +450,49 @@ async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) 
     import dataclasses
     import json
 
-    from tau.hooks.types import SettledEvent
+    from tau.hooks.types import MessageStartEvent, MessageUpdateEvent, SettledEvent
+    from tau.message.types import TextContent, ThinkingContent
 
     settled = asyncio.Event()
 
+    # `message_update` fires once per streamed token and carries the *whole*
+    # accumulated message, so serializing it verbatim makes stdout grow with the
+    # square of the reply length — a 188 KB answer emitted 1.5 GB. Emit only what
+    # was appended since the last update; `message_end` still carries the full
+    # message, so nothing is lost across the stream.
+    seen = {"text": "", "thinking": ""}
+
+    def _appended(previous: str, current: str) -> str:
+        """The suffix added to `previous`, or all of `current` if it was rewritten.
+
+        TextEndEvent replaces a streaming block's content outright rather than
+        appending to it, so the prefix does not always hold.
+        """
+        return current[len(previous) :] if current.startswith(previous) else current
+
+    def _update_payload(message: object) -> dict[str, object]:
+        contents = getattr(message, "contents", [])
+        text = "".join(c.content for c in contents if isinstance(c, TextContent))
+        thinking = "".join(c.content for c in contents if isinstance(c, ThinkingContent))
+        payload: dict[str, object] = {"type": "message_update"}
+        if delta := _appended(seen["text"], text):
+            payload["delta"] = delta
+        if delta := _appended(seen["thinking"], thinking):
+            payload["thinking_delta"] = delta
+        seen["text"], seen["thinking"] = text, thinking
+        return payload
+
     def _serialize(event: object) -> str:
+        if isinstance(event, MessageUpdateEvent):
+            return json.dumps(_update_payload(event.message))
         if dataclasses.is_dataclass(event) and not isinstance(event, type):
             return json.dumps(dataclasses.asdict(event))
         return json.dumps({"type": type(event).__name__})
 
     async def on_event(event: object) -> None:
         """Output event as JSON and signal when settled."""
+        if isinstance(event, MessageStartEvent):
+            seen["text"], seen["thinking"] = "", ""
         click.echo(_serialize(event))
         if isinstance(event, SettledEvent):
             settled.set()

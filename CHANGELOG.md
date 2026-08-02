@@ -2,6 +2,18 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## Unreleased
+
+### Breaking
+
+-   JSON mode's `message_update` now carries `delta` (and `thinking_delta`) — the text appended since the previous update — instead of `message`, the whole reply so far. The old payload was re-serialised on every streamed token, so stdout grew with the square of the reply length: a 188 KB answer emitted roughly 1.5 GB, and large writes could exhaust memory before the turn finished. The same reply now emits about 1 MB. Consumers that read `update["message"]` should concatenate `delta` instead, or read the finished message from `message_end`, which is unchanged
+
+### Fixed
+
+-   `glob` returned no matches for any pattern containing a `/` — including the `src/**/*.py` form its own schema advertises. ripgrep matches such a glob against the whole path it walks, so an absolute search root meant the pattern was tested against `/abs/base/src/…` and never matched; only basename patterns like `*.py` worked. The walk is now rooted at the base directory, and results are still returned as absolute paths
+-   `grep`'s `include` filter had the same flaw, so scoping a search with `include="src/**/*.py"` silently matched nothing
+-   `grep`'s `files_searched` count is no longer collapsed to a single entry on Windows, where splitting an absolute path on `:` yielded the drive letter rather than the file
+
 ## 0.9.0 — 2026-07-26
 
 ### Breaking
