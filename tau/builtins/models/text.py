@@ -2229,15 +2229,14 @@ models = [
         input=_TEXT_IMAGE,
         output=_TEXT,
     ),
-    # Kimi / Moonshot (platform.kimi.ai). K3 is the exception to the older
-    # K2 family: it accepts only reasoning_effort="max" (not thinking.type).
+    # Kimi / Moonshot (platform.kimi.ai).
     Model(
         id="kimi-k3",
         name="Kimi K3",
         provider="kimi",
         cost=Cost(),
         thinking=True,
-        thinking_levels=[ThinkingLevel.Max],
+        thinking_levels=[ThinkingLevel.Low, ThinkingLevel.High, ThinkingLevel.Max],
         thinking_format="moonshot",
         context_window=1_000_000,
         input=_TEXT_IMAGE_VIDEO,
@@ -3170,6 +3169,17 @@ models = [
         context_window=262_144,
         max_output_tokens=262_144,
         input=_TEXT,
+        output=_TEXT,
+    ),
+    Model(
+        id="kimi-k3:cloud",
+        name="Kimi K3 Cloud",
+        provider="ollama",
+        cost=Cost(),
+        thinking=True,
+        context_window=1_048_576,
+        max_output_tokens=1_048_576,
+        input=_TEXT_IMAGE,
         output=_TEXT,
     ),
     Model(

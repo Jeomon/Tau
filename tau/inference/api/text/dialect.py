@@ -135,9 +135,19 @@ def build_reasoning_request_params(model: Model, options: LLMOptions) -> dict[st
         return {"thinking": effort or "none"}
 
     if tag == MOONSHOT:
-        # Kimi K3 only accepts the literal "max" value. Its descriptor exposes
-        # just ThinkingLevel.Max, so other levels cannot be selected normally.
-        return {"reasoning_effort": "max"} if options.thinking_level == ThinkingLevel.Max else {}
+        # Kimi K3 keeps reasoning (and Preserved Thinking) permanently on; the
+        # only control is the top-level reasoning_effort field, which accepts
+        # "low", "high" or "max" and defaults to "max" when omitted. There is
+        # no way to disable thinking, so Off/None simply leaves the default in
+        # place rather than sending a value the API would reject.
+        level = options.thinking_level
+        if level is None or level == ThinkingLevel.Off:
+            return {}
+        if level in (ThinkingLevel.Minimal, ThinkingLevel.Low):
+            return {"reasoning_effort": "low"}
+        if level in (ThinkingLevel.Max, ThinkingLevel.Ultra):
+            return {"reasoning_effort": "max"}
+        return {"reasoning_effort": "high"}
 
     if tag == TINKER:
         # Unlike OPENROUTER's mandatory-reasoning models, Tinker documents
