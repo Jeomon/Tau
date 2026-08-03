@@ -151,7 +151,18 @@ def resolve_extension_venv_dir(cwd: Path, source: str) -> Path:
             return Path(sys.prefix)
         return project_venv
 
-    return get_packages_venv(None)
+    packages_venv = get_packages_venv(None)
+    if packages_venv.exists() and not _venv_matches_current(packages_venv):
+        _log.warning(
+            "Packages venv at %s targets Python %s but Tau is running on %s; "
+            "installing extension dependencies into the running interpreter "
+            "to keep native packages import-compatible.",
+            packages_venv,
+            _venv_python_version(packages_venv) or "unknown",
+            f"{sys.version_info.major}.{sys.version_info.minor}",
+        )
+        return Path(sys.prefix)
+    return packages_venv
 
 
 def dependency_digest(deps: list[str]) -> str:
