@@ -6,7 +6,7 @@ All notable changes to `tau-coding-agent` are documented here.
 
 ### Breaking
 
--   JSON mode's `message_update` now carries `delta` (and `thinking_delta`) — the text appended since the previous update — instead of `message`, the whole reply so far. The old payload was re-serialised on every streamed token, so stdout grew with the square of the reply length: a 188 KB answer emitted roughly 1.5 GB, and large writes could exhaust memory before the turn finished. The same reply now emits about 1 MB. Consumers that read `update["message"]` should concatenate `delta` instead, or read the finished message from `message_end`, which is unchanged
+-   JSON mode's `message_update` now carries `delta` (and `thinking_delta`) — the text appended since the previous update — instead of `message`, the whole reply so far. The old payload was re-serialized on every streamed token, so stdout grew with the square of the reply length: a 188 KB answer emitted roughly 1.5 GB, and large writes could exhaust memory before the turn finished. The same reply now emits about 1 MB. Consumers that read `update["message"]` should concatenate `delta` instead, or read the finished message from `message_end`, which is unchanged
 
 ### Fixed
 

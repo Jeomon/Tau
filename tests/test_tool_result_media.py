@@ -393,3 +393,88 @@ class TestEveryModalityIsHandled:
         )
         assert out[0].contents[0].image is not None
         assert out[0].contents[0].audio is None
+
+
+class TestEveryMessagePathIsCovered:
+    """The filter has to reach every message shape that can carry media."""
+
+    def _img_user(self):
+        from tau.message.types import ImageContent, TextContent, UserMessage
+
+        return UserMessage(
+            contents=[TextContent(content="hi"), ImageContent(images=[_png(20, 20)])]
+        )
+
+    def _has_media(self, message) -> bool:
+        from tau.message.types import ImageContent, ToolResultContent
+
+        for c in message.contents:
+            if isinstance(c, ImageContent):
+                return True
+            if isinstance(c, ToolResultContent) and c.image is not None:
+                return True
+        return False
+
+    def test_user_message(self):
+        out = _agent_with_model(_text_only())._drop_unsupported_media([self._img_user()])
+        assert not self._has_media(out[0])
+
+    def test_tool_message(self):
+        from tau.message.types import ImageContent, ToolMessage, ToolResultContent
+
+        msg = ToolMessage(
+            contents=[
+                ToolResultContent(id="c1", content="cap", image=ImageContent(images=[_png(20, 20)]))
+            ]
+        )
+        out = _agent_with_model(_text_only())._drop_unsupported_media([msg])
+        assert not self._has_media(out[0])
+
+    def test_custom_message(self):
+        """CustomMessage is outside the LLMMessage union but carries contents too."""
+        from tau.message.types import CustomMessage, ImageContent
+
+        msg = CustomMessage(custom_type="x", contents=[ImageContent(images=[_png(20, 20)])])
+        out = _agent_with_model(_text_only())._drop_unsupported_media([msg])
+        assert not self._has_media(out[0])
+        assert type(out[0]).__name__ == "CustomMessage"  # class preserved
+
+    def test_message_classes_are_preserved(self):
+        from tau.message.types import ImageContent, ToolMessage, ToolResultContent, UserMessage
+
+        agent = _agent_with_model(_text_only())
+        tool_msg = ToolMessage(
+            contents=[
+                ToolResultContent(id="c1", content="cap", image=ImageContent(images=[_png(20, 20)]))
+            ]
+        )
+        # dataclasses.replace must hand back the same class, not a base type —
+        # providers dispatch on the message role.
+        assert isinstance(agent._drop_unsupported_media([self._img_user()])[0], UserMessage)
+        assert isinstance(agent._drop_unsupported_media([tool_msg])[0], ToolMessage)
+        assert agent._drop_unsupported_media([self._img_user()])[0].role is UserMessage().role
+
+    @pytest.mark.asyncio
+    async def test_ephemeral_extension_messages_are_filtered(self):
+        """Engine._run appends these *after* transform_context (engine/service.py:785),
+        so they are the one path that would otherwise still reach the provider.
+        """
+        from tau.hooks.engine import ContextEventResult
+        from tau.hooks.service import Hooks
+
+        agent = _agent_with_model(_text_only())
+        agent._pending_session_ctx = type("_C", (), {"messages": []})()
+        agent.hooks = Hooks()
+
+        injected = self._img_user()
+
+        async def inject(_event):
+            return ContextEventResult(ephemeral_messages=[injected])
+
+        agent.hooks.register("context", inject)
+
+        out = await agent._ephemeral_injection()
+
+        assert out, "the ephemeral message should still be delivered"
+        assert not self._has_media(out[0]), "extension-injected media reached the provider"
+        assert self._has_media(injected), "the extension's own object must not be mutated"

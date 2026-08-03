@@ -91,6 +91,32 @@ For the file-by-file inventory, see [Project Structure](project-structure.md).
 | `message/` | Message and content-block vocabulary | Persistence, transport |
 | `tui/` | Terminal rendering, components, input, keybindings | Agents, sessions, models |
 
+### Model capability belongs to the caller, not the adapter
+
+A model advertises the modalities it accepts (`Model.input`), but the adapters
+in `inference/` serialize whatever content they are handed without consulting
+it. That is deliberate, not an omission: filtering history against the active
+model is context building, which the table above assigns to `agent/`, and
+`inference/` explicitly does not own history.
+
+Capability is therefore enforced at the two points where content enters and
+leaves:
+
+-   **Entering** — a tool refuses to produce what the model cannot use, e.g.
+    `read` rejects an image on a text-only model rather than returning one.
+-   **Leaving** — `Agent._drop_unsupported_media` replaces image, audio, video
+    and file blocks with a short note when the active model does not list that
+    modality, on both routes into a request: `_transform_context` for stored
+    history and `_ephemeral_injection` for the messages extensions add per turn
+    (the engine appends those *after* the transform, so they need it too).
+
+Only the outgoing copy is changed, so the transcript keeps the original and
+switching back to a capable model restores it. Putting this in the adapters
+instead would duplicate the same rule across every provider, and a newly added
+adapter would silently reintroduce the bug it prevents: media that outlives the
+model that accepted it makes the provider reject *every* later request, and
+because it is persisted the session stays broken until it is started over.
+
 ## Dependency Rules
 
 Three packages are hard boundaries and are enforced as such:

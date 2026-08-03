@@ -511,7 +511,11 @@ class Agent:
         for result in results:
             if isinstance(result, ContextEventResult):
                 ephemeral.extend(result.ephemeral_messages)
-        return ephemeral
+        # Engine._run appends these *after* transform_context has run, so they
+        # would otherwise be the one way media the model cannot accept still
+        # reaches the provider — an extension injecting a screenshot would wedge
+        # a text-only model exactly as stored history used to.
+        return self._drop_unsupported_media(ephemeral)  # type: ignore[arg-type]
 
     # -------------------------------------------------------------------------
     # Internal helpers
