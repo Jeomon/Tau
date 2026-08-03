@@ -37,7 +37,15 @@ class VoiceController:
         # Toggled by the /voice command. When disabled, space behaves normally.
         self._enabled = True
 
-        # Modes: idle | waiting | recording | transcribing
+        # Modes: idle | waiting | recording | transcribing | aborted
+        #
+        # ``aborted`` is a dead hold: the mic never opened (no permission, no
+        # device, missing deps) but the key is still physically down. It keeps
+        # swallowing space events until a real release, because a terminal
+        # without the Kitty keyboard protocol reports auto-repeats as ordinary
+        # presses (``repeat`` is only ever set by that protocol) — so returning
+        # straight to ``idle`` would make every repeat look like a fresh press
+        # and type a space, once per hold_ms, for as long as the key is held.
         self._mode = "idle"
         self._press_time: float = 0.0
         self._last_space_time: float = 0.0
@@ -63,7 +71,7 @@ class VoiceController:
     def toggle(self) -> bool:
         """Flip voice capture on/off. Returns the new enabled state."""
         self._enabled = not self._enabled
-        if not self._enabled and self._mode in ("waiting", "recording"):
+        if not self._enabled and self._mode in ("waiting", "recording", "aborted"):
             # Tear down any in-flight capture so a held space is released cleanly.
             self._handle_release()
         return self._enabled
@@ -131,7 +139,10 @@ class VoiceController:
         if self._mode != "waiting":
             return
         if not self._open_stream():
-            self._mode = "idle"
+            # Dead hold: stay latched until the key is genuinely released so the
+            # remaining auto-repeats don't each read as a brand-new press. The
+            # release watcher is deliberately left running to detect that.
+            self._mode = "aborted"
             return
         # The hold has become a recording: retract the space we echoed on press.
         if self._echoed:
@@ -161,7 +172,7 @@ class VoiceController:
         """
         while True:
             await asyncio.sleep(0.05)
-            if self._mode not in ("waiting", "recording"):
+            if self._mode not in ("waiting", "recording", "aborted"):
                 return
             if time.monotonic() - self._last_space_time >= self._release_gap():
                 self._handle_release()
@@ -209,7 +220,7 @@ class VoiceController:
     # ── Release logic (shared by Kitty and watcher) ───────────────────────────
 
     def _handle_release(self) -> None:
-        if self._mode not in ("waiting", "recording"):
+        if self._mode not in ("waiting", "recording", "aborted"):
             return
 
         prior_mode = self._mode
@@ -221,9 +232,10 @@ class VoiceController:
         self._close_stream()
         self._stop_caret()
 
-        if prior_mode == "waiting":
-            # Short press — the space was already echoed on press, so it's
-            # already visible; just settle back to idle and keep it.
+        if prior_mode in ("waiting", "aborted"):
+            # Short press, or a hold whose mic never opened — either way the
+            # space echoed on press is already on screen, so settle back to
+            # idle and keep exactly that one space.
             self._mode = "idle"
             self._echoed = False
         else:
@@ -277,7 +289,7 @@ class VoiceController:
         # key instead of eating space for push-to-talk. Also make sure any
         # in-flight hold from before the overlay opened doesn't linger.
         if self._ui.has_active_selector():
-            if self._mode in ("waiting", "recording"):
+            if self._mode in ("waiting", "recording", "aborted"):
                 self._cancel_task(self._activation_task)
                 self._cancel_task(self._watcher_task)
                 self._activation_task = None
@@ -292,7 +304,7 @@ class VoiceController:
 
         # Non-space key while active: abort cleanly and restore the held space
         if not is_space:
-            if self._mode in ("waiting", "recording"):
+            if self._mode in ("waiting", "recording", "aborted"):
                 self._cancel_task(self._activation_task)
                 self._cancel_task(self._watcher_task)
                 self._activation_task = None
@@ -333,7 +345,7 @@ class VoiceController:
 
         # Auto-repeat while waiting or recording — keep timestamp fresh and
         # learn the repeat cadence (used to size the release gap).
-        if self._mode in ("waiting", "recording"):
+        if self._mode in ("waiting", "recording", "aborted"):
             now = time.monotonic()
             gap = now - self._last_space_time
             # Ignore the long initial key-repeat delay and any outliers; only
