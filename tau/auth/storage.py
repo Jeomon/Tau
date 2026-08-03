@@ -48,7 +48,15 @@ class FileAuthStorage(AuthStorage):
 
         with FileLock(self.lock_path):
             current = (
-                self.store_path.read_text(encoding="utf-8") if self.store_path.exists() else None
+                # utf-8-sig, not utf-8: a BOM is a no-op to strip when absent,
+                # but left in place it makes json.loads reject the whole file,
+                # so every stored credential silently disappears and new ones
+                # cannot be saved. Hand-edited config picks one up easily —
+                # Windows editors and PowerShell's `>` add it by default.
+                # Writes stay utf-8 (see atomic_write_text) so we never add one.
+                self.store_path.read_text(encoding="utf-8-sig")
+                if self.store_path.exists()
+                else None
             )
             result = fn(current)
             if result.next is not None:
@@ -78,7 +86,10 @@ class FileAuthStorage(AuthStorage):
 
         async with AsyncFileLock(self.lock_path):
             current = (
-                self.store_path.read_text(encoding="utf-8") if self.store_path.exists() else None
+                # utf-8-sig — see with_lock() above.
+                self.store_path.read_text(encoding="utf-8-sig")
+                if self.store_path.exists()
+                else None
             )
             result = await fn(current)
             if result.next is not None:

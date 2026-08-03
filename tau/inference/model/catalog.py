@@ -136,7 +136,10 @@ class Catalog:
     def load(self) -> bool:
         """Load the on-disk cache into memory. Returns True when usable."""
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            # utf-8-sig: a hand-edited catalog (model overrides are a documented
+            # workaround) carrying a byte-order mark would otherwise fail to
+            # parse and be discarded wholesale as if it were corrupt.
+            raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             return False
         if not isinstance(raw, dict) or not isinstance(raw.get("data"), dict):

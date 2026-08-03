@@ -51,7 +51,11 @@ class FileSettingsStorage(SettingsStorage):
         # re-run under the lock so a concurrent writer's content is merged.
         self._ensure_parent_dir(path)
         with FileLock(lock_path):
-            current = path.read_text(encoding="utf-8") if path.exists() else None
+            # utf-8-sig: strips a byte-order mark when present and is a no-op
+            # otherwise. Settings are hand-edited, and an editor that adds a BOM
+            # would otherwise make the whole file unparseable. Writes stay utf-8
+            # (see atomic_write_text), so one is never introduced here.
+            current = path.read_text(encoding="utf-8-sig") if path.exists() else None
             result = fn(current)
             if result.next is not None:
                 atomic_write_text(path, result.next)
