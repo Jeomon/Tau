@@ -547,12 +547,17 @@ proc.wait()
 
 ## Environment Variables
 
-Tau reads no `TAU_`-prefixed configuration variables other than `TAU_PROFILE`. Config, session, and log locations are fixed under `~/.tau/` and cannot be relocated by environment variable. Use `--session-dir` for session files.
+Tau reads no `TAU_`-prefixed configuration variables other than `TAU_PROFILE`,
+`TAU_OAUTH_CALLBACK_HOST` and `TAU_CACHE_RETENTION`. Config, session, and log
+locations are fixed under `~/.tau/` and cannot be relocated by environment
+variable. Use `--session-dir` for session files.
 
 | Variable | Effect |
 |----------|--------|
 | `<PROVIDER_ID>_API_KEY` | API key for any provider; the name is the provider id uppercased plus `_API_KEY` |
 | `TAU_PROFILE` | Set to `1` to collect aggregate component timings |
+| `TAU_OAUTH_CALLBACK_HOST` | Bind address for OAuth callback servers; one host or a comma-separated list. Defaults to `127.0.0.1,::1`. See [Authentication](auth.md) |
+| `TAU_CACHE_RETENTION` | Anthropic prompt-cache TTL: `none`, `short` (default, 5 min) or `long`. Unrecognised values fall back to `short` |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Proxy configuration, read case-insensitively; `settings.json` takes precedence |
 | `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT` | Google Vertex project id |
 | `GOOGLE_CLOUD_LOCATION` | Google Vertex region |

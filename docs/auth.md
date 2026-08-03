@@ -270,6 +270,39 @@ write it makes re-chmods the file to `0600`.
 These ids are the `auth.json` keys and the arguments to
 `tau auth login` / `tau auth logout`.
 
+### The local callback server
+
+Providers marked *Local callback server* briefly listen on a fixed loopback
+port to catch the redirect your browser is sent to after you approve access.
+The server binds **loopback only, on both IP stacks** (`127.0.0.1` and `::1`).
+Both are needed because the redirect URI is registered with each provider as
+the `localhost` *name*, which resolves to `::1` on IPv6-first systems and
+`127.0.0.1` elsewhere; binding only one leaves the callback refused on the
+other. The port is never exposed to your local network.
+
+If the port cannot be bound — already in use, or a sandbox that forbids
+listening — the login does not fail. `openai-codex` and `xai-grok` fall back
+to their device-code flow; `anthropic-claude-code` and `google-antigravity`
+fall back to pasting the final redirect URL by hand.
+
+| Variable | Effect |
+|----------|--------|
+| `TAU_OAUTH_CALLBACK_HOST` | Override the bind address for every OAuth callback server. Accepts one host or a comma-separated list. Unset means `127.0.0.1,::1`. |
+
+Set this only when the default cannot work. The usual case is Tau running in
+a container or VM while the browser is on the host: Docker's `-p` forwarding
+can only reach a process bound to the container's external interface, so the
+callback must bind `0.0.0.0` there.
+
+```bash
+TAU_OAUTH_CALLBACK_HOST=0.0.0.0 tau auth login anthropic-claude-code
+```
+
+Binding beyond loopback exposes the callback port to anything that can reach
+that interface for the duration of the login. The `state` parameter is what
+prevents a forged callback being accepted, but prefer the default when you
+have a choice.
+
 An OAuth provider is only selectable when a matching OAuth credential is
 stored. During model resolution, OAuth providers without credentials are
 skipped in favor of the next registered variant of the same model, which is
