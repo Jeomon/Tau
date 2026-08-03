@@ -9,6 +9,7 @@ import os
 import ssl
 import sys
 import urllib.parse
+from collections.abc import Sequence
 from functools import lru_cache
 
 from tau.inference.provider.oauth.types import OAuthLoginCallbacks
@@ -134,7 +135,7 @@ def parse_authorization_input(value: str) -> tuple[str | None, str | None]:
 async def start_oauth_callback_server(
     callback_path: str,
     expected_state: str,
-    host: str | None,
+    host: str | Sequence[str] | None,
     port: int,
 ) -> tuple[asyncio.Server, asyncio.Future[str]]:
     """Start a minimal HTTP server that captures the OAuth authorization code."""

@@ -44,7 +44,10 @@ _RAW_CLIENT_ID = "OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl"
 CLIENT_ID = base64.b64decode(_RAW_CLIENT_ID).decode()
 AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
-CALLBACK_HOST = "127.0.0.1"
+# Loopback only, both stacks: REDIRECT_URI below uses the "localhost" name,
+# which resolves to ::1 on IPv6-first systems. Binding 127.0.0.1 alone would
+# leave the browser's callback refused there.
+CALLBACK_HOST = ["127.0.0.1", "::1"]
 CALLBACK_PORT = 53692
 CALLBACK_PATH = "/callback"
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"

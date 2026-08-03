@@ -46,7 +46,10 @@ USERINFO_URL = "https://auth.openai.com/oauth/userinfo"
 REDIRECT_URI = "http://localhost:1455/auth/callback"
 SCOPES = "openid profile email offline_access"
 JWT_CLAIM_PATH = "https://api.openai.com/auth"
-CALLBACK_HOST = "127.0.0.1"  # Match the loopback-only redirect URI.
+# Loopback only, both stacks: REDIRECT_URI uses the "localhost" name, which
+# resolves to ::1 on IPv6-first systems. Binding both keeps the callback
+# reachable either way without exposing the port beyond loopback.
+CALLBACK_HOST = ["127.0.0.1", "::1"]
 CALLBACK_PORT = 1455
 _HTTP_TIMEOUT_SECONDS = 30
 

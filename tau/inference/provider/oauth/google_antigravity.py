@@ -45,7 +45,10 @@ CLIENT_SECRET = os.getenv("GOOGLE_ANTIGRAVITY_CLIENT_SECRET", "GOCSPX-K58FWR486L
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
-CALLBACK_HOST = None  # binds to all interfaces (IPv4 + IPv6)
+# Loopback only, both stacks: REDIRECT_URI uses the "localhost" name, which
+# resolves to ::1 on IPv6-first systems and 127.0.0.1 elsewhere. Binding both
+# catches either without exposing the port to the local network.
+CALLBACK_HOST = ["127.0.0.1", "::1"]
 CALLBACK_PORT = 51121
 CALLBACK_PATH = "/oauth-callback"
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"
