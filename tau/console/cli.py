@@ -374,7 +374,9 @@ async def _start(opts: dict) -> None:
         await runtime.ashutdown()
 
 
-async def _run_interactive(runtime: Runtime, theme: str | None, first_run_setup: bool = False) -> None:
+async def _run_interactive(
+    runtime: Runtime, theme: str | None, first_run_setup: bool = False
+) -> None:
     """Run the interactive TUI mode."""
     from tau.modes.interactive.app import App
 
