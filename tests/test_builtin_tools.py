@@ -1475,3 +1475,85 @@ class TestSymlinkTargetsAreFollowed:
         run(WriteTool().execute(_inv("write", path=str(link), content="made\n")))
         assert missing.read_text() == "made\n"
         assert link.is_symlink()
+
+
+class TestGrepResultRendering:
+    """`_render_grep_result` turns `path:lineno:text` into a dim location plus
+    the matched text.
+
+    Both ends of that line can contain colons — Windows paths start `C:\\`, and
+    matched code is full of `key: value` — so the old
+    `partition(":")`/`partition(": ")` pair split in the wrong place: a match
+    containing `": "` was displayed with those characters replaced by spaces,
+    showing the user text the file does not contain.
+    """
+
+    def _render(self, content, *, matches=1, files=1, truncated=False):
+        from types import SimpleNamespace
+
+        from tau.builtins.tools.grep import _render_grep_result
+
+        opts = SimpleNamespace(
+            is_error=False,
+            metadata={
+                "match_count": matches,
+                "files_searched": files,
+                "truncated": truncated,
+            },
+        )
+        return _render_grep_result(content, opts)
+
+    def _plain(self, content, **kw):
+        return [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in self._render(content, **kw)]
+
+    def test_colon_space_in_match_text_is_preserved(self):
+        """The regression: `{"a": 1}` used to render as `{"a"  1}`."""
+        out = self._plain('/proj/cfg.py:3:needle = {"a": 1}')
+        assert out[1] == '/proj/cfg.py:3  needle = {"a": 1}'
+
+    def test_multiple_colons_in_match_text(self):
+        out = self._plain("/proj/t.py:9:d = {'a': 1, 'b': 2}")
+        assert out[1].endswith("d = {'a': 1, 'b': 2}")
+
+    def test_windows_drive_letter_is_not_split(self):
+        out = self._plain(r"C:\proj\src\app.py:12:def hello():")
+        assert out[1] == r"C:\proj\src\app.py:12  def hello():"
+
+    def test_windows_path_and_colon_bearing_text_together(self):
+        out = self._plain(r'C:\proj\cfg.py:7:opts = {"k": 2}')
+        assert out[1] == r'C:\proj\cfg.py:7  opts = {"k": 2}'
+
+    def test_location_is_dim_and_matched_text_is_not(self):
+        """The dim/normal split silently degraded to "whole line dim" before."""
+        from tau.tui.utils import DIM, RESET
+
+        rendered = self._render("/proj/a.py:7:x = 1")[1]
+        assert rendered == f"{DIM}/proj/a.py:7{RESET}  x = 1"
+
+    def test_trailing_colon_in_code_is_kept(self):
+        out = self._plain("/proj/a.py:1:if x:")
+        assert out[1] == "/proj/a.py:1  if x:"
+
+    def test_truncation_marker_is_shown(self):
+        """The old `if ":" in line` filter dropped it — it names the cap, which
+        the summary's "(truncated)" does not."""
+        out = self._plain(
+            "/proj/a.py:1:x\n\n[Results truncated at 500 matches.]", truncated=True
+        )
+        assert "[Results truncated at 500 matches.]" in out
+        assert "" not in out, "the blank spacer should not survive as an empty row"
+
+    def test_summary_line_is_unchanged(self):
+        out = self._plain("/proj/a.py:1:x\n/proj/b.py:2:y", matches=2, files=2)
+        assert out[0] == "Found 2 matches in 2 files"
+
+    def test_no_matches_short_circuits(self):
+        assert self._plain("", matches=0) == ["No matches found"]
+
+    def test_error_content_passes_through(self):
+        from types import SimpleNamespace
+
+        from tau.builtins.tools.grep import _render_grep_result
+
+        opts = SimpleNamespace(is_error=True, metadata={})
+        assert _render_grep_result("rg exploded\nline two", opts) == ["rg exploded", "line two"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,16 @@ _MAX_MATCHES = 500
 # own timeout), a search taking this long means something's wrong — a huge
 # or network-mounted tree, rg stuck on a special file — not intentional work.
 _TIMEOUT_SECONDS = 30.0
+
+# One ripgrep result line: `<path>:<lineno>:<text>`.
+#
+# Both ends can contain colons — a Windows path starts `C:\`, and matched code
+# is full of `key: value` — so neither a left nor a right split is safe. The
+# line number is the only unambiguous anchor: `.*?` stays as short as possible
+# but is forced to grow past a drive letter, because what follows the colon it
+# stops at must be digits and then another colon. `.*` then takes the rest of
+# the text verbatim, colons included.
+_MATCH_LINE = re.compile(r"^(.*?):(\d+):(.*)$")
 
 
 def _absolutize(line: str, base: Path) -> str:
@@ -65,12 +76,19 @@ def _render_grep_result(content: str, opts: Any) -> list[str]:
     if truncated:
         summary += f"  {DIM}(truncated){RESET}"
 
-    lines = [line for line in content.splitlines() if ":" in line]
     result = [summary]
-    for line in lines:
-        file_part, _, rest = line.partition(":")
-        lineno, _, text = rest.partition(": ")
-        result.append(f"{DIM}{file_part}:{lineno.strip()}{RESET}  {text}")
+    for line in content.splitlines():
+        match = _MATCH_LINE.match(line)
+        if match is None:
+            # Anything that is not `path:lineno:text` — today only the
+            # truncation marker, which names the cap the summary's "(truncated)"
+            # does not. The old filter dropped every colon-less line, so that
+            # notice never reached the transcript at all.
+            if line.strip():
+                result.append(line)
+            continue
+        path, lineno, text = match.groups()
+        result.append(f"{DIM}{path}:{lineno}{RESET}  {text}")
     return result
 
 
