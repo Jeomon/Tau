@@ -367,15 +367,47 @@ def test_send_user_message_trigger_turn_invokes_idle_runtime():
     class _Runtime:
         agent = _Agent()
 
-        async def invoke(self, content: str, *, display: bool = False) -> None:
-            calls.append(f"{content}:{display}")
+        async def user_input(self, text: str, options=None, *, display: bool = False) -> None:
+            calls.append(f"{text}:{display}")
 
     ctx = ExtensionContext.__new__(ExtensionContext)
     ctx._runtime = _Runtime()  # type: ignore[attr-defined]
 
     asyncio.run(ctx.send_user_message("peer message", trigger_turn=True))
 
+    # user_input, not invoke: it is the entry point that dispatches / and !.
+    # display=True because nothing else renders an extension's message.
     assert calls == ["peer message:True"]
+
+
+def test_send_user_message_trigger_turn_reaches_command_dispatch():
+    """Regression: a `/command` used to be handed to the model as literal text.
+
+    `invoke()` skips the `/` and `!` dispatch that `user_input()` performs, so an
+    extension sending `/compact` had it delivered to the provider as a message
+    starting with a slash rather than compacting anything.
+    """
+    seen: list[str] = []
+
+    class _Agent:
+        def is_idle(self) -> bool:
+            return True
+
+    class _Runtime:
+        agent = _Agent()
+
+        async def user_input(self, text: str, options=None, *, display: bool = False) -> None:
+            seen.append(text)
+
+        async def invoke(self, content: str, *, display: bool = False) -> None:
+            raise AssertionError("invoke() bypasses command dispatch")
+
+    ctx = ExtensionContext.__new__(ExtensionContext)
+    ctx._runtime = _Runtime()  # type: ignore[attr-defined]
+
+    asyncio.run(ctx.send_user_message("/compact", trigger_turn=True))
+
+    assert seen == ["/compact"], "the command must reach the dispatcher unchanged"
 
 
 def test_send_user_message_trigger_turn_queues_when_busy():
@@ -513,3 +545,78 @@ def test_thinking_level_reads_and_writes_llm_request_options():
 
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])
+
+
+def test_user_input_display_renders_each_message_once():
+    """`display=True` must render for every branch, and only once.
+
+    The plain-text branch reaches `invoke()`, which does its own rendering when
+    asked; the `/` and `!` branches do not. Rendering in `user_input` and then
+    delegating with `display` unset is what keeps the two consistent — passing
+    it down as well would double-render plain prompts.
+    """
+    from tau.runtime.service import Runtime
+
+    rendered: list[str] = []
+
+    class _Tui:
+        def request_render(self) -> None:
+            pass
+
+    class _Layout:
+        _tui = _Tui()
+
+        def add_message(self, msg) -> None:
+            rendered.append(msg.contents[0].content)
+
+    dispatched: list[str] = []
+
+    class _Commands:
+        def get(self, _name):
+            return object()
+
+        async def dispatch(self, cmd) -> bool:
+            dispatched.append(cmd.raw)
+            return True
+
+    runtime = Runtime.__new__(Runtime)
+    runtime._layout = _Layout()  # type: ignore[attr-defined]
+    runtime.commands = _Commands()  # type: ignore[attr-defined]
+
+    invoked: list[str] = []
+
+    async def _invoke(text, options=None, *, display: bool = False):
+        invoked.append(f"{text}:{display}")
+
+    runtime.invoke = _invoke  # type: ignore[attr-defined]
+
+    asyncio.run(runtime.user_input("hello there", display=True))
+    asyncio.run(runtime.user_input("/compact", display=True))
+
+    assert rendered == ["hello there", "/compact"], "each message renders exactly once"
+    assert dispatched == ["/compact"], "the slash command reached the registry"
+    assert invoked == ["hello there:False"], "plain text must not be rendered twice"
+
+
+def test_user_input_without_display_renders_nothing():
+    """The interactive handler renders before calling, so it passes no display."""
+    from tau.runtime.service import Runtime
+
+    rendered: list[str] = []
+
+    class _Layout:
+        _tui = type("_T", (), {"request_render": lambda self: None})()
+
+        def add_message(self, msg) -> None:
+            rendered.append("rendered")
+
+    runtime = Runtime.__new__(Runtime)
+    runtime._layout = _Layout()  # type: ignore[attr-defined]
+
+    async def _invoke(text, options=None, *, display: bool = False):
+        pass
+
+    runtime.invoke = _invoke  # type: ignore[attr-defined]
+
+    asyncio.run(runtime.user_input("plain text"))
+    assert rendered == []

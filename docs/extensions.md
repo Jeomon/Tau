@@ -1954,6 +1954,14 @@ session before the UI transitions. Use it to seed the session with
 after the current turn. With `trigger_turn=True` and an idle agent, the message starts a
 new turn immediately and is rendered as a normal user message.
 
+Because that path behaves like a freshly typed message, it also runs `/` commands and
+`!` shell input — `await ctx.send_user_message("/compact", trigger_turn=True)` compacts
+the session rather than sending the model the text `/compact`. The queues do not: they
+carry messages to the model mid-turn, where a command has nothing to act on. Send
+commands only with `trigger_turn=True`, and note the agent must be idle for it to
+apply — when it is busy the message falls back to the follow-up queue and stays literal
+text.
+
 ### UIContext
 
 See [TUI: Widgets, Dialogs, and Overlays](#tui-widgets-dialogs-and-overlays) for the

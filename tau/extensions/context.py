@@ -503,6 +503,12 @@ class ExtensionContext:
         ``deliver_as='follow_up'`` queues for after the current turn completes.
         When ``trigger_turn`` is true and the agent is idle, the message starts a
         new turn immediately instead of waiting in the queue.
+
+        Only the ``trigger_turn`` path handles ``/`` commands and ``!`` shell
+        input, because it is the only one that behaves like a freshly typed
+        message. The queues carry messages to the model mid-turn, and a command
+        has no meaning there — a queued ``/compact`` cannot interleave with the
+        turn it would be compacting.
         """
         if self._runtime is None:
             return
@@ -510,7 +516,12 @@ class ExtensionContext:
         if agent is None:
             return
         if trigger_turn and agent.is_idle():
-            await self._runtime.invoke(content, display=True)
+            # user_input, not invoke: this is documented as starting a turn "as a
+            # normal user message", and a normal user message goes through the
+            # / and ! dispatch that invoke skips. display=True keeps the plain
+            # text case rendering, which invoke(display=True) used to provide.
+            await self._runtime.user_input(content, display=True)
+            return
             return
         engine = getattr(agent, "_engine", None)
         if engine is None:

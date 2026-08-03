@@ -360,10 +360,33 @@ class Runtime:
     # Core input entry point
     # -------------------------------------------------------------------------
 
-    async def user_input(self, text: str, options: PromptOptions | None = None) -> None:
+    async def user_input(
+        self, text: str, options: PromptOptions | None = None, *, display: bool = False
+    ) -> None:
         """Accept raw user text. ! runs a shell command; / goes to CommandRegistry;
         everything else to the agent.
+
+        Set ``display`` when the caller is not the interactive input handler and
+        the text should still appear in the TUI transcript — the handler renders
+        the message itself before calling, so it leaves this off. Callers that
+        only ever send plain prompts can use ``invoke(display=True)`` instead;
+        this entry point is what routes ``/`` and ``!`` as well.
+
+        Rendering happens once, here, rather than in the branches below: the
+        plain-text branch would otherwise get it from ``invoke`` while the
+        command branches got nothing.
         """
+        if display and self._layout is not None:
+            from tau.message.types import UserMessage
+
+            # A slash command renders as an ordinary user message, which is what
+            # the input handler's _make_slash_message also produces for one. It
+            # additionally has special cards for /skill: and prompt templates;
+            # those stay in the TUI layer, so an extension-issued /skill: shows
+            # as plain text rather than a skill card.
+            self._layout.add_message(UserMessage.from_text(text))
+            self._layout._tui.request_render()
+
         match text.strip():
             case "":
                 return
