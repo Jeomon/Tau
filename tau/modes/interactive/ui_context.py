@@ -982,15 +982,27 @@ class UIContext:
         backspace()
         layout.refresh_input_state()
 
-    def set_input_placeholder(self, text: str) -> None:
+    def set_input_placeholder(self, text: str, *, dismiss_on_input: bool = False) -> None:
         """Override the editor placeholder (shown when the input is empty).
 
         Call :meth:`reset_input_placeholder` to restore the configured one.
+
+        The override is only drawn while the input is empty, so typing hides it
+        either way. Pass ``dismiss_on_input=True`` for a *transient notice* —
+        e.g. reporting an error — so the first real keystroke retires it
+        permanently instead of letting it come back if the user deletes what
+        they typed. Usage::
+
+            ctx.ui.set_input_placeholder("Voice: mic error", dismiss_on_input=True)
         """
         layout = self._layout()
         if layout is None:
             return
-        layout.input.set_placeholder_override(text)
+        try:
+            layout.input.set_placeholder_override(text, dismiss_on_input=dismiss_on_input)
+        except TypeError:
+            # Custom editor still on the older single-argument signature.
+            layout.input.set_placeholder_override(text)
         layout._tui.request_render()
 
     def reset_input_placeholder(self) -> None:

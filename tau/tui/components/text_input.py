@@ -95,6 +95,9 @@ class TextInput(Component):
         # Transient override (e.g. extension status text). When None the
         # configured placeholder above is shown.
         self._placeholder_override: str | None = None
+        # When True the override is a transient notice that the next real
+        # keystroke retires for good — see set_placeholder_override.
+        self._placeholder_dismiss_on_input: bool = False
         self._on_submit = on_submit
         self._on_followup = on_followup
         self._on_dequeue = on_dequeue
@@ -314,9 +317,24 @@ class TextInput(Component):
         """
         self._backspace()
 
-    def set_placeholder_override(self, text: str | None) -> None:
-        """Temporarily replace the placeholder (None restores the configured one)."""
+    def set_placeholder_override(self, text: str | None, *, dismiss_on_input: bool = False) -> None:
+        """Temporarily replace the placeholder (None restores the configured one).
+
+        The override is only ever *drawn* while the input is empty, so typing
+        already hides it. ``dismiss_on_input=True`` additionally retires it the
+        moment a real keystroke lands, so it can't reappear when the user
+        deletes back to an empty input — the right semantics for a transient
+        notice (e.g. an extension reporting "mic error") as opposed to a
+        standing placeholder.
+        """
         self._placeholder_override = text
+        self._placeholder_dismiss_on_input = text is not None and dismiss_on_input
+
+    def _dismiss_transient_placeholder(self) -> None:
+        """Drop a ``dismiss_on_input`` override once the user actually types."""
+        if self._placeholder_dismiss_on_input:
+            self._placeholder_override = None
+            self._placeholder_dismiss_on_input = False
 
     def set_cursor_blink(self, enabled: bool) -> None:
         """Enable/disable cursor blinking, applying immediately to the live cursor.
@@ -417,6 +435,7 @@ class TextInput(Component):
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, PasteEvent):
             self._mark_activity()
+            self._dismiss_transient_placeholder()
             self._goal_col = None
             # A raw tab renders as a terminal tab-stop jump (commonly 8 columns)
             # but _char_width counts it as 1 column, desyncing cursor/wrap math
@@ -433,6 +452,7 @@ class TextInput(Component):
             return False
 
         self._mark_activity()
+        self._dismiss_transient_placeholder()
 
         if not event.matches(Key.UP, Key.DOWN):
             self._goal_col = None

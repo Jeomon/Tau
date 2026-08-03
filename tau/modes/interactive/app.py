@@ -24,6 +24,8 @@ from tau.tui.theme import LayoutTheme
 from tau.tui.utils import project_name
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tau.runtime.service import Runtime
     from tau.runtime.types import RuntimeConfig
 
@@ -137,6 +139,9 @@ class App:
         self._saved_log_level: int | None = None
         self._saved_last_resort: logging.Handler | None = None
         self._tui_log_handler: logging.Handler | None = None
+        # Original stderr file descriptor, saved while fd 2 is redirected away
+        # from the TTY for the TUI's lifetime (see _redirect_stderr_fd).
+        self._saved_stderr_fd: int | None = None
 
         # Auto light/dark: when the theme setting is "auto", the active theme is
         # refined from the terminal background colour once it's known at runtime.
@@ -425,6 +430,15 @@ class App:
         stderr — and the LSP client logs the language server's stderr at WARNING
         on every read. Route everything to a log file instead and neutralise the
         stderr fallback so nothing reaches the TTY.
+
+        Stripping ``logging`` handlers only covers records that go through the
+        ``logging`` module. Raw ``sys.stderr.write``/``print`` calls,
+        ``warnings.warn`` output, interpreter-level messages (unraisable
+        exceptions, faulthandler) and C libraries writing straight to fd 2
+        (PortAudio/CoreAudio on a failed mic open, for one) all bypass it and
+        land on the TTY anyway — each one desyncing the renderer's cursor
+        bookkeeping for the rest of the session. So fd 2 itself is redirected
+        to the same log file; see :meth:`_redirect_stderr_fd`.
         """
         import logging
         import sys
@@ -451,10 +465,12 @@ class App:
         # unbounded in a single file. Fall back to a fresh id if no session yet.
         sm = self._runtime.session_manager
         log_id = (sm.session_id if sm is not None else None) or create_session_id()
+        log_path = None
         try:
             logs_dir = get_logs_dir()
             logs_dir.mkdir(parents=True, exist_ok=True)
-            fh = logging.FileHandler(logs_dir / f"{log_id}.log")
+            log_path = logs_dir / f"{log_id}.log"
+            fh = logging.FileHandler(log_path)
             fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
             root.addHandler(fh)
             self._tui_log_handler = fh
@@ -463,6 +479,64 @@ class App:
         except OSError:
             # Couldn't open the log file — at least keep logs off the terminal.
             root.addHandler(logging.NullHandler())
+            log_path = None
+
+        # Anything bypassing ``logging`` still reaches the TTY through fd 2.
+        self._redirect_stderr_fd(log_path)
+
+    def _redirect_stderr_fd(self, log_path: Path | None) -> None:
+        """Point fd 2 at the session log (or the null device) for the TUI's lifetime.
+
+        The renderer positions everything with *relative* cursor moves and
+        tracks the physical cursor itself, so a single foreign byte on the TTY
+        shifts every subsequent frame by a row and never self-corrects — the
+        input box strands one place while new content paints over the divider
+        or footer below it. Redirecting the descriptor (not just ``sys.stderr``,
+        which a C library writing to fd 2 directly would sail straight past)
+        is what actually closes that hole.
+
+        Best-effort: any failure here leaves the process exactly as it was.
+        """
+        import os
+        import sys
+
+        if self._saved_stderr_fd is not None:
+            return  # already redirected
+        try:
+            with contextlib.suppress(Exception):
+                sys.stderr.flush()
+            target = os.open(
+                os.fspath(log_path) if log_path is not None else os.devnull,
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+                0o644,
+            )
+            try:
+                self._saved_stderr_fd = os.dup(2)
+                os.dup2(target, 2)
+            finally:
+                os.close(target)
+        except Exception:
+            # Never let diagnostics plumbing take the app down.
+            self._saved_stderr_fd = None
+
+    def _restore_stderr_fd(self) -> None:
+        """Put fd 2 back on the real stderr saved by :meth:`_redirect_stderr_fd`."""
+        import os
+        import sys
+
+        saved = self._saved_stderr_fd
+        if saved is None:
+            return
+        self._saved_stderr_fd = None
+        try:
+            with contextlib.suppress(Exception):
+                sys.stderr.flush()
+            os.dup2(saved, 2)
+        except Exception:
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                os.close(saved)
 
     async def run(self) -> None:
         """Set up hooks, replay session, then run the TUI loop."""
@@ -965,6 +1039,9 @@ class App:
 
     def _restore_logging(self) -> None:
         """Restore process-global logging configuration changed for TUI rendering."""
+        # Put fd 2 back first, so anything logged during teardown (including a
+        # failure below) can still reach the real stderr.
+        self._restore_stderr_fd()
         if self._saved_log_handlers is None:
             return
         root = logging.getLogger()

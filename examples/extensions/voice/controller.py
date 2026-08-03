@@ -81,7 +81,18 @@ class VoiceController:
     # ── Transient status placeholder (errors only) ─────────────────────────────
 
     def _set_status(self, text: str) -> None:
-        self._ui.set_input_placeholder(text)
+        # dismiss_on_input: these are transient notices, so the first keystroke
+        # retires them for good — without it the placeholder would reappear if
+        # the user typed and then deleted back to an empty input.
+        #
+        # The keyword is newer than the extension API itself, and a globally
+        # installed extension may be loaded by an older Tau, so fall back to
+        # the original single-argument call rather than raising from inside an
+        # error path (which is exactly where this runs).
+        try:
+            self._ui.set_input_placeholder(text, dismiss_on_input=True)
+        except TypeError:
+            self._ui.set_input_placeholder(text)
 
     def _clear_status(self) -> None:
         self._ui.reset_input_placeholder()
