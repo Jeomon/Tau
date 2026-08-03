@@ -222,14 +222,25 @@ async def start_oauth_callback_server(
 async def await_oauth_code(
     code_future: asyncio.Future[str],
     state: str,
-    server: asyncio.Server,
+    server: asyncio.Server | None,
     callbacks: OAuthLoginCallbacks,
 ) -> tuple[str | None, str | None]:
     """Race browser callback vs manual paste; close the server either way.
 
     Returns (code, recv_state). recv_state falls back to state when the browser
     callback wins (the state was already validated by the server handler).
+
+    ``server`` is None when the loopback callback could not be bound (port in
+    use, or a sandbox that forbids listening). Manual paste is then the only
+    way a code can arrive, so demand it rather than waiting out the timeout on
+    a future nothing will ever resolve.
     """
+    if server is None and not callbacks.on_manual_code_input:
+        raise RuntimeError(
+            "Could not start the local OAuth callback server and no manual code "
+            "input is available. Free the callback port, or set "
+            "TAU_OAUTH_CALLBACK_HOST to an interface this process may bind."
+        )
     code: str | None = None
     recv_state: str | None = None
     pending: set = set()
@@ -280,6 +291,7 @@ async def await_oauth_code(
         for task in pending:
             if not task.done():
                 task.cancel()
-        server.close()
-        await server.wait_closed()
+        if server is not None:
+            server.close()
+            await server.wait_closed()
     return code, recv_state

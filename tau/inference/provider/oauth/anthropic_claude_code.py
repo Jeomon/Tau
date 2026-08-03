@@ -230,9 +230,17 @@ async def login_anthropic(callbacks: OAuthLoginCallbacks) -> OAuthCredential:
     state = verifier
     url = _build_authorization_url(challenge, state)
 
-    server, code_future = await start_oauth_callback_server(
-        CALLBACK_PATH, state, CALLBACK_HOST, CALLBACK_PORT
-    )
+    server: asyncio.Server | None
+    try:
+        server, code_future = await start_oauth_callback_server(
+            CALLBACK_PATH, state, CALLBACK_HOST, CALLBACK_PORT
+        )
+    except OSError:
+        # Callback port busy, or a sandbox that forbids listening. This
+        # provider has no device-code flow, but the manual paste path below
+        # still works, so degrade to that instead of failing the login.
+        server = None
+        code_future = asyncio.get_running_loop().create_future()
     callbacks.on_auth(
         OAuthAuthInfo(
             url=url,
