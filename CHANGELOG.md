@@ -2,11 +2,16 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
-## Unreleased
+## 0.9.1 — 2026-08-03
 
 ### Breaking
 
 -   JSON mode's `message_update` now carries `delta` (and `thinking_delta`) — the text appended since the previous update — instead of `message`, the whole reply so far. The old payload was re-serialized on every streamed token, so stdout grew with the square of the reply length: a 188 KB answer emitted roughly 1.5 GB, and large writes could exhaust memory before the turn finished. The same reply now emits about 1 MB. Consumers that read `update["message"]` should concatenate `delta` instead, or read the finished message from `message_end`, which is unchanged
+
+### Added
+
+-   `TAU_OAUTH_CALLBACK_HOST` overrides the address every OAuth callback server binds, as one host or a comma-separated list. The default is loopback on both stacks, which is right for a desktop login and keeps the port off the local network; it is wrong when Tau runs in a container or VM and the browser is on the host, because Docker's `-p` forwarding can only reach a process bound to the container's external interface. Resolved when the server starts rather than at import, so setting it on the command line works
+-   `kimi-k3:cloud` in the Ollama Cloud catalog, with the 1,048,576-token context window and vision capability the daemon reports. Cloud-linked tags are excluded from local Ollama discovery because they duplicate this list, so they are only selectable once catalogued
 
 ### Fixed
 
@@ -21,6 +26,9 @@ All notable changes to `tau-coding-agent` are documented here.
 -   A byte-order mark in `auth.json`, `settings.json` or the model catalog no longer discards the file. `json.loads` rejects a leading BOM outright, so a credential store carrying one parsed as empty — every stored login appeared to vanish and new ones could not be saved — while settings and catalog overrides were silently ignored as if corrupt. Windows editors and PowerShell's `>` redirect add a BOM by default, so hand-editing these files was enough to trigger it. Reads now use `utf-8-sig`, which strips a mark when present and is a no-op otherwise; writes stay plain `utf-8`, so Tau never introduces one
 -   `grep` results are no longer displayed with altered text. The renderer split each `path:lineno:text` line on the first colon and then on the first `": "`, but matched code is full of `key: value` — so a match on `{"a": 1}` was shown as `{"a"  1}`, text the file does not contain. Lines without a `": "` fared no better: the split silently collapsed, dimming the whole row instead of just the location. The line number is now the anchor, which also keeps a Windows `C:\` path intact, and the truncation notice — dropped entirely by the old colon filter — is shown again with the cap it names
 -   `ctx.send_user_message(..., trigger_turn=True)` now runs `/` commands and `!` shell input instead of sending them to the model as literal text. It is documented as starting a turn "as a normal user message", but it called `invoke()`, which skips the dispatch every typed message goes through — so an extension asking for `/compact` just told the model about a slash. The queueing paths (`steer`, `follow_up`) are unchanged and still deliver plain text: they carry messages to the model mid-turn, where a command has nothing to act on
+-   OAuth callback servers now listen on both loopback stacks. The redirect URI is registered with each provider as the `localhost` name, which resolves to `::1` on IPv6-first systems and `127.0.0.1` elsewhere, so binding one stack left the browser's callback refused on the other and the login hanging until it timed out. Google Antigravity bound every interface instead, which avoided that but exposed the callback port to the local network for the duration of the login; it is now loopback-only like the rest
+-   A busy callback port no longer aborts an Anthropic Claude Code or Google Antigravity login. Both called the callback server unguarded, so a port already in use raised straight out of the login, even though both already race the browser callback against pasting the redirect URL by hand and `on_manual_code_input` is documented as the fallback for exactly this — the path was simply unreachable. OpenAI Codex already fell back to its device-code flow. When neither a callback server nor a paste path is available the failure is now immediate and explains itself, rather than waiting out the five-minute timeout on a code that cannot arrive
+-   Kimi K3's reasoning effort is no longer pinned to `max`. The catalog exposed only that level and the Moonshot dialect discarded every other selection, but the model accepts `low`, `high` and `max`, defaulting to `max` when the field is omitted. All three are now selectable and the full `ThinkingLevel` range maps onto them; reasoning cannot be disabled on K3, so an `off` selection sends no field and leaves the model's own default in place
 
 ## 0.9.0 — 2026-07-26
 
