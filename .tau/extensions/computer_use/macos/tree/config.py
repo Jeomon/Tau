@@ -80,12 +80,41 @@ INTERACTIVE_ACTIONS = {
     "AXRaise",
 }
 
+# Subroles that make an element interactive regardless of its role. A
+# Notification Centre banner is an AXGroup, which is not an interactive role,
+# but it is the thing a user clicks to open the notification. WhatsApp's chat
+# search reports AXStaticText for the same reason -- the role describes how the
+# element was built, while the subrole describes what it is for.
+INTERACTIVE_SUBROLES = {
+    "AXNotificationCenterBanner",
+    "AXSearchField",
+}
+
+# Roles whose AXValue is a state rather than a name. A checkbox reports 1 when
+# it is on, so using the value as a label yields a node called "1" -- true, but
+# no use to anyone deciding what to click. For these the linked title element
+# is the name, and the value belongs in metadata as state.
+STATE_VALUED_ROLES = {
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXDisclosureTriangle",
+}
+
 # Window control subroles with friendly names
 WINDOW_CONTROL_SUBROLES = {
     "AXCloseButton": "Close Button",
     "AXMinimizeButton": "Minimize Button",
     "AXZoomButton": "Zoom Button",
     "AXFullScreenButton": "Full Screen Button",
+}
+
+# Standard text-entry roles. These carry selection state, which tells an agent
+# whether typing would replace existing content or insert at a caret.
+TEXT_INPUT_ROLES = {
+    "AXTextField",
+    "AXTextArea",
+    "AXComboBox",
+    "AXSearchField",
 }
 
 # Roles skipped during traversal: decorative/structural elements with no

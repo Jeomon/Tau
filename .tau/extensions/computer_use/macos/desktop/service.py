@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from ...types import Desktop as DesktopBase
@@ -92,14 +93,29 @@ class Desktop(DesktopBase):
         return Size(width=int(width), height=int(height))
 
     def get_windows(self) -> list[Window]:
-        windows: list[Window] = []
-        for app in ax.GetRunningApplications(policy="Regular"):
+        apps = ax.GetRunningApplications(policy="Regular")
+
+        def _describe(app) -> list[Window]:
             app_windows = app.Windows
             if not app_windows:
-                windows.append(_window_from_app(app))
-                continue
-            for window_control in app_windows:
-                windows.append(_window_from_app(app, window_control))
+                return [_window_from_app(app)]
+            return [_window_from_app(app, window_control) for window_control in app_windows]
+
+        # Probed on a small pool. The first accessibility call to a process
+        # costs roughly 8ms because the connection has to be established, while
+        # later calls are microseconds -- and there are ~50 running apps, so
+        # serially that dominates a cold capture. These are separate processes
+        # and genuinely answer at the same time, unlike parallelising attribute
+        # fetches inside one application, where a single accessibility server
+        # answers serially and overlapping buys nothing.
+        if not apps:
+            return []
+        windows: list[Window] = []
+        with ThreadPoolExecutor(
+            max_workers=min(12, len(apps)), thread_name_prefix="ax-window-probe"
+        ) as pool:
+            for result in pool.map(_describe, apps):
+                windows.extend(result)
         return windows
 
     def get_foreground_window(self) -> Window | None:

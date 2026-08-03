@@ -7,10 +7,20 @@ import logging
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from AppKit import NSWorkspace
+
 from ...types import Window
 from .. import ax
 from ..desktop.config import BROWSER_BUNDLE_IDS, SYSTEM_UI_BUNDLE_IDS
-from .config import INTERACTIVE_ROLES, PRUNABLE_ROLES, SCROLLABLE_ROLES, WINDOW_CONTROL_SUBROLES
+from .config import (
+    INTERACTIVE_ROLES,
+    INTERACTIVE_SUBROLES,
+    PRUNABLE_ROLES,
+    SCROLLABLE_ROLES,
+    STATE_VALUED_ROLES,
+    TEXT_INPUT_ROLES,
+    WINDOW_CONTROL_SUBROLES,
+)
 from .views import BoundingBox, ScrollElementNode, TextElementNode, TreeElementNode, TreeState
 
 logger = logging.getLogger(__name__)
@@ -22,6 +32,67 @@ _FINDER_BUNDLE_ID = "com.apple.finder"
 class Tree:
     """Extracts a TreeState snapshot of interactive/scrollable elements across
     the active window plus a whitelist of system UI apps."""
+
+    # (pids seen, bundle ids that had extras) -- recomputed when the set of
+    # running processes changes.
+    _extras_cache: tuple[frozenset, list[str]] | None = None
+
+    @classmethod
+    def _bundles_with_menu_bar_extras(cls) -> list[str]:
+        """Bundle ids of running apps that contribute a menu bar extra.
+
+        Status icons belong to the application that owns them, not to the
+        system UI, so an app like Docker or Ollama is never scanned by the
+        normal rules -- it is neither frontmost nor system UI -- and its icon
+        never reaches a snapshot even though it is plainly visible.
+
+        Only the extras menu bar of these apps is scanned afterwards; walking
+        their full window tree would cost far more than the single node they
+        contribute.
+        """
+        try:
+            running = [
+                app
+                for app in NSWorkspace.sharedWorkspace().runningApplications()
+                # Includes accessory apps (policy 1), which is what most
+                # menu-bar-only tools are.
+                if app.activationPolicy() in (0, 1) and app.bundleIdentifier()
+            ]
+        except Exception as exc:
+            logger.debug("could not enumerate running applications: %s", exc)
+            return []
+
+        key = frozenset(app.processIdentifier() for app in running)
+        cached = cls._extras_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        candidates = [app for app in running if app.bundleIdentifier() not in SYSTEM_UI_BUNDLE_IDS]
+
+        def _has_extras(app):
+            try:
+                extras = ax.Control(pid=app.processIdentifier()).ExtrasMenuBar
+                if extras is not None and extras.GetChildren():
+                    return app.bundleIdentifier()
+            except Exception:
+                pass
+            return None
+
+        # Probed in parallel. The first accessibility call to a process is far
+        # more expensive than later ones -- roughly 8ms against microseconds --
+        # because the connection has to be established, and there are ~50
+        # running processes to ask. Serially that is over a second on a cold
+        # start; concurrently it is about 200ms.
+        bundle_ids: list[str] = []
+        if candidates:
+            with ThreadPoolExecutor(
+                max_workers=min(12, len(candidates)),
+                thread_name_prefix="ax-extras-probe",
+            ) as pool:
+                bundle_ids = [b for b in pool.map(_has_extras, candidates) if b]
+
+        cls._extras_cache = (key, bundle_ids)
+        return bundle_ids
 
     def on_focus_changed(self, element, notification: str, pid: int) -> None:
         """Callback hook for WatchDog focus-change notifications (FocusedUIElementChanged,
@@ -52,6 +123,7 @@ class Tree:
             bundle_ids=bundle_ids,
             system_bundle_ids=system_bundle_ids,
             desktop_only_bundle_ids=desktop_only_bundle_ids,
+            extras_only_bundle_ids=self._bundles_with_menu_bar_extras(),
         )
 
         return TreeState(
@@ -66,6 +138,7 @@ class Tree:
         bundle_ids: list[str],
         system_bundle_ids: list[str] | None = None,
         desktop_only_bundle_ids: list[str] | None = None,
+        extras_only_bundle_ids: list[str] | None = None,
     ) -> tuple[list[TreeElementNode], list[ScrollElementNode], list[TextElementNode]]:
         interactive_nodes: list[TreeElementNode] = []
         scrollable_nodes: list[ScrollElementNode] = []
@@ -73,19 +146,24 @@ class Tree:
 
         system_bundle_ids = system_bundle_ids or []
         desktop_only_bundle_ids = desktop_only_bundle_ids or []
+        extras_only_bundle_ids = extras_only_bundle_ids or []
 
-        task_inputs: list[tuple[str, bool, bool]] = []
+        task_inputs: list[tuple[str, bool, bool, bool]] = []
         for bundle_id in bundle_ids:
-            task_inputs.append((bundle_id, bundle_id in BROWSER_BUNDLE_IDS, False))
+            task_inputs.append((bundle_id, bundle_id in BROWSER_BUNDLE_IDS, False, False))
         for bundle_id in desktop_only_bundle_ids:
             if bundle_id not in bundle_ids:
-                task_inputs.append((bundle_id, bundle_id in BROWSER_BUNDLE_IDS, True))
+                task_inputs.append((bundle_id, bundle_id in BROWSER_BUNDLE_IDS, True, False))
+        # Apps contributing only a status icon: scan the extras menu bar alone.
+        for bundle_id in extras_only_bundle_ids:
+            if bundle_id not in bundle_ids and bundle_id not in desktop_only_bundle_ids:
+                task_inputs.append((bundle_id, False, False, True))
 
         with ThreadPoolExecutor() as executor:
-            retry_counts: dict[str, int] = {bid: 0 for bid, _, __ in task_inputs}
+            retry_counts: dict[str, int] = {bid: 0 for bid, _, __, ___ in task_inputs}
             future_to_bundle_id: dict = {
-                executor.submit(self.get_nodes, bid, is_browser, desktop_only): bid
-                for bid, is_browser, desktop_only in task_inputs
+                executor.submit(self.get_nodes, bid, is_browser, desktop_only, extras_only): bid
+                for bid, is_browser, desktop_only, extras_only in task_inputs
             }
             while future_to_bundle_id:
                 for future in as_completed(list(future_to_bundle_id)):
@@ -104,9 +182,12 @@ class Tree:
                             exc,
                         )
                         if retry_counts[bundle_id] < _THREAD_MAX_RETRIES:
-                            is_browser = next((ib for b, ib, _ in task_inputs if b == bundle_id), False)
-                            desktop_only = next((do for b, _, do in task_inputs if b == bundle_id), False)
-                            new_future = executor.submit(self.get_nodes, bundle_id, is_browser, desktop_only)
+                            is_browser = next((ib for b, ib, _, __ in task_inputs if b == bundle_id), False)
+                            desktop_only = next((do for b, _, do, __ in task_inputs if b == bundle_id), False)
+                            extras_only = next((eo for b, _, __, eo in task_inputs if b == bundle_id), False)
+                            new_future = executor.submit(
+                                self.get_nodes, bundle_id, is_browser, desktop_only, extras_only
+                            )
                             future_to_bundle_id[new_future] = bundle_id
                         else:
                             logger.error(
@@ -119,9 +200,17 @@ class Tree:
         return interactive_nodes, scrollable_nodes, dom_informative_nodes
 
     def get_nodes(
-        self, bundle_id: str, is_browser: bool, desktop_only: bool = False
+        self,
+        bundle_id: str,
+        is_browser: bool,
+        desktop_only: bool = False,
+        extras_only: bool = False,
     ) -> tuple[list[TreeElementNode], list[ScrollElementNode], list[TextElementNode]]:
-        """Traverse one app's AX tree, starting from each of its windows."""
+        """Traverse one app's AX tree, starting from each of its windows.
+
+        extras_only: scan only the app's menu bar extras and skip its windows --
+        for background apps that contribute a status icon and nothing else.
+        """
         app = ax.GetRunningApplicationByBundleId(bundle_id)
         if not app:
             return [], [], []
@@ -131,6 +220,13 @@ class Tree:
         interactive_nodes: list[TreeElementNode] = []
         scrollable_nodes: list[ScrollElementNode] = []
         dom_informative_nodes: list[TextElementNode] = []
+
+        if extras_only:
+            if extras := app.ExtrasMenuBar:
+                self.tree_traversal(
+                    extras, app_name, interactive_nodes, scrollable_nodes, [], is_browser=is_browser
+                )
+            return interactive_nodes, scrollable_nodes, dom_informative_nodes
 
         if not desktop_only:
             if menubar := app.MenuBar:
@@ -294,10 +390,10 @@ class Tree:
         """Iterative (stack-based) traversal: fetches a minimal attribute batch per
         node to decide interactivity, then a fuller batch only for the small
         minority that turn out interactive."""
-        stack = deque([(root_control.Element, is_browser)])
+        stack = deque([(root_control.Element, is_browser, True)])
 
         while stack:
-            element, current_is_browser = stack.pop()
+            element, current_is_browser, parent_box_ok = stack.pop()
             early = ax.GetEarlyTraversalBatch(element)
 
             role = early["role"]
@@ -309,24 +405,56 @@ class Tree:
 
             if rect is None:
                 for child_element in reversed(children):
-                    stack.append((child_element, current_is_browser))
+                    stack.append((child_element, current_is_browser, parent_box_ok))
                 continue
 
             is_visible = rect.width > 1 and rect.height > 1
+
+            if role == "AXMenu" and not is_visible:
+                # A closed submenu reports a degenerate (0-size) rect for its
+                # entire subtree, so no descendant can pass the is_visible check
+                # below. Skip walking the (often large) hidden submenu instead of
+                # paying one AX round-trip per item.
+                continue
             has_roles = role in INTERACTIVE_ROLES or role == "AXImage"
             has_title_ui_element = bool(early["title_ui_element"])
+            # Some elements are clickable without adopting an interactive role.
+            # A Notification Centre banner is an AXGroup carrying the subrole
+            # AXNotificationCenterBanner.
+            #
+            # Matched on subrole rather than "advertises an AXPress action":
+            # Electron applications attach press actions to wrapper elements
+            # liberally, and using actions as the signal added 118 nodes to a
+            # 95-node capture -- mostly AXGroup/AXStaticText containers.
+            has_interactive_subrole = early["subrole"] in INTERACTIVE_SUBROLES
+
             is_interactive = (
-                (has_roles and early["enabled"]) or bool(early["help"]) or early["has_popup"] or has_title_ui_element
+                (has_roles and early["enabled"])
+                or bool(early["help"])
+                or early["has_popup"]
+                or bool(early["index"])
+                or has_title_ui_element
+                or has_interactive_subrole
             ) and is_visible
 
             bounding_box = BoundingBox.from_bounding_rectangle(rect)
             if main_window_bounding_box:
                 bounding_box = self.iou_bounding_box(main_window_bounding_box, bounding_box)
                 if bounding_box.width == 0 or bounding_box.height == 0:
+                    # The element itself has no clickable area, so it is not
+                    # emitted -- but a collapsed container says nothing about
+                    # its descendants. Instagram positions a floating button
+                    # inside a zero-height wrapper at the page bottom, and
+                    # pruning here removed the whole subtree even though the
+                    # button had a perfectly good rect inside the window.
+                    # Mirrors how a None rect is already handled above.
+                    if parent_box_ok:
+                        for child_element in reversed(children):
+                            stack.append((child_element, current_is_browser, False))
                     continue
 
             if is_interactive:
-                late = ax.GetLateTraversalBatch(element)
+                late = ax.GetLateTraversalBatch(element, role)
 
                 title_ui_element_text = None
                 if early["title_ui_element"] is not None:
@@ -340,7 +468,13 @@ class Tree:
                         or None
                     )
 
-                label = late["label"] or (str(title_ui_element_text) if title_ui_element_text else "")
+                linked_title = str(title_ui_element_text) if title_ui_element_text else ""
+                if role in STATE_VALUED_ROLES:
+                    # AXValue here is the state, not a name, so it is skipped:
+                    # a switch reporting 1 would otherwise be labelled "1".
+                    label = late["title"] or late["description"] or linked_title or late["identifier"]
+                else:
+                    label = late["label"] or linked_title
                 attrs = {**early, **late, "title_ui_element": title_ui_element_text}
 
                 metadata: dict = {}
@@ -349,18 +483,31 @@ class Tree:
                         metadata["placeholder"] = placeholder
                     if value := late["value"]:
                         metadata["value"] = value
-                elif role in ("AXComboBox", "AXTextArea"):
+                elif role in ("AXComboBox", "AXTextArea", "AXRow"):
                     if placeholder := late["placeholder"]:
                         metadata["placeholder"] = placeholder
                     if value := late["value"]:
                         metadata["value"] = value
-                    if late["expanded"]:
+                    if late["expanded"] is not None:
                         metadata["expanded"] = late["expanded"]
                     if early["has_popup"]:
                         metadata["has_popup"] = early["has_popup"]
                 elif role == "AXRadioButton":
                     if value := late["value"]:
                         metadata["selected"] = value
+                elif role in ("AXMenuItem", "AXMenuBarItem"):
+                    if shortcut := late["shortcut"]:
+                        metadata["shortcut"] = shortcut
+                elif role == "AXCheckBox":
+                    # 0 off, 1 on, 2 mixed -- the third state is what a "select
+                    # all" box shows when only some of its items are selected.
+                    if (value := late["value"]) is not None:
+                        try:
+                            state = int(value)
+                        except (TypeError, ValueError):
+                            state = None
+                        if state is not None:
+                            metadata["checked"] = "mixed" if state == 2 else bool(state)
                 elif role == "AXPopUpButton":
                     if title_ui_element_text:
                         metadata["title"] = title_ui_element_text
@@ -373,8 +520,44 @@ class Tree:
                     if (url := late["url"]) and url.startswith(("file://", "http://", "https://")):
                         metadata["url"] = url
 
+                # Selection state for text-entry roles, kept out of the
+                # role-specific chain above so it applies uniformly. A caret
+                # (zero-length) is the resting state of every focused field and
+                # would be noise on every node, so only real selections are
+                # reported -- what matters is whether typing would replace
+                # existing content.
+                if role in TEXT_INPUT_ROLES or early["subrole"] == "AXSearchField":
+                    selection = late.get("selected_range")
+                    if selection is not None and selection[1] > 0:
+                        metadata["selected_text"] = late.get("selected_text") or ""
+                        total = len(str(late["value"] or ""))
+                        if selection[0] == 0 and total and selection[1] == total:
+                            metadata["all_selected"] = True
+
                 if late.get("identifier"):
                     metadata["axidentifier"] = late["identifier"]
+
+                # Close/minimise/zoom/full-screen buttons expose no title,
+                # description, value or identifier, so they are nameless and
+                # any name-based filtering drops them. _desktop_correction
+                # already names them for native windows, but browsers take the
+                # _dom_correction path and would otherwise lose them entirely.
+                if not label and (window_subrole := WINDOW_CONTROL_SUBROLES.get(early["subrole"])):
+                    label = window_subrole
+
+                # Third-party menu bar extras are pure icons: Claude, Docker,
+                # Ollama and LM Studio each expose one AXMenuBarItem with no
+                # title, description, value or identifier, so name-based
+                # filtering drops them despite being visible with real
+                # geometry. The owning application's name is the only
+                # meaningful thing to call them.
+                #
+                # Only unnamed items are affected, so an app's real menus
+                # (File, Edit, ...) keep their own titles, and Control Centre's
+                # disabled extras stay out because they are already filtered on
+                # geometry -- they sit at (0, 900) with zero size.
+                if not label and role == "AXMenuBarItem":
+                    label = window_name
 
                 interactive_nodes.append(
                     TreeElementNode(
@@ -407,4 +590,4 @@ class Tree:
                 )
 
             for child_element in reversed(children):
-                stack.append((child_element, current_is_browser))
+                stack.append((child_element, current_is_browser, True))

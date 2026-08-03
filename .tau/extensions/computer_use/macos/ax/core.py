@@ -12,7 +12,7 @@ import subprocess
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 import Quartz
 from Quartz import (
@@ -75,12 +75,14 @@ from ApplicationServices import (
     AXUIElementCopyElementAtPosition,
     AXUIElementCopyMultipleAttributeValues,
     AXUIElementCopyParameterizedAttributeValue,
+    AXUIElementCopyParameterizedAttributeNames,
     AXUIElementGetPid,
     AXUIElementSetMessagingTimeout,
     AXIsProcessTrusted,
     AXIsProcessTrustedWithOptions,
     AXValueCreate,
     AXValueGetType,
+    AXValueGetValue,
     kAXErrorSuccess,
     kAXCopyMultipleAttributeOptionStopOnError,
 )
@@ -301,6 +303,62 @@ def GetParameterizedAttribute(
     return None
 
 
+def GetParameterizedAttributeNames(element: Any) -> List[str]:
+    """List the parameterized attributes an element actually advertises.
+
+    Support is wildly uneven and cannot be inferred from the role: a live
+    AXTextArea in TextEdit advertises 11 of these, a live AXWebArea in Chrome
+    advertises 44, and Chrome's omnibox AXTextField advertises 6 -- enough to
+    read text but not enough to locate it on screen. Probe with this rather
+    than assuming.
+    """
+    try:
+        error, names = AXUIElementCopyParameterizedAttributeNames(element, None)
+        if error == kAXErrorSuccess and names:
+            return list(names)
+    except Exception:
+        pass
+    return []
+
+
+def MakeCFRange(location: int, length: int) -> Any:
+    """Box a (location, length) pair as an AXValue of kAXValueCFRangeType.
+
+    Parameterized text attributes take their range argument in this form.
+    """
+    from CoreFoundation import CFRange
+
+    return AXValueCreate(AXValueType.CFRange, CFRange(int(location), int(length)))
+
+
+def ParseCFRange(value: Any) -> Optional[Tuple[int, int]]:
+    """Unbox an AXValue holding a CFRange into (location, length).
+
+    PyObjC hands back a plain 2-tuple from AXValueGetValue rather than an
+    object with .location/.length, but both shapes are handled since the
+    representation is not contractual.
+
+    Same ordering trap as _parse_ax_position: `getattr(v, "location", None)`
+    on an AXValueRef is a bridge miss costing ~180us, so it is tried only
+    after AXValueGetValue, not before it.
+    """
+    if value is None:
+        return None
+    if isinstance(value, tuple) and len(value) == 2:
+        return (int(value[0]), int(value[1]))
+    try:
+        success, raw = AXValueGetValue(value, AXValueType.CFRange, None)
+        if success and raw is not None and raw is not value:
+            return ParseCFRange(raw)
+    except Exception:
+        pass
+    location = getattr(value, "location", None)
+    length = getattr(value, "length", None)
+    if location is not None and length is not None:
+        return (int(location), int(length))
+    return None
+
+
 def SetAttribute(element: Any, attribute: str, value: Any) -> bool:
     """
     Set an attribute value on an AXUIElement.
@@ -405,19 +463,30 @@ def GetChildren(element: Any) -> list[Any]:
 
 
 def _parse_ax_position(pos_val) -> Optional[Tuple[float, float]]:
-    """Parse a position from a raw AXValue that has already been fetched."""
+    """Parse a position from a raw AXValue that has already been fetched.
+
+    Order matters enormously here. `hasattr` on an AXValueRef costs about
+    178us, because a missing attribute on a PyObjC bridge object raises and
+    unwinds through the bridge, while AXValueGetValue costs about 0.8us --
+    roughly 200x cheaper. Probing with hasattr first, then falling through to
+    AXValueGetValue, meant paying the expensive test to discover that the cheap
+    answer was the right one. Position and size are parsed once per element, so
+    this dominated capture time.
+    """
     if pos_val is None:
         return None
-    if hasattr(pos_val, "x") and hasattr(pos_val, "y"):
-        return (pos_val.x, pos_val.y)
     try:
-        from ApplicationServices import AXValueGetValue
-
         success, point = AXValueGetValue(pos_val, AXValueType.CGPoint, None)
         if success and point is not None:
-            if hasattr(point, "x") and hasattr(point, "y"):
-                return (point.x, point.y)
+            return (point.x, point.y)
     except Exception:
+        pass
+    # Already-unwrapped CGPoint. try/except rather than hasattr: when the
+    # attribute exists this costs nothing, and we only reach here when the
+    # value was not an AXValueRef.
+    try:
+        return (pos_val.x, pos_val.y)
+    except AttributeError:
         pass
     if hasattr(pos_val, "getValue_size_type_") or str(pos_val).startswith("<AXValue"):
         desc = str(pos_val)
@@ -438,19 +507,23 @@ def _parse_ax_position(pos_val) -> Optional[Tuple[float, float]]:
 
 
 def _parse_ax_size(size_val) -> Optional[Tuple[float, float]]:
-    """Parse a size from a raw AXValue that has already been fetched."""
+    """Parse a size from a raw AXValue that has already been fetched.
+
+    Same ordering argument as _parse_ax_position: ask AXValueGetValue first,
+    because probing an AXValueRef with hasattr costs ~200x more than the call
+    it was guarding.
+    """
     if size_val is None:
         return None
-    if hasattr(size_val, "width") and hasattr(size_val, "height"):
-        return (size_val.width, size_val.height)
     try:
-        from ApplicationServices import AXValueGetValue
-
         success, size = AXValueGetValue(size_val, AXValueType.CGSize, None)
         if success and size is not None:
-            if hasattr(size, "width") and hasattr(size, "height"):
-                return (size.width, size.height)
+            return (size.width, size.height)
     except Exception:
+        pass
+    try:
+        return (size_val.width, size_val.height)
+    except AttributeError:
         pass
     try:
         if len(size_val) == 2:
@@ -509,13 +582,14 @@ _EARLY_TRAVERSAL_ATTRIBUTES = [
     Attribute.Help,
     Attribute.HasPopup,
     Attribute.TitleUIElement,
+    Attribute.Subrole,
+    Attribute.Index,
     Attribute.Children,
 ]
 
 # Phase-2 attributes fetched only for elements that pass the interactive check.
 # These are skipped for the ~90-95% of non-interactive container/leaf elements.
 _LATE_TRAVERSAL_ATTRIBUTES = [
-    Attribute.Subrole,
     Attribute.Title,
     Attribute.Description,
     Attribute.Identifier,
@@ -524,10 +598,138 @@ _LATE_TRAVERSAL_ATTRIBUTES = [
     Attribute.URL,
     Attribute.Filename,
     Attribute.Expanded,
+    # Selection state. Riding along in this batch costs no extra round-trip,
+    # and only text-ish roles ever read it.
+    Attribute.SelectedText,
+    Attribute.SelectedTextRange,
 ]
 
 # Combined list kept for callers that still need a single full batch (e.g. _dom_correction).
 _TRAVERSAL_ATTRIBUTES = _EARLY_TRAVERSAL_ATTRIBUTES + _LATE_TRAVERSAL_ATTRIBUTES
+
+# An attribute an element cannot possibly have still costs a round-trip's worth
+# of work: the application has to answer "unsupported" for each one. Against
+# Control Centre's status items, 5 of the 11 phase-2 attributes are never
+# answered, and dropping them halves that fetch (6.88ms -> 3.22ms for 11
+# elements).
+#
+# Which of them can be answered is a property of the role, not of the
+# application: a menu bar item has no URL and no placeholder, a link has no
+# selection. So phase 2 asks only for what the role can actually carry.
+_LATE_ALWAYS = [
+    # Subrole is deliberately absent: it is fetched in phase 1, because
+    # interactivity depends on it (AXNotificationCenterBanner). Asking again
+    # here would be a duplicate round-trip, and returning it would clobber the
+    # phase-1 value when the two batches are merged.
+    Attribute.Title,
+    Attribute.Description,
+    Attribute.Identifier,
+    Attribute.Value,
+]
+_LATE_TEXTUAL = [
+    Attribute.PlaceholderValue,
+    Attribute.SelectedText,
+    Attribute.SelectedTextRange,
+    Attribute.Expanded,
+]
+_LATE_LINKLIKE = [Attribute.URL, Attribute.Filename]
+
+# Roles whose metadata handling in the tree service reads the textual or
+# link-like attributes. Anything not listed gets the base set.
+_TEXTUAL_ROLES = frozenset(
+    {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXRow"}
+)
+_LINKLIKE_ROLES = frozenset({"AXLink", "AXImage"})
+
+# Keyboard equivalents, which only menu items carry. Fetched for menu roles
+# alone, so every other element pays nothing for them.
+_LATE_MENU = [
+    Attribute.MenuItemCmdChar,
+    Attribute.MenuItemCmdModifiers,
+    Attribute.MenuItemCmdVirtualKey,
+]
+_MENU_ROLES = frozenset({"AXMenuItem", "AXMenuBarItem"})
+
+
+def _late_attributes_for(role: str) -> list:
+    """Phase-2 attribute list appropriate to a role."""
+    attributes = list(_LATE_ALWAYS)
+    if role in _TEXTUAL_ROLES:
+        attributes += _LATE_TEXTUAL
+    if role in _LINKLIKE_ROLES:
+        attributes += _LATE_LINKLIKE
+    if role in _MENU_ROLES:
+        attributes += _LATE_MENU
+    return attributes
+
+
+# Virtual key codes for keys with no printable character. Only the ones that
+# actually turn up as menu equivalents are listed.
+_VIRTUAL_KEYS = {
+    36: "\u21a9",   # return
+    48: "\u21e5",   # tab
+    49: "Space",
+    51: "\u232b",   # delete (backspace)
+    53: "\u238b",   # escape
+    76: "\u2324",   # enter
+    115: "\u2196",  # home
+    116: "\u21de",  # page up
+    117: "\u2326",  # forward delete
+    119: "\u2198",  # end
+    121: "\u21df",  # page down
+    123: "\u2190",
+    124: "\u2192",
+    125: "\u2193",
+    126: "\u2191",
+    122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
+    98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+}
+
+# Control characters that arrive through AXMenuItemCmdChar rather than as a
+# virtual key.
+_CONTROL_CHARS = {
+    "\x08": "\u232b",
+    "\x1b": "\u238b",
+    "\r": "\u21a9",
+    "\t": "\u21e5",
+    "\x03": "\u2324",
+}
+
+
+def FormatMenuShortcut(char: Any, modifiers: Any, virtual_key: Any) -> str:
+    """
+    Render a menu item's keyboard equivalent, e.g. "\u21e7\u2318N".
+
+    The modifier mask is not a plain list of held keys. Bit 3 means *no*
+    command, so command is implied whenever it is clear -- a mask of 0 is
+    command on its own, not "no modifiers at all". Bit 4 is the fn/globe key,
+    which is undocumented alongside the other four but is what macOS window
+    tiling uses: Fill is fn-control-F, and reading the mask without it would
+    render that as a bare F.
+    """
+    mask = 0 if modifiers is None else int(modifiers)
+
+    key = _VIRTUAL_KEYS.get(virtual_key) if virtual_key is not None else None
+    if key is None and char:
+        char = str(char)
+        key = _CONTROL_CHARS.get(char) or (
+            char if char.isprintable() and char.strip() else ""
+        )
+    if not key:
+        return ""
+
+    parts = []
+    if mask & 16:
+        parts.append("\U0001f310")  # fn / globe
+    if mask & 4:
+        parts.append("\u2303")  # control
+    if mask & 2:
+        parts.append("\u2325")  # option
+    if mask & 1:
+        parts.append("\u21e7")  # shift
+    if not mask & 8:
+        parts.append("\u2318")  # command
+    return "".join(parts) + (key.upper() if len(key) == 1 else key)
 
 
 def GetEarlyTraversalBatch(element: Any) -> dict:
@@ -550,37 +752,70 @@ def GetEarlyTraversalBatch(element: Any) -> dict:
         "help": raw.get(Attribute.Help) or "",
         "has_popup": raw.get(Attribute.HasPopup) is True,
         "title_ui_element": raw.get(Attribute.TitleUIElement),
+        # Needed in phase 1: some subroles decide interactivity.
+        "subrole": raw.get(Attribute.Subrole) or "",
+        # Position within the parent container (rows, columns, cells). None when
+        # the element does not implement it. Note that plain menu items answer
+        # this with 0, so `is not None` is a far weaker signal than it looks.
+        "index": raw.get(Attribute.Index),
         "rect": rect,
-        "children": raw.get(Attribute.Children) or [],
+        # Materialise the NSArray into a Python list once. The traversal takes
+        # len(), reverses and indexes it, and every one of those crosses the
+        # PyObjC bridge -- 3.7k nsarray __iter__/__len__/__getitem__ calls per
+        # capture for what is a fixed sequence.
+        "children": list(raw.get(Attribute.Children) or ()),
     }
 
 
-def GetLateTraversalBatch(element: Any) -> dict:
+def GetLateTraversalBatch(element: Any, role: str | None = None) -> dict:
     """
     Phase-2 batch: fetch display/metadata attributes for elements already identified
     as interactive.  Only called for the small minority of interactive elements.
     TitleUIElement resolution is handled by the caller using the ref from the early batch.
     """
-    raw = GetMultipleAttributeValues(element, _LATE_TRAVERSAL_ATTRIBUTES)
+    attributes = _LATE_TRAVERSAL_ATTRIBUTES if role is None else _late_attributes_for(role)
+    raw = GetMultipleAttributeValues(element, attributes)
     title = raw.get(Attribute.Title) or ""
     identifier = raw.get(Attribute.Identifier) or ""
     description = raw.get(Attribute.Description) or ""
     value = raw.get(Attribute.Value)
     value_str = str(value) if value is not None else ""
-    label = title or description or value_str or identifier
     url = raw.get(Attribute.URL)
     filename = raw.get(Attribute.Filename)
     placeholder = raw.get(Attribute.PlaceholderValue)
+    placeholder_str = str(placeholder) if placeholder is not None else ""
+    label = title or description or value_str or placeholder_str or identifier
     return {
-        "subrole": raw.get(Attribute.Subrole) or "",
+        # subrole is fetched in phase 1 (interactivity depends on it), so it is
+        # deliberately absent here -- returning an empty one would clobber the
+        # real value when the two batches are merged.
         "title": title,
         "description": description,
+        # Empty for everything that is not a menu item.
+        "shortcut": FormatMenuShortcut(
+            raw.get(Attribute.MenuItemCmdChar),
+            raw.get(Attribute.MenuItemCmdModifiers),
+            raw.get(Attribute.MenuItemCmdVirtualKey),
+        ),
         "identifier": identifier,
         "value": value,
         "placeholder": str(placeholder) if placeholder is not None else None,
         "url": str(url) if url is not None else None,
         "filename": str(filename) if filename is not None else None,
-        "expanded": raw.get(Attribute.Expanded) is True,
+        "expanded": (
+            None
+            if raw.get(Attribute.Expanded) is None
+            else bool(raw.get(Attribute.Expanded))
+        ),
+        # Selection state, for text-ish roles. selected_range is (location,
+        # length); a zero length means a caret rather than a selection, and
+        # None means the element reports no selection at all.
+        "selected_text": (
+            str(raw.get(Attribute.SelectedText))
+            if raw.get(Attribute.SelectedText) is not None
+            else ""
+        ),
+        "selected_range": ParseCFRange(raw.get(Attribute.SelectedTextRange)),
         "label": label,
     }
 
@@ -637,6 +872,10 @@ def GetElementPid(element: Any) -> Optional[int]:
     return None
 
 
+# Concrete type -> (is_int, is_plain), memoised for GetMultipleAttributeValues.
+# Bounded in practice: PyObjC returns only a handful of distinct types here.
+_VALUE_TYPE_CACHE: dict[type, Tuple[bool, bool]] = {}
+
 def GetMultipleAttributeValues(
     element: Any,
     attributes: Sequence[str],
@@ -668,10 +907,25 @@ def GetMultipleAttributeValues(
                 # ints or AXValue objects of type kAXValueAXErrorType (5).
                 if val is None:
                     continue
-                if isinstance(val, int) and val < 0:
+                # isinstance against a bridge type costs ~3.6us here and this
+                # loop runs ~8k times per capture, but the answer depends only
+                # on the concrete type -- and PyObjC returns a handful of them
+                # (AXValueRef, bool, pyobjc_unicode, __NSArrayM). Decide once
+                # per type, then it is a dict lookup.
+                value_type = type(val)
+                classified = _VALUE_TYPE_CACHE.get(value_type)
+                if classified is None:
+                    classified = (
+                        isinstance(val, int),
+                        isinstance(val, (str, bool, int, float, list, dict)),
+                    )
+                    _VALUE_TYPE_CACHE[value_type] = classified
+                is_int, is_plain = classified
+
+                if is_int and val < 0:
                     continue
                 # Detect AXValue error objects (kAXValueAXErrorType = 5)
-                if not isinstance(val, (str, bool, int, float, list, dict)):
+                if not is_plain:
                     try:
                         if AXValueGetType(val) == AXValueType.AXError:
                             continue
@@ -1800,6 +2054,236 @@ def SetDesktopImage(path: str, screen_index: int = 0) -> bool:
         pass
     return False
 
+# =============================================================================
+# Mission Control / Spaces
+# =============================================================================
+
+
+# Labels used for the "add desktop" control across macOS locales / versions.
+# Match is case-insensitive and applied against AXDescription, AXTitle, AXHelp,
+# and AXIdentifier.
+_ADD_DESKTOP_LABELS = (
+    "add desktop",
+    "new desktop",
+    "add space",
+    "new space",
+    "add space desktop",
+)
+
+
+def OpenMissionControl(wait: float = 0.8) -> None:
+    """
+    Open Mission Control via Control+Up (system default).
+
+    Args:
+        wait: Seconds to wait for Mission Control UI to appear.
+    """
+    HotKey("control", "up")
+    time.sleep(wait)
+
+
+def CloseMissionControl(wait: float = 0.3) -> None:
+    """
+    Dismiss Mission Control via Escape.
+
+    Args:
+        wait: Seconds to wait after dismissing.
+    """
+    KeyPress(KeyCode.Escape)
+    time.sleep(wait)
+
+
+def _control_text_blob(control: Any) -> str:
+    """Lowercased combined text attributes of a Control for fuzzy matching."""
+    parts = [
+        getattr(control, "Description", "") or "",
+        getattr(control, "Title", "") or "",
+        getattr(control, "Help", "") or "",
+        getattr(control, "Identifier", "") or "",
+        getattr(control, "RoleDescription", "") or "",
+    ]
+    return " ".join(str(p) for p in parts).lower()
+
+
+def _is_add_desktop_control(control: Any) -> bool:
+    """Return True if this control looks like the Mission Control 'Add Desktop' button."""
+    text = _control_text_blob(control)
+    if not text.strip():
+        return False
+    return any(label in text for label in _ADD_DESKTOP_LABELS)
+
+
+def FindAddDesktopButton(
+    max_depth: int = 12,
+    wait_for_ui: float = 1.2,
+) -> Optional[Any]:
+    """
+    Locate the Mission Control 'Add Desktop' button via the Dock accessibility tree.
+
+    Mission Control's Spaces bar (including the "+" new-desktop control) is
+    exposed as part of the Dock process while Mission Control is open.
+
+    Args:
+        max_depth: Maximum AX tree depth to search under Dock.
+        wait_for_ui: How long to poll for the button after Mission Control opens.
+
+    Returns:
+        A Control wrapping the add-desktop button, or None if not found.
+"""
+    from .enums import Role
+
+    deadline = time.time() + max(wait_for_ui, 0.0)
+    while True:
+        dock = GetRunningApplicationByBundleId(
+            "com.apple.dock"
+        ) or GetRunningApplicationByName("Dock")
+        if dock is not None:
+            try:
+                matches = dock.FindAll(
+                    role=Role.Button,
+                    predicate=_is_add_desktop_control,
+                    max_depth=max_depth,
+                )
+                if matches:
+                    return matches[0]
+                # Fallback: any role with the right label (role may vary by macOS version).
+                matches = dock.FindAll(
+                    predicate=_is_add_desktop_control,
+                    max_depth=max_depth,
+                )
+                if matches:
+                    return matches[0]
+            except Exception as e:
+                logger.debug(f"FindAddDesktopButton AX search failed: {e}")
+        if time.time() >= deadline:
+            break
+        time.sleep(0.15)
+    return None
+
+
+def _activate_add_desktop_button(button: Any) -> bool:
+    """
+    Activate the add-desktop button using AXPress first, then a coordinate click.
+    """
+    try:
+        if hasattr(button, "Press") and button.Press():
+            return True
+    except Exception as e:
+        logger.debug(f"AXPress on add-desktop failed: {e}")
+
+    try:
+        if hasattr(button, "Click"):
+            button.Click()
+            return True
+    except Exception as e:
+        logger.debug(f"Control.Click on add-desktop failed: {e}")
+
+    # Last coordinate fallback from AX bounds.
+    try:
+        rect = getattr(button, "BoundingRectangle", None)
+        if rect is None and hasattr(button, "Element"):
+            rect = GetRect(button.Element)
+        if rect is not None:
+            x = int((rect.left + rect.right) / 2)
+            y = int((rect.top + rect.bottom) / 2)
+            Click(x, y)
+            return True
+    except Exception as e:
+        logger.debug(f"Coordinate click on add-desktop failed: {e}")
+    return False
+
+
+def _count_desktop_spaces(button: Any) -> Optional[int]:
+    """
+    Count existing desktop spaces via the add-desktop button's siblings.
+
+    The Mission Control spaces bar lists one control per desktop plus the
+    "add desktop" control; counting siblings that are not the add-desktop
+    control gives the current number of spaces.
+
+    Args:
+        button: The add-desktop Control returned by FindAddDesktopButton.
+
+    Returns:
+        The number of existing desktop spaces, or None if it could not be
+        determined (e.g. the spaces bar is not reachable via AX).
+    """
+    try:
+        parent = button.Parent
+        if parent is None:
+            return None
+        siblings = parent.GetChildren()
+        return sum(1 for sibling in siblings if not _is_add_desktop_control(sibling))
+    except Exception as e:
+        logger.debug(f"Failed to enumerate spaces bar siblings: {e}")
+        return None
+
+
+def CreateDesktopSpace(
+    open_delay: float = 0.9,
+    close_after: bool = True,
+) -> Tuple[bool, str]:
+    """
+    Create a new Mission Control desktop Space.
+
+    Strategy:
+      1. Open Mission Control with Control+Up.
+      2. Find the "Add Desktop" button via Dock Accessibility (AX).
+      3. Activate it with AXPress / coordinate click.
+      4. Verify the space count increased.
+      5. Optionally dismiss Mission Control with Escape.
+
+    There is no public Apple API to create Spaces; this is intentional
+    GUI automation through Accessibility.
+
+    Args:
+        open_delay: Seconds to wait after opening Mission Control.
+        close_after: If True, press Escape to leave Mission Control.
+
+    Returns:
+        (success, message) tuple.
+    """
+    try:
+        OpenMissionControl(wait=open_delay)
+        button = FindAddDesktopButton(wait_for_ui=max(1.0, open_delay))
+        if button is not None:
+            before_count = _count_desktop_spaces(button)
+            if _activate_add_desktop_button(button):
+                time.sleep(0.35)
+                after_button = FindAddDesktopButton(wait_for_ui=0.5)
+                after_count = (
+                    _count_desktop_spaces(after_button) if after_button is not None else None
+                )
+                if close_after:
+                    CloseMissionControl()
+                if before_count is not None and after_count is not None:
+                    if after_count > before_count:
+                        return True, f"Created new desktop space ({after_count} total)."
+                    return False, (
+                        "Add Desktop control was activated but the space count did not "
+                        f"increase ({before_count} -> {after_count})."
+                    )
+                # Could not verify the space count via AX; trust the activation.
+                return True, "Created new desktop space."
+            logger.debug("Found add-desktop button but could not activate it")
+        else:
+            logger.debug("Add-desktop button not found via Dock AX tree")
+
+        if close_after:
+            CloseMissionControl()
+        return (
+            False,
+            "Could not find Mission Control 'Add Desktop' button via Accessibility. "
+            "Ensure Accessibility is granted and Mission Control is available.",
+        )
+    except Exception as e:
+        logger.exception("CreateDesktopSpace failed")
+        try:
+            CloseMissionControl(wait=0.1)
+        except Exception:
+            pass
+        return False, f"Failed to create desktop space: {e}"
+
 
 # =============================================================================
 # Workspace: Notification Center
@@ -1878,30 +2362,54 @@ def ExecuteCommand(
         Tuple of (output, return_code).
     """
     import os
+    import signal
+    import tempfile
 
     env = os.environ.copy()
+    argv = (
+        ["osascript", "-e", command]
+        if mode == "osascript"
+        else ["/bin/bash", "-c", command]
+    )
     try:
-        if mode == "osascript":
-            escaped_command = command.replace('"', '\\"')
-            result = subprocess.run(
-                ["osascript", "-e", escaped_command],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+        # stdin=DEVNULL: under the stdio transport, fd 0 is the JSON-RPC request
+        # stream. Inheriting it lets any command that reads stdin (sudo, ssh,
+        # git credential prompts, a bare `cat`) swallow the client's protocol
+        # messages, after which the server never sees the request and the client
+        # waits forever.
+        #
+        # stdout/stderr to temp files rather than pipes: a backgrounded
+        # grandchild (`cmd &`) inherits the capture fds and holds a *pipe* open
+        # after the direct child exits, so communicate() blocks for the full
+        # timeout and reports a spurious "timed out" for a command that in fact
+        # finished instantly. A regular file has no such reader/writer coupling.
+        #
+        # start_new_session=True: isolates the child in its own process group so
+        # a real timeout can reap the entire tree, not just /bin/bash.
+        with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+            proc = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=err_f,
                 env=env,
+                start_new_session=True,
             )
-        else:
-            result = subprocess.run(
-                ["/bin/bash", "-c", command],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
-        output = result.stdout or result.stderr or ""
-        return (output.strip(), result.returncode)
-    except subprocess.TimeoutExpired:
-        return (f"Command timed out after {timeout} seconds", -1)
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except OSError:
+                    proc.kill()
+                proc.wait()
+                return (f"Command timed out after {timeout} seconds", -1)
+            out_f.seek(0)
+            err_f.seek(0)
+            stdout = out_f.read().decode("utf-8", "replace")
+            stderr = err_f.read().decode("utf-8", "replace")
+            output = stdout or stderr or ""
+            return (output.strip(), proc.returncode)
     except Exception as e:
         return (str(e), -1)
 

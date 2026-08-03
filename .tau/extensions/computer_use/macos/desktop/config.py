@@ -23,4 +23,7 @@ SYSTEM_UI_BUNDLE_IDS = {
     "com.apple.controlcenter",
     "com.apple.systemuiserver",
     "com.apple.Spotlight",
+    # Notification Centre banners, whose AXNotificationCenterBanner
+    # subrole is what makes them interactive (see tree/config.py).
+    "com.apple.notificationcenterui",
 }

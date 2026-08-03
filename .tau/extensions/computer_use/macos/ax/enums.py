@@ -123,7 +123,8 @@ class Role:
     Splitter = "AXSplitter"
     StaticText = "AXStaticText"
     SystemWide = "AXSystemWide"
-    Tab = "AXTab"
+    # No "AXTab" role exists. An individual tab is an AXRadioButton carrying
+    # the AXTabButton subrole -- match one with Subrole.TabButton.
     TabGroup = "AXTabGroup"
     Table = "AXTable"
     TextArea = "AXTextArea"
@@ -205,6 +206,14 @@ class Subrole:
     Toggle = "AXToggle"
     Switch = "AXSwitch"
     DescriptionList = "AXDescriptionList"
+
+    # Documented in ApplicationServices
+    ApplicationGroup = "AXApplicationGroup"
+
+    # Observed on live elements, absent from any public header
+    MenuExtra = "AXMenuExtra"
+    Segment = "AXSegment"
+    ToggleButton = "AXToggleButton"
 
 
 SubroleNames = {
@@ -342,24 +351,28 @@ class Attribute:
     HasPopup = "AXHasPopup"
     IsApplicationRunning = "AXIsApplicationRunning"
 
-    # Parameterized attributes (text)
-    LineForIndex = "AXLineForIndexParameterized"
-    RangeForLine = "AXRangeForLineParameterized"
-    StringForRange = "AXStringForRangeParameterized"
-    RangeForPosition = "AXRangeForPositionParameterized"
-    RangeForIndex = "AXRangeForIndexParameterized"
-    BoundsForRange = "AXBoundsForRangeParameterized"
-    AttributedStringForRange = "AXAttributedStringForRangeParameterized"
-    RTFForRange = "AXRTFForRangeParameterized"
-    StyleRangeForIndex = "AXStyleRangeForIndexParameterized"
-    StringForTextMarkerRange = "AXStringForTextMarkerRangeParameterized"
-    AttributedStringForTextMarkerRange = (
-        "AXAttributedStringForTextMarkerRangeParameterized"
-    )
-    BoundsForTextMarkerRange = "AXBoundsForTextMarkerRangeParameterized"
-    TextMarkerRangeForUnorderedTextMarkers = (
-        "AXTextMarkerRangeForUnorderedTextMarkersParameterized"
-    )
+    # Parameterized attributes (text).
+    #
+    # These carry the "Parameterized" suffix in the *constant* name in Apple's
+    # headers (kAXStringForRangeParameterizedAttribute) but NOT in the string
+    # value it expands to (CFSTR("AXStringForRange")). Verified against a live
+    # AXTextArea and a live AXWebArea: neither advertises a single attribute
+    # ending in "Parameterized", and calling with the suffixed spelling returns
+    # kAXErrorParameterizedAttributeUnsupported (-25213) every time.
+    LineForIndex = "AXLineForIndex"
+    RangeForLine = "AXRangeForLine"
+    StringForRange = "AXStringForRange"
+    RangeForPosition = "AXRangeForPosition"
+    RangeForIndex = "AXRangeForIndex"
+    BoundsForRange = "AXBoundsForRange"
+    AttributedStringForRange = "AXAttributedStringForRange"
+    RTFForRange = "AXRTFForRange"
+    StyleRangeForIndex = "AXStyleRangeForIndex"
+    ReplaceRangeWithText = "AXReplaceRangeWithText"
+    StringForTextMarkerRange = "AXStringForTextMarkerRange"
+    AttributedStringForTextMarkerRange = "AXAttributedStringForTextMarkerRange"
+    BoundsForTextMarkerRange = "AXBoundsForTextMarkerRange"
+    TextMarkerRangeForUnorderedTextMarkers = "AXTextMarkerRangeForUnorderedTextMarkers"
 
     # Date/Time field attributes
     AMPMField = "AXAMPMField"
@@ -375,6 +388,79 @@ class Attribute:
     AllowedValues = "AXAllowedValues"
     ValueIncrement = "AXValueIncrement"
     ColumnTitle = "AXColumnTitle"
+
+    # ---- Documented in ApplicationServices (kAX*Attribute) -----------------
+    # Found by walking live applications: real attributes that were simply
+    # never declared here.
+
+    # Outline / disclosure. DisclosedRows, DisclosedByRow and DisclosureLevel
+    # were already present; Disclosing is the one that says whether a row is
+    # currently expanded, so without it the other three cannot be interpreted.
+    Disclosing = "AXDisclosing"
+
+    # State
+    Edited = "AXEdited"
+    Frontmost = "AXFrontmost"
+    Invalid = "AXInvalid"
+    ElementBusy = "AXElementBusy"
+    Loaded = "AXLoaded"
+    LoadingProgress = "AXLoadingProgress"
+    AlternateUIVisible = "AXAlternateUIVisible"
+
+    # Relationships
+    Owns = "AXOwns"
+    FocusableAncestor = "AXFocusableAncestor"
+    HighestEditableAncestor = "AXHighestEditableAncestor"
+    NextContents = "AXNextContents"
+    PreviousContents = "AXPreviousContents"
+
+    # Table / grid geometry
+    SelectedCells = "AXSelectedCells"
+    RowIndexRange = "AXRowIndexRange"
+    ColumnIndexRange = "AXColumnIndexRange"
+    Splitters = "AXSplitters"
+
+    # Sub-elements of composite controls
+    ClearButton = "AXClearButton"
+    SearchButton = "AXSearchButton"
+    OverflowButton = "AXOverflowButton"
+
+    # Web / ARIA
+    AccessKey = "AXAccessKey"
+    ARIAPosInSet = "AXARIAPosInSet"
+    DOMClassList = "AXDOMClassList"
+    DOMIdentifier = "AXDOMIdentifier"
+    PopupValue = "AXPopupValue"
+    KeyShortcutsValue = "AXKeyShortcutsValue"
+
+    # ---- Documented via NSAccessibility constants --------------------------
+    ActivationPoint = "AXActivationPoint"
+    BlockQuoteLevel = "AXBlockQuoteLevel"
+    ChildrenInNavigationOrder = "AXChildrenInNavigationOrder"
+    EmbeddedImageDescription = "AXEmbeddedImageDescription"
+    Required = "AXRequired"
+    Visited = "AXVisited"
+
+    # ---- Observed on live elements, absent from any public header ----------
+    # Real and answered by applications, but undocumented: treat as
+    # best-effort and expect them to be missing more often than the above.
+    AutocompleteValue = "AXAutocompleteValue"
+    ContentSize = "AXContentSize"
+    CustomActions = "AXCustomActions"
+    CustomContent = "AXCustomContent"
+    FunctionRowTopLevelElements = "AXFunctionRowTopLevelElements"
+    MakeScreenRectVisible = "AXMakeScreenRectVisible"
+    ManualAccessibility = "AXManualAccessibility"
+    PreferredLanguage = "AXPreferredLanguage"
+    RectInParentSpace = "AXRectInParentSpace"
+    Sections = "AXSections"
+    UserInputLabels = "AXUserInputLabels"
+    FirstContentSibling = "AXFirstContentSibling"
+    LastContentSibling = "AXLastContentSibling"
+    NextContentSibling = "AXNextContentSibling"
+    PreviousContentSibling = "AXPreviousContentSibling"
+    ContentSiblingAbove = "AXContentSiblingAbove"
+    ContentSiblingBelow = "AXContentSiblingBelow"
 
 
 # =============================================================================
@@ -403,6 +489,13 @@ class Action:
     ScrollRightByPage = "AXScrollRightByPage"
     ScrollUpByPage = "AXScrollUpByPage"
     ScrollDownByPage = "AXScrollDownByPage"
+
+    # Documented via NSAccessibilityScrollToVisibleAction
+    ScrollToVisible = "AXScrollToVisible"
+
+    # Observed on live elements, absent from any public header
+    Open = "AXOpen"
+    ZoomWindow = "AXZoomWindow"
 
 
 ActionNames = {
@@ -925,37 +1018,49 @@ class TextAttribute:
     Keys for dictionaries describing attributed strings in the accessibility API.
     Used with parameterized attributes like AXAttributedStringForRange.
     Refer: HIServices/AXTextAttributedString.h
+
+    As with the parameterized attributes, the "Text" in Apple's constant names
+    belongs to the *name* and not to the string it expands to:
+    kAXFontTextAttribute is CFSTR("AXFont"), not "AXFontText". Verified against
+    a live AXTextArea, which returns AXFont, AXForegroundColor,
+    AXBackgroundColor, AXUnderline, AXStrikethrough, AXSuperscript, AXLink,
+    AXMisspelled, AXMarkedMisspelled and AXATextAlignmentValue -- not one of
+    them carrying the suffix.
     """
 
-    # Font attributes
-    Font = "AXFontText"
+    # Font. The value is a nested dictionary; the four keys below index into
+    # it rather than into the attribute dictionary itself.
+    Font = "AXFont"
     FontFamily = "AXFontFamily"
     FontName = "AXFontName"
     FontSize = "AXFontSize"
     VisibleName = "AXVisibleName"
 
     # Color attributes
-    ForegroundColor = "AXForegroundColorText"
-    BackgroundColor = "AXBackgroundColorText"
-    UnderlineColor = "AXUnderlineColorText"
-    StrikethroughColor = "AXStrikethroughColorText"
+    ForegroundColor = "AXForegroundColor"
+    BackgroundColor = "AXBackgroundColor"
+    UnderlineColor = "AXUnderlineColor"
+    StrikethroughColor = "AXStrikethroughColor"
 
     # Style attributes
-    Underline = "AXUnderlineText"
-    Strikethrough = "AXStrikethroughText"
-    Shadow = "AXShadowText"
-    Superscript = "AXSuperscriptText"
+    Underline = "AXUnderline"
+    Strikethrough = "AXStrikethrough"
+    Shadow = "AXShadow"
+    Superscript = "AXSuperscript"
+
+    # Paragraph attributes
+    TextAlignment = "AXATextAlignmentValue"
 
     # Content attributes
-    Attachment = "AXAttachmentText"
-    Link = "AXLinkText"
-    NaturalLanguage = "AXNaturalLanguageText"
-    ReplacementString = "AXReplacementStringText"
+    Attachment = "AXAttachment"
+    Link = "AXLink"
+    NaturalLanguage = "AXNaturalLanguage"
+    ReplacementString = "AXReplacementString"
 
-    # Spell-check attributes
-    Misspelled = "AXMisspelledText"
-    MarkedMisspelled = "AXMarkedMisspelledText"
-    Autocorrected = "AXAutocorrectedText"
+    # Spell-check attributes. No UI Automation equivalent exists for these.
+    Misspelled = "AXMisspelled"
+    MarkedMisspelled = "AXMarkedMisspelled"
+    Autocorrected = "AXAutocorrected"
 
 
 # =============================================================================

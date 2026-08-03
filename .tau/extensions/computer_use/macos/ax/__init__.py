@@ -171,6 +171,11 @@ from .core import (
     # Workspace: Desktop Wallpaper
     GetDesktopImageURL,
     SetDesktopImage,
+    # Mission Control / Spaces
+    OpenMissionControl,
+    CloseMissionControl,
+    FindAddDesktopButton,
+    CreateDesktopSpace,
     # Workspace: Notification Center
     GetWorkspaceNotificationCenter,
     # System
@@ -233,6 +238,7 @@ from .events import (
 )
 
 __all__ = [
+    "FormatMenuShortcut",
     # Enums
     "AXError",
     "AXErrorNames",
@@ -345,6 +351,10 @@ __all__ = [
     "GetLocalizedDescriptionForType",
     "GetDesktopImageURL",
     "SetDesktopImage",
+    "OpenMissionControl",
+    "CloseMissionControl",
+    "FindAddDesktopButton",
+    "CreateDesktopSpace",
     "GetWorkspaceNotificationCenter",
     "GetMacOSVersion",
     "GetDefaultLanguage",
