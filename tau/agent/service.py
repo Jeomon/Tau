@@ -43,6 +43,93 @@ if TYPE_CHECKING:
     from tau.session.manager import SessionManager
 
 
+def _media_modalities() -> tuple[dict[type, Any], dict[str, Any]]:
+    """Map each media content type, and each tool-result media slot, to its modality.
+
+    Kept in one place so a new modality only has to be added here: everything
+    the model cannot accept is filtered by the same code path.
+    """
+    from tau.inference.model.types import Modality
+    from tau.message.types import AudioContent, FileContent, ImageContent, VideoContent
+
+    by_type = {
+        ImageContent: Modality.Image,
+        AudioContent: Modality.Audio,
+        VideoContent: Modality.Video,
+        FileContent: Modality.File,
+    }
+    # ToolResultContent carries media in dedicated fields rather than in
+    # `contents`; it has no `file` slot today, so this is deliberately shorter.
+    by_slot = {
+        "image": Modality.Image,
+        "audio": Modality.Audio,
+        "video": Modality.Video,
+    }
+    return by_type, by_slot
+
+
+def _without_unsupported_media(
+    message: LLMMessage, supported: set[Any], model_name: str
+) -> LLMMessage | None:
+    """Return a copy of ``message`` with unusable media replaced by a note.
+
+    ``None`` means the message holds nothing the model rejects and can be
+    reused as-is. Copies are shallow and made only where media was found, so
+    untouched messages are never duplicated.
+    """
+    import dataclasses
+
+    from tau.message.types import TextContent, ToolResultContent
+
+    contents = getattr(message, "contents", None)
+    if not contents:
+        return None
+
+    by_type, by_slot = _media_modalities()
+
+    def note(modality: Any) -> str:
+        return (
+            f"[{modality.value.capitalize()} omitted: "
+            f"{model_name} does not accept {modality.value} input.]"
+        )
+
+    changed = False
+    rebuilt: list[Any] = []
+    for item in contents:
+        # A user message (or an attachment) carrying the media directly.
+        modality = next((m for t, m in by_type.items() if isinstance(item, t)), None)
+        if modality is not None and modality not in supported:
+            rebuilt.append(TextContent(content=note(modality)))
+            changed = True
+            continue
+
+        # A tool result carrying media alongside its text, e.g. a screenshot.
+        if isinstance(item, ToolResultContent):
+            dropped = [
+                mod
+                for slot, mod in by_slot.items()
+                if getattr(item, slot, None) is not None and mod not in supported
+            ]
+            if dropped:
+                text = item.content or ""
+                suffix = "\n".join(note(m) for m in dropped)
+                rebuilt.append(
+                    dataclasses.replace(
+                        item,
+                        **{slot: None for slot, mod in by_slot.items() if mod in dropped},
+                        content=f"{text}\n{suffix}" if text else suffix,
+                    )
+                )
+                changed = True
+                continue
+
+        rebuilt.append(item)
+
+    if not changed:
+        return None
+    return dataclasses.replace(message, contents=rebuilt)
+
+
 class Agent:
     """
     High-level agent session tying together Engine and SessionManager.
@@ -316,7 +403,7 @@ class Agent:
 
         from tau.utils.image_processing import process_image
 
-        settings = self._engine._settings
+        settings = getattr(getattr(self, "_engine", None), "_settings", None)
         auto_resize = settings.get_image_auto_resize() if settings is not None else True
 
         processed: list[Any] = []
@@ -359,7 +446,47 @@ class Agent:
         session_ctx = self._session_manager.build_session_context()
         self._pending_session_ctx = session_ctx
         llm_messages = _to_llm_messages(session_ctx.messages)
+        llm_messages = self._drop_unsupported_media(llm_messages)
         return strip_unusable_trailing_assistant(llm_messages, self._session_manager)
+
+    def _drop_unsupported_media(self, messages: list[LLMMessage]) -> list[LLMMessage]:
+        """Replace media blocks with a note when the active model can't accept them.
+
+        `read` refuses to load an image on a text-only model, but nothing stops
+        media already in history from outliving the model that accepted it:
+        switch models with `/model`, and every subsequent request still carries
+        it. Providers reject the whole request, so the turn fails, and it fails
+        again next turn because the media is in the transcript — the session is
+        stuck until it is started over. A wrong `input` entry in a model catalog
+        produces the same loop without any switching.
+
+        Covers every modality a message can carry (image, audio, video, file),
+        not just images: a text-only model is equally unable to accept an audio
+        clip a tool returned, and wedges the session the same way.
+
+        Only the outgoing copy is touched. `_to_llm_messages` rebuilds this list
+        from the session on every turn, so the stored transcript keeps the media
+        and switching back to a capable model restores it.
+        """
+        engine = getattr(self, "_engine", None)
+        model = getattr(getattr(engine, "llm", None), "model", None)
+        # Unknown capabilities: leave the request alone rather than degrade it.
+        if model is None or not getattr(model, "input", None):
+            return messages
+
+        supported = set(model.input)
+        by_type, _ = _media_modalities()
+        # Nothing to strip when the model accepts every modality a message can
+        # hold — the common case, so it costs one set comparison per turn.
+        if set(by_type.values()) <= supported:
+            return messages
+
+        name = getattr(model, "name", None) or "the active model"
+        out: list[LLMMessage] = []
+        for message in messages:
+            replacement = _without_unsupported_media(message, supported, name)
+            out.append(replacement if replacement is not None else message)
+        return out
 
     async def _ephemeral_injection(self) -> list[UserMessage]:
         """Collect per-turn ephemeral messages from extensions via the "context" hook.
