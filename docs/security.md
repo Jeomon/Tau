@@ -79,6 +79,18 @@ Extensions can participate in the decision. `await ctx.is_project_trusted()` con
 
 Trust gates which project-local files Tau loads. It does **not** constrain the model or its tools. Once a session is running, built-in tools read files, write files, and run shell commands with the full permissions of the Tau process. Prompt injection from repository files, comments, documentation, dependency source, or build output is expected local-agent risk and cannot be reliably prevented.
 
+Three consequences of that are worth stating outright, because they are easy to miss and none of them is gated by a trust decision:
+
+| | Behaviour |
+|---|---|
+| **File access is not confined to the project** | `read`, `write`, `edit`, `glob` and `grep` take absolute paths and `~`. Nothing stops the model reading `~/.ssh` or Tau's own credential store, or writing to `~/.bashrc`. Working directory is a default, not a boundary. |
+| **Commands inherit your environment** | A command the model runs is a child of the Tau process, so it sees the same variables — including every provider API key. `env` is enough to print them; no file read is involved. |
+| **Some config values execute** | A setting or stored credential may be `$ENV_VAR` or `!command`. The `!` form is run through a shell when the value is resolved, so `settings.json` and `auth.json` are executable content, not merely data. Treat them like a shell profile: do not accept one from a source you would not run a script from. |
+
+Credentials themselves are stored in `auth.json` with `0600` permissions, so other users on the machine cannot read them — but the model's own tools run *as you*, and that file is inside their reach like any other.
+
+If any of that is unacceptable for a given task, the answer is OS-level isolation rather than a setting; see [No Built-in Sandbox](#no-built-in-sandbox).
+
 ## The Trust File
 
 Decisions live in `~/.tau/trust.json`: a flat JSON object mapping resolved absolute directory paths to booleans.

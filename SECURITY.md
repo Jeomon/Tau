@@ -1,5 +1,14 @@
 # Security & Supply Chain
 
+This file covers the **supply chain**: dependencies, installation, and releases.
+
+For the **runtime** security model — what a running agent is and is not allowed
+to do, project trust, why there is no sandbox, and what tools can reach on your
+machine — see [docs/security.md](docs/security.md). The short version: tools run
+with your full permissions, are not confined to the project directory, and
+inherit your environment including provider API keys. Isolation, where it
+matters, has to come from the OS.
+
 ## Supply Chain Hardening
 
 We implement multiple layers of defense to prevent dependency-related attacks:
