@@ -132,6 +132,34 @@ def parse_authorization_input(value: str) -> tuple[str | None, str | None]:
     return value, None
 
 
+def _resolve_callback_host(default: str | Sequence[str] | None) -> str | Sequence[str] | None:
+    """Apply the ``TAU_OAUTH_CALLBACK_HOST`` override to a provider's default.
+
+    Providers bind loopback only (IPv4 + IPv6), which is right for a normal
+    desktop login and keeps the port off the local network. It is wrong when
+    Tau runs inside a container or VM and the browser lives on the host:
+    Docker's ``-p`` forwarding can only reach a process bound to the
+    container's external interface, so the callback must bind ``0.0.0.0``
+    there. This escape hatch exists for that case.
+
+    Accepts a single host or a comma-separated list, e.g.::
+
+        TAU_OAUTH_CALLBACK_HOST=0.0.0.0
+        TAU_OAUTH_CALLBACK_HOST=127.0.0.1,::1
+
+    Binding beyond loopback exposes the callback port to anything that can
+    reach that interface for the duration of the login; the ``state`` check
+    in the handler is what keeps a forged callback from being accepted.
+    """
+    raw = os.environ.get("TAU_OAUTH_CALLBACK_HOST", "").strip()
+    if not raw:
+        return default
+    hosts = [h.strip() for h in raw.split(",") if h.strip()]
+    if not hosts:
+        return default
+    return hosts[0] if len(hosts) == 1 else hosts
+
+
 async def start_oauth_callback_server(
     callback_path: str,
     expected_state: str,
@@ -187,7 +215,7 @@ async def start_oauth_callback_server(
             writer.close()
             await writer.wait_closed()
 
-    server = await asyncio.start_server(_handle, host, port)
+    server = await asyncio.start_server(_handle, _resolve_callback_host(host), port)
     return server, code_future
 
 
