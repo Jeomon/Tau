@@ -13,6 +13,7 @@ top of via ``AnsiBackend`` — see ``backend.py``).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -27,6 +28,12 @@ from tau.tui.widget import Widget
 
 if TYPE_CHECKING:
     from tau.tui.terminal import Terminal
+
+
+# Termux (Android) reports a height change whenever the software keyboard is
+# shown or hidden. Set by the Termux app itself, so it is present for any shell
+# started under it. See ScrollbackTerminal._keep_diff_on_height_change.
+_IS_TERMUX = bool(os.environ.get("TERMUX_VERSION"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,6 +666,8 @@ class ScrollbackTerminal:
         self._position_hw_cursor(buf.cursor_position, buf.area.height)
 
     def _on_resize(self) -> None:
+        if self._keep_diff_on_height_change():
+            return
         # Clear state; next render() call forces a full clear+redraw, even if
         # the reported width didn't change (e.g. a height-only resize), so a
         # stale frame is never left on screen for the new render to stack atop.
@@ -666,3 +675,33 @@ class ScrollbackTerminal:
         self._hw_cursor_row = 0
         self._viewport_top = 0
         self._resized = True
+
+    def _keep_diff_on_height_change(self) -> bool:
+        """Survive a Termux height-only resize without discarding diff state.
+
+        Termux reports a height change every time the on-screen keyboard is
+        shown or hidden, which on the normal path costs a full clear plus a
+        replay of the entire transcript — on every single keyboard toggle,
+        which is most of what typing on Android *is*. Width is untouched by the
+        keyboard, so no line needs rewrapping and the diff remains valid; only
+        the viewport anchor moves. Restricted to Termux because everywhere else
+        a height change is a real window resize, where keeping a stale frame on
+        screen for the next render to stack atop is the worse failure.
+
+        Returns True when the caller should leave render state intact.
+        """
+        if not _IS_TERMUX or self._prev is None or self._prev_width == 0:
+            return False
+        if self._terminal.width != self._prev_width:
+            return False  # genuine reflow; needs the full redraw
+        # Re-anchor the viewport: the terminal itself scrolled content when it
+        # changed height, so the absolute buffer row sitting at screen row 0
+        # moved even though nothing was repainted. Derive it from the content
+        # length the same way _full_render does, rather than from the old
+        # anchor plus the old height — content shorter than the screen is
+        # pinned to the top, not the bottom, and would otherwise re-anchor to
+        # a row past the end of the buffer, hiding every subsequent change
+        # above the phantom viewport.
+        self._viewport_top = max(0, self._prev.area.height - self._terminal.height)
+        self._prev_height = self._terminal.height
+        return True

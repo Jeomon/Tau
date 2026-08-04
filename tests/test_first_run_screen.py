@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from tau.modes.interactive.components.first_run_screen import FirstRunResult, FirstRunScreen
 from tau.tui.input import KeyEvent
-
 from tests.render_helpers import render_cells_to_lines
 
 THEME_OPTIONS = [

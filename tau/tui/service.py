@@ -644,6 +644,7 @@ class TUI(Container):
         self._last_render_at: float = 0.0
         self._render_timer: asyncio.TimerHandle | None = None
         self._render_requested = False
+        self._resize_timer: asyncio.TimerHandle | None = None
         self._esc_timer: asyncio.TimerHandle | None = None
         self._stdin_thread: threading.Thread | None = None
         # threading.Event is safe for the Windows reader to inspect while the
@@ -1582,16 +1583,40 @@ class TUI(Container):
     # -------------------------------------------------------------------------
 
     def _on_terminal_resize(self) -> None:
-        """Repaint immediately on terminal resize.
+        """Repaint on terminal resize, leading edge first.
 
         The terminal has already physically reflowed by the time this fires, so
-        any throttled/coalesced paint would leave a stale or blank frame on
+        a purely trailing/throttled paint would leave a stale or blank frame on
         screen (most visibly: the streaming spinner vanishing until the next
-        token frame). Forcing the render here means resize never piggybacks on
-        the rate-limited streaming loop. ``Renderer._on_resize`` runs first (it
-        registers its callback during construction, before this one) so the
-        renderer's full clear+redraw state is already set when we paint.
+        token frame). The first resize of a gesture therefore paints
+        synchronously, never piggybacking on the rate-limited streaming loop.
+        ``Renderer._on_resize`` runs first (it registers its callback during
+        construction, before this one) so the renderer's full clear+redraw
+        state is already set when we paint.
+
+        Subsequent signals arriving inside one frame interval — a click-drag
+        emits them far faster than that — coalesce into a single trailing
+        paint instead of each forcing its own. A resize repaint is the most
+        expensive frame the renderer produces (full clear, full rewrap from
+        block 0, full transcript replay: see ScrollbackTerminal._full_render
+        and MessageList's frozen-prefix discard), so running one per signal
+        makes a drag progressively less responsive on a long session. Nothing
+        is dropped by coalescing: the renderer's state is armed per signal, and
+        whichever paint runs last reads the current size, so the gesture still
+        settles on a correct frame at the final dimensions.
         """
+        elapsed = time.monotonic() - self._last_render_at
+        if elapsed >= _MIN_RENDER_INTERVAL:
+            self._request_render(force=True)
+            return
+        if self._resize_timer is not None:
+            return  # tail already scheduled; it will observe the latest size
+        loop = asyncio.get_event_loop()
+        self._resize_timer = loop.call_later(_MIN_RENDER_INTERVAL - elapsed, self._flush_resize)
+
+    def _flush_resize(self) -> None:
+        """Paint the coalesced tail of a resize gesture."""
+        self._resize_timer = None
         self._request_render(force=True)
 
     def _request_render(self, force: bool = False) -> None:
@@ -1645,6 +1670,9 @@ class TUI(Container):
             self._render_timer.cancel()
             self._render_timer = None
         self._render_requested = False
+        if self._resize_timer is not None:
+            self._resize_timer.cancel()
+            self._resize_timer = None
         if self._esc_timer is not None:
             self._esc_timer.cancel()
             self._esc_timer = None

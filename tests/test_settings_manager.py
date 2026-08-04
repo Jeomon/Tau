@@ -445,7 +445,9 @@ class TestSetExtensionConfigKeyDedup:
     def test_updates_existing_entry_on_exact_path_match(self, tmp_path):
         ext_dir = tmp_path / "ext"
         ext_dir.mkdir()
-        mgr = _manager({"extensions": {"list": [{"path": str(ext_dir), "settings": {"engine": "ddgs"}}]}})
+        mgr = _manager(
+            {"extensions": {"list": [{"path": str(ext_dir), "settings": {"engine": "ddgs"}}]}}
+        )
 
         self._run(mgr, (str(ext_dir), "jina.api_key", "test-key"))
 
@@ -467,7 +469,10 @@ class TestSetExtensionConfigKeyDedup:
         self._run(mgr, (str(differently_cased), "jina.api_key", "test-key"))
 
         entries = mgr.global_settings.extensions.list
-        assert len(entries) == 1, "expected the case-mismatched path to update the existing entry, not append a duplicate"
+        assert len(entries) == 1, (
+            "expected the case-mismatched path to update the existing entry, "
+            "not append a duplicate"
+        )
         assert entries[0].path == str(ext_dir)
         assert entries[0].settings == {"engine": "ddgs", "jina": {"api_key": "test-key"}}
 
@@ -475,7 +480,11 @@ class TestSetExtensionConfigKeyDedup:
         # samefile() requires both paths to exist; a nonexistent mistyped path
         # must not be treated as matching a real entry just by string shape.
         mgr = _manager(
-            {"extensions": {"list": [{"path": str(tmp_path / "web"), "settings": {"engine": "ddgs"}}]}}
+            {
+                "extensions": {
+                    "list": [{"path": str(tmp_path / "web"), "settings": {"engine": "ddgs"}}]
+                }
+            }
         )
 
         self._run(mgr, (str(tmp_path / "WEB-DOES-NOT-EXIST"), "engine", "jina"))

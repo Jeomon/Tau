@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
+import pytest
+
 from tau.auth.manager import AuthManager, _get_env_api_key, _is_unrecoverable_refresh_error
 from tau.auth.types import APICredential, OAuthCredential
-from tau.inference.provider.registry import ProviderRegistry
+from tau.inference.provider.registry import ProviderRegistry, TextProviderRegistry
+from tau.inference.provider.types import OAuthProvider
 
 
 def _manager(initial: dict | None = None) -> AuthManager:
@@ -183,13 +188,6 @@ class TestAuthManagerAuthStatus:
 # ---------------------------------------------------------------------------
 
 
-import time
-
-import pytest
-
-from tau.inference.provider.registry import TextProviderRegistry
-from tau.inference.provider.types import OAuthProvider
-
 
 class _FakeOAuthProvider(OAuthProvider):
     """OAuth provider whose refresh_token() replays a scripted result list."""
@@ -318,7 +316,9 @@ class TestOAuthRefreshBackoff:
 
     @pytest.mark.asyncio
     async def test_successful_login_clears_refresh_error(self, sleep_spy):
-        provider = _FakeOAuthProvider([_rate_limit_error(), _rate_limit_error(), _rate_limit_error()])
+        provider = _FakeOAuthProvider(
+            [_rate_limit_error(), _rate_limit_error(), _rate_limit_error()]
+        )
         mgr = _oauth_manager(provider)
         await mgr.get_api_key("fake-oauth")
         assert mgr.last_refresh_error("fake-oauth") is not None

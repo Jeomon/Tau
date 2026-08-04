@@ -192,7 +192,9 @@ class TestCrossInstallBuiltinDedup:
             )
         return ext_dir
 
-    def test_global_entry_pointing_at_other_install_builtin_is_excluded(self, tmp_path, monkeypatch):
+    def test_global_entry_pointing_at_other_install_builtin_is_excluded(
+        self, tmp_path, monkeypatch
+    ):
         running_install = tmp_path / "running_install"
         other_install = tmp_path / "other_install"
         self._make_builtin_dir(running_install, "web")
@@ -223,7 +225,9 @@ class TestCrossInstallBuiltinDedup:
         builtin_entries = [e for e in layout.entries if e.scope == "builtin"]
         assert any(e.name == "web" for e in builtin_entries)
 
-    def test_global_entry_for_a_genuinely_different_extension_still_shows(self, tmp_path, monkeypatch):
+    def test_global_entry_for_a_genuinely_different_extension_still_shows(
+        self, tmp_path, monkeypatch
+    ):
         running_install = tmp_path / "running_install"
         self._make_builtin_dir(running_install, "web")
         monkeypatch.setattr(

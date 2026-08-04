@@ -219,6 +219,19 @@ class Terminal:
         Characters are sent immediately without waiting for Enter.
         Also saves the original terminal settings and signal handlers for later restoration.
         """
+        # Re-read the size before arming the handler: any resize that happened
+        # while we did not own the terminal was never delivered to us, so the
+        # cached width/height may describe a window that no longer exists.
+        # Reachable through suspended() — exit_raw_mode() uninstalls our
+        # SIGWINCH handler for the duration, so resizing during an external
+        # editor (ctrl+g) is lost, and the forced repaint on resume would
+        # otherwise reflow the whole transcript to the pre-suspend width.
+        # Read directly rather than raising SIGWINCH at ourselves: the handler
+        # fires resize callbacks inline when no event loop is running yet
+        # (startup), which would paint synchronously out of a signal handler,
+        # and SIGWINCH does not exist on Windows. Callers that need a repaint
+        # already force one (see TUI.suspended); startup renders regardless.
+        self.width, self.height = self._get_size()
         if _IS_WINDOWS:
             self._enter_raw_mode_windows()
             return
