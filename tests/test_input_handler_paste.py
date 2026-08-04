@@ -36,6 +36,7 @@ def make_handler() -> InputHandler:
     # writes through fully-mocked attributes — no real disk I/O occurs unless
     # a test explicitly points session_dir at a real tmp_path.
     h._runtime = MagicMock()
+    h._submit_marker_snapshot = None
     return h
 
 
@@ -569,8 +570,8 @@ class TestCommandPasteExpansion:
         h._on_submit(f"/darwin {marker}")
 
         dispatched = h._invoke.call_args[0][0]
-        assert dispatched == f"/darwin {body}"          # content, not placeholder
-        assert h._pasted_texts == {}                     # buffers consumed
+        assert dispatched == f"/darwin {body}"  # content, not placeholder
+        assert h._pasted_texts == {}  # buffers consumed
         # transcript shows the compact original, not 3KB of paste
         assert h._make_slash_message.call_args[0][0] == f"/darwin {marker}"
 
@@ -597,8 +598,8 @@ class TestCommandPasteExpansion:
 
         h._on_submit(f"/darwin {marker}")
         assert h._deferred_inputs == [f"/darwin {body}"]  # replay after settle
-        h._invoke.assert_not_called()                     # cannot re-expand later:
-        assert h._pasted_texts == {}                      # buffers already consumed
+        h._invoke.assert_not_called()  # cannot re-expand later:
+        assert h._pasted_texts == {}  # buffers already consumed
 
 
 class TestCtrlVClipboardRouting:
@@ -610,6 +611,7 @@ class TestCtrlVClipboardRouting:
 
     def _handler_with_clipboard(self, monkeypatch, value):
         import sys
+
         h = make_handler()
         fake = MagicMock()
         fake.paste.return_value = value
@@ -645,3 +647,154 @@ class TestCtrlVClipboardRouting:
         h = self._handler_with_clipboard(monkeypatch, [str(p)])
         h._on_paste()
         assert h._clipboard_audio
+
+
+class TestPreStreamAbortPreservesMarkers:
+    """Escape before any assistant output puts the *compact* marker text back in
+    the editor. The buffers behind those markers are consumed on submit, so
+    unless they are restored too the marker no longer resolves and a re-submit
+    silently sends the literal "[paste #N ...]" placeholder to the model.
+    """
+
+    LONG = "\n".join(f"log line {i}" for i in range(200))
+
+    def _submit(self, h, typed: str) -> str:
+        """Run the parts of _on_submit that consume the marker buffers."""
+        h._snapshot_marker_state()
+        return h._expand_pasted_texts(typed)
+
+    def test_snapshot_restore_revives_the_paste_buffer(self):
+        h = make_handler()
+        h._on_paste_text(self.LONG)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        expanded = self._submit(h, f"{marker} explain this")
+        assert "log line 5" in expanded  # model got the real content
+        assert h._pasted_texts == {}  # buffers consumed by expansion
+
+        h._restore_marker_state()
+
+        assert h._pasted_texts[1] == self.LONG
+        assert h._paste_counter == 1
+        # ...and the marker resolves again on a re-submit
+        assert "log line 5" in h._expand_pasted_texts(marker)
+
+    def test_escape_abort_restores_content_behind_the_marker(self):
+        h = make_handler()
+        h._on_paste_text(self.LONG)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+        typed = f"{marker} explain this"
+
+        self._submit(h, typed)
+        h._last_user_text = typed  # what _on_submit records
+        h._turn_has_content = False  # pre-stream: no assistant output yet
+        h._invoke_task = None
+        h._take_queued_texts = lambda: []
+
+        h.escape_abort()
+
+        restored = h._layout.input.set_text.call_args[0][0]
+        assert restored == typed  # compact marker kept
+        assert "log line 5" in h._expand_pasted_texts(restored)  # and it resolves
+
+    def test_escape_abort_restores_media_caches_too(self):
+        """_clear_clipboard_caches wiped these, killing [image #N] the same way."""
+        h = make_handler()
+        h._clipboard_images = {1: ("uuid-1", "/tmp/a.png")}
+        h._clipboard_image_counter = 1
+        h._clipboard_audio = {1: ("uuid-2", "/tmp/a.mp3")}
+        h._clipboard_audio_counter = 1
+
+        h._snapshot_marker_state()
+        h._clear_clipboard_caches()  # what submit-time extraction amounts to
+        h._last_user_text = "[image #1] [audio #1] describe these"
+        h._turn_has_content = False
+        h._invoke_task = None
+        h._take_queued_texts = lambda: []
+
+        h.escape_abort()
+
+        assert h._clipboard_images == {1: ("uuid-1", "/tmp/a.png")}
+        assert h._clipboard_image_counter == 1
+        assert h._clipboard_audio == {1: ("uuid-2", "/tmp/a.mp3")}
+
+    def test_restore_without_a_snapshot_falls_back_to_clearing(self):
+        """Mid-stream aborts never snapshot; the old clearing behaviour stands."""
+        h = make_handler()
+        h._pasted_texts = {1: "x"}
+        h._paste_counter = 1
+        h._submit_marker_snapshot = None
+
+        h._restore_marker_state()
+
+        assert h._pasted_texts == {}
+        assert h._paste_counter == 0
+
+    def test_snapshot_is_a_copy_not_a_live_reference(self):
+        """Expansion clears the dict in place, so the snapshot must not alias it."""
+        h = make_handler()
+        h._on_paste_text(self.LONG)
+        h._snapshot_marker_state()
+        h._pasted_texts.clear()
+
+        h._restore_marker_state()
+
+        assert h._pasted_texts[1] == self.LONG
+
+
+class TestTranscriptPastePreview:
+    """The transcript shows a head-of-content preview instead of a bare marker,
+    while the model still receives the fully expanded text."""
+
+    def test_preview_shows_head_lines_and_remainder_count(self):
+        h = make_handler()
+        body = "\n".join(f"line {i}" for i in range(200))
+        h._on_paste_text(body)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        preview = h._preview_pasted_texts(f"{marker} explain")
+
+        assert preview.startswith("line 0\nline 1\nline 2\n")
+        assert "… +197 more lines" in preview
+        assert "explain" in preview
+        assert "[paste #" not in preview
+        assert "line 50" not in preview  # body is not dumped wholesale
+
+    def test_preview_does_not_consume_the_buffers(self):
+        """Expansion runs *after* the preview and still needs the content."""
+        h = make_handler()
+        body = "\n".join(f"line {i}" for i in range(200))
+        h._on_paste_text(body)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        h._preview_pasted_texts(marker)
+
+        assert h._pasted_texts[1] == body
+        assert "line 150" in h._expand_pasted_texts(marker)
+
+    def test_preview_truncates_an_overlong_single_line(self):
+        """A paste can trip the char threshold while being one enormous line."""
+        h = make_handler()
+        h._on_paste_text("x" * 5000)
+        marker = h._layout.input.insert_at_cursor.call_args[0][0]
+
+        preview = h._preview_pasted_texts(marker)
+
+        assert len(preview) < 400
+        assert preview.endswith("…")
+
+    def test_preview_leaves_an_unresolvable_marker_alone(self):
+        h = make_handler()
+        h._pasted_texts = {1: "something"}
+        assert h._preview_pasted_texts("[paste #7 +3 lines]") == "[paste #7 +3 lines]"
+
+    def test_preview_is_a_noop_without_pastes(self):
+        h = make_handler()
+        assert h._preview_pasted_texts("just typed text") == "just typed text"
+
+    def test_singular_remainder_wording(self):
+        h = make_handler()
+        h._pasted_texts = {1: "\n".join(f"line {i}" for i in range(4))}  # 3 shown, 1 hidden
+        preview = h._preview_pasted_texts("[paste #1 +4 lines]")
+        assert "… +1 more line" in preview
+        assert "more lines" not in preview

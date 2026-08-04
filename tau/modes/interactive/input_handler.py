@@ -37,6 +37,13 @@ class InputHandler:
     _LARGE_PASTE_LINES = 10
     _LARGE_PASTE_CHARS = 1000
 
+    # How much of a pasted block the transcript shows. The model always gets the
+    # full text; this only bounds what is drawn, so a 5,000-line paste can't
+    # bury the conversation — and can't inflate every later resize repaint,
+    # which re-wraps the whole transcript.
+    _PASTE_PREVIEW_LINES = 3
+    _PASTE_PREVIEW_CHARS = 240
+
     def __init__(self, runtime: Runtime, layout: Layout, tui: TUI) -> None:
         self._runtime = runtime
         self._layout = layout
@@ -65,6 +72,12 @@ class InputHandler:
         self._clipboard_file_counter: int = 0
         self._pasted_texts: dict[int, str] = {}
         self._paste_counter: int = 0
+        # Marker buffers as they stood at the last submit, before expansion and
+        # media extraction consumed them. A pre-stream Escape puts the compact
+        # marker text back in the editor, so the content behind those markers
+        # has to come back too — otherwise the marker no longer resolves and
+        # re-submitting would send the literal "[paste #N ...]" to the model.
+        self._submit_marker_snapshot: dict[str, Any] | None = None
 
     def _track_task(self, task: asyncio.Task) -> asyncio.Task:
         self._pending_tasks.add(task)
@@ -166,6 +179,10 @@ class InputHandler:
         self.save_history()
         agent = self._runtime.agent
 
+        # Capture the marker buffers before expansion/extraction consume them,
+        # so a pre-stream Escape can hand them back along with the compact text.
+        self._snapshot_marker_state()
+
         if text.startswith("/") or text.startswith("!"):
             self._extract_clipboard_images(text)
             self._extract_clipboard_audio(text)
@@ -200,6 +217,13 @@ class InputHandler:
         audio = self._extract_clipboard_audio(text)
         video = self._extract_clipboard_video(text)
         file = self._extract_clipboard_file(text)
+        # Three forms of the same input, and they must stay distinct:
+        #   display_text — head-of-paste preview, for the transcript
+        #   expanded     — full paste inlined, for the model
+        #   text         — compact marker, kept in _last_user_text so a
+        #                  pre-stream Escape restores something that resolves
+        # The preview has to be built first: expansion consumes _pasted_texts.
+        display_text = self._preview_pasted_texts(text)
         expanded = self._expand_pasted_texts(text)
 
         if agent is not None and (images or audio or video or file):
@@ -214,7 +238,8 @@ class InputHandler:
                     (Modality.File, "File", bool(file)),
                 ]
                 unsupported = [
-                    label for modality, label, present in attempted
+                    label
+                    for modality, label, present in attempted
                     if present and modality not in model.input
                 ]
                 if unsupported:
@@ -228,7 +253,7 @@ class InputHandler:
                         if supported
                         else f"{model.name} does not support any media modalities."
                     )
-                    self._show_blocked_message(text, images, audio, video, file, reason)
+                    self._show_blocked_message(display_text, images, audio, video, file, reason)
                     return
 
         if agent is not None and not agent.is_idle():
@@ -239,7 +264,7 @@ class InputHandler:
 
         model_text = self._strip_media_markers(expanded)
 
-        user_msg = UserMessage.with_media(text, images, audio, video, file)
+        user_msg = UserMessage.with_media(display_text, images, audio, video, file)
         self._layout.add_message(user_msg)
         self._last_user_text = text
         self._turn_has_content = False
@@ -396,7 +421,11 @@ class InputHandler:
             self._last_user_text = ""
             if last_text:
                 self._layout.input.set_text(last_text)
-            self._clear_clipboard_caches()
+            # Restore rather than clear: the compact marker text just went back
+            # into the editor, so the content behind those markers has to be
+            # resolvable again or a re-submit would send the literal
+            # "[paste #N ...]" / "[image #N]" placeholder to the model.
+            self._restore_marker_state()
 
         self._turn_has_content = False
         # Stop the spinner immediately. The pre-stream branch cancels the invoke
@@ -421,6 +450,56 @@ class InputHandler:
         self._clipboard_file_counter = 0
         self._pasted_texts.clear()
         self._paste_counter = 0
+
+    # ── Marker buffer snapshots (pre-stream abort recovery) ───────────────────
+
+    # The caches a submit consumes, and which a pre-stream Escape has to hand
+    # back. Kept as one list so a new marker type can't silently be added to
+    # _clear_clipboard_caches without also being restorable.
+    _MARKER_CACHE_FIELDS = (
+        "_clipboard_images",
+        "_clipboard_image_notes",
+        "_clipboard_image_counter",
+        "_clipboard_audio",
+        "_clipboard_audio_counter",
+        "_clipboard_video",
+        "_clipboard_video_counter",
+        "_clipboard_files",
+        "_clipboard_file_counter",
+        "_pasted_texts",
+        "_paste_counter",
+    )
+
+    def _snapshot_marker_state(self) -> None:
+        """Record the marker buffers as they stand before a submit consumes them.
+
+        ``_expand_pasted_texts`` clears ``_pasted_texts`` once it has inlined
+        the content, and the media extractors work the same way, so by the time
+        an Escape arrives the markers left in ``_last_user_text`` no longer
+        resolve to anything. Snapshotting here is what makes the restore in
+        ``escape_abort`` possible.
+        """
+        snapshot: dict[str, Any] = {}
+        for field in self._MARKER_CACHE_FIELDS:
+            value = getattr(self, field)
+            snapshot[field] = dict(value) if isinstance(value, dict) else value
+        self._submit_marker_snapshot = snapshot
+
+    def _restore_marker_state(self) -> None:
+        """Put back the buffers captured at submit, or clear if there are none.
+
+        Used instead of ``_clear_clipboard_caches`` on the pre-stream abort
+        path: the compact marker text goes back into the editor, so the content
+        behind those markers must be resolvable again for a re-submit.
+        """
+        snapshot = self._submit_marker_snapshot
+        if snapshot is None:
+            self._clear_clipboard_caches()
+            return
+        for field in self._MARKER_CACHE_FIELDS:
+            value = snapshot[field]
+            setattr(self, field, dict(value) if isinstance(value, dict) else value)
+        self._submit_marker_snapshot = None
 
     async def _run_queued_next(self, texts: list[str]) -> None:
         """Submit queued input as the next task once the aborted task is idle.
@@ -961,6 +1040,43 @@ class InputHandler:
         self._pasted_texts.clear()
         self._paste_counter = 0
         return expanded
+
+    def _preview_pasted_texts(self, text: str) -> str:
+        """Replace paste markers with a short head-of-content preview.
+
+        Display only. The model still receives the fully expanded text via
+        ``_expand_pasted_texts``, and the editor keeps the compact marker so a
+        pre-stream Escape restores something that still resolves. Must be called
+        *before* expansion, which consumes ``_pasted_texts``.
+        """
+        if not self._pasted_texts:
+            return text
+
+        def _replace(m: re.Match) -> str:
+            body = self._pasted_texts.get(int(m.group(1)))
+            return self._format_paste_preview(body) if body else m.group(0)
+
+        return re.sub(r"\[paste #(\d+)(?: \+\d+ lines| \d+ chars)\]", _replace, text)
+
+    def _format_paste_preview(self, body: str) -> str:
+        """Head of a pasted block plus a count of what is not shown.
+
+        Line splitting matches the marker's own count (a plain ``split("\\n")``,
+        no stripping) so "+200 lines" and "+197 more lines" stay consistent.
+        Over-long single lines are truncated too, since a paste can trip the
+        character threshold while being only one or two enormous lines.
+        """
+        lines = body.split("\n")
+        head = [
+            line
+            if len(line) <= self._PASTE_PREVIEW_CHARS
+            else line[: self._PASTE_PREVIEW_CHARS].rstrip() + " …"
+            for line in lines[: self._PASTE_PREVIEW_LINES]
+        ]
+        hidden = len(lines) - len(head)
+        if hidden > 0:
+            head.append(f"… +{hidden} more line{'s' if hidden != 1 else ''}")
+        return "\n".join(head)
 
     def _transform_for_history(self, text: str) -> str:
         """Replace session-scoped media markers with persistent [type:uuid] ones.
