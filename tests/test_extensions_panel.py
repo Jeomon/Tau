@@ -245,3 +245,102 @@ class TestCrossInstallBuiltinDedup:
         assert any(
             e.scope == "global" and e.name == "third_party_ext" for e in layout.entries
         )
+
+
+class TestCrossScopeDuplicate:
+    """One physical extension recorded in both settings files must be listed
+    once, under the scope that actually owns it.
+
+    Every manifest-driven /settings write used to be persisted to *global*
+    settings regardless of where the extension came from, so configuring a
+    project extension silently minted a global entry — keyed by the same
+    project-relative path, which means nothing outside that directory. The
+    panel reads an extension's scope off the list it was found in, so the
+    project extension then appeared a second time under "Global", with its own
+    toggle whose enabled flag could contradict the project's.
+    """
+
+    def test_it_is_listed_once_under_project(self, project):
+        ctx, layout, _, _ = _ctx(
+            project.parent.parent,
+            configured=[ExtensionEntry(path=".tau/extensions/configured_ext", enabled=True)],
+            loaded=[(str(project / "configured_ext" / "__init__.py"), "project")],
+        )
+        # The stray global record left behind by the old write-everything-to-global
+        # behaviour: same directory, project-relative path, its own enabled flag.
+        ctx.runtime.settings_manager.global_settings.extensions.list = [
+            ExtensionEntry(
+                path=".tau/extensions/configured_ext",
+                enabled=False,
+                settings={"cdp_url": "9222"},
+            )
+        ]
+
+        open_config_panel(ctx)
+
+        matching = [e for e in layout.entries if "configured_ext" in e.path]
+        assert len(matching) == 1, "the same extension was listed once per scope"
+        assert matching[0].scope == "project"
+        # Project wins, matching the loader's project > global source priority.
+        assert matching[0].enabled is True
+
+    def test_an_absolute_global_duplicate_also_collapses(self, project):
+        ctx, layout, _, _ = _ctx(
+            project.parent.parent,
+            configured=[ExtensionEntry(path=".tau/extensions/configured_ext", enabled=True)],
+            loaded=[(str(project / "configured_ext" / "__init__.py"), "project")],
+        )
+        ctx.runtime.settings_manager.global_settings.extensions.list = [
+            ExtensionEntry(path=str(project / "configured_ext"), enabled=False)
+        ]
+
+        open_config_panel(ctx)
+
+        matching = [e for e in layout.entries if "configured_ext" in e.path]
+        assert len(matching) == 1
+        assert matching[0].scope == "project"
+
+    def test_a_real_global_extension_is_untouched(self, project, tmp_path):
+        global_ext = tmp_path / "global_only_ext"
+        global_ext.mkdir()
+        (global_ext / "__init__.py").write_text("def register(tau): pass\n")
+
+        ctx, layout, _, _ = _ctx(
+            project.parent.parent,
+            configured=[ExtensionEntry(path=".tau/extensions/configured_ext", enabled=True)],
+            loaded=[(str(project / "configured_ext" / "__init__.py"), "project")],
+        )
+        ctx.runtime.settings_manager.global_settings.extensions.list = [
+            ExtensionEntry(path=str(global_ext), enabled=True)
+        ]
+
+        open_config_panel(ctx)
+
+        scopes = {e.name: e.scope for e in layout.entries}
+        assert scopes["global_only_ext"] == "global"
+        assert scopes["configured_ext"] == "project"
+
+    def test_rows_stay_grouped_by_scope(self, project, tmp_path):
+        # ConfigSelector prints a scope heading whenever the scope changes
+        # between consecutive rows, so an ungrouped list repeats headings.
+        global_ext = tmp_path / "global_only_ext"
+        global_ext.mkdir()
+        (global_ext / "__init__.py").write_text("def register(tau): pass\n")
+
+        ctx, layout, _, _ = _ctx(
+            project.parent.parent,
+            configured=[ExtensionEntry(path=".tau/extensions/configured_ext", enabled=True)],
+            loaded=[
+                (str(project / "discovered_ext" / "__init__.py"), "project"),
+                (str(global_ext / "__init__.py"), "global"),
+            ],
+        )
+        ctx.runtime.settings_manager.global_settings.extensions.list = []
+
+        open_config_panel(ctx)
+
+        seen: list[str] = []
+        for entry in layout.entries:
+            if not seen or seen[-1] != entry.scope:
+                seen.append(entry.scope)
+        assert len(seen) == len(set(seen)), f"scope headings repeat: {seen}"

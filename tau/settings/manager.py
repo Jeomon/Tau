@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from tau.engine.types import FollowupMode, SteeringMode
 from tau.inference.types import ThinkingLevel, Transport
@@ -1145,18 +1145,54 @@ class SettingsManager:
         defaults. Loading needs every discovered extension's config regardless of
         scope, so combine both lists keyed by path (project wins on a path
         collision). Mirrors :meth:`get_all_packages`.
+
+        Keyed by *resolved* path, not the raw string: the two scopes spell the
+        same extension differently on purpose — project entries are stored
+        relative to the project root, global ones absolute — so keying on the
+        raw string would let one physical extension appear twice, once per
+        scope. That is not a cosmetic duplicate: consumers treat a disabled
+        entry as a veto by stem (see ``DefaultResourceLoader.discover``), so a
+        stale global ``enabled: false`` row sitting beside the project's
+        ``enabled: true`` row would silently disable an extension the project
+        explicitly turned on. Collapsing here makes project win, matching the
+        loader's project > global source priority.
         """
         by_path: dict[str, ExtensionEntry] = {}
+        root = self._project_root()
         for source in (self.global_settings, self.project_settings):
             ext = source.extensions
             if ext is not None and ext.list:
                 for entry in ext.list:
-                    by_path[entry.path] = entry
+                    by_path[self._extension_entry_key(entry.path, root)] = entry
         return list(by_path.values())
 
     def get_extension_paths(self) -> list[str]:
         """Return extension paths from the merged entry list (convenience flat view)."""
         return [entry.path for entry in self.get_extension_list()]
+
+    def _project_root(self) -> Path:
+        """Directory that project-relative extension paths are stored against.
+
+        ``storage.project_settings_path`` is ``<root>/.tau/settings.json``; test
+        / in-memory backends have no such path, so fall back to the process cwd.
+        """
+        path = getattr(self.storage, "project_settings_path", None)
+        if path is None:
+            return Path.cwd()
+        return Path(path).parent.parent
+
+    @classmethod
+    def _extension_entry_key(cls, entry_path: str, root: Path) -> str:
+        """Identity for an extension entry: its resolved filesystem path.
+
+        Case-folded because a path can be persisted with different casing than
+        it is later read back with on macOS/Windows while still naming the same
+        directory. Falls back to the raw string if the path cannot be resolved.
+        """
+        try:
+            return str(cls._resolve_extension_entry_path(entry_path, root)).casefold()
+        except (OSError, ValueError):
+            return entry_path.casefold()
 
     @staticmethod
     def _resolve_extension_entry_path(entry_path: str, cwd: Path) -> Path:
@@ -1201,18 +1237,44 @@ class SettingsManager:
         """Set extension paths as plain entries, preserving the list shape."""
         self.set_extension_list([ExtensionEntry(path=p) for p in paths])
 
-    def set_extension_config_key(self, ext_path: str, key: str, value: Any) -> None:
+    def set_extension_config_key(
+        self,
+        ext_path: str,
+        key: str,
+        value: Any,
+        scope: Literal["global", "project"] = "global",
+    ) -> None:
         """Set a key (dot-notation supported) in the config dict of the matching extension entry.
 
         ``key`` may be a dot-separated path such as ``"retry.enabled"`` to set
         nested values; intermediate dicts are created automatically.
+
+        ``scope`` selects which settings file the value is written to, and must
+        match where the extension actually came from. Writing a project
+        extension's config into global settings does not just put the value in
+        the wrong file: the panel derives an extension's scope from the list it
+        was found in, so the stray global row makes a project extension appear
+        under "Global" — stored, on top of that, as a project-relative path that
+        means nothing from any other directory. Callers that know the
+        extension's source (see ``ExtensionLoader._attach_manifest_panel``) pass
+        it explicitly; the default stays global for the install-wide case.
         """
-        if self.global_settings.extensions is None:
-            self.global_settings.extensions = ExtensionsSettings()
-        if self.global_settings.extensions.list is None:
-            self.global_settings.extensions.list = []
+        settings_obj = self.global_settings if scope == "global" else self.project_settings
+        if settings_obj.extensions is None:
+            settings_obj.extensions = ExtensionsSettings()
+        if settings_obj.extensions.list is None:
+            settings_obj.extensions.list = []
+
+        def _persist() -> None:
+            if scope == "global":
+                self._mark_modified("extensions", "list")
+                self._save()
+            else:
+                self._mark_project_modified("extensions", "list")
+                self._save_project_settings(self.project_settings)
+
         target = Path(ext_path).expanduser()
-        for entry in self.global_settings.extensions.list:
+        for entry in settings_obj.extensions.list:
             # Exact string match first; falls back to samefile() so a path
             # that only differs by case (e.g. a typo that still resolves on
             # a case-insensitive filesystem like macOS/Windows) updates the
@@ -1230,16 +1292,14 @@ class SettingsManager:
                 if entry.settings is None:
                     entry.settings = {}
                 set_nested(entry.settings, key, value)
-                self._mark_modified("extensions", "list")
-                self._save()
+                _persist()
                 return
         # No matching entry found — create one
         config: dict = {}
         set_nested(config, key, value)
         new_entry = ExtensionEntry(path=ext_path, settings=config)
-        self.global_settings.extensions.list.append(new_entry)
-        self._mark_modified("extensions", "list")
-        self._save()
+        settings_obj.extensions.list.append(new_entry)
+        _persist()
 
     def set_extension_list(self, entries: list[ExtensionEntry]) -> None:
         """Set the global extension list and persist."""

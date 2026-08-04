@@ -482,3 +482,114 @@ class TestSetExtensionConfigKeyDedup:
 
         entries = mgr.global_settings.extensions.list
         assert len(entries) == 2
+
+
+def _scoped_manager(global_data: dict | None = None, project_data: dict | None = None):
+    """A trusted manager seeded with both scopes, backed by in-memory storage."""
+    import json
+
+    from tau.settings.storage import InMemorySettingsStorage
+    from tau.settings.types import SCOPE, LockResult
+
+    storage = InMemorySettingsStorage()
+    for scope, data in ((SCOPE.GLOBAL, global_data), (SCOPE.PROJECT, project_data)):
+        payload = json.dumps(data or {})
+        storage.with_lock(scope, lambda _, p=payload: LockResult(result=None, next=p))
+    return SettingsManager.from_storage(storage, project_trusted=True)
+
+
+class TestSetExtensionConfigKeyScope:
+    """A project extension's config must be written to the project's own
+    settings.json, not global.
+
+    Every manifest-driven /settings write used to land in global settings
+    regardless of where the extension came from. Because the /extensions panel
+    derives an extension's scope from the list it appears in, that made a
+    project extension show up a second time under "Global" — stored as a
+    project-relative path that means nothing outside that directory, carrying
+    its own enabled flag that could contradict the project's.
+    """
+
+    @staticmethod
+    def _run(mgr: SettingsManager, *calls: tuple) -> None:
+        async def _run() -> None:
+            for call in calls:
+                mgr.set_extension_config_key(*call)
+            if mgr._write_queue is not None:
+                await mgr._write_queue
+
+        asyncio.run(_run())
+
+    def test_project_scope_writes_to_project_settings(self):
+        mgr = _scoped_manager(
+            project_data={"extensions": {"list": [{"path": ".tau/extensions/browser_use"}]}}
+        )
+
+        self._run(mgr, (".tau/extensions/browser_use", "cdp_url", "9222", "project"))
+
+        project_entries = mgr.project_settings.extensions.list
+        assert len(project_entries) == 1
+        assert project_entries[0].settings == {"cdp_url": "9222"}
+        assert not (mgr.global_settings.extensions and mgr.global_settings.extensions.list), (
+            "a project extension's config must not create a global entry"
+        )
+
+    def test_project_scope_creates_entry_when_absent(self):
+        mgr = _scoped_manager()
+
+        self._run(mgr, (".tau/extensions/browser_use", "cdp_url", "9222", "project"))
+
+        project_entries = mgr.project_settings.extensions.list
+        assert [e.path for e in project_entries] == [".tau/extensions/browser_use"]
+        assert not (mgr.global_settings.extensions and mgr.global_settings.extensions.list)
+
+    def test_defaults_to_global_scope(self, tmp_path):
+        mgr = _scoped_manager()
+
+        self._run(mgr, (str(tmp_path / "ext"), "engine", "ddgs"))
+
+        assert [e.path for e in mgr.global_settings.extensions.list] == [str(tmp_path / "ext")]
+        assert not (mgr.project_settings.extensions and mgr.project_settings.extensions.list)
+
+
+class TestGetAllExtensionEntriesScopeCollision:
+    """One physical extension recorded in both scopes must collapse to one
+    entry, with project winning.
+
+    The two scopes deliberately spell the same directory differently — project
+    entries relative to the project root, global ones absolute — so keying the
+    merge on the raw string let a single extension appear twice. That is not
+    cosmetic: DefaultResourceLoader.discover treats a disabled entry as a veto
+    by stem, so a stale global `enabled: false` row would silently disable an
+    extension the project explicitly enabled.
+    """
+
+    def test_relative_project_entry_beats_absolute_global_entry(self, tmp_path, monkeypatch):
+        ext_dir = tmp_path / ".tau" / "extensions" / "browser_use"
+        ext_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+
+        mgr = _scoped_manager(
+            global_data={
+                "extensions": {"list": [{"path": str(ext_dir), "enabled": False}]},
+            },
+            project_data={
+                "extensions": {
+                    "list": [{"path": ".tau/extensions/browser_use", "enabled": True}]
+                }
+            },
+        )
+
+        entries = mgr.get_all_extension_entries()
+        assert len(entries) == 1, "same extension in both scopes must collapse to one entry"
+        assert entries[0].enabled is True
+        assert entries[0].path == ".tau/extensions/browser_use"
+
+    def test_distinct_extensions_are_both_kept(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mgr = _scoped_manager(
+            global_data={"extensions": {"list": [{"path": str(tmp_path / "global_ext")}]}},
+            project_data={"extensions": {"list": [{"path": ".tau/extensions/project_ext"}]}},
+        )
+
+        assert len(mgr.get_all_extension_entries()) == 2

@@ -240,16 +240,51 @@ def open_config_panel(ctx: CommandContext) -> None:
             )
         return entries
 
+    def _scoped_entries() -> list[ConfigEntry]:
+        """Configured entries from both scopes, one row per real extension.
+
+        Project first, then global, skipping any global entry that names a
+        directory the project already covers. One physical extension can have a
+        record in both files — most often because an older build wrote every
+        extension's manifest-driven /settings values into global settings
+        regardless of where the extension actually lived (see
+        SettingsManager.set_extension_config_key). Listing both rows shows a
+        project extension twice, once under "Global", each with its own toggle,
+        and the two flags can disagree. The loader resolves that collision in
+        favour of project (project > global source priority), so show what the
+        loader will actually do rather than the raw file contents.
+        """
+        rows: list[ConfigEntry] = []
+        seen: set[Path] = set()
+        for entries, scope in ((project_list, "project"), (global_list, "global")):
+            for e in entries:
+                if _is_builtin(e.path):
+                    continue
+                try:
+                    resolved = _ext_dir(e.path).resolve()
+                except OSError:
+                    resolved = _ext_dir(e.path)
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                rows.append(_entry(e, scope))  # type: ignore[arg-type]
+        return rows
+
     configured_dirs = {
         _ext_dir(e.path).resolve()
         for e in [*global_list, *project_list]
         if not _is_builtin(e.path)
     }
-    all_entries = (
-        [_entry(e, "global") for e in global_list if not _is_builtin(e.path)]
-        + [_entry(e, "project") for e in project_list if not _is_builtin(e.path)]
-        + _discovered_entries(configured_dirs)
-        + _builtin_entries()
+    # ConfigSelector emits a scope header whenever the scope changes from one
+    # row to the next, so rows must arrive grouped by scope — otherwise a
+    # discovered project extension following a discovered global one prints a
+    # second "Global"/"Project" heading further down the list. Sort (stably, so
+    # each group keeps its settings.json order) instead of relying on the order
+    # the sources happen to be concatenated in.
+    scope_order = {"global": 0, "project": 1, "builtin": 2}
+    all_entries = sorted(
+        _scoped_entries() + _discovered_entries(configured_dirs) + _builtin_entries(),
+        key=lambda e: scope_order.get(e.scope, len(scope_order)),
     )
 
     if not all_entries:

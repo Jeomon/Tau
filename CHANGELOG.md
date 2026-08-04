@@ -2,6 +2,14 @@
 
 All notable changes to `tau-coding-agent` are documented here.
 
+## Unreleased
+
+### Fixed
+
+-   A project extension configured through `/settings` no longer reappears in the `/extensions` panel as a second, separate entry under "Global". Every manifest-driven setting was persisted to global settings regardless of where its extension came from, so the first value set on a project extension minted a stray global record — keyed by the project-relative path the loader had computed for it, which names nothing at all from any other working directory. The panel reads an extension's scope from the list it was found in, so that record rendered as an independent copy of the extension with its own enable switch, free to contradict the real one. `set_extension_config_key` now takes the scope it is writing for, and the loader passes the extension's actual source; project config lands in the project's `settings.json`, everything else stays global with an absolute path
+-   An extension recorded in both `settings.json` scopes is no longer counted twice when settings are merged for loading. The two scopes deliberately spell the same directory differently — project entries relative to the project root, global ones absolute — but the merge was keyed on the raw string, so one extension could occupy two slots. Because a disabled entry acts as a veto by name during discovery, a stale global `"enabled": false` row could silently override a project's `"enabled": true` and keep an extension the project explicitly asked for from ever loading. Entries are now keyed by resolved path, with project winning, matching the loader's existing project > global priority
+-   The `/extensions` panel shows one row per extension where both scopes hold a record for it, resolving the collision the same way the loader does, so configurations already carrying a stray entry read correctly without hand-editing the file. Its rows are also grouped by scope again — the scope heading is emitted whenever it changes between adjacent rows, and discovered extensions were appended in whatever order they loaded, so a global one following a project one could print a second "Global" heading partway down the list
+
 ## 0.9.1 — 2026-08-03
 
 ### Breaking

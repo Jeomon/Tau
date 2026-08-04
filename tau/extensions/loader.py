@@ -9,7 +9,7 @@ import logging
 import sys
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from tau.extensions.api import (
     Extension,
@@ -658,19 +658,30 @@ class ExtensionLoader:
         from tau.modes.interactive.components.settings_selector import build_manifest_panel
 
         ext_dir = path.parent
-        if ext.source == "builtin":
-            settings_path = str(ext_dir)
-        else:
+        # Where the value gets written has to follow where the extension came
+        # from. A project extension's config belongs in the project's
+        # settings.json, stored relative to the project root; everything else
+        # (global, explicit, package, builtin) belongs in global settings as an
+        # absolute path. Getting this wrong is not just untidy filing: the
+        # /extensions panel reads an extension's scope off the list it appears
+        # in, so a project extension whose config landed in global settings
+        # shows up a second time under "Global" — with a project-relative path
+        # that is meaningless from any other working directory, and its own
+        # enabled flag that can end up contradicting the project's.
+        scope: Literal["global", "project"] = "project" if ext.source == "project" else "global"
+        if scope == "project":
             try:
                 settings_path = str(ext_dir.relative_to(self._cwd))
             except ValueError:
                 settings_path = str(ext_dir)
+        else:
+            settings_path = str(ext_dir)
         module_path = str(path)  # absolute path of the loaded entry file
 
         def _apply(key: str, value: Any) -> None:
             # Persist to settings.json, then reload just this extension so the
             # change takes effect live without re-running other extensions.
-            settings.set_extension_config_key(settings_path, key, value)
+            settings.set_extension_config_key(settings_path, key, value, scope)
             runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
             if runtime is None:
                 return

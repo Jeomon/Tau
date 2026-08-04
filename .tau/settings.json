@@ -45,10 +45,11 @@
       {
         "path": ".tau/extensions/browser_use",
         "name": null,
-        "enabled": true,
+        "enabled": false,
         "source": null,
         "author": null,
         "settings": {
+          "cdp_url": "9222",
           "user_data_dir": "~/.browser-agent-profile"
         }
       }
