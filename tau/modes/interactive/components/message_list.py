@@ -156,6 +156,7 @@ class MessageBlock:
         the normal whole-document path exactly once.
         """
         self._streaming_markdown.clear()
+
     def toggle_expanded(self) -> None:
         self._expanded = not self._expanded
         self.invalidate()
@@ -297,7 +298,6 @@ class MessageBlock:
             preserve_soft_breaks=preserve_soft_breaks,
         )
         return [prefix + line for line in lines] if prefix else lines
-
 
     # -------------------------------------------------------------------------
     # Rendering
@@ -901,6 +901,33 @@ class MessageListViewportRender:
     buf: Buffer
 
 
+@dataclass(frozen=True)
+class VisibleWindow:
+    """Exactly the rows an app-owned viewport shows, and what it cost.
+
+    Produced by ``MessageList.render_visible_window``. Unlike
+    ``MessageListViewportRender`` (which renders everything and slices), this
+    is built by walking units backwards from the tail and stopping as soon as
+    the window is full — so the work is proportional to the viewport, not to
+    session length.
+
+    A total row count is deliberately not always available: knowing it would
+    require wrapping the whole transcript at the current width, which is the
+    cost this exists to avoid. ``reached_top`` answers the bounded question a
+    viewport actually needs — whether any history remains above these rows.
+
+    ``known_total_rows`` is set only when the walk happened to exhaust history
+    anyway (a short transcript, or the user scrolled to the top). It exists so
+    the scroll anchor can be clamped without ever forcing a full wrap; when it
+    is ``None`` the total is genuinely unknown and callers must not guess.
+    """
+
+    lines: list[str]
+    units_rendered: int
+    reached_top: bool
+    known_total_rows: int | None = None
+
+
 class MessageList(Component):
     """
     Scrollable list of MessageBlock objects rendered inside a fixed-height
@@ -1256,6 +1283,68 @@ class MessageList(Component):
         """
         return StaticComponent(self._render_blocks(area.width)).render_cells(area, buf)
 
+    def _unit_bounds(self, start_index: int = 0) -> list[tuple[int, int]]:
+        """``(start_block, end_block)`` for each renderable unit — nothing rendered.
+
+        Split out from ``_iter_units`` so a viewport renderer can locate unit
+        boundaries without paying to render them. The grouping rule is only
+        type checks, so this is cheap even over a whole session, whereas
+        rendering a unit is the expensive part.
+
+        Keeping one implementation of the rule matters: ``_render_blocks``,
+        ``render_split_cells`` and the viewport path must agree on exactly the
+        same grouping, or the same transcript would lay out differently
+        depending on which renderer produced it.
+        """
+        from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage
+
+        bounds: list[tuple[int, int]] = []
+        index = start_index
+        while index < len(self._blocks):
+            message = self._blocks[index].message
+            next_message = (
+                self._blocks[index + 1].message if index + 1 < len(self._blocks) else None
+            )
+            followed_by_tool_result = (
+                isinstance(message, AssistantMessage)
+                and any(isinstance(item, ToolCallContent) for item in message.contents)
+                and isinstance(next_message, ToolMessage)
+            )
+            step = 2 if followed_by_tool_result else 1
+            bounds.append((index, index + step))
+            index += step
+        return bounds
+
+    def _unit_bounds_ending_at(self, index: int) -> tuple[int, int]:
+        """The unit whose last block is ``index``, found without scanning forward.
+
+        The forward rule pairs an assistant tool call with the tool result that
+        *follows* it; read backwards, that is a tool result preceded by such an
+        assistant message. Same grouping, reachable from the tail — which is
+        what lets a frame cost stay proportional to the viewport instead of to
+        the number of messages in the session.
+        """
+        from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage
+
+        if index > 0 and isinstance(self._blocks[index].message, ToolMessage):
+            previous = self._blocks[index - 1].message
+            if isinstance(previous, AssistantMessage) and any(
+                isinstance(item, ToolCallContent) for item in previous.contents
+            ):
+                return index - 1, index + 1
+        return index, index + 1
+
+    def _render_unit(self, start: int, end: int, width: int) -> list[str]:
+        """Render one unit located by ``_unit_bounds``.
+
+        Both underlying calls cache per width on the block itself, so
+        re-rendering a unit the viewport has already visited is free.
+        """
+        block = self._blocks[start]
+        if end - start == 2:
+            return block.render_with_tool_results(self._blocks[start + 1].message, width)
+        return block.render(width)
+
     def _iter_units(self, width: int, start_index: int = 0):
         """Yield (start_block_index, end_block_index, lines) for each renderable unit.
 
@@ -1270,27 +1359,79 @@ class MessageList(Component):
         session length. Only ever a value previously yielded as an
         ``end_index`` (a unit boundary), so resuming there can't split a unit.
         """
-        from tau.message.types import AssistantMessage, ToolCallContent, ToolMessage
+        for start, end in self._unit_bounds(start_index):
+            yield start, end, self._render_unit(start, end, width)
 
-        index = start_index
-        while index < len(self._blocks):
-            block = self._blocks[index]
-            next_message = (
-                self._blocks[index + 1].message if index + 1 < len(self._blocks) else None
-            )
-            message = block.message
-            followed_by_tool_result = (
-                isinstance(message, AssistantMessage)
-                and any(isinstance(item, ToolCallContent) for item in message.contents)
-                and isinstance(next_message, ToolMessage)
-            )
-            if followed_by_tool_result:
-                yield index, index + 2, block.render_with_tool_results(next_message, width)
-                index += 2
-                continue
+    def render_visible_window(
+        self,
+        width: int,
+        height: int,
+        scroll_rows: int = 0,
+    ) -> VisibleWindow:
+        """Render only the rows a ``height``-row viewport shows.
 
-            yield index, index + 1, block.render(width)
-            index += 1
+        ``scroll_rows`` is how far above the bottom the viewport sits: 0 follows
+        the newest output, larger values scroll back through history.
+
+        Walks units backwards from the tail, rendering each and stopping as soon
+        as enough rows exist to fill the window. Cost is therefore proportional
+        to the viewport, not to session length — which is the whole point, and
+        is what the native-scrollback renderer cannot do: there, every row needs
+        an absolute index that lines up with what the terminal already holds, so
+        the total row count has to be known, so everything must be wrapped.
+
+        An app-owned viewport has no such constraint. The anchor is an offset
+        from the tail, and rows above the window simply never need to exist.
+        """
+        width = max(1, width)
+        height = max(0, height)
+        scroll_rows = max(0, scroll_rows)
+        needed = height + scroll_rows
+
+        collected: list[list[str]] = []
+        rows = 0
+        units_rendered = 0
+        index = len(self._blocks) - 1
+
+        # Walk unit boundaries backwards from the tail. Deliberately *not*
+        # ``_unit_bounds()``: that enumerates every unit in the session, which
+        # made a frame O(total blocks) even though only a viewport's worth is
+        # ever drawn — the exact cost this method exists to avoid, hidden in
+        # cheap-looking type checks rather than in rendering.
+        while index >= 0 and rows < needed:
+            start, end = self._unit_bounds_ending_at(index)
+            wrapped: list[str] = []
+            for line in self._render_unit(start, end, width):
+                wrapped.extend(wrap(line, width) if visible_width(line) > width else [line])
+            collected.append(wrapped)
+            rows += len(wrapped)
+            units_rendered += 1
+            index = start - 1
+
+        # `collected` is newest-unit-first; flatten back into transcript order.
+        lines: list[str] = []
+        for wrapped in reversed(collected):
+            lines.extend(wrapped)
+
+        # The backwards walk ran past the first block, so no units remain above
+        # the rows returned and scrolling further back reveals nothing new.
+        reached_top = index < 0
+        # Slice the window out of the tail. `stop` walks back by scroll_rows,
+        # but never past the point where the window would stop being full:
+        # over-scrolling parks at the top of the transcript rather than sliding
+        # off it and returning blank rows.
+        stop = max(min(height, len(lines)), len(lines) - scroll_rows)
+        start_row = max(0, stop - height)
+        return VisibleWindow(
+            lines=lines[start_row:stop],
+            units_rendered=units_rendered,
+            reached_top=reached_top,
+            # Only meaningful when the walk exhausted history — otherwise rows
+            # above what we rendered exist but were never wrapped, so any total
+            # would be a lie. Left as None in that case, on purpose.
+            known_total_rows=len(lines) if reached_top else None,
+        )
+
     @property
     def row_metadata(self) -> list[MessageUnitRowInfo]:
         """Return latest render-unit row spans.

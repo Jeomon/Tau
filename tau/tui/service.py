@@ -46,6 +46,8 @@ def _span(name: str) -> Generator[None]:
 _IS_WINDOWS = sys.platform == "win32"
 
 if TYPE_CHECKING:
+    from tau.tui.app_viewport import AppViewportRenderer
+
     pass
 
 
@@ -513,40 +515,57 @@ class Renderer:
 
     def _composite_overlays(self, buf: Buffer, overlays: list, width: int, height: int) -> None:
         """Blit every visible overlay directly into buf's cells (in place)."""
-        viewport_start = max(0, buf.area.height - height)
+        composite_overlays(buf, overlays, width, height, max(0, buf.area.height - height))
 
-        for entry in overlays:
-            if not entry.is_visible(width, height):
-                continue
-            ov_w = max(1, entry.resolve_width(width))
-            ov_buf = Buffer.empty(Rect(0, 0, ov_w, 0))
-            with _span("tui.overlay_render"):
-                natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
-            _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
-            ov_h = min(ov_h, natural_h, ov_buf.area.height)
 
-            buf.grow_to(viewport_start + ov_row + ov_h)
-            with _span("tui.overlay_blit"):
-                for y in range(ov_h):
-                    target_y = viewport_start + ov_row + y
-                    if target_y < 0:
+def composite_overlays(
+    buf: Buffer,
+    overlays: list,
+    width: int,
+    height: int,
+    viewport_start: int,
+) -> None:
+    """Blit every visible overlay into ``buf``'s cells, in place.
+
+    Shared by both render backends. ``viewport_start`` is the buffer row the
+    visible window begins at — the scrollback renderer builds a buffer holding
+    the whole transcript and positions overlays against its tail, while the
+    app-viewport renderer builds a buffer that *is* the window, and passes 0.
+    Keeping one implementation matters: overlay placement is fiddly (see the
+    cell-reference note below) and two copies would drift.
+    """
+    for entry in overlays:
+        if not entry.is_visible(width, height):
+            continue
+        ov_w = max(1, entry.resolve_width(width))
+        ov_buf = Buffer.empty(Rect(0, 0, ov_w, 0))
+        with _span("tui.overlay_render"):
+            natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
+        _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
+        ov_h = min(ov_h, natural_h, ov_buf.area.height)
+
+        buf.grow_to(viewport_start + ov_row + ov_h)
+        with _span("tui.overlay_blit"):
+            for y in range(ov_h):
+                target_y = viewport_start + ov_row + y
+                if target_y < 0:
+                    continue
+                src_base = y * ov_w
+                dst_base = target_y * buf.area.width
+                for x in range(ov_w):
+                    target_x = _LEFT_PAD + ov_col + x
+                    if target_x < 0 or target_x >= buf.area.width:
                         continue
-                    src_base = y * ov_w
-                    dst_base = target_y * buf.area.width
-                    for x in range(ov_w):
-                        target_x = _LEFT_PAD + ov_col + x
-                        if target_x < 0 or target_x >= buf.area.width:
-                            continue
-                        # Replace the cell reference rather than mutating in
-                        # place via Buffer.set: frozen-history rows in ``buf``
-                        # hold the *same* Cell objects as MessageList's frozen
-                        # buffer and the widened-row cache (spliced by
-                        # reference — see TUI._splice_frozen_rows), so an
-                        # in-place write would permanently bake overlay pixels
-                        # into that cache and ghost after the overlay closes.
-                        # ``ov_buf`` is private to this composite, so sharing
-                        # its cells (or blank sentinels) into ``buf`` is safe.
-                        buf.content[dst_base + target_x] = ov_buf.content[src_base + x]
+                    # Replace the cell reference rather than mutating in
+                    # place via Buffer.set: frozen-history rows in ``buf``
+                    # hold the *same* Cell objects as MessageList's frozen
+                    # buffer and the widened-row cache (spliced by
+                    # reference — see TUI._splice_frozen_rows), so an
+                    # in-place write would permanently bake overlay pixels
+                    # into that cache and ghost after the overlay closes.
+                    # ``ov_buf`` is private to this composite, so sharing
+                    # its cells (or blank sentinels) into ``buf`` is safe.
+                    buf.content[dst_base + target_x] = ov_buf.content[src_base + x]
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
@@ -632,10 +651,20 @@ class TUI(Container):
         *,
         terminal: Terminal | None = None,
         title: str | None = None,
+        render_backend: str = "native-scrollback",
     ) -> None:
         super().__init__()
         self._terminal = terminal or Terminal()
         self._renderer = Renderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
+        # Experimental app-owned viewport. Only constructed when explicitly
+        # asked for: it captures the mouse, which takes native scrolling and
+        # click-drag selection away from the terminal. None means the default
+        # native-scrollback renderer is in charge and nothing below changes.
+        self._app_viewport: AppViewportRenderer | None = None
+        if render_backend == "app-viewport":
+            from tau.tui.app_viewport import AppViewportRenderer as _AVR
+
+            self._app_viewport = _AVR(self._terminal)
         self._parser = _make_parser()
         self._title = title
 
@@ -915,7 +944,6 @@ class TUI(Container):
                 if source_start_row <= rw.y < source_rows
             )
 
-
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
         """Return a mouse event as zero-based coordinates relative to a direct child."""
         start = self._child_rows.get(id(component))
@@ -1107,6 +1135,10 @@ class TUI(Container):
         self._input_handlers.clear()
         self._intercept_handlers.clear()
         self._unsub_resize()
+        if self._app_viewport is not None:
+            # Hand the mouse back before anything else tears down, or the
+            # terminal is left in mouse-reporting mode after Tau exits.
+            self._app_viewport.stop()
         self._renderer.dispose()
 
     @property
@@ -1557,6 +1589,17 @@ class TUI(Container):
                     self._focused_overlay = None
                     self.set_focus(restore)
 
+        # Wheel events drive the app-owned viewport. Handled before overlays so
+        # scrolling the transcript keeps working while one is open; anything not
+        # consumed (clicks, horizontal wheel) falls through untouched.
+        if (
+            self._app_viewport is not None
+            and isinstance(event, MouseEvent)
+            and self._app_viewport.handle_mouse(event.button)
+        ):
+            self._request_render()
+            return
+
         if self._focused_overlay is not None and not self._focused_overlay.hidden:
             consumed = self._focused_overlay.component.handle_input(event)
             if consumed:
@@ -1651,7 +1694,13 @@ class TUI(Container):
         self._render_timer = None
         self._render_requested = False
         try:
-            self._renderer.render(self, self._overlays or None)
+            if self._app_viewport is not None:
+                # Claimed lazily on the first frame so constructing a TUI never
+                # has a side effect on the terminal.
+                self._app_viewport.start()
+                self._app_viewport.render(list(self.children), self._overlays or None)
+            else:
+                self._renderer.render(self, self._overlays or None)
         except Exception:
             # A single component raising during render must not permanently
             # freeze the UI. This callback runs via loop.call_later(), so an

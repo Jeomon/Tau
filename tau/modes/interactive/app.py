@@ -245,14 +245,17 @@ class App:
         show_hardware_cursor = False
         editor_padding_x = 0
         cursor_blink = True
+        render_backend = "native-scrollback"
         if sm is not None:
             show_hardware_cursor = sm.get_show_hardware_cursor()
             editor_padding_x = sm.get_editor_padding_x()
             cursor_blink = sm.get_cursor_blink()
+            render_backend = sm.get_render_backend()
 
         tui = TUI(
             show_hardware_cursor=show_hardware_cursor,
             title=f"τ - {project_name()}",
+            render_backend=render_backend,
         )
         # tau.tui is a standalone package with no tau.* imports of its own (see
         # tests/test_tui_public_api.py), so profiling is injected from here

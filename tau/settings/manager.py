@@ -270,9 +270,7 @@ class SettingsManager:
                 if isinstance(raw_list, list):
                     entries = [
                         e
-                        for e in (
-                            SettingsManager._parse_extension_entry(item) for item in raw_list
-                        )
+                        for e in (SettingsManager._parse_extension_entry(item) for item in raw_list)
                         if e is not None
                     ]
                 elif raw_list is not None:
@@ -292,9 +290,7 @@ class SettingsManager:
                 if isinstance(raw_list, list):
                     pkg_entries = [
                         e
-                        for e in (
-                            SettingsManager._parse_package_entry(item) for item in raw_list
-                        )
+                        for e in (SettingsManager._parse_package_entry(item) for item in raw_list)
                         if e is not None
                     ]
                 elif raw_list is not None:
@@ -1222,9 +1218,10 @@ class SettingsManager:
             kept = []
             changed = False
             for entry in entries:
-                if not entry.enabled or self._resolve_extension_entry_path(
-                    entry.path, cwd
-                ).exists():
+                if (
+                    not entry.enabled
+                    or self._resolve_extension_entry_path(entry.path, cwd).exists()
+                ):
                     kept.append(entry)
                     continue
                 changed = True
@@ -1419,6 +1416,27 @@ class SettingsManager:
             raise ValueError(f"tree_filter_mode must be one of {valid}, got {value!r}")
         self.global_settings.tree_filter_mode = value  # type: ignore[assignment]
         self._mark_modified("tree_filter_mode")
+        self._save()
+
+    def get_render_backend(self) -> str:
+        """Return the transcript renderer (default: ``"native-scrollback"``).
+
+        Defaulting to native-scrollback is deliberate and load-bearing: the
+        app-viewport backend captures the mouse, which disables the terminal's
+        own scrolling and text selection. Anything unrecognised also falls back
+        here rather than raising, so a typo in settings.json cannot silently
+        take the mouse away from a user.
+        """
+        v = self.settings.render_backend
+        return v if v in ("native-scrollback", "app-viewport") else "native-scrollback"
+
+    def set_render_backend(self, value: str) -> None:
+        """Set the transcript renderer and persist to global settings."""
+        valid = ("native-scrollback", "app-viewport")
+        if value not in valid:
+            raise ValueError(f"render_backend must be one of {valid}, got {value!r}")
+        self.global_settings.render_backend = value  # type: ignore[assignment]
+        self._mark_modified("render_backend")
         self._save()
 
     def get_autocomplete_max_visible(self) -> int:

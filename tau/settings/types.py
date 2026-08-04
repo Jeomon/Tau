@@ -218,6 +218,15 @@ class Settings:
     tree_filter_mode: Literal["default", "no-tools", "user-only", "labeled-only", "all"] | None = (
         None  # default /tree filter mode
     )
+    # Which renderer draws the transcript (default: "native-scrollback").
+    # "native-scrollback" writes into the terminal's own scrollback, so native
+    # scrolling, selection and search keep working, at the cost of a full
+    # transcript rewrite on every resize.
+    # "app-viewport" (experimental) captures the mouse and owns the scroll
+    # position, drawing only the rows that fit the window — resize cost stops
+    # growing with session length, but Tau must then provide scrolling, search,
+    # copy and export itself, and native selection needs a modifier key.
+    render_backend: Literal["native-scrollback", "app-viewport"] | None = None
     autocomplete_max_visible: int | None = None  # max items in autocomplete dropdown (default: 5)
     show_hardware_cursor: bool | None = (
         None  # show terminal cursor while positioning (IME support, default: False)
