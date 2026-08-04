@@ -491,6 +491,15 @@ class Tree:
             # 95-node capture -- mostly AXGroup/AXStaticText containers.
             has_interactive_subrole = early["subrole"] in INTERACTIVE_SUBROLES
 
+            # A titled AXList is a real, nameable control -- a sidebar or a
+            # results list -- even though AXList is otherwise treated as a pure
+            # container. The title is what makes it worth emitting: an untitled
+            # list is structural and stays invisible, so this does not reopen
+            # the node-count blowup that ruled out matching on actions.
+            has_list_title = role == "AXList" and bool(
+                ax.GetAttribute(element, ax.Attribute.Title)
+            )
+
             is_interactive = (
                 (has_roles and early["enabled"])
                 or bool(early["help"])
@@ -498,6 +507,7 @@ class Tree:
                 or bool(early["index"])
                 or has_title_ui_element
                 or has_interactive_subrole
+                or has_list_title
             ) and is_visible
 
             bounding_box = BoundingBox.from_bounding_rectangle(rect)
@@ -574,6 +584,12 @@ class Tree:
                 elif role == "AXPopUpButton":
                     if title_ui_element_text:
                         metadata["title"] = title_ui_element_text
+                    # Which option is currently chosen. The label is the
+                    # control's own name, so without this the agent can see a
+                    # dropdown but not what it is already set to -- and would
+                    # have to open it to find out.
+                    if value := late["value"]:
+                        metadata["selected"] = value
                 elif role == "AXLink":
                     if (url := late["url"]) and url.startswith(("file://", "http://", "https://")):
                         metadata["url"] = url
