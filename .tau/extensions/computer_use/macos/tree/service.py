@@ -28,6 +28,12 @@ logger = logging.getLogger(__name__)
 _THREAD_MAX_RETRIES = 3
 _FINDER_BUNDLE_ID = "com.apple.finder"
 
+# Upper bound on word nodes emitted per text area. Each word costs an
+# AXBoundsForRange round-trip, so an uncapped document can cost more than the
+# entire rest of the snapshot. Raise it for deeper coverage of a single field;
+# set it to 0 to turn word nodes off entirely.
+MAX_WORD_NODES_PER_ELEMENT = 200
+
 
 class Tree:
     """Extracts a TreeState snapshot of interactive/scrollable elements across
@@ -280,6 +286,63 @@ class Tree:
         if right > left and bottom > top:
             return BoundingBox(left=left, top=top, right=right, bottom=bottom, width=right - left, height=bottom - top)
         return BoundingBox(left=0, top=0, right=0, bottom=0, width=0, height=0)
+
+    def _append_word_nodes(
+        self,
+        element,
+        interactive_nodes: list[TreeElementNode],
+        window_name: str,
+        main_window_bounding_box: BoundingBox | None = None,
+    ) -> None:
+        """Emit one node per word in a text area, each individually addressable.
+
+        Capped by MAX_WORD_NODES_PER_ELEMENT. Every word costs an
+        AXBoundsForRange round-trip, so this is linear in word count and by far
+        the most expensive thing the traversal can do: a 400-word text area
+        measures ~250ms on its own, against ~220ms for a whole snapshot. The cap
+        keeps one large document from dominating the capture.
+
+        A word that soft-wraps yields one box per line, so each of those becomes
+        its own node -- the box is what gets clicked, not the word.
+        """
+        if MAX_WORD_NODES_PER_ELEMENT <= 0:
+            return
+        try:
+            words = ax.Control(element=element).WordBoundingBoxes()
+        except Exception:
+            return
+        if not words:
+            # None when the app exposes no range geometry (AXBoundsForRange
+            # absent), which is common outside native Cocoa text views.
+            return
+
+        emitted = 0
+        for word, boxes in words:
+            if emitted >= MAX_WORD_NODES_PER_ELEMENT:
+                logger.debug(
+                    "word node cap (%d) reached for a text area in %s; %d words not emitted",
+                    MAX_WORD_NODES_PER_ELEMENT,
+                    window_name,
+                    len(words) - emitted,
+                )
+                break
+            for rect in boxes:
+                bounding_box = BoundingBox.from_bounding_rectangle(rect)
+                if main_window_bounding_box:
+                    bounding_box = self.iou_bounding_box(main_window_bounding_box, bounding_box)
+                if bounding_box.width <= 0 or bounding_box.height <= 0:
+                    continue
+                interactive_nodes.append(
+                    TreeElementNode(
+                        bounding_box=bounding_box,
+                        center=bounding_box.get_center(),
+                        name=word,
+                        control_type="Word",
+                        window_name=window_name,
+                        metadata={},
+                    )
+                )
+            emitted += 1
 
     def _dom_correction(
         self,
@@ -573,6 +636,14 @@ class Tree:
                     self._dom_correction(attrs, interactive_nodes, window_name, main_window_bounding_box)
                 else:
                     self._desktop_correction(attrs, interactive_nodes, window_name, main_window_bounding_box)
+
+                # Word-level boxes for text areas. Emitted as their own nodes
+                # rather than metadata so each word is individually clickable,
+                # matching how Windows-MCP surfaces them.
+                if role == "AXTextArea":
+                    self._append_word_nodes(
+                        element, interactive_nodes, window_name, main_window_bounding_box
+                    )
 
             if role in SCROLLABLE_ROLES and is_visible:
                 first_child = children[0] if children else None
