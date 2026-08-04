@@ -145,6 +145,14 @@ class TestClassifyError:
         r = classify_error(e)
         assert r.kind == ErrorKind.OVERLOADED
 
+    def test_overloaded_without_status_code(self):
+        # Mid-stream SSE "overloaded_error" events arrive after the HTTP 200
+        # headers, so the SDK exception has no status_code — text match only.
+        e = _err("Overloaded")
+        r = classify_error(e)
+        assert r.kind == ErrorKind.OVERLOADED
+        assert r.retryable is True
+
     # ── Pattern-only (no status code) ────────────────────────────────────────
 
     def test_billing_pattern_no_status(self):

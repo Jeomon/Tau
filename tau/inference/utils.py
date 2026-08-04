@@ -159,6 +159,11 @@ _FORMAT_ERROR_PATTERNS = (
     "unrecognized request argument",
 )
 
+_OVERLOADED_PATTERNS = (
+    "overloaded",
+    "overloaded_error",
+)
+
 _TIMEOUT_PATTERNS = (
     "timed out",
     "turn timed out",
@@ -396,6 +401,13 @@ def classify_error(error: Exception) -> ClassifiedError:
     if _matches(msg, _MODEL_NOT_FOUND_PATTERNS):
         return ClassifiedError(
             kind=ErrorKind.MODEL_NOT_FOUND, message=msg, status_code=status, retryable=False
+        )
+
+    # Mid-stream SSE "overloaded_error" events arrive after the HTTP 200 headers,
+    # so the exception carries no status_code — text match is the only signal.
+    if _matches(msg, _OVERLOADED_PATTERNS):
+        return ClassifiedError(
+            kind=ErrorKind.OVERLOADED, message=msg, status_code=status, retryable=True
         )
 
     if _matches(msg, _AUTH_PATTERNS):
