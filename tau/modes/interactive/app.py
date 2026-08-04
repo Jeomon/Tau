@@ -36,6 +36,11 @@ _log = logging.getLogger(__name__)
 # stuck in a non-cancellable blocking call shouldn't be able to stall it.
 _SHUTDOWN_TIMEOUT = 2.0
 
+# Upper bound on how long deferred startup work waits for the first frame
+# before running anyway (see App._release_tokenizer_load). Generous: it is a
+# safety net for a TUI that never paints, not a latency budget.
+_FIRST_FRAME_TIMEOUT = 10.0
+
 _RESERVED_EXTENSION_SHORTCUT_ACTIONS = frozenset(
     {
         "tui.app.quit",
@@ -541,6 +546,14 @@ class App:
     async def run(self) -> None:
         """Set up hooks, replay session, then run the TUI loop."""
         self._redirect_logging_off_terminal()
+        # Before any hook can ask for a token count: hold the tokenizer's
+        # vocabulary load until the first frame is up. The footer's
+        # context-usage readout requests one during tui_ready, which would
+        # otherwise start an ~80ms CPU load in a thread that then competes with
+        # the first paint for the GIL. Released by _release_tokenizer_load.
+        from tau.session.compaction import defer_encoding_load
+
+        defer_encoding_load()
         self._hooks.subscribe()
 
         sm = self._runtime.settings_manager
@@ -573,6 +586,7 @@ class App:
             self._setup_trust_screen_if_needed()
 
         self._track_task(asyncio.ensure_future(self._announce_update()))
+        self._track_task(asyncio.ensure_future(self._release_tokenizer_load()))
 
         if self._auto_theme:
             self._tui.on_background_color = self._on_terminal_background
@@ -583,6 +597,20 @@ class App:
         finally:
             await self._runtime.hooks.emit(TuiExitEvent(), timeout=_SHUTDOWN_TIMEOUT)
             await self._cleanup()
+
+    async def _release_tokenizer_load(self) -> None:
+        """Start the tokenizer vocabulary load once the first frame is up.
+
+        Counterpart to the ``defer_encoding_load()`` in :meth:`run`. Bounded by
+        a timeout so a TUI that never manages to paint (a renderer crash, a
+        terminal that never reports a size) cannot strand token counting on the
+        chars/4 fallback for the whole session.
+        """
+        from tau.session.compaction import allow_encoding_load
+
+        with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+            await asyncio.wait_for(self._tui.wait_first_render(), _FIRST_FRAME_TIMEOUT)
+        allow_encoding_load()
 
     # -------------------------------------------------------------------------
     # Project trust prompt

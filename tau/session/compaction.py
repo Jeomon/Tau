@@ -130,6 +130,17 @@ _encoding_load_started = False
 # instead of polling `_encoding is not None`, which can't distinguish "still
 # loading" from "loaded and failed".
 _encoding_ready = threading.Event()
+# When False, _start_loading_encoding() is a no-op and callers keep using the
+# chars/4 fallback. Held closed over interactive startup: loading the BPE
+# vocabulary decodes ~100k base64 tokens (~80ms of pure CPU), and the very
+# first thing to ask for a token count is the footer's context-usage readout
+# during the first paint — so the load lands exactly on top of the frame the
+# user is waiting for, and the GIL makes it a straight addition to
+# time-to-first-frame. Nothing is lost by waiting: an estimate taken while the
+# load is in flight already falls back to chars/4 today, and the real count is
+# only needed before the first LLM request, which is many seconds of typing
+# away. See TUI.wait_first_render / App._release_tokenizer_load.
+_encoding_load_allowed = True
 
 
 def _start_loading_encoding() -> None:
@@ -158,10 +169,31 @@ def _start_loading_encoding() -> None:
         _encoding_ready.set()
 
     with _encoding_lock:
-        if _encoding_load_started:
+        # Deliberately checked before _encoding_load_started is set, so a call
+        # made while deferred is simply ignored rather than counting as "the
+        # load already happened" and suppressing the real one later.
+        if not _encoding_load_allowed or _encoding_load_started:
             return
         _encoding_load_started = True
     threading.Thread(target=_load, name="tau-tokenizer-load", daemon=True).start()
+
+
+def defer_encoding_load() -> None:
+    """Suppress tokenizer loading until :func:`allow_encoding_load` is called.
+
+    Interactive startup calls this so the vocabulary load cannot land on the
+    first frame (see ``_encoding_load_allowed``). No-op for any caller that
+    never defers, so non-interactive modes are unaffected.
+    """
+    global _encoding_load_allowed
+    _encoding_load_allowed = False
+
+
+def allow_encoding_load() -> None:
+    """Lift a :func:`defer_encoding_load` and start the load immediately."""
+    global _encoding_load_allowed
+    _encoding_load_allowed = True
+    _start_loading_encoding()
 
 
 def _count_text_tokens(text: str) -> int:

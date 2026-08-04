@@ -645,6 +645,10 @@ class TUI(Container):
         self._render_timer: asyncio.TimerHandle | None = None
         self._render_requested = False
         self._resize_timer: asyncio.TimerHandle | None = None
+        # Set after the first frame reaches the terminal. Lets startup work that
+        # is not needed to draw that frame (see App._release_tokenizer_load)
+        # wait its turn instead of competing with it for the GIL.
+        self._first_render_done: asyncio.Event = asyncio.Event()
         self._esc_timer: asyncio.TimerHandle | None = None
         self._stdin_thread: threading.Thread | None = None
         # threading.Event is safe for the Windows reader to inspect while the
@@ -1660,6 +1664,14 @@ class TUI(Container):
             # raise a formatting error that ends up written to stderr.
             _log.exception("render failed")
         self._last_render_at = time.monotonic()
+        # Set even if render() raised: the point is "startup has reached the
+        # first paint attempt", and a renderer that failed once is not a reason
+        # to withhold deferred work forever.
+        self._first_render_done.set()
+
+    async def wait_first_render(self) -> None:
+        """Block until the first frame has been painted."""
+        await self._first_render_done.wait()
 
     # -------------------------------------------------------------------------
     # Cleanup
