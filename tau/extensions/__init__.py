@@ -9,6 +9,7 @@ from tau.extensions.api import (
     ShortcutRegistration,
 )
 from tau.extensions.context import ExtensionContext, StaleExtensionContextError
+from tau.extensions.define import ParameterSpec, define_tool
 from tau.extensions.loader import ExtensionLoader, load_inline_extensions
 from tau.extensions.runtime import ExtensionRuntime
 from tau.extensions.settings import ExtensionSettings, ExtensionSettingsError
@@ -16,6 +17,8 @@ from tau.settings.types import ExtensionEntry, ExtensionsSettings
 
 __all__ = [
     "ExtensionAPI",
+    "define_tool",
+    "ParameterSpec",
     "Extension",
     "ExtensionError",
     "ExtensionFactory",
