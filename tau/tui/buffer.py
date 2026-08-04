@@ -126,9 +126,18 @@ class Buffer:
         return cell
 
     def set(self, x: int, y: int, symbol: str, style: Style | None = None) -> None:
-        if not self.area.contains(x, y):
+        # Hot path: one call per rendered cell, so hundreds of thousands of
+        # times on a full-transcript rewrite. Bounds-check and index inline
+        # instead of going through Rect.contains + index_of, which re-derive the
+        # same bounds twice (index_of bounds-checks again) and cost ~10
+        # Python-level calls per cell, since every Rect edge is a property.
+        # Semantics are unchanged: out of bounds is still a silent no-op.
+        area = self.area
+        col = x - area.x
+        row = y - area.y
+        if col < 0 or row < 0 or col >= area.width or row >= area.height:
             return
-        idx = self.index_of(x, y)
+        idx = row * area.width + col
         cell = self.content[idx]
         if cell is _BLANK_CELL:
             cell = Cell()

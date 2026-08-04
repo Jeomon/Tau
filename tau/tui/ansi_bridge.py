@@ -218,11 +218,32 @@ def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: i
     tokens: list[tuple[str, int, Style]] = []
     index = 0
     while index < len(line):
-        match = _ANSI_RE.match(line, index) if line[index] == "\x1b" else None
+        ch = line[index]
+        match = _ANSI_RE.match(line, index) if ch == "\x1b" else None
         if match:
             state.process(match.group(0))
             index += len(match.group(0))
             continue
+        # Fast path for plain ASCII, which is the overwhelming bulk of a
+        # transcript. Grapheme segmentation only matters where a cluster can
+        # span several codepoints, and nothing that combines is ASCII —
+        # combining marks, ZWJ, variation selectors and regional indicators are
+        # all well above U+007F. So a printable-ASCII char followed by another
+        # printable-ASCII char (or by end-of-line) is always a standalone
+        # one-column cluster, and needs no segmentation at all.
+        #
+        # Worth the special case because the general path below slices
+        # ``line[index:]`` and builds a fresh grapheme iterator for *every*
+        # character — O(n^2) bytes copied per line — which profiling showed to
+        # be ~89% of a resize rewrite. Anything not covered here, including
+        # "\r\n" (a single cluster under UAX #29) and any char sitting next to
+        # a non-ASCII byte, still falls through and is segmented properly.
+        if " " <= ch <= "~":
+            following = line[index + 1 : index + 2]
+            if not following or " " <= following <= "~":
+                tokens.append((ch, 1, state.style))
+                index += 1
+                continue
         cluster = next(iter(grapheme.graphemes(line[index:])), "")
         if not cluster:
             index += 1
