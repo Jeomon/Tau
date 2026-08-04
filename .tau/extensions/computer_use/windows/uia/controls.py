@@ -924,6 +924,80 @@ class Control:
         """
         return self.Element.GetCurrentPropertyValue(propertyId)
 
+    def _iter_word_ranges(self, textPattern) -> Generator[Tuple[str, "TextRange"], None, None]:
+        """
+        Foundation for every word-level `TextPattern` feature (bounding boxes, attributes,
+        selection): yields (word_text, word_range) for each word in the control's visible text.
+        Walks each visible range word-by-word via `TextRange.Move(TextUnit.Word, 1)`.
+
+        waitTime=0 on `ExpandToEnclosingUnit`/`Move`: these are read-only navigation calls, not
+        UI-mutating actions — the default 0.5s settling delay only makes sense for things like
+        Click/Toggle, and was previously the dominant cost of walking a control's words.
+
+        The yielded `word_range` is a single mutable COM range reused across iterations (moved
+        forward each time) -- callers must fully consume it (read text/rects/attributes) before
+        requesting the next word, never retain it past that iteration.
+        """
+        for visibleRange in textPattern.GetVisibleRanges():
+            wordRange = visibleRange.Clone()
+            wordRange.ExpandToEnclosingUnit(TextUnit.Word, waitTime=0)
+            while wordRange.CompareEndpoints(
+                TextPatternRangeEndpoint.Start, visibleRange, TextPatternRangeEndpoint.End
+            ) < 0:
+                text = wordRange.GetText(-1).strip()
+                if text:
+                    yield text, wordRange
+                moved = wordRange.Move(TextUnit.Word, 1, waitTime=0)
+                if moved == 0:
+                    break
+
+    @staticmethod
+    def _shrink_rect_to_font_size(rect: Rect, font_size_pt: float, dpi: int) -> Rect:
+        """
+        Shrink `rect`'s height to the pixel height implied by `font_size_pt` (points), anchored
+        to the rect's bottom edge. `GetBoundingRectangles` reports the control's full line-height
+        box, which is noticeably taller than the glyphs themselves; the bottom edge tracks the
+        line's baseline/descent closely, while the extra leading is padded above it.
+        """
+        font_px = font_size_pt * dpi / 72.0
+        if font_px <= 0 or font_px >= rect.height():
+            return rect
+        return Rect(
+            left=rect.left,
+            top=int(round(rect.bottom - font_px)),
+            right=rect.right,
+            bottom=rect.bottom,
+        )
+
+    def GetAllWordBoundingBoxes(self) -> List[Tuple[str, List[Rect]]] | None:
+        """
+        Return (word, bounding boxes) for every word in the control's visible text (via `TextPattern`).
+        Return List[Tuple[str, List[Rect]]] or None if the control has no `TextPattern`.
+            Bounding boxes is usually a single `Rect`; more than one if the word wraps across lines.
+            Boxes are vertically shrunk to the glyph's font-size (in place of the raw
+            line-height rect `GetBoundingRectangles` returns) when the font size attribute
+            is available; otherwise the untouched line-height rect is kept.
+        """
+        textPattern = self.GetPattern(PatternId.TextPattern)
+        if textPattern is None:
+            return None
+        dpi = _get_system_dpi() or 96
+        # Font size is virtually always uniform across a control — look it up once on the
+        # whole document instead of once per word (each TextRange COM call is expensive).
+        doc_font_size = textPattern.DocumentRange.GetAttributeValue(TextAttributeId.FontSizeAttribute)
+        uniform_font_size = doc_font_size if isinstance(doc_font_size, (int, float)) else None
+        words: List[Tuple[str, List[Rect]]] = []
+        for text, wordRange in self._iter_word_ranges(textPattern):
+            rects = wordRange.GetBoundingRectangles()
+            font_size = uniform_font_size
+            if font_size is None:
+                attr = wordRange.GetAttributeValue(TextAttributeId.FontSizeAttribute)
+                font_size = attr if isinstance(attr, (int, float)) else None
+            if font_size is not None:
+                rects = [self._shrink_rect_to_font_size(rect, font_size, dpi) for rect in rects]
+            words.append((text, rects))
+        return words
+
     def GetPropertyValueEx(self, propertyId: int, ignoreDefaultValue: int) -> Any:
         """
         Call IUIAutomationElement::GetCurrentPropertyValueEx.

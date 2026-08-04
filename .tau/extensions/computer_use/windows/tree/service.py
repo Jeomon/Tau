@@ -72,6 +72,12 @@ def _controls_from_raw_element_array(raw: Any) -> list[Control]:
     return controls
 
 
+# Upper bound on word nodes emitted per text control. Each word costs a
+# TextRange round-trip, so an uncapped document can cost more than the entire
+# rest of the snapshot. Set to 0 to turn word nodes off entirely.
+MAX_WORD_NODES_PER_ELEMENT = 200
+
+
 class Tree:
     """Extracts a TreeState snapshot of interactive/scrollable elements across
     the active window plus other top-level windows (taskbar, dialogs, ...)."""
@@ -217,6 +223,36 @@ class Tree:
                         break
 
         return interactive_nodes, scrollable_nodes, dom_informative_nodes, failed_handles
+
+    def _append_word_nodes(
+        self,
+        word_elements: list[tuple[str, Rect]],
+        reference_box: Rect,
+        window_name: str,
+        target_nodes: list[TreeElementNode],
+        hwnd: int | None = None,
+    ) -> None:
+        """Append one TreeElementNode (control_type='Word') per (word, rect) pair.
+
+        A word that soft-wraps yields one box per line, so each of those becomes
+        its own node -- the box is what gets clicked, not the word.
+        """
+        for word, rect in word_elements:
+            bounding_box = self.iou_bounding_box(reference_box, rect)
+            if bounding_box.width <= 0 or bounding_box.height <= 0:
+                continue
+            target_nodes.append(
+                TreeElementNode(
+                    name=word,
+                    control_type="Word",
+                    bounding_box=bounding_box,
+                    center=bounding_box.get_center(),
+                    window_name=window_name,
+                    hwnd=hwnd,
+                    control=None,
+                    metadata={},
+                )
+            )
 
     def iou_bounding_box(self, window_box: Rect, element_box: Rect) -> BoundingBox:
         clipped = element_box.intersect(window_box).intersect(
@@ -459,6 +495,7 @@ class Tree:
                         name = (node.CachedName or "").strip()
                         localized_control_type = node.CachedLocalizedControlType
                         metadata = {"has_focused": node.CachedHasKeyboardFocus}
+                        word_elements: list[tuple[str, Rect]] = []
                         if accelerator_key := node.CachedAcceleratorKey:
                             metadata["shortcut"] = accelerator_key
                         try:
@@ -477,15 +514,29 @@ class Tree:
                             except Exception:
                                 pass
 
-                        if isinstance(node, EditControl):
+                        # Upstream collects text from edit, document and image
+                        # controls alike -- a document's body and an image's
+                        # embedded text are just as clickable as a field's.
+                        if control_type_name in ("EditControl", "DocumentControl", "ImageControl"):
+                            is_password = False
                             try:
-                                value = node.GetCachedPropertyValue(PropertyId.LegacyIAccessibleValueProperty)
-                                metadata["value"] = value.strip() if value else "(empty)"
+                                if node.CachedIsPassword:
+                                    is_password = True
+                                    metadata["is_password"] = True
                             except Exception:
                                 pass
                             try:
-                                if node.CachedIsPassword:
-                                    metadata["is_password"] = True
+                                value = node.GetCachedPropertyValue(PropertyId.LegacyIAccessibleValueProperty)
+                                metadata["value"] = value.strip() if value else "(empty)"
+                                # Word-level boxes, so each word is individually
+                                # clickable. Never for a password field, whose
+                                # glyphs are masked anyway, and not inside a DOM
+                                # subtree (the browser reports its own text).
+                                if not is_password and not is_dom and MAX_WORD_NODES_PER_ELEMENT > 0:
+                                    words = node.GetAllWordBoundingBoxes() or []
+                                    for word, boxes in words[:MAX_WORD_NODES_PER_ELEMENT]:
+                                        for box in boxes:
+                                            word_elements.append((word, box))
                             except Exception:
                                 pass
 
@@ -557,6 +608,11 @@ class Tree:
                             )
                             dom_interactive_nodes.append(tree_node)
                             self._dom_correction(node, dom_interactive_nodes, window_name)
+                            if word_elements:
+                                self._append_word_nodes(
+                                    word_elements, self.dom_bounding_box, window_name,
+                                    dom_interactive_nodes, hwnd,
+                                )
                         else:
                             bounding_box = self.iou_bounding_box(window_bounding_box, element_bounding_box)
                             interactive_nodes.append(
@@ -571,6 +627,11 @@ class Tree:
                                     metadata=metadata,
                                 )
                             )
+                            if word_elements:
+                                self._append_word_nodes(
+                                    word_elements, window_bounding_box, window_name,
+                                    interactive_nodes, hwnd,
+                                )
 
                 if dom_informative_nodes is not None and control_type_name in INFORMATIVE_CONTROL_TYPE_NAMES:
                     is_image_check = False

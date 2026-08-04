@@ -478,6 +478,32 @@ def MoveTo(x: int, y: int, moveSpeed: float = 1, waitTime: float = OPERATION_WAI
     time.sleep(waitTime)
 
 
+
+def _get_system_dpi() -> int | None:
+    try:
+        dpi = int(ctypes.windll.user32.GetDpiForSystem())
+        if dpi > 0:
+            return dpi
+    except Exception:
+        pass
+
+    hdc = None
+    try:
+        hdc = ctypes.windll.user32.GetDC(0)
+        if hdc:
+            dpi = int(ctypes.windll.gdi32.GetDeviceCaps(hdc, 88))  # LOGPIXELSX
+            if dpi > 0:
+                return dpi
+    except Exception:
+        pass
+    finally:
+        if hdc:
+            try:
+                ctypes.windll.user32.ReleaseDC(0, hdc)
+            except Exception:
+                pass
+    return None
+
 def DragDrop(
     x1: int,
     y1: int,
