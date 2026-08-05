@@ -253,7 +253,7 @@ class AutocompletePicker(Component):
 # ── AutocompleteManager ───────────────────────────────────────────────────────
 
 
-class AutocompleteManager(Component):
+class AutocompleteManager:
     """
     Owns both inline autocomplete pickers and all their async fetch state.
 
@@ -418,6 +418,25 @@ class AutocompleteManager(Component):
                     return True, None
 
         return False, None
+
+    def render(self, width: int) -> list[str]:
+        """Return the popup's lines.
+
+        Not a ``Component`` -- its ``handle_input(event, text, cursor)`` is a
+        different protocol from ``Component.handle_input(event)``, so
+        subclassing would be a Liskov violation that mypy correctly rejects.
+        That means no inherited bridge, so both contracts are provided here.
+
+        ``Layout.render_cells`` currently calls ``render_cells`` on this; this
+        method is what keeps it working when Layout itself migrates to lines.
+        """
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer as _Buffer
+
+        w = max(1, width)
+        buf = _Buffer.empty(Rect(0, 0, w, 0))
+        rows = self.render_cells(Rect(0, 0, w, 0), buf)
+        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.geometry import Rect
