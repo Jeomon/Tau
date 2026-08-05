@@ -19,8 +19,10 @@ from __future__ import annotations
 from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into, row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
+from tau.tui.layout import Alignment
+from tau.tui.style import apply_style
 from tau.tui.text import Line
-from tau.tui.utils import strip_ansi
+from tau.tui.utils import strip_ansi, truncate_to_width, visible_width
 
 
 def composite_line(
@@ -87,19 +89,39 @@ def composite_lines(
 def line_to_ansi(line: Line, width: int, x: int = 0) -> str:
     """Flatten a ``Line`` of styled spans into one ANSI string.
 
-    The string-contract counterpart of ``Buffer.set_line``, for components
-    migrating off ``render_cells`` that build structured ``Line``/``Span``
-    content — most of the selectors, pickers and footer widgets.
+    The string-contract counterpart of ``Buffer.set_line``, for components that
+    build structured ``Line``/``Span`` content — selectors, pickers, the
+    spinner, footer widgets.
 
-    Alignment is resolved exactly as ``set_line`` resolves it, so a centred or
-    right-aligned line lands in the same columns as before. Goes through cells
-    for the same reason ``composite_line`` does: these are single short lines,
-    so the round trip is free, while duplicating span clipping and wide-glyph
-    arithmetic in string form would not be.
+    Pure string assembly: no ``Buffer`` is built. Spans are clipped to the
+    remaining columns with ``truncate_to_width``, which will not split a
+    grapheme cluster, and alignment is resolved by padding the way
+    ``set_line`` resolves it.
     """
-    buf = Buffer.empty(Rect(0, 0, max(1, x + width), 1))
-    buf.set_line(x, 0, line, width)
-    return row_to_ansi(buf, 0, embed_raw=True, trim_trailing_blanks=True)
+    if width <= 0:
+        return ""
+
+    content_width = line.width
+    start = x
+    if line.alignment is Alignment.CENTER:
+        start = x + max(0, (width - content_width) // 2)
+    elif line.alignment is Alignment.RIGHT:
+        start = x + max(0, width - content_width)
+
+    out: list[str] = []
+    if start:
+        out.append(" " * start)
+    col = start
+    limit = x + width
+    for span in line:
+        if col >= limit:
+            break
+        text = truncate_to_width(span.content, limit - col)
+        if not text:
+            continue
+        out.append(apply_style(span.style, text))
+        col += visible_width(text)
+    return "".join(out)
 
 
 _PRINTABLE_ASCII = frozenset(chr(c) for c in range(0x20, 0x7F))

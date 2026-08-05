@@ -208,6 +208,42 @@ _CLUSTER_FORMING = re.compile(
 )
 
 
+def truncate_to_width(text: str, max_cols: int) -> str:
+    """Longest prefix of ``text`` fitting ``max_cols`` columns, ANSI preserved.
+
+    Never splits a grapheme cluster. ``_take_columns`` walks codepoints, so it
+    happily cuts a ZWJ emoji in half and leaves a dangling joiner on screen;
+    this is the same guard ``visible_width`` uses — cheap regex scan first,
+    cluster segmentation only when something in the text can actually form a
+    cluster.
+    """
+    if max_cols <= 0:
+        return ""
+    if text.isascii() and text.isprintable():
+        return text if len(text) <= max_cols else text[:max_cols]
+
+    out: list[str] = []
+    col = 0
+    i = 0
+    n = len(text)
+    segment = bool(_CLUSTER_FORMING.search(text))
+    while i < n:
+        if text[i] == "\x1b":
+            m = _ANSI_RE.match(text, i)
+            if m:
+                out.append(m.group(0))  # zero width, always keep
+                i = m.end()
+                continue
+        cluster = next(iter(grapheme.graphemes(text[i:])), text[i]) if segment else text[i]
+        w = grapheme_width(cluster)
+        if col + w > max_cols:
+            break
+        out.append(cluster)
+        col += w
+        i += len(cluster)
+    return "".join(out)
+
+
 def visible_width(text: str) -> int:
     """Return the number of terminal columns the string will occupy.
 
