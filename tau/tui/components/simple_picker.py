@@ -39,8 +39,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
 from tau.tui.widgets.list import List, ListItem, ListState
@@ -66,9 +64,8 @@ class PickerRow:
     detail_lines: list[str] = field(default_factory=list)
 
 
-def render_picker_cells(
-    buf: Buffer,
-    area: Rect,
+def render_picker_lines(
+    width: int,
     *,
     header: list[str],
     rows: list[PickerRow],
@@ -81,32 +78,26 @@ def render_picker_cells(
     emphasis_style: Style,
     hint: str,
     empty_text: str = "No options available",
-    arrow: str = "❯",
-) -> int:
-    """Render the shared picker layout into buf. Returns rows written.
+    arrow: str = "\u276f",
+) -> list[str]:
+    """Return the shared picker layout as styled lines.
 
     ``state`` is owned by the caller and persisted across renders (same
     ``ListState`` instance each call) so scroll position carries over.
     """
-    from tau.tui.ansi_bridge import parse_ansi_into
     from tau.tui.utils import rule, visible_width, wrap
 
-    y = area.y
+    out: list[str] = []
 
     def write(line: str) -> None:
-        nonlocal y
-        # Match Component's default render_cells bridge: a line that
-        # overflows area.width wraps onto more rows rather than being cut
-        # off by parse_ansi_into's max_width bound.
-        for wl in wrap(line, area.width) if visible_width(line) > area.width else [line]:
-            buf.grow_to(y + 1)
-            parse_ansi_into(buf, area.x, y, wl, area.width)
-            y += 1
+        # An over-wide line wraps onto more rows rather than being cut off,
+        # matching what the cell path did to stay inside area.width.
+        out.extend(wrap(line, width) if visible_width(line) > width else [line])
 
     for h in header:
         write(h)
 
-    divider = rule(area.width, border_style)
+    divider = rule(width, border_style)
     write(divider)
 
     if not rows:
@@ -122,7 +113,7 @@ def render_picker_cells(
         viewport_rows = sum(1 + len(row.detail_lines) for row in rows[start : start + visible])
 
         if start > 0:
-            write("  " + apply_style(muted_style, f"↑ {start} more above"))
+            write("  " + apply_style(muted_style, f"\u2191 {start} more above"))
 
         list_items: list[ListItem] = []
         for i, row in enumerate(rows):
@@ -141,21 +132,17 @@ def render_picker_cells(
             else:
                 list_items.append(ListItem(Line(spans)))
 
-        list_area = Rect(area.x, y, area.width, viewport_rows)
-        buf.grow_to(y + viewport_rows)
-        List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-            list_area, buf, state
-        )
-        y += viewport_rows
+        widget = List(items=list_items, highlight_symbol="", highlight_style=Style())
+        out.extend(widget.render_lines(width, viewport_rows, state))
 
         remaining = count - (start + visible)
         if remaining > 0:
-            write("  " + apply_style(muted_style, f"↓ {remaining} more below"))
+            write("  " + apply_style(muted_style, f"\u2193 {remaining} more below"))
 
     write(divider)
     write("  " + apply_style(muted_style, hint))
 
-    return y - area.y
+    return out
 
 
 # Every current caller uses this exact hint text; exported so call sites

@@ -11,15 +11,14 @@ from tau.modes.interactive.components.file_picker import FilePicker
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.modes.interactive.components.selector_controller import SelectorController
 from tau.modes.interactive.components.tree_selector import TreeRow, TreeSelectList
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 from tau.tui.autocomplete import AutocompleteManager
-from tau.tui.buffer import Buffer
-from tau.tui.component import Component, Container, StaticComponent
+from tau.tui.component import Component, Container, StaticComponent, _child_lines
 from tau.tui.components.editor import EditorComponent, EditorExtras
 from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
 from tau.tui.components.spinner import Spinner
 from tau.tui.components.text_input import TextInput
-from tau.tui.geometry import Rect
+from tau.tui.compose import wrap_to_rows
+from tau.tui.geometry import Position
 from tau.tui.input import (
     InputEvent,
     KeyEvent,
@@ -77,7 +76,7 @@ def _validate_editor(editor: object) -> None:
 # ── TextPrompt ────────────────────────────────────────────────────────────────
 
 
-class TextPrompt:
+class TextPrompt(Component):
     """
     Inline single-line text prompt shown below the editor.
 
@@ -141,15 +140,16 @@ class TextPrompt:
                 self._value += event.char
         return True
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         from tau.tui.utils import BOLD, DIM, RESET
 
         display = ("*" * len(self._value)) if self._secret else self._value
-        lines = [
-            f"  {BOLD}{self._label}{RESET}  {DIM}(Enter to confirm · Esc to cancel){RESET}",
-            f"  {display}█",
-        ]
-        return StaticComponent(lines).render_cells(area, buf)
+        return StaticComponent(
+            [
+                f"  {BOLD}{self._label}{RESET}  {DIM}(Enter to confirm · Esc to cancel){RESET}",
+                f"  {display}█",
+            ]
+        ).render(width)
 
     def _close(self) -> None:
         self._label = ""
@@ -168,8 +168,8 @@ class _PendingLines(Component):
     def __init__(self) -> None:
         self.lines: list[str] = []
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        return StaticComponent(self.lines).render_cells(area, buf)
+    def render(self, width: int) -> list[str]:
+        return StaticComponent(self.lines).render(width)
 
     def invalidate(self) -> None:
         pass
@@ -348,20 +348,18 @@ class Layout(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         """Render the editor zone: status-map, dividers, input, pickers, footer.
 
-        The editor zone's own composition (dividers/input/widgets stacking)
-        writes directly into buf — Container/TextInput/SelectorController/
-        CommandPalette/FilePicker/AutocompleteManager/TextPrompt children all
-        write straight into it via render_cells, with no string round trip.
+        Children are collected as lines via ``_child_lines``, which accepts
+        either contract, so a child that has not migrated yet still composes
+        here through Component's bridge.
         """
-        y = area.y
+        out: list[str] = []
 
         def write_lines(lines: list[str]) -> None:
-            nonlocal y
             for line in lines:
-                y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
+                out.extend(wrap_to_rows(line, width))
 
         # Status zone — keyed status lines above the editor
         if self._status_map:
@@ -371,7 +369,7 @@ class Layout(Component):
 
         # Widgets above editor
         if self.widgets_above.children:
-            y += self.widgets_above.render_cells(Rect(area.x, y, area.width, 0), buf)
+            out.extend(_child_lines(self.widgets_above, width))
 
         # Modals that replace the input box (input disappears when a modal is active).
         # The file picker is NOT a modal — like the '/' palette it renders below the
@@ -394,47 +392,53 @@ class Layout(Component):
         else:
             _divider_style = self._theme.divider
 
-        divider_line = rule(area.width, _divider_style)
+        divider_line = rule(width, _divider_style)
         write_lines([divider_line])
 
+        self.cursor_position = None
         if any_modal:
             self._editor_row_count = 0
             # Modal replaces the input between the two dividers
             if self._selectors.is_active:
-                y += self._selectors.render_cells(Rect(area.x, y, area.width, 0), buf)
+                out.extend(_child_lines(self._selectors, width))
             elif self._settings_panel is not None:
                 write_lines(self._settings_panel)
             elif self._prompt.active:
-                y += self._prompt.render_cells(Rect(area.x, y, area.width, 0), buf)
+                out.extend(_child_lines(self._prompt, width))
             elif self._oauth_status_lines is not None:
                 write_lines(self._oauth_status_lines)
         else:
             # Normal: show the input editor
-            self._editor_row = y - area.y
-            rows = self.input.render_cells(Rect(area.x, y, area.width, 0), buf)
-            self._editor_row_count = rows
-            y += rows
+            self._editor_row = len(out)
+            rows = _child_lines(self.input, width)
+            self._editor_row_count = len(rows)
+            # The input owns the caret; lift it into this component's frame so
+            # whatever composes Layout can place it without knowing the offset.
+            child_cursor = getattr(self.input, "cursor_position", None)
+            if child_cursor is not None:
+                self.cursor_position = Position(child_cursor.x, len(out) + child_cursor.y)
+            out.extend(rows)
 
         write_lines([divider_line])
 
         # Widgets below editor (only when no modal)
         if not any_modal and self.widgets_below.children:
-            y += self.widgets_below.render_cells(Rect(area.x, y, area.width, 0), buf)
+            out.extend(_child_lines(self.widgets_below, width))
 
         # Palette, file picker, and autocomplete — always below (driven by live input
         # text); hidden during modals. The file picker renders here so it appears under
         # the input, the same way the '/' command palette does.
         any_inline = any_modal or self.palette.active or self.file_picker.active
         if not any_modal:
-            y += self.palette.render_cells(Rect(area.x, y, area.width, 0), buf)
-            y += self.file_picker.render_cells(Rect(area.x, y, area.width, 0), buf)
-            y += self._autocomplete.render_cells(Rect(area.x, y, area.width, 0), buf)
+            out.extend(_child_lines(self.palette, width))
+            out.extend(_child_lines(self.file_picker, width))
+            out.extend(_child_lines(self._autocomplete, width))
 
         # Footer — hidden when any picker/modal is active
         if not any_inline:
-            y += self.footer.render_cells(Rect(area.x, y, area.width, 0), buf)
+            out.extend(_child_lines(self.footer, width))
 
-        return y - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         """Process input event and return True if consumed.

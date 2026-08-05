@@ -18,7 +18,7 @@ def call_line(tool_name: str, *values: str) -> list[str]:
 
     A value (e.g. a multi-line shell command) may contain embedded newlines;
     they're collapsed to a visible "\\n" so this always renders as one true
-    terminal line. Some render paths (e.g. MessageList.render_split_cells)
+    terminal line. Some render paths (e.g. MessageList.render_split_lines)
     write returned lines straight into cells without re-wrapping them first,
     and a raw newline byte reaching the terminal there jumps the hardware
     cursor mid-row instead of staying inside this component's row.

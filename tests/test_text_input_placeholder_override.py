@@ -9,21 +9,15 @@ keystroke so it cannot reappear when the user deletes back to an empty input.
 
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
 from tau.tui.components.text_input import TextInput
-from tau.tui.geometry import Rect
 from tau.tui.input import KeyEvent, PasteEvent
+from tau.tui.utils import strip_ansi
 
 NOTICE = "Voice: mic error"
 
 
 def _screen(ti: TextInput, width: int = 60) -> str:
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    ti.render_cells(Rect(0, 0, width, 0), buf)
-    return "\n".join(
-        "".join((buf.get(x, y).symbol or " ") for x in range(width)).rstrip()
-        for y in range(buf.area.height)
-    )
+    return "\n".join(strip_ansi(line).rstrip() for line in ti.render(width))
 
 
 def _type(ti: TextInput, text: str) -> None:

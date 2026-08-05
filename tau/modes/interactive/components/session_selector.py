@@ -9,12 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
-from tau.tui.layout import Alignment
+from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import rule
+from tau.tui.utils import rule, visible_width
 from tau.tui.widgets.tabs import Tabs
 from tau.utils.format import human_size
 
@@ -89,7 +87,7 @@ def _shorten(path: Path) -> str:
         return str(path)
 
 
-class ResumeSelector:
+class ResumeSelector(Component):
     """Session resume selector.
 
     - Up/Down    navigate
@@ -288,40 +286,39 @@ class ResumeSelector:
             self._meta_cache[sid] = size
         return self._meta_cache[sid]
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import composite_line, line_to_ansi
+
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+            out.append(line_to_ansi(Line(spans), width))
 
         def text(content: str, style: Style | None = None, prefix: str = "") -> None:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text(rule(area.width), t.border)
+            text(rule(width), t.border)
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
         # The scope switcher is a two-tab strip, so it uses the shared Tabs
         # widget; the sort mode is not a tab and sits right-aligned beside it.
-        buf.grow_to(row + 1)
-        Tabs(
+        tab_row = "  " + Tabs(
             titles=["Folder", "All"],
             selected=0 if self._scope == "current" else 1,
             style=t.muted,
             highlight_style=t.emphasis,
             padding_left=1,
             padding_right=1,
-        ).render(Rect(area.x + 2, row, max(area.width - 2, 1), 1), buf)
-        sort_line = Line(
-            [Span(f"Sort: {self._SORT_LABELS[self._sort_idx]}  ", t.muted)],
-            alignment=Alignment.RIGHT,
+        ).render_line(max(width - 2, 1))
+        # set_line wrote only the sort text's own columns, leaving the tab strip
+        # underneath intact, so this composites rather than replacing the row.
+        sort_text = line_to_ansi(
+            Line([Span(f"Sort: {self._SORT_LABELS[self._sort_idx]}  ", t.muted)]), width
         )
-        buf.set_line(area.x, row, sort_line, area.width)
-        row += 1
+        sort_w = visible_width(sort_text)
+        out.append(composite_line(tab_row, sort_text, max(0, width - sort_w), sort_w, width))
         divider()
 
         # ── Search box ─────────────────────────────────────────────────────────
@@ -334,7 +331,7 @@ class ResumeSelector:
         # ── Delete confirmation ────────────────────────────────────────────────
         if self._confirming_delete is not None:
             del_path = self._confirming_delete
-            short = _shorten(del_path)[: area.width - 20]
+            short = _shorten(del_path)[: width - 20]
             text(f"Delete '{short}'?  Enter: yes  ·  Esc: no", t.error, "  ")
             divider()
 
@@ -378,9 +375,7 @@ class ResumeSelector:
                 is_del_target = sel_path == self._confirming_delete
 
                 # Named sessions show the name; unnamed show a short ID prefix
-                display = (
-                    session.name[: max(12, area.width - 6)] if session.name else session.id[:12]
-                )
+                display = session.name[: max(12, width - 6)] if session.name else session.id[:12]
 
                 size = self._session_meta(session)
 
@@ -398,9 +393,7 @@ class ResumeSelector:
                     name_style = t.muted
                     indicator_spans = [Span("  ", Style())]
 
-                name_line = Line(
-                    [Span("  ", Style()), *indicator_spans, Span(display, name_style)]
-                )
+                name_line = Line([Span("  ", Style()), *indicator_spans, Span(display, name_style)])
 
                 # ── Line 2: age · project · size · ⚙ N ───────────────────────
                 meta_parts: list[str] = [_humanize_age(session.modified)]
@@ -425,11 +418,8 @@ class ResumeSelector:
             state.select(self._selected - start if list_items else None)
             state.offset = 0
             total_rows = sum(item.height for item in list_items)
-            buf.grow_to(row + total_rows)
-            List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-                Rect(area.x, row, area.width, total_rows), buf, state
-            )
-            row += total_rows
+            widget = List(items=list_items, highlight_symbol="", highlight_style=Style())
+            out.extend(widget.render_lines(width, total_rows, state))
 
             total_count = (
                 self._current_total_count if self._scope == "current" else self._all_total_count
@@ -449,7 +439,7 @@ class ResumeSelector:
                 t.muted,
                 "  ",
             )
-        return row - area.y
+        return out
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

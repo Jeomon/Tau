@@ -1,6 +1,9 @@
 """Tabs: a horizontal strip of titles with one highlighted.
 
 Supports styled tab titles, selection, dividers, and padding.
+
+Produces a line: this is a single row of styled runs, and the renderer
+consumes lines. ``render_line`` is the contract.
 """
 
 from __future__ import annotations
@@ -8,10 +11,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
-from tau.tui.style import Style
+from tau.tui.layout import Alignment
+from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
+from tau.tui.utils import truncate_to_width, visible_width
 
 
 @dataclass(slots=True)
@@ -42,26 +45,65 @@ class Tabs:
         self.padding_left = max(0, padding_left)
         self.padding_right = max(0, padding_right)
 
-    def render(self, area: Rect, buf: Buffer) -> None:
-        if area.is_empty() or not self.titles:
-            return
-        x, end = area.left, area.right
+    def render_line(self, width: int) -> str:
+        """Return the tab strip as one styled ANSI line, clipped to ``width``."""
+        if width <= 0 or not self.titles:
+            return ""
+
+        out: list[str] = []
+        col = 0
         for i, title in enumerate(self.titles):
-            if x >= end:
+            if col >= width:
                 break
             style = self.highlight_style if i == self.selected else self.style
-            box_width = min(self.padding_left + title.width + self.padding_right, end - x)
+            box_width = min(self.padding_left + title.width + self.padding_right, width - col)
 
             if self.padding_left:
-                buf.set_string(x, area.top, " " * self.padding_left, style, box_width)
-            title_x = x + min(self.padding_left, box_width)
-            title_width = max(0, box_width - self.padding_left - self.padding_right)
-            buf.set_line(title_x, area.top, title.patch_style(style), title_width)
-            if self.padding_right:
-                pad_x = title_x + title_width
-                remaining = max(0, x + box_width - pad_x)
-                buf.set_string(pad_x, area.top, " " * self.padding_right, style, remaining)
+                pad = truncate_to_width(" " * self.padding_left, box_width)
+                out.append(apply_style(style, pad))
+                col += visible_width(pad)
 
-            x += box_width
-            if i < len(self.titles) - 1 and x < end:
-                x = buf.set_string(x, area.top, self.divider, self.style, end - x)
+            title_width = max(0, box_width - self.padding_left - self.padding_right)
+            patched = title.patch_style(style)
+            # Mirrors Buffer.set_line: alignment resolved by padding, and the
+            # line's base style merged behind each span's own.
+            room = title_width
+            if room > 0 and patched.alignment is not Alignment.LEFT:
+                slack = max(0, room - patched.width)
+                lead = slack // 2 if patched.alignment is Alignment.CENTER else slack
+                if lead:
+                    out.append(" " * lead)
+                    room -= lead
+                    col += lead
+            for span in patched:
+                if room <= 0:
+                    break
+                text = truncate_to_width(span.content, room)
+                if not text:
+                    continue
+                out.append(apply_style(patched.style.patch(span.style), text))
+                taken = visible_width(text)
+                room -= taken
+                col += taken
+
+            # set_line reserves title_width regardless of how much the title
+            # actually used; a clipped wide glyph leaves the remainder blank
+            # rather than pulling the right padding leftwards.
+            if room > 0:
+                gap = min(room, width - col)
+                if gap > 0:
+                    out.append(" " * gap)
+                    col += gap
+
+            if self.padding_right:
+                pad_cols = max(0, min(self.padding_right, width - col))
+                if pad_cols:
+                    out.append(apply_style(style, " " * pad_cols))
+                    col += pad_cols
+
+            if i < len(self.titles) - 1 and col < width:
+                div = truncate_to_width(self.divider, width - col)
+                if div:
+                    out.append(apply_style(self.style, div))
+                    col += visible_width(div)
+        return "".join(out)

@@ -543,23 +543,25 @@ class TestDashboard:
 
 
 class TestOverlay:
-    def _overlay(self, rows: int = 40):
+    def _overlay(self, rows: int = 40, height: int = 20):
         state = State(name="Speed", metric_name="seconds", metric_unit="s", direction="lower")
         state.results = _results([float(10 - i) for i in range(rows)])
         closed: list[bool] = []
-        return DashboardOverlay(state, _theme(), lambda: closed.append(True)), closed
+        # Production passes height_hint (see autoresearch/__init__.py); the
+        # overlay windows its body from that, since render(width) carries no
+        # height. Without it the overlay assumes a 40-row terminal and returns
+        # more rows than the buffer under test can hold.
+        return (
+            DashboardOverlay(
+                state, _theme(), lambda: closed.append(True), height_hint=lambda: height
+            ),
+            closed,
+        )
 
-    def _render(self, overlay, width=100, height=20):
-        from tau.tui.buffer import Buffer
-        from tau.tui.geometry import Rect
+    def _render(self, overlay, width=100, height=20):  # noqa: ARG002
         from tau.tui.utils import strip_ansi
 
-        buf = Buffer.empty(Rect(0, 0, width, height))
-        overlay.render_cells(Rect(0, 0, width, height), buf)
-        return [
-            strip_ansi("".join(buf.get(x, y).symbol for x in range(width))).rstrip()
-            for y in range(height)
-        ]
+        return [strip_ansi(line).rstrip() for line in overlay.render(width)]
 
     def _key(self, name: str):
         from tau.tui.input import KeyEvent
@@ -571,7 +573,12 @@ class TestOverlay:
         rows = self._render(overlay)
 
         assert any("autoresearch: Speed" in r for r in rows)
-        assert "scroll" in rows[-1] and "Esc close" in rows[-1]
+        # The footer must be the last thing rendered -- it is what the overlay
+        # reserves a row for. Assert on the last non-empty row rather than the
+        # last buffer row, which only coincided while the body happened to
+        # fill the buffer exactly.
+        last = next(r for r in reversed(rows) if r.strip())
+        assert "scroll" in last and "Esc close" in last
 
     def test_scrolling_moves_the_window(self):
         overlay, _ = self._overlay()

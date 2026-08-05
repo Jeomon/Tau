@@ -19,9 +19,7 @@ from __future__ import annotations
 import asyncio
 
 from tau.modes.interactive.components.layout import Layout
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.service import TUI
 
 
@@ -50,8 +48,8 @@ class FakeTerminal:
 class _EatsEverything(Component):
     """Stand-in for an interactive extension widget that consumes all input."""
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        return 0
+    def render(self, width: int) -> list[str]:  # noqa: ARG002
+        return []
 
     def handle_input(self, event: object) -> bool:
         return True

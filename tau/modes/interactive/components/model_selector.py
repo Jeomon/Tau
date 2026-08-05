@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.utils import rule
@@ -132,7 +131,7 @@ class _Section:
             self.selected = min(self.selected, len(self.filtered) - 1)
 
 
-class ModelSelector:
+class ModelSelector(Component):
     """Tabbed model selector — one tab per modality.
 
     Owns the modality tabs (Text / Voice / Speak / Image / Video), and per-tab
@@ -233,38 +232,41 @@ class ModelSelector:
 
     # ── Render ────────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        row = area.y
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
+        out: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+            out.append(line_to_ansi(Line(spans), width))
 
         def text(content: str, style: Style | None = None, prefix: str = "") -> None:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text(rule(area.width), self._border)
+            text(rule(width), self._border)
 
         sec = self._section
         if sec is None:
             text("No models available. Use /login to add providers.", self._muted, "  ")
-            return row - area.y
+            return out
 
         titles = [
             f"[{s.label}]" if i == self._active else s.label for i, s in enumerate(self._sections)
         ]
-        buf.grow_to(row + 1)
-        Tabs(
-            titles=titles,
-            selected=self._active,
-            style=self._muted,
-            highlight_style=self._emphasis,
-            divider="  ",
-        ).render(Rect(area.x + 2, row, max(0, area.width - 2), 1), buf)
-        row += 1
+        # The tab strip is inset two columns, as the cell path's Rect(x + 2, ...)
+        # placed it; there is nothing else on the row, so a plain indent is
+        # equivalent and avoids a composite.
+        out.append(
+            "  "
+            + Tabs(
+                titles=titles,
+                selected=self._active,
+                style=self._muted,
+                highlight_style=self._emphasis,
+                divider="  ",
+            ).render_line(max(0, width - 2))
+        )
         divider()
 
         if sec.can_scope:
@@ -334,11 +336,8 @@ class ModelSelector:
             state = ListState()
             state.select(sec.selected - start)
             state.offset = 0
-            buf.grow_to(row + visible)
-            List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-                Rect(area.x, row, area.width, visible), buf, state
-            )
-            row += visible
+            widget = List(items=list_items, highlight_symbol="", highlight_style=Style())
+            out.extend(widget.render_lines(width, visible, state))
 
             remaining = count - (start + visible)
             if remaining > 0:
@@ -366,7 +365,7 @@ class ModelSelector:
         scope_hint = "  ·  ←/→: scope" if sec.can_scope else ""
         tab_hint = "  ·  tab: modality" if len(self._sections) > 1 else ""
         text(f"Enter: select{scope_hint}{tab_hint}  ·  Esc: cancel", self._muted, "  ")
-        return row - area.y
+        return out
 
 
 # Backward-compatible public name retained for extensions built before the

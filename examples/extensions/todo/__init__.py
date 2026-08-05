@@ -22,8 +22,6 @@ from .todo_tool import TodoState, TodoTool
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
     from tau.extensions.context import ExtensionContext
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
 
 WIDGET_KEY = "todo"
 
@@ -37,13 +35,13 @@ class TodoBoardWidget(Component):
     def set_lines(self, lines: list[str]) -> None:
         self._lines = list(lines)
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import wrap_to_rows
 
-        row = 0
+        rows: list[str] = []
         for line in self._lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+            rows.extend(wrap_to_rows(line, width))
+        return rows
 
 
 class TodoBoard:

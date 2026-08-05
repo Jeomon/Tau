@@ -270,9 +270,7 @@ class SettingsManager:
                 if isinstance(raw_list, list):
                     entries = [
                         e
-                        for e in (
-                            SettingsManager._parse_extension_entry(item) for item in raw_list
-                        )
+                        for e in (SettingsManager._parse_extension_entry(item) for item in raw_list)
                         if e is not None
                     ]
                 elif raw_list is not None:
@@ -292,9 +290,7 @@ class SettingsManager:
                 if isinstance(raw_list, list):
                     pkg_entries = [
                         e
-                        for e in (
-                            SettingsManager._parse_package_entry(item) for item in raw_list
-                        )
+                        for e in (SettingsManager._parse_package_entry(item) for item in raw_list)
                         if e is not None
                     ]
                 elif raw_list is not None:
@@ -1222,9 +1218,10 @@ class SettingsManager:
             kept = []
             changed = False
             for entry in entries:
-                if not entry.enabled or self._resolve_extension_entry_path(
-                    entry.path, cwd
-                ).exists():
+                if (
+                    not entry.enabled
+                    or self._resolve_extension_entry_path(entry.path, cwd).exists()
+                ):
                     kept.append(entry)
                     continue
                 changed = True

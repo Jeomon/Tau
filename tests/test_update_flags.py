@@ -106,6 +106,7 @@ class TestExtensionsFlag:
             flush=_noop_async,
         )
         monkeypatch.setattr(trust_mod, "create_project_settings_manager", lambda cwd: fake_settings)
+
         def _fake_update(self, name, **k):
             record["updated"].append(name)
             return "1.0"

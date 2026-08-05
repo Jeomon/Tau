@@ -10,7 +10,6 @@ from tau.tui import (
     Component,
     InputParser,
     OverlayOptions,
-    Renderer,
     Terminal,
     Text,
     TextInput,
@@ -22,7 +21,6 @@ def test_public_api_exports_core_tui_primitives() -> None:
     assert issubclass(TUI, Component)
     assert issubclass(Text, Component)
     assert issubclass(TextInput, Component)
-    assert Renderer is not None
     assert Terminal is not None
     assert InputParser is not None
     assert OverlayOptions is not None

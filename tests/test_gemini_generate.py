@@ -18,9 +18,7 @@ from tau.message.types import (
 
 # AskUserParams lives in the bundled ask_user extension (.tau/extensions), which is
 # not an importable package — load its schema module directly from the file.
-_ASK_USER_SCHEMA = (
-    Path(__file__).parent.parent / ".tau" / "extensions" / "ask_user" / "schema.py"
-)
+_ASK_USER_SCHEMA = Path(__file__).parent.parent / ".tau" / "extensions" / "ask_user" / "schema.py"
 _spec = importlib.util.spec_from_file_location("ask_user_schema", _ASK_USER_SCHEMA)
 assert _spec is not None and _spec.loader is not None
 _ask_user_schema = importlib.util.module_from_spec(_spec)

@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
-from tau.tui.geometry import Rect
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_lines
 from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Span
@@ -41,7 +39,7 @@ class VoiceSelector(Component):
         self._selected = next((i for i, voice in enumerate(self._voices) if voice == current), 0)
         self._list_state = ListState()
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         t = self._theme
         rows = [
             PickerRow(
@@ -50,9 +48,8 @@ class VoiceSelector(Component):
             )
             for voice in self._voices
         ]
-        return render_picker_cells(
-            buf,
-            area,
+        return render_picker_lines(
+            width,
             header=[
                 "  " + apply_style(t.emphasis, "Speak Voice"),
                 "  " + apply_style(t.muted, self._model_name),

@@ -259,8 +259,7 @@ class AuthManager:
                     _REFRESH_MAX_DELAY_S,
                 )
                 _log.warning(
-                    "transient oauth refresh failure for %s, retrying in %.1fs"
-                    " (attempt %d/%d): %s",
+                    "transient oauth refresh failure for %s, retrying in %.1fs (attempt %d/%d): %s",
                     provider,
                     delay,
                     attempt + 1,
@@ -344,9 +343,7 @@ class AuthManager:
                     # turn (mirrors force_refresh below).
                     current_data.pop(provider, None)
                     self.data = current_data
-                    serialized = {
-                        k: self._serialize_credential(v) for k, v in current_data.items()
-                    }
+                    serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
                     return LockResult(result=None, next=json.dumps(serialized, indent=2))
                 return LockResult(result=None)
 

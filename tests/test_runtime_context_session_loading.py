@@ -41,9 +41,7 @@ def _build_large_session_file(cwd: Path, n_turns: int, tool_result_chars: int) -
     tool_text = "x" * tool_result_chars
     for i in range(n_turns):
         sm.append_message(UserMessage(contents=[TextContent(content=f"do thing {i}")]))
-        sm.append_message(
-            AssistantMessage(contents=[TextContent(content=f"working on {i} " * 20)])
-        )
+        sm.append_message(AssistantMessage(contents=[TextContent(content=f"working on {i} " * 20)]))
         sm.append_message(
             ToolMessage(
                 contents=[

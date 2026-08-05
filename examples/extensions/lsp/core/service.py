@@ -310,7 +310,9 @@ class LSP:
             targets = [
                 self._servers[sid]
                 for sid in server_ids
-                if sid in self._servers and self._servers[sid].enabled and self._servers[sid].is_available()
+                if sid in self._servers
+                and self._servers[sid].enabled
+                and self._servers[sid].is_available()
             ]
             return self._find_first_matching_files(targets)
         return self._detect_and_resolve_servers()

@@ -3,17 +3,25 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from tau.tui.component import Component
 from tau.tui.components.select_list import InlineSelector
 from tau.tui.input import InputEvent, KeyEvent, PasteEvent
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
     from tau.tui.theme import LayoutTheme
 
 
-class SelectorController:
-    """Own the lifecycle and input routing for inline selector modals."""
+class SelectorController(Component):
+    """Own the lifecycle and input routing for inline selector modals.
+
+    A ``Component`` purely so it inherits the bridging between the two render
+    contracts. It implements ``render(width)`` -- the contract everything is
+    moving to -- while ``Layout.render_cells`` still calls ``render_cells`` on
+    it directly; the bridge supplies that, and it disappears on its own once
+    Layout migrates. Hand-writing a second ``render_cells`` here would be
+    moving backwards, and would be one more pair of implementations to keep in
+    step.
+    """
 
     def __init__(self, request_render: Callable[[], None]) -> None:
         self._active: InlineSelector | None = None
@@ -34,11 +42,11 @@ class SelectorController:
     def is_kind(self, kind: str) -> bool:
         return self._active is not None and self._active.kind == kind
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render the active selector directly into ``buf``."""
+    def render(self, width: int) -> list[str]:
+        """Render the active selector's lines, if any."""
         if self._active is None:
-            return 0
-        return self._active.selector.render_cells(area, buf)
+            return []
+        return self._active.selector.render(width)
 
     def set_theme(self, theme: LayoutTheme) -> None:
         """Apply a theme change to the active selector when supported."""

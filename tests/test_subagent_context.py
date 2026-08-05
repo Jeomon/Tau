@@ -16,7 +16,6 @@ subagent_tool = importlib.import_module(f"{_PKG}.subagent_tool")
 AgentConfig = importlib.import_module(f"{_PKG}.agents").AgentConfig
 
 
-
 def _agent(**overrides) -> AgentConfig:
     defaults: dict = dict(
         name="worker",

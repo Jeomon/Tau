@@ -8,8 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.utils import is_window_focused, rule
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 # ── ListSelector ──────────────────────────────────────────────────────────────
 
 
-class ListSelector:
+class ListSelector(Component):
     """Submenu list picker used by SettingsSelector for submenu_items rows."""
 
     def __init__(
@@ -73,21 +72,20 @@ class ListSelector:
         """Apply a new theme while the submenu remains open."""
         self._theme = theme
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+            out.append(line_to_ansi(Line(spans), width))
 
         write([Span("  "), Span(self._title, t.emphasis)])
         if self._subtitle:
             write([Span("  "), Span(self._subtitle, t.muted)])
 
-        write([Span(rule(area.width), t.border)])
+        write([Span(rule(width), t.border)])
 
         if not self._items:
             write([Span("  "), Span("(no items)", t.muted)])
@@ -108,10 +106,10 @@ class ListSelector:
                     spans.extend([Span(" "), Span("✓", t.success)])
                 write(spans)
 
-        write([Span(rule(area.width), t.border)])
+        write([Span(rule(width), t.border)])
         write([Span("  "), Span("↑/↓ move  ·  enter select  ·  esc cancel", t.muted)])
 
-        return row - area.y
+        return out
 
 
 # ── SettingsSelector ──────────────────────────────────────────────────────────
@@ -133,7 +131,7 @@ class SettingItem:
     submenu_on_change: Callable[[str, str], None] | None = None
 
 
-class SettingsSelector:
+class SettingsSelector(Component):
     """Interactive settings list with tab bar, search box, and two-column layout.
 
     - Tab            cycle through tabs (when tabs provided)
@@ -338,41 +336,41 @@ class SettingsSelector:
 
     # ── Render ────────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         if self._submenu is not None:
             if isinstance(self._submenu, (SettingsSelector, ListSelector)):
-                return self._submenu.render_cells(area, buf)
+                return self._submenu.render(width)
             raise TypeError(f"Unsupported settings submenu: {type(self._submenu).__name__}")
 
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+            out.append(line_to_ansi(Line(spans), width))
 
         def text(content: str, style: Style | None = None, prefix: str = "") -> None:
             write([Span(prefix), Span(content, style or Style())])
 
         def divider() -> None:
-            text(rule(area.width), t.border)
+            text(rule(width), t.border)
 
         # ── Tab bar ────────────────────────────────────────────────────────────
         if self._tabs:
             # Same strip the ask_user dialog uses: the active tab is marked by
             # style, not by wrapping its label in brackets.
-            buf.grow_to(row + 1)
-            Tabs(
-                titles=[label for label, _ in self._tabs],
-                selected=self._active_tab,
-                style=t.muted,
-                highlight_style=t.emphasis,
-                padding_left=1,
-                padding_right=1,
-            ).render(Rect(area.x + 2, row, max(area.width - 2, 1), 1), buf)
-            row += 1
+            out.append(
+                "  "
+                + Tabs(
+                    titles=[label for label, _ in self._tabs],
+                    selected=self._active_tab,
+                    style=t.muted,
+                    highlight_style=t.emphasis,
+                    padding_left=1,
+                    padding_right=1,
+                ).render_line(max(width - 2, 1))
+            )
         elif self._title:
             text(self._title, t.emphasis, "  ")
         divider()
@@ -469,7 +467,7 @@ class SettingsSelector:
             )
             text(hint_text, t.muted, "  ")
 
-        return row - area.y
+        return out
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

@@ -6,10 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from tau.tui.ansi_bridge import parse_ansi_into
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
@@ -64,21 +61,17 @@ class ConfigSelector(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import wrap_to_rows
+
         t = self._theme
-        y = area.y
+        out: list[str] = []
 
         def write(line: str) -> None:
-            nonlocal y
-            from tau.tui.utils import visible_width, wrap
-
-            for wl in wrap(line, area.width) if visible_width(line) > area.width else [line]:
-                buf.grow_to(y + 1)
-                parse_ansi_into(buf, area.x, y, wl, area.width)
-                y += 1
+            out.extend(wrap_to_rows(line, width))
 
         write("  " + apply_style(t.emphasis, "Extensions"))
-        divider = rule(area.width, t.border)
+        divider = rule(width, t.border)
         write(divider)
 
         if self._search:
@@ -91,7 +84,7 @@ class ConfigSelector(Component):
             write("  " + apply_style(t.muted, "No extensions found"))
             write(divider)
             write("  " + apply_style(t.muted, "Space: toggle  ·  Esc: close"))
-            return y - area.y
+            return out
 
         # Flat list with group headers — headers occupy real rows in the
         # List but are never selectable; sel_flat_idx (not self._selected,
@@ -137,12 +130,8 @@ class ConfigSelector(Component):
 
         self._list_state.select(sel_flat_idx if sel_flat_idx >= 0 else None)
         self._list_state.offset = start
-        list_area = Rect(area.x, y, area.width, visible)
-        buf.grow_to(y + visible)
-        List(items=list_items, highlight_symbol="", highlight_style=Style()).render(
-            list_area, buf, self._list_state
-        )
-        y += visible
+        widget = List(items=list_items, highlight_symbol="", highlight_style=Style())
+        out.extend(widget.render_lines(width, visible, self._list_state))
 
         remaining = count - (start + visible)
         if remaining > 0:
@@ -150,7 +139,7 @@ class ConfigSelector(Component):
 
         write(divider)
         write("  " + apply_style(t.muted, "Space: toggle  ·  ↑/↓ to move  ·  Esc: close"))
-        return y - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

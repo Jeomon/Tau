@@ -28,8 +28,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from tau.tui.input import InputEvent
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
+    pass
 
 
 @runtime_checkable
@@ -37,10 +36,10 @@ class EditorComponent(Protocol):
     """Minimum interface for a Layout prompt editor."""
 
     # ── Rendering + input (the Component contract) ─────────────────────────────
-    def render_cells(self, area: Rect, buf: Buffer) -> int: ...
+    def render(self, width: int) -> list[str]: ...
     def handle_input(self, event: InputEvent) -> bool: ...
 
-    # ── Buffer access ──────────────────────────────────────────────────────────
+    # ── Text access ────────────────────────────────────────────────────────────
     @property
     def text(self) -> str: ...
     @property

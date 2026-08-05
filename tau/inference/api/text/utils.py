@@ -42,9 +42,7 @@ _CACHE_MARKER = {"type": "ephemeral"}
 #: Deliberately an allowlist. The failure modes are asymmetric: an unknown type
 #: we skip costs one breakpoint (marginally more expensive), while an unknown
 #: type we mark costs the entire turn. A denylist gets that trade backwards.
-_CACHEABLE_BLOCK_TYPES = frozenset(
-    {"text", "image", "tool_use", "tool_result", "document"}
-)
+_CACHEABLE_BLOCK_TYPES = frozenset({"text", "image", "tool_use", "tool_result", "document"})
 
 _VALID_CACHE_RETENTIONS = ("none", "short", "long")
 
@@ -273,8 +271,7 @@ def drop_orphan_function_call_outputs(
         item
         for item in input_items
         if not (
-            item.get("type") == "function_call_output"
-            and item.get("call_id") not in present_calls
+            item.get("type") == "function_call_output" and item.get("call_id") not in present_calls
         )
     ]
 

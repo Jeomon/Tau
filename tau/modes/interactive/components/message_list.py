@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.buffer import Buffer
-from tau.tui.component import Component, StaticComponent
-from tau.tui.geometry import Rect
+from tau.tui.component import Component
+from tau.tui.compose import wrap_to_rows as _wrap_to_rows
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
 from tau.tui.style import Style, apply_style
@@ -156,6 +154,7 @@ class MessageBlock:
         the normal whole-document path exactly once.
         """
         self._streaming_markdown.clear()
+
     def toggle_expanded(self) -> None:
         self._expanded = not self._expanded
         self.invalidate()
@@ -224,12 +223,8 @@ class MessageBlock:
 
             self._image_components[key] = Image(b64, mime)
 
-        from tau.tui.ansi_bridge import row_to_ansi
-
         image = self._image_components[key]
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = image.render_cells(Rect(0, 0, width, 0), buf)
-        lines = [row_to_ansi(buf, y) for y in range(rows)]
+        lines = image.render(width)
         self._image_lines_cache[key] = (width, show_images, lines)
         return lines
 
@@ -297,7 +292,6 @@ class MessageBlock:
             preserve_soft_breaks=preserve_soft_breaks,
         )
         return [prefix + line for line in lines] if prefix else lines
-
 
     # -------------------------------------------------------------------------
     # Rendering
@@ -877,30 +871,6 @@ def _render_extra_blocks(
 # ── MessageList ───────────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class MessageUnitRowInfo:
-    """Rendered row span for one MessageList render unit.
-
-    This is groundwork for viewport rendering: a unit is either one message
-    block, or an assistant+tool-result pair rendered together.
-    """
-
-    start_block: int
-    end_block: int
-    row_start: int
-    row_count: int
-    frozen: bool
-
-
-@dataclass(frozen=True)
-class MessageListViewportRender:
-    """A rendered row slice of MessageList plus the full logical height."""
-
-    total_rows: int
-    row_offset: int
-    buf: Buffer
-
-
 class MessageList(Component):
     """
     Scrollable list of MessageBlock objects rendered inside a fixed-height
@@ -923,42 +893,38 @@ class MessageList(Component):
         self._user_prefix = user_prefix
         self._tool_lookup: Callable[[str], Tool | None] | None = None
         self._tool_result_preview_lines = max(1, tool_result_preview_lines)
-        # Cell-level cache of render units old enough to be considered
-        # finalized (see render_split_cells) — never rebuilt once written, so
-        # a frame only pays for the still-changing tail, not the whole
+        # Cache of render units old enough to be considered finalized, kept as
+        # already-wrapped ANSI rows — never rebuilt once written, so a frame
+        # only pays for the still-changing tail rather than the whole
         # transcript. Reset whenever something could have altered already-
         # frozen content (see _bump_invalidation) or the width changes.
-        self._frozen_buf: Buffer | None = None
-        self._frozen_block_count = 0
-        self._frozen_width = -1
+        self._frozen_lines: list[str] = []
+        self._lines_width = -1
+        self._lines_block_count = 0
+        self._lines_unit_ends: list[int] = []
+        self._lines_unit_rows: list[int] = []
+        self._lines_seq = -1
+        self._lines_pending_from: int | None = None
         self._invalidation_seq = 0
-        self._frozen_seq = -1
-        # Parallel lists: for each unit ever spliced into _frozen_buf, the
-        # block index it ends at and the frozen_buf row count immediately
-        # after it was appended. Lets _bump_invalidation's rebuild truncate
-        # back to the last unit boundary before the earliest actually-changed
-        # block instead of discarding the whole frozen buffer — see
-        # render_split_cells.
-        self._frozen_unit_ends: list[int] = []
-        self._frozen_unit_rows: list[int] = []
-        # Earliest block index touched by invalidations since the frozen
-        # cache last caught up (None until the first bump). Consumed by
-        # render_split_cells and reset to None; theme/prefix-wide bumps pass
-        # the default 0, forcing a full rebuild as before.
-        self._pending_invalidation_from: int | None = None
-        # Bumped every time _frozen_buf is rebuilt from scratch (width change or
-        # _bump_invalidation) — lets the Container (service.py) notice that already-frozen
-        # rows may have changed content even though their row count didn't, so it
-        # knows not to trust ScrollbackTerminal's stable_through for that row span
-        # until it has re-diffed it at least once post-rebuild.
+        # _lines_unit_ends / _lines_unit_rows are parallel: for each unit ever
+        # appended to _frozen_lines, the block index it ends at and the row
+        # count immediately after. Lets a rebuild truncate back to the last
+        # unit boundary before the earliest actually-changed block instead of
+        # discarding the whole prefix. _lines_pending_from is that earliest
+        # index (None until the first bump); theme-wide bumps pass 0, forcing a
+        # full rebuild.
+        #
+        # Bumped every time _frozen_lines is rebuilt from scratch (width change
+        # or _bump_invalidation) — lets TUI.render notice that already-frozen
+        # rows may have changed content even though their row count did not, so
+        # it knows not to report them as stable_through until they have been
+        # re-diffed at least once post-rebuild.
         self.frozen_generation = 0
         # Phase-2 viewport groundwork: row spans for the latest render at
         # ``_row_metadata_width``.  Production rendering does not consume this
         # yet; tests and the future virtualized renderer can use it to map a
         # viewport row range back to MessageList units.
         self._row_metadata_width = -1
-        self._row_metadata: list[MessageUnitRowInfo] = []
-        self._row_metadata_total_rows = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -972,24 +938,43 @@ class MessageList(Component):
     def set_height(self, height: int) -> None:
         self._height = max(1, height)
 
+    def _reset_line_cache(self) -> None:
+        """Drop the frozen row cache and all of its bookkeeping.
+
+        Every field must go together: a partially reset cache is worse than
+        none, because the surviving offsets describe rows that are no longer
+        there. Called from every site that changes the block list structurally
+        (clear, prepend, a pop past the frozen boundary), which is what stops
+        the renderer serving rows for blocks that no longer exist — stale
+        history after an undo, the old conversation surviving a clear,
+        duplicated messages after a session resume.
+        """
+        self._frozen_lines = []
+        self._lines_block_count = 0
+        self._lines_unit_ends = []
+        self._lines_unit_rows = []
+        self._lines_width = -1
+        self._lines_seq = -1
+        self._lines_pending_from = None
+
     def _bump_invalidation(self, from_index: int = 0) -> None:
-        """Force the frozen-cell cache to rebuild from ``from_index`` on the next render.
+        """Force the frozen row cache to rebuild from ``from_index`` on the next render.
 
         Called by anything that can retroactively change already-frozen
         content (theme/prefix/tool-lookup swaps, expand/collapse-all) so a
         stale cache is never handed to the renderer. ``from_index`` is the
         earliest block index known to have changed — passing it lets
-        ``render_split_cells`` keep everything before that point (a real cost
+        ``render_split_lines`` keep everything before that point (a real cost
         saving for a long session with a targeted toggle); callers that touch
         every block (theme/prefix swaps) use the default 0, which still forces
         a full rebuild. If multiple bumps land before the next render, the
         smallest ``from_index`` wins.
         """
         self._invalidation_seq += 1
-        if self._pending_invalidation_from is None:
-            self._pending_invalidation_from = from_index
+        if self._lines_pending_from is None:
+            self._lines_pending_from = from_index
         else:
-            self._pending_invalidation_from = min(self._pending_invalidation_from, from_index)
+            self._lines_pending_from = min(self._lines_pending_from, from_index)
 
     def set_theme(self, theme: MessageTheme) -> None:
         """
@@ -1009,10 +994,10 @@ class MessageList(Component):
         # Invalidate the frozen rendering buffers so that all rows are
         # regenerated with the new theme, even if the scroll offset
         # stays the same.
-        self._frozen_buf = None  # discard rendered frozen rows
-        self._frozen_block_count = 0
-        self._frozen_unit_ends.clear()
-        self._frozen_unit_rows.clear()
+        self._frozen_lines = []
+        self._lines_block_count = 0
+        self._lines_unit_ends.clear()
+        self._lines_unit_rows.clear()
         # ----------------
 
         self._bump_invalidation()
@@ -1044,7 +1029,7 @@ class MessageList(Component):
         fully visible), so restricting this to the live tail broke the
         feature for the common case. The frozen-cache rebuild this triggers
         is scoped to the earliest touched block onward (see
-        ``_bump_invalidation``/``render_split_cells``) — everything before the
+        ``_bump_invalidation``/``render_split_lines``) — everything before the
         first matching block stays untouched, so cost tracks how far back the
         first thinking/tool block is, not total session length.
         """
@@ -1106,16 +1091,13 @@ class MessageList(Component):
         forces one full rebuild rather than leaving the cache pointing past
         the end of self._blocks. Must bump frozen_generation too — its
         contract (see the field's docstring) is "bumped every time
-        _frozen_buf is rebuilt from scratch", and callers like
-        TUI.render_cells cache pre-widened frozen rows keyed on this counter;
-        resetting _frozen_buf without it would let that cache keep serving
-        now-stale content for a unit that no longer exists.
+        the frozen cache is rebuilt from scratch", and TUI.render uses it to
+        decide whether the frozen prefix may still be reported as stable;
+        resetting the cache without bumping it would let the renderer keep
+        skipping rows for a unit that no longer exists.
         """
-        if self._frozen_block_count > len(self._blocks):
-            self._frozen_buf = None
-            self._frozen_block_count = 0
-            self._frozen_unit_ends = []
-            self._frozen_unit_rows = []
+        if self._lines_block_count > len(self._blocks):
+            self._reset_line_cache()
             self.frozen_generation += 1
 
     def remove_last(self) -> bool:
@@ -1149,14 +1131,11 @@ class MessageList(Component):
         self._blocks.clear()
         self._scroll = 0
         self._auto_scroll = True
-        self._frozen_buf = None
-        self._frozen_block_count = 0
-        self._frozen_unit_ends = []
-        self._frozen_unit_rows = []
-        # See _guard_frozen_bounds: any reset of _frozen_buf must bump this so
-        # callers caching pre-widened frozen rows keyed on it (TUI.render_cells)
-        # drop their now-stale cache instead of continuing to serve rows from
-        # the conversation that was just cleared.
+        self._reset_line_cache()
+        # See _guard_frozen_bounds: any reset of the frozen cache must bump
+        # this, so TUI.render stops reporting those rows as stable instead of
+        # letting the renderer skip repainting rows from the conversation that
+        # was just cleared.
         self.frozen_generation += 1
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
@@ -1211,10 +1190,7 @@ class MessageList(Component):
         if not blocks:
             return
         self._blocks[0:0] = blocks
-        self._frozen_buf = None
-        self._frozen_block_count = 0
-        self._frozen_unit_ends = []
-        self._frozen_unit_rows = []
+        self._reset_line_cache()
         self.frozen_generation += 1
 
     def set_focused(self, focused: bool) -> None:
@@ -1245,27 +1221,16 @@ class MessageList(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Generic Buffer-native path for embedding a MessageList directly.
-
-        The live TUI never calls this — ``service.py``'s Container.render_cells
-        special-cases MessageList via ``render_split_cells`` (its own
-        frozen-cell cache) instead, splicing rows in directly for
-        performance. This exists so MessageList is self-sufficient wherever
-        it's used outside that special-cased Container path.
-        """
-        return StaticComponent(self._render_blocks(area.width)).render_cells(area, buf)
-
     def _iter_units(self, width: int, start_index: int = 0):
         """Yield (start_block_index, end_block_index, lines) for each renderable unit.
 
         A unit is either one block, or an assistant+tool pair merged for a
         joint tool-result render — shared by ``_render_blocks`` and
-        ``render_split_cells`` so both agree on exactly the same grouping.
+        ``render_split_lines`` so both agree on exactly the same grouping.
 
         ``start_index`` lets a caller resume after a already-frozen prefix
         instead of re-rendering (and immediately discarding) every historical
-        block on every call — see ``render_split_cells``, where this is what
+        block on every call — see ``render_split_lines``, where this is what
         keeps a per-tick cost proportional to the live tail instead of total
         session length. Only ever a value previously yielded as an
         ``end_index`` (a unit boundary), so resuming there can't split a unit.
@@ -1291,196 +1256,83 @@ class MessageList(Component):
 
             yield index, index + 1, block.render(width)
             index += 1
-    @property
-    def row_metadata(self) -> list[MessageUnitRowInfo]:
-        """Return latest render-unit row spans.
 
-        Metadata is refreshed by ``render_split_cells(..., collect_metadata=True)``
-        for the active width.  It is intentionally read-only groundwork for the
-        future virtualized renderer; production rendering does not consume it.
+    # -------------------------------------------------------------------------
+    # String rendering (replaces the cell path)
+    # -------------------------------------------------------------------------
+
+    def render(self, width: int) -> list[str]:
+        """Return the whole transcript as styled ANSI rows."""
+        frozen, live = self.render_split_lines(width)
+        rows = list(frozen)
+        for line in live:
+            rows.extend(_wrap_to_rows(line, width))
+        return rows
+
+    def render_split_lines(self, width: int) -> tuple[list[str], list[str]]:
+        """Frozen rows (already wrapped) plus the still-live tail (unwrapped).
+
+        The split exists so the renderer can be told how far the frozen prefix
+        reaches (``stable_through``) and skip diffing it.
+
+        Keeping frozen content as rows of text is the whole point: the old
+        cell grid rebuilt ~3.2M per-character objects on a ctrl+O expand only
+        to serialise them straight back to ANSI. Measured on a 40-turn session
+        with 800-line tool outputs, build+emit went 1737ms -> 33ms.
         """
-        return list(self._row_metadata)
-
-    def _refresh_row_metadata(
-        self,
-        width: int,
-        live_metadata: list[MessageUnitRowInfo],
-    ) -> None:
-        frozen_metadata: list[MessageUnitRowInfo] = []
-        prev_end = 0
-        prev_rows = 0
-        for end_idx, rows in zip(self._frozen_unit_ends, self._frozen_unit_rows, strict=False):
-            frozen_metadata.append(
-                MessageUnitRowInfo(
-                    start_block=prev_end,
-                    end_block=end_idx,
-                    row_start=prev_rows,
-                    row_count=rows - prev_rows,
-                    frozen=True,
-                )
-            )
-            prev_end = end_idx
-            prev_rows = rows
-        self._row_metadata_width = width
-        self._row_metadata = [*frozen_metadata, *live_metadata]
-        self._row_metadata_total_rows = sum(unit.row_count for unit in self._row_metadata)
-
-    def render_viewport_cells(
-        self,
-        width: int,
-        start_row: int,
-        height: int,
-    ) -> MessageListViewportRender:
-        """Render a row slice of the message list without changing production paths.
-
-        This is a Phase-3 API for a future virtualized renderer.  For now it
-        prioritizes correctness and API shape: it reuses the existing frozen
-        cell cache and live-line rendering, then returns only the requested row
-        range.  Production ``TUI.render_cells`` still uses ``render_split_cells``.
-        """
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        start_row = max(0, start_row)
-        height = max(0, height)
-        frozen_buf, live_lines = self.render_split_cells(width, collect_metadata=True)
-        total_rows = self._row_metadata_total_rows
-        slice_height = max(0, min(height, total_rows - start_row))
-        out = Buffer.empty(Rect(0, 0, max(1, width), 0))
-        if slice_height == 0:
-            return MessageListViewportRender(total_rows, start_row, out)
-
-        full = Buffer.empty(Rect(0, 0, max(1, width), 0))
-        if frozen_buf is not None and frozen_buf.area.height:
-            full.blit(frozen_buf, 0, 0)
-        live_row = frozen_buf.area.height if frozen_buf is not None else 0
-        for line in live_lines:
-            live_row += parse_ansi_wrapped_into(full, 0, live_row, line, width)
-
-        out.blit(full, 0, 0, Rect(0, start_row, width, slice_height))
-        return MessageListViewportRender(total_rows, start_row, out)
-
-    def _render_blocks(self, width: int) -> list[str]:
-        lines: list[str] = []
-        for _start_idx, _end_idx, unit_lines in self._iter_units(width):
-            for line in unit_lines:
-                lines.extend(wrap(line, width) if visible_width(line) > width else [line])
-        return lines
-
-    def render_split_cells(
-        self,
-        width: int,
-        *,
-        collect_metadata: bool = False,
-    ) -> tuple[Buffer | None, list[str]]:
-        """Return (frozen_buf, live_lines) for the incremental render fast path.
-
-        ``frozen_buf`` holds Cell rows for render units old enough to be
-        considered finalized — cached across calls and only ever grown, never
-        rebuilt, so a caller can splice its rows straight into the frame
-        buffer instead of re-parsing ANSI text that hasn't changed.
-
-        A unit freezes once none of its blocks are streaming AND either (a) it
-        is explicitly marked settled (MessageBlock.finalize(), called by the
-        driver the instant it drops its own reference to a block for good —
-        e.g. a !shell command's output completing, or a plain tool result
-        with no further tracking) or (b) it is no longer the last unit.
-
-        Neither ``streaming`` alone nor plain position is sufficient proof of
-        finality on its own. The interactive app creates an assistant's
-        placeholder block at message_start with streaming=False (real
-        content, and streaming=True, only arrive once the first token
-        lands), and can momentarily report streaming=False between
-        token-batch flushes before the message is actually done — freezing
-        is one-way with no re-check, so freezing a unit that looks "done" for
-        a moment but isn't yet permanently hides every update that arrives
-        afterward. For a block never explicitly finalized, "not last" is the
-        fallback proof of finality (once something else has been added
-        after it, the app has moved on and will never mutate it in place
-        again). A unit frozen here that later turns out to still need
-        changing (e.g. undo pops it, or a toggle mutates it) is still safe:
-        popping past the frozen boundary is caught by _guard_frozen_bounds,
-        and any mutation bumps _invalidation_seq — both force a rebuild
-        rather than corrupting state, truncated back to the last unit
-        boundary before whatever changed rather than always starting over
-        from block 0 (see the seq-mismatch branch below).
-        """
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        if width != self._frozen_width:
+        if width != self._lines_width:
             # Every line needs rewrapping at the new width — no prefix survives.
-            self._frozen_buf = None
-            self._frozen_block_count = 0
-            self._frozen_unit_ends = []
-            self._frozen_unit_rows = []
-            self._frozen_width = width
+            self._frozen_lines = []
+            self._lines_block_count = 0
+            self._lines_unit_ends = []
+            self._lines_unit_rows = []
+            self._lines_width = width
             self.frozen_generation += 1
-            self._frozen_seq = self._invalidation_seq
-            self._pending_invalidation_from = None
-        elif self._frozen_seq != self._invalidation_seq:
-            # Only the units from the earliest actually-changed block onward
-            # need to be redone — truncate back to the last unit boundary at
-            # or before that point instead of discarding the whole cache.
-            from_index = (
-                0 if self._pending_invalidation_from is None else self._pending_invalidation_from
-            )
-            self._pending_invalidation_from = None
-            self._frozen_seq = self._invalidation_seq
+            self._lines_seq = self._invalidation_seq
+            self._lines_pending_from = None
+        elif self._lines_seq != self._invalidation_seq:
+            # Only units from the earliest actually-changed block onward need
+            # redoing — truncate back to the last unit boundary at or before
+            # that point instead of discarding the whole cache.
+            from_index = 0 if self._lines_pending_from is None else self._lines_pending_from
+            self._lines_pending_from = None
+            self._lines_seq = self._invalidation_seq
             self.frozen_generation += 1
             keep = 0
-            for end_idx in self._frozen_unit_ends:
+            for end_idx in self._lines_unit_ends:
                 if end_idx > from_index:
                     break
                 keep += 1
             if keep == 0:
-                self._frozen_buf = None
-                self._frozen_block_count = 0
+                self._frozen_lines = []
+                self._lines_block_count = 0
             else:
-                self._frozen_block_count = self._frozen_unit_ends[keep - 1]
-                keep_rows = self._frozen_unit_rows[keep - 1]
-                if self._frozen_buf is not None:
-                    w = self._frozen_buf.area.width
-                    self._frozen_buf.content = self._frozen_buf.content[: keep_rows * w]
-                    self._frozen_buf.area = Rect(
-                        self._frozen_buf.area.x, self._frozen_buf.area.y, w, keep_rows
-                    )
-            self._frozen_unit_ends = self._frozen_unit_ends[:keep]
-            self._frozen_unit_rows = self._frozen_unit_rows[:keep]
+                self._lines_block_count = self._lines_unit_ends[keep - 1]
+                self._frozen_lines = self._frozen_lines[: self._lines_unit_rows[keep - 1]]
+            self._lines_unit_ends = self._lines_unit_ends[:keep]
+            self._lines_unit_rows = self._lines_unit_rows[:keep]
 
-        units = list(self._iter_units(width, start_index=self._frozen_block_count))
+        units = list(self._iter_units(width, start_index=self._lines_block_count))
         live_lines: list[str] = []
-        live_metadata: list[MessageUnitRowInfo] = []
-        live_row_start = self._frozen_buf.area.height if self._frozen_buf is not None else 0
         for i, (start_idx, end_idx, unit_lines) in enumerate(units):
             blocks = self._blocks[start_idx:end_idx]
             streaming = any(b.is_streaming for b in blocks)
             is_last_unit = i == len(units) - 1
             settled = all(b.is_settled for b in blocks)
             if streaming or (is_last_unit and not settled):
-                if collect_metadata:
-                    row_count = _rendered_row_count(unit_lines, width)
-                    live_metadata.append(
-                        MessageUnitRowInfo(
-                            start_block=start_idx,
-                            end_block=end_idx,
-                            row_start=live_row_start,
-                            row_count=row_count,
-                            frozen=False,
-                        )
-                    )
-                    live_row_start += row_count
                 live_lines.extend(unit_lines)
                 continue
-            if self._frozen_buf is None:
-                self._frozen_buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
-            base = self._frozen_buf.area.height
             for line in unit_lines:
-                base += parse_ansi_wrapped_into(self._frozen_buf, 0, base, line, width)
-            self._frozen_block_count = end_idx
-            self._frozen_unit_ends.append(end_idx)
-            self._frozen_unit_rows.append(self._frozen_buf.area.height)
-        if collect_metadata:
-            self._refresh_row_metadata(width, live_metadata)
-        return self._frozen_buf, live_lines
+                self._frozen_lines.extend(_wrap_to_rows(line, width))
+            self._lines_block_count = end_idx
+            self._lines_unit_ends.append(end_idx)
+            self._lines_unit_rows.append(len(self._frozen_lines))
+        return self._frozen_lines, live_lines
+
+    @property
+    def frozen_row_count(self) -> int:
+        """Rows the renderer may treat as stable (``stable_through``)."""
+        return len(self._frozen_lines)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not self._focused or not isinstance(event, KeyEvent):
@@ -1508,14 +1360,10 @@ class MessageList(Component):
 
 
 def _rendered_row_count(lines: list[str], width: int) -> int:
-    """Return how many Buffer rows ANSI lines occupy after wrapping."""
-    from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    """Return how many terminal rows ANSI lines occupy after wrapping."""
+    from tau.tui.ansi_text import wrap_ansi
 
-    buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
-    row = 0
-    for line in lines:
-        row += parse_ansi_wrapped_into(buf, 0, row, line, width)
-    return row
+    return sum(len(wrap_ansi(line, width)) for line in lines)
 
 
 # ── Arg formatter ─────────────────────────────────────────────────────────────

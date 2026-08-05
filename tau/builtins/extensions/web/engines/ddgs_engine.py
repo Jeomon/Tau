@@ -74,8 +74,10 @@ class DDGSearchEngine(BaseSearchEngine):
         match mode:
             case SearchMode.books:
                 raw = await asyncio.to_thread(
-                    lambda: d.books(query, region=region, safesearch=safe, max_results=max_results)
-                    or []
+                    lambda: (
+                        d.books(query, region=region, safesearch=safe, max_results=max_results)
+                        or []
+                    )
                 )
                 return [
                     result(
@@ -89,14 +91,16 @@ class DDGSearchEngine(BaseSearchEngine):
                 ]
             case SearchMode.text:
                 raw = await asyncio.to_thread(
-                    lambda: d.text(
-                        query,
-                        region=region,
-                        safesearch=safe,
-                        timelimit=timelimit,
-                        max_results=max_results,
+                    lambda: (
+                        d.text(
+                            query,
+                            region=region,
+                            safesearch=safe,
+                            timelimit=timelimit,
+                            max_results=max_results,
+                        )
+                        or []
                     )
-                    or []
                 )
                 return [
                     result(
@@ -108,14 +112,16 @@ class DDGSearchEngine(BaseSearchEngine):
                 ]
             case SearchMode.news:
                 raw = await asyncio.to_thread(
-                    lambda: d.news(
-                        query,
-                        region=region,
-                        safesearch=safe,
-                        timelimit=timelimit,
-                        max_results=max_results,
+                    lambda: (
+                        d.news(
+                            query,
+                            region=region,
+                            safesearch=safe,
+                            timelimit=timelimit,
+                            max_results=max_results,
+                        )
+                        or []
                     )
-                    or []
                 )
                 return [
                     result(
@@ -129,8 +135,10 @@ class DDGSearchEngine(BaseSearchEngine):
                 ]
             case SearchMode.images:
                 raw = await asyncio.to_thread(
-                    lambda: d.images(query, region=region, safesearch=safe, max_results=max_results)
-                    or []
+                    lambda: (
+                        d.images(query, region=region, safesearch=safe, max_results=max_results)
+                        or []
+                    )
                 )
                 return [
                     result(title=r.get("title", ""), url=r.get("url", ""), image=r.get("image", ""))
@@ -138,8 +146,10 @@ class DDGSearchEngine(BaseSearchEngine):
                 ]
             case SearchMode.videos:
                 raw = await asyncio.to_thread(
-                    lambda: d.videos(query, region=region, safesearch=safe, max_results=max_results)
-                    or []
+                    lambda: (
+                        d.videos(query, region=region, safesearch=safe, max_results=max_results)
+                        or []
+                    )
                 )
                 return [
                     result(

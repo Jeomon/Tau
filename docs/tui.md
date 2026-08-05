@@ -30,32 +30,30 @@ Every name below is importable directly from `tau.tui`. Imports are lazy (the su
 | Layout components | `Column`, `Row`, `Rows`, `Columns`, `Constrained`, `VerticalStack` |
 | Components | `TextInput`, `EditorComponent`, `EditorExtras`, `Spinner`, `Image`, `ImageDimensions`, `ImageOptions`, `SelectList`, `SelectItem`, `InlineSelector`, `Box`, `DynamicBorder` |
 | Geometry | `Rect`, `Position` |
-| Buffer | `Buffer`, `Cell` |
+| Text measurement | `tau.tui.ansi_text` (`wrap_ansi`, `splice_ansi`, `tokenize`) |
 | Style | `Style`, `Stylize`, `Color`, `RESET_COLOR`, `parse_color`, `Modifier` |
 | Text | `Span`, `Masked`, `TextLine`, `StyledText` |
-| Widgets | `Widget`, `StatefulWidget`, `render_widget` |
-| Backends | `Backend`, `TestBackend`, `AnsiBackend` |
+| Widgets | `tau.tui.widgets` (`Block`, `List`, `Tabs`, …) — see [Widgets](#widgets) |
 | Frames | `Frame`, `BufferedTerminal`, `Fullscreen`, `Fixed`, `Inline` |
 | Constraint layout | `Layout`, `Constraint`, `Direction`, `Flex`, `Alignment` |
 | Palettes | `tailwind`, `material` |
 | Input | `InputEvent`, `InputParser`, `Key`, `KeyEvent`, `PasteEvent`, `MouseEvent`, `BgColorEvent`, `FocusEvent`, `KeyMap`, `KeybindingsManager`, `get_keybindings`, `configure_keybindings` |
 | Theme | `LayoutTheme`, `SpinnerTheme`, `MarkdownTheme`, `MessageTheme`, `InputTheme`, `SelectListTheme`, `ColorFn`, `color`, `rgb`, `rgb_bold`, `rgb_italic` |
 | Markdown | `render_markdown` |
-| Testing | `assert_buffer_eq` |
+
 
 Two names are aliases to avoid collisions: `TextLine` is `tau.tui.text.Line`, and `StyledText` is `tau.tui.text.Text` (distinct from the `Text` *component*).
 
 ## Standalone Usage
 
-You do not need a TUI application, an event loop, or even a terminal to render a component. A component writes into a `Buffer`, and `row_to_ansi()` flattens a buffer row into an ANSI string you can print.
+You do not need a TUI application, an event loop, or even a terminal to render a component. A component's `render(width)` returns styled ANSI lines you can print directly.
 
 This script defines a custom component and renders it. Copy, paste, and run it:
 
 ```python
 """Render a custom tau.tui component with no application, event loop, or TTY."""
 
-from tau.tui import Buffer, Component, Rect, Span, Style, TextLine
-from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui import Component, Span, Style, TextLine, line_to_ansi
 
 
 class Gauge(Component):
@@ -65,39 +63,29 @@ class Gauge(Component):
         self.label = label
         self.fraction = max(0.0, min(1.0, fraction))
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        # Buffers start at height 0 — grow before writing, or the write no-ops.
-        buf.grow_to(area.y + 2)
-
-        buf.set_line(
-            area.x,
-            area.y,
-            TextLine([Span.styled(self.label, Style().bold().with_fg("bright_cyan"))]),
-            area.width,
-        )
-
-        bar_width = max(1, area.width - 8)
+    def render(self, width: int) -> list[str]:
+        bar_width = max(1, width - 8)
         filled = round(bar_width * self.fraction)
-        buf.set_line(
-            area.x,
-            area.y + 1,
-            TextLine([
-                Span.raw("["),
-                Span.styled("#" * filled, Style().with_fg("bright_green")),
-                Span.styled("-" * (bar_width - filled), Style().with_fg("bright_black")),
-                Span.raw(f"] {self.fraction:>4.0%}"),
-            ]),
-            area.width,
-        )
-        return 2  # Rows written
+        return [
+            line_to_ansi(
+                TextLine([Span.styled(self.label, Style().bold().with_fg("bright_cyan"))]),
+                width,
+            ),
+            line_to_ansi(
+                TextLine([
+                    Span.raw("["),
+                    Span.styled("#" * filled, Style().with_fg("bright_green")),
+                    Span.styled("-" * (bar_width - filled), Style().with_fg("bright_black")),
+                    Span.raw(f"] {self.fraction:>4.0%}"),
+                ]),
+                width,
+            ),
+        ]
 
 
 def render(component: Component, width: int) -> list[str]:
-    """Render a component into a scratch buffer and return ANSI rows."""
-    area = Rect(0, 0, width, 0)
-    buf = Buffer.empty(area)
-    rows = component.render_cells(area, buf)
-    return [row_to_ansi(buf, y) for y in range(rows)]
+    """Render a component and return its ANSI rows."""
+    return component.render(width)
 
 
 def main() -> None:
@@ -124,13 +112,21 @@ Standalone rendering gives you layout, styling, and composition. It does **not**
 
 ## The Component Contract
 
-`Component` is an ABC with exactly one abstract method. A subclass that does not override `render_cells` fails at construction.
+`Component` has **one** render contract:
 
 ```python
 class Component(ABC):
-    @abstractmethod
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render into buf starting at row area.y; return the number of rows written."""
+    def render(self, width: int) -> list[str]:
+        """Return this component's styled ANSI lines."""
+```
+
+The renderer consumes lines directly, with no per-character cell grid in between. Width-aware work — wrapping, clipping, compositing, measuring wide glyphs — lives in `tau.tui.ansi_text`, which operates on grapheme clusters rather than characters.
+
+A subclass implementing `render` incorrectly (or not at all) raises `NotImplementedError` naming the class on first render, rather than failing at construction.
+
+If you write a component that does *not* subclass `Component` (duck-typing works, since `add_child` does not enforce its type hint), implement `render(width)` and it will still be rendered. A child providing neither raises a named `TypeError` instead of being swallowed into a frozen screen.
+
+> **Changed:** `render_cells(area, buf)`, `Buffer`, `Cell`, the `Widget`/`StatefulWidget` protocols, `render_widget`, the `Backend` classes and `assert_buffer_eq` have all been removed along with the cell grid. A component still on `render_cells` will not render — implement `render(width)` instead.
 
     def handle_input(self, event: InputEvent) -> bool:
         """Return True if the event was consumed, stopping propagation."""
@@ -145,16 +141,14 @@ class Component(ABC):
 
 | Method | Required | Purpose |
 |--------|----------|---------|
-| `render_cells(area, buf)` | Yes | Write cells, return rows written |
+| `render(width)` | Yes | Return styled ANSI lines |
 | `handle_input(event)` | No | Consume an input event |
 | `invalidate()` | No | Drop render caches on resize or theme change |
 | `dispose()` | No | Tear down tasks and subscriptions |
 
-There is no `measure()`, `on_mount()`, or `on_unmount()`. The lifecycle is: construct → `render_cells` repeatedly → `invalidate()` on resize → `dispose()` at teardown. Input dispatch is independent of rendering.
+There is no `measure()`, `on_mount()`, or `on_unmount()`. The lifecycle is: construct → `render` repeatedly → `invalidate()` on resize → `dispose()` at teardown. Input dispatch is independent of rendering.
 
-> **Critical:** a `Buffer` starts at height 0 and grows on demand. Call `buf.grow_to(area.y + n)` before writing row `area.y + n - 1`. `Buffer.set()` and `set_string()` **silently no-op on an out-of-bounds row** rather than growing it for you. A missing `grow_to` shows up as blank output, not an error.
-
-Respect the supplied `Rect`: start at `area.x` / `area.y` and never exceed `area.width`.
+Respect the supplied `width`: never return a line wider than it. `tau.tui.ansi_text.wrap_ansi(line, width)` splits on grapheme-cluster boundaries, so it will not cut a CJK character or ZWJ emoji in half the way character-based slicing does.
 
 ### Focusable
 
@@ -168,18 +162,16 @@ class Focusable:
 `TUI.set_focus(component)` sets `focused = True` and routes `handle_input()` exclusively to that component.
 
 ```python
-from tau.tui import Buffer, Component, Focusable, Rect
+from tau.tui import Component, Focusable
 
 
 class MyInput(Component, Focusable):
     def __init__(self) -> None:
         self._text = ""
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         cursor = "█" if self.focused else ""
-        buf.grow_to(area.y + 1)
-        buf.set_string(area.x, area.y, f"> {self._text}{cursor}")
-        return 1
+        return [f"> {self._text}{cursor}"]
 ```
 
 ## Layout Components
@@ -276,60 +268,54 @@ line = TextLine([
 
 Colors accept a hex string (`"#a78bfa"`), a named ANSI color (`"bright_cyan"`), an `(r, g, b)` tuple, a palette index, or `RESET_COLOR` to force the terminal default. `parse_color()` converts a string spec. The `tailwind` and `material` palettes provide ready-made triples: `tailwind.SLATE.c500`.
 
-There are three ways to emit styled output, in decreasing order of preference:
+There are two ways to emit styled output, in decreasing order of preference:
 
-1. **Structured**: `buf.set_line(x, y, TextLine([...]), width)` or `buf.set_span(...)`. Style stays data until the cell resolves it.
-2. **Direct**: `buf.set_string(x, y, "text", Style().bold())`.
-3. **ANSI bridge**: build a string with `apply_style()` and push it through `tau.tui.ansi_bridge.parse_ansi_into(buf, x, y, line, width)`. This is how `Text` and `StaticComponent` work internally, and it is the escape hatch for content that is already ANSI-encoded.
+1. **Structured**: build a `TextLine([...])` of styled `Span`s and flatten it with `line_to_ansi(line, width)`. Style stays data until the last moment, and alignment and clipping are resolved for you.
+2. **Direct**: `apply_style(Style().bold(), "text")` returns an ANSI string. This is the escape hatch for content that is already ANSI-encoded; measure it with `tau.tui.utils.visible_width`, not `len`.
 
 ## Widgets
 
-Widgets are a second, lower-level drawing layer: they render into a **pre-sized** `Rect` and return nothing. Compose them by writing into non-overlapping rectangles.
+Widgets are a second, lower-level drawing layer: they render a **fixed-size** block of lines rather than growing to fit their content. Compose them by placing their lines yourself.
 
-```python
-@runtime_checkable
-class Widget(Protocol):
-    def render(self, area: Rect, buf: Buffer) -> None: ...
-
-
-@runtime_checkable
-class StatefulWidget(Protocol):
-    def render(self, area: Rect, buf: Buffer, state: Any) -> None: ...
-```
-
-| Contrast | `Component` | `Widget` |
-|----------|-------------|----------|
-| Signature | `render_cells(area, buf) -> int` | `render(area, buf) -> None` |
-| Height | Grows the buffer itself | Fixed by the caller's `Rect` |
-| Composition | Tree with input dispatch | Manual rectangle placement |
+| Contrast | `Component` | Widget |
+|----------|-------------|--------|
+| Signature | `render(width) -> list[str]` | `render_lines(width, height) -> list[str]` |
+| Height | Grows to fit its content | Fixed by the caller |
+| Composition | Tree with input dispatch | Manual line placement |
 
 Available in `tau.tui.widgets`:
 
 | Module | Exports |
 |--------|---------|
 | `block` | `Block`, `Borders`, `Padding`, `Title`, `TitlePosition` |
-| `paragraph` | `Paragraph`, `Wrap` |
 | `list` | `List`, `ListItem`, `ListState`, `ListDirection` |
-| `table` | `Table`, `Row`, `TableState` |
 | `tabs` | `Tabs` |
-| `gauge` | `Gauge`, `LineGauge` |
-| `scrollbar` | `Scrollbar`, `ScrollbarState`, `ScrollbarOrientation` |
-| `sparkline` | `Sparkline`, `RenderDirection` |
-| `barchart` | `BarChart`, `Bar`, `BarGroup` |
-| `chart` | `Chart`, `Dataset`, `Axis`, `GraphType`, `LegendPosition` |
-| `canvas` | `Canvas`, `CanvasLine`, `Points`, `Rectangle`, `Marker`, `Map`, `MapResolution` |
-| `calendar` | `Monthly`, `DateStyler`, `CalendarEventStore` |
-| `clear` | `Clear` |
 
-Bridge a widget into the component tree with `WidgetComponent`, or render one to ANSI lines directly:
+`Block` and `List` expose `render_lines(width, height)`; `List` also takes a `ListState`. `Tabs` is a single row, so it exposes `render_line(width)`.
+
+> **Removed:** `paragraph`, `table`, `gauge`, `scrollbar`, `sparkline`, `barchart`,
+> `chart`, `canvas`, `calendar` and `clear`. Nothing in tau used them, and they
+> were carrying the only remaining reason for several cell-level helpers to
+> exist. The three above are the ones the app actually renders through.
+
+Use one from a component by returning its lines, and place it with `splice_ansi` if it sits beside other content:
 
 ```python
-from tau.tui.components.widget_bridge import WidgetComponent, render_widget_lines
-from tau.tui.widgets.gauge import Gauge
+from tau.tui.ansi_text import splice_ansi
+from tau.tui.widgets.block import Block, Borders
 
-component = WidgetComponent(Gauge(...), height=1)      # Into a Component tree
-lines = render_widget_lines(Gauge(...), width=40, height=1)   # Straight to ANSI
+class Panel(Component):
+    def render(self, width: int) -> list[str]:
+        frame = Block(borders=Borders.ALL).render_lines(width, 3)
+        inner = Block(borders=Borders.ALL).inner(Rect(0, 0, width, 3))
+        frame[inner.y] = splice_ansi(frame[inner.y], "hello", inner.x, inner.width, width)
+        return frame
 ```
+
+> **Removed:** the `Widget`/`StatefulWidget` protocols, `render_widget`, and
+> `tau.tui.components.widget_bridge` (`WidgetComponent`, `render_widget_lines`).
+> They existed to adapt between the cell grid and the component tree; with a
+> single line-based contract there is nothing left to adapt.
 
 ## Running a Full Application
 
@@ -458,22 +444,15 @@ A focused overlay owns input until it is closed, hidden, or unfocused. `handle.u
 Render a component to strings and assert on the result, no terminal required:
 
 ```python
-from tau.tui import Buffer, Rect, Text
-from tau.tui.ansi_bridge import row_to_ansi
-
-
-def render_lines(component, width):
-    area = Rect(0, 0, width, 0)
-    buf = Buffer.empty(area)
-    rows = component.render_cells(area, buf)
-    return [row_to_ansi(buf, y).rstrip() for y in range(rows)]
+from tau.tui import Text
+from tau.tui.utils import strip_ansi
 
 
 def test_text_wraps():
-    assert render_lines(Text("alpha beta"), 6) == ["alpha", "beta"]
+    assert [strip_ansi(line) for line in Text("alpha beta").render(6)] == ["alpha", "beta"]
 ```
 
-`assert_buffer_eq(actual, expected)` compares two buffers and raises with a rendered text view of both plus the exact differing cells. `TestBackend(width, height)` is an in-memory `Backend` exposing `.buffer`, `.cursor`, `.cursor_hidden`, and `.flush_count`.
+`render(width)` returns the lines directly, so there is nothing to set up and nothing to flatten. Use `tau.tui.utils.strip_ansi` to assert on text alone, and `visible_width` to assert on layout — `len()` counts escape bytes and miscounts wide glyphs.
 
 ## Dependency Boundary
 

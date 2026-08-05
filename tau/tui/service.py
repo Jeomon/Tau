@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from tau.tui.component import Component, Container, Focusable
+from tau.tui.component import Component, Container, Focusable, _child_lines
 from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent, MouseEvent
 from tau.tui.terminal import Terminal
 from tau.tui.utils import set_window_focused
@@ -384,10 +384,9 @@ class CustomOptions:
 
 # ── Renderer ──────────────────────────────────────────────────────────────────
 
-from tau.tui.ansi_bridge import row_to_ansi  # noqa: E402
-from tau.tui.buffer import _BLANK_CELL, Buffer, Cell, RawWrite  # noqa: E402
-from tau.tui.frame import ScrollbackTerminal  # noqa: E402
-from tau.tui.geometry import Rect  # noqa: E402
+from tau.tui.compose import composite_lines, wrap_to_rows  # noqa: E402
+from tau.tui.geometry import Position  # noqa: E402
+from tau.tui.scrollback import ScrollbackRenderer  # noqa: E402
 
 # Blank columns reserved on the left/right edges of the terminal so content
 # never touches the window border.
@@ -395,102 +394,68 @@ _LEFT_PAD = 1
 _RIGHT_PAD = 1
 
 
-class Renderer:
-    """
-    Scrollback-mode differential renderer.
+class StringRenderer:
+    """Builds a frame from the component tree and hands it to the diff engine.
 
-    A thin wrapper over ``ScrollbackTerminal`` (``frame.py``): builds one
-    ``Buffer`` for the whole tree per frame via ``Component.render_cells``,
-    composites overlays into it as a real Buffer blit, then hands the
-    finished buffer to the diff engine. Lines still scroll into the
-    terminal's native scrollback; ``ScrollbackTerminal`` owns that behavior.
+    The tree is asked for ANSI lines via ``Component.render(width)``, overlays
+    are composited as lines, and the result goes to ``ScrollbackRenderer``. No
+    ``Buffer`` of ``Cell`` is built for a frame at any point.
+
+    ``stable_through`` is the whole of the incremental machinery here: how many
+    leading rows the caller guarantees are unchanged, so the diff can skip
+    them. The frozen prefix is handed over as-is, since copying string
+    references costs nothing.
     """
 
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
         self._terminal = terminal
-        self._engine = ScrollbackTerminal(terminal, show_hardware_cursor=show_hardware_cursor)
-        # Whether the previous frame composited any overlay pixels into the base
-        # buffer. See render(): overlay compositing happens after stable_through
-        # is computed from the base content alone, so it can land on rows the
-        # base content considers "frozen" — tracked here so we know to force a
-        # full diff both while an overlay is up and on the frame it closes.
+        self._engine = ScrollbackRenderer(terminal, show_hardware_cursor=show_hardware_cursor)
+        # See Renderer._had_overlays: overlay pixels land after stable_through
+        # is computed, so they can fall inside the "frozen" span. Force a full
+        # diff while an overlay is up and on the frame it closes.
         self._had_overlays = False
 
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
+    # -- public API (mirrors Renderer) ---------------------------------------
 
     def render(self, component: Component, overlays: list | None = None) -> None:
-        """Render component differentially into the terminal scrollback buffer."""
-        width = self._terminal.width - _LEFT_PAD - _RIGHT_PAD
+        width = max(1, self._terminal.width - _LEFT_PAD - _RIGHT_PAD)
         height = self._terminal.height
         has_overlays = bool(overlays)
 
-        buf = Buffer.empty(Rect(0, 0, self._terminal.width, 0))
-        can_elide_stable_prefix = (
-            not has_overlays
-            and not self._had_overlays
-            and getattr(self._engine, "_prev", None) is not None
-            and not getattr(self._engine, "_resized", False)
-            and getattr(self._engine, "_prev_width", 0) == self._terminal.width
-        )
-        if hasattr(component, "_elide_stable_prefix_for_next_render"):
-            component._elide_stable_prefix_for_next_render = can_elide_stable_prefix  # type: ignore[attr-defined]
-        try:
-            with _span("tui.render_cells"), _span("tui.base_component_render"):
-                rows = component.render_cells(Rect(_LEFT_PAD, 0, max(1, width), 0), buf)
-        finally:
-            if hasattr(component, "_elide_stable_prefix_for_next_render"):
-                component._elide_stable_prefix_for_next_render = False  # type: ignore[attr-defined]
-        buf.grow_to(max(1, rows))  # always at least one row so index math stays valid
+        with _span("tui.render_cells"), _span("tui.base_component_render"):
+            content = component.render(width)
+
+        pad = " " * _LEFT_PAD
+        lines = [pad + line for line in content]
+
+        cursor = component.cursor_position
+        if cursor is not None:
+            cursor = Position(cursor.x + _LEFT_PAD, cursor.y)
+
+        if has_overlays or self._had_overlays:
+            stable_through = 0
+        else:
+            stable_through = getattr(component, "_stable_rows", 0)
+        self._had_overlays = has_overlays
 
         if overlays:
             with _span("tui.overlay_composite"):
-                self._composite_overlays(buf, overlays, width, height)
-
-        # stable_through only reflects the base content's frozen span — it has
-        # no notion of overlay pixels blitted on top afterward. Trusting it while
-        # an overlay is showing (or on the frame it just closed) can make the
-        # overlay's cells — including live cursor/selection updates — never
-        # reach the real terminal if they land inside that "frozen" span.
-        if has_overlays or self._had_overlays:
-            stable_through = 0
-            elided_range = None
-        else:
-            stable_through = getattr(component, "_stable_rows", 0)
-            elided_start = getattr(component, "_elided_start", 0)
-            elided_end = getattr(component, "_elided_end", 0)
-            elided_range = (elided_start, elided_end) if elided_end > elided_start else None
-        self._had_overlays = has_overlays
+                lines = self._composite_overlays(lines, overlays, width, height)
 
         with _span("tui.engine_render"):
-            self._engine.render(buf, stable_through=stable_through, elided_range=elided_range)
+            self._engine.render(lines, cursor_pos=cursor, stable_through=stable_through)
 
     def clear(self) -> None:
-        """Erase the entire screen and scrollback buffer."""
         self._engine.clear()
 
     def reset(self) -> None:
-        """Force a full re-render on the next frame without clearing the screen."""
         self._engine.reset()
 
-    def dispose(self) -> None:
-        """Release terminal subscriptions and retained render state."""
-        self._engine.dispose()
-
     def reset_with_clear(self) -> None:
-        """Force a full clear-and-redraw on the next frame.
-
-        Unlike reset(), this sets _resized so the render takes the clear=True
-        path — homing the cursor before writing — which is required when content
-        that was painted at arbitrary screen rows (e.g. an overlay) must be
-        erased without a terminal resize event.
-        """
         self._engine.reset_with_clear()
 
-    # -------------------------------------------------------------------------
-    # Compatibility accessors (TUI reads these directly — see service.py below)
-    # -------------------------------------------------------------------------
+    def dispose(self) -> None:
+        self._engine.dispose()
 
     @property
     def _viewport_top(self) -> int:
@@ -502,51 +467,36 @@ class Renderer:
 
     @property
     def _prev_lines(self) -> list[str]:
-        prev = self._engine._prev
-        if prev is None:
-            return []
-        return [row_to_ansi(prev, y) for y in range(prev.area.height)]
+        return list(self._engine._prev or [])
 
-    # -------------------------------------------------------------------------
-    # Internal helpers
-    # -------------------------------------------------------------------------
+    # -- internals -----------------------------------------------------------
 
-    def _composite_overlays(self, buf: Buffer, overlays: list, width: int, height: int) -> None:
-        """Blit every visible overlay directly into buf's cells (in place)."""
-        viewport_start = max(0, buf.area.height - height)
+    def _composite_overlays(
+        self, lines: list[str], overlays: list, width: int, height: int
+    ) -> list[str]:
+        """Paint every visible overlay onto ``lines``, returning a new list."""
+        viewport_start = max(0, len(lines) - height)
+        total_width = self._terminal.width
 
         for entry in overlays:
             if not entry.is_visible(width, height):
                 continue
             ov_w = max(1, entry.resolve_width(width))
-            ov_buf = Buffer.empty(Rect(0, 0, ov_w, 0))
             with _span("tui.overlay_render"):
-                natural_h = entry.component.render_cells(Rect(0, 0, ov_w, 0), ov_buf)
+                ov_lines = entry.component.render(ov_w)
+            natural_h = len(ov_lines)
             _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
-            ov_h = min(ov_h, natural_h, ov_buf.area.height)
-
-            buf.grow_to(viewport_start + ov_row + ov_h)
+            ov_h = min(ov_h, natural_h)
             with _span("tui.overlay_blit"):
-                for y in range(ov_h):
-                    target_y = viewport_start + ov_row + y
-                    if target_y < 0:
-                        continue
-                    src_base = y * ov_w
-                    dst_base = target_y * buf.area.width
-                    for x in range(ov_w):
-                        target_x = _LEFT_PAD + ov_col + x
-                        if target_x < 0 or target_x >= buf.area.width:
-                            continue
-                        # Replace the cell reference rather than mutating in
-                        # place via Buffer.set: frozen-history rows in ``buf``
-                        # hold the *same* Cell objects as MessageList's frozen
-                        # buffer and the widened-row cache (spliced by
-                        # reference — see TUI._splice_frozen_rows), so an
-                        # in-place write would permanently bake overlay pixels
-                        # into that cache and ghost after the overlay closes.
-                        # ``ov_buf`` is private to this composite, so sharing
-                        # its cells (or blank sentinels) into ``buf`` is safe.
-                        buf.content[dst_base + target_x] = ov_buf.content[src_base + x]
+                lines = composite_lines(
+                    lines,
+                    ov_lines[:ov_h],
+                    viewport_start + ov_row,
+                    _LEFT_PAD + ov_col,
+                    ov_w,
+                    total_width,
+                )
+        return lines
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
@@ -555,30 +505,6 @@ class Renderer:
 def _log_task_exception(task: asyncio.Task) -> None:
     if not task.cancelled() and (exc := task.exception()):
         _log.error("Unhandled exception in background task", exc_info=exc)
-
-
-@dataclass(slots=True)
-class _ChildRowCache:
-    """Cached, pre-widened Cell rows for one ``render_split_cells``-capable child.
-
-    See TUI.render_cells: without this, splicing a child's frozen (finalized)
-    rows into the frame buffer re-pads every one of them out to the full
-    terminal width from scratch on *every* frame, even when nothing about
-    that child changed — an O(total finalized history) cost paid on every
-    keystroke in a long session. This caches that widened form and is only
-    ever extended with newly-appended rows (keyed on ``frozen_generation``,
-    which the child bumps whenever its cache is rebuilt/truncated rather than
-    just grown — see MessageList.render_split_cells), so the steady-state
-    cost of an unchanged frozen span drops to a single bulk list copy instead
-    of a per-row Python loop.
-    """
-
-    generation: int = -1
-    x: int = -1
-    source_width: int = -1
-    row_width: int = -1
-    rows: int = 0
-    content: list[Cell] = field(default_factory=list)
 
 
 # Minimum milliseconds between rendered frames (~60 fps)
@@ -635,7 +561,7 @@ class TUI(Container):
     ) -> None:
         super().__init__()
         self._terminal = terminal or Terminal()
-        self._renderer = Renderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
+        self._renderer = StringRenderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
         self._parser = _make_parser()
         self._title = title
 
@@ -670,42 +596,14 @@ class TUI(Container):
         # coordinates relative to their own rendered content.
         self._child_rows: dict[int, int] = {}
         # See render_cells: rows confirmed identical to last frame's buffer,
-        # safe for ScrollbackTerminal to skip re-diffing.
+        # safe for the renderer to skip re-diffing.
         self._stable_rows: int = 0
         self._prev_stable_rows: int = 0
-        # Absolute [start, end) row span left as untouched blank sentinels this
-        # frame because it was elided (see can_elide below) — the *only* rows
-        # within [0, _stable_rows) that ScrollbackTerminal must copy back from
-        # its previous buffer before diffing. Everything else in that prefix
-        # (e.g. header/spacer rows, re-rendered fresh every frame) already
-        # holds real content and must not be overwritten. Tracking the exact
-        # span lets ScrollbackTerminal reinstate it with one slice copy
-        # instead of scanning every cell of every stable row to guess which
-        # ones are blank placeholders — see frame.py's ``elided_range``.
-        self._elided_start: int = 0
-        self._elided_end: int = 0
         # Last-seen child.frozen_generation, keyed by id(child) — lets
         # render_cells notice a child rebuilt its frozen cache (content changed
         # without necessarily changing row count) even between frames where
         # frozen_rows_this_frame happens to match _prev_stable_rows.
         self._child_frozen_gen: dict[int, int] = {}
-        # Cache of each frozen-capable child's already-"widened" Cell rows
-        # (padded out to the full terminal width, at their fixed screen
-        # column) keyed by id(child) — see render_cells. A long session's
-        # frozen span can be thousands of rows; re-widening every one of them
-        # from scratch on every single frame (even when nothing changed) is
-        # an O(total finalized history) cost paid on every keystroke.
-        # Reusing this cache and only widening newly-appended rows turns the
-        # common case (nothing new since the last frame) into one bulk
-        # contiguous list copy instead of a per-row Python loop. Keyed off
-        # frozen_generation (bumped only when the child's frozen cache is
-        # rebuilt or truncated — see MessageList.render_split_cells) rather
-        # than object identity, since id() can be recycled by the allocator.
-        self._child_row_cache: dict[int, _ChildRowCache] = {}
-        # Set only by Renderer.render() for the no-overlay production path.
-        # Direct render_cells() calls still materialize full buffers for tests
-        # and public component behavior.
-        self._elide_stable_prefix_for_next_render = False
 
         # Terminal background color — populated after startup OSC 11 query.
         # ``on_background_color`` (if set) fires once with the result (or None on
@@ -724,197 +622,72 @@ class TUI(Container):
     # Container overrides — request render after structural changes
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render children into buf, recording their logical starting rows.
+    def render(self, width: int) -> list[str]:
+        """Render children to lines, recording their starting rows.
 
-        Overrides Container's generic render_cells to also track
-        _child_rows — without this override, _child_rows would stay empty,
-        breaking mouse_position_for for every mouse-aware child (e.g. Layout).
+        String counterpart of ``render_cells`` below. A child exposing
+        ``render_split_lines`` (currently just MessageList) hands over its
+        already-wrapped frozen rows directly; everything after that prefix is
+        the still-live tail, which is what the renderer needs to re-diff.
 
-        A child exposing ``render_split_cells`` (currently just MessageList)
-        gets special-cased: its already-finalized rows are spliced in by
-        reference from its own cache instead of being re-parsed every frame,
-        and only its still-live tail goes through the normal per-frame path.
-        ``self._stable_rows`` is the absolute buffer row end of the MessageList
-        frozen prefix that is also known identical to last frame (includes any
-        children rendered above MessageList — header, spacer).  Renderer hands
-        it to ScrollbackTerminal as ``stable_through`` so re-diff can skip that
-        prefix; elided holes in the MessageList portion are reinstated from the
-        previous frame before paint/commit (see ScrollbackTerminal._render).
+        ``_stable_rows`` is the absolute row through which the frame is known
+        identical to last frame — the frozen prefix plus any children rendered
+        above it (header, spacer). ``StringRenderer`` passes it to the engine
+        as ``stable_through``.
+
+        There is no elision or row-widening machinery here: those existed only
+        because copying ``Cell`` rows into the frame buffer was expensive.
+        Copying string references is not, so the frozen rows are spliced in
+        directly.
         """
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        y = area.y
+        lines: list[str] = []
         self._child_rows = {}
+        self.cursor_position = None
+        stable_rows_abs = 0
         frozen_rows_this_frame = 0
         frozen_content_changed = False
-        # Absolute row index through which the composed buffer's frozen
-        # MessageList prefix is known identical to last frame — includes any
-        # children rendered before MessageList (header, spacer).  ScrollbackTerminal
-        # skips re-diffing [0, _stable_rows); elision holes must also use this
-        # absolute value so reinstatement lands on the right span.
-        stable_rows_abs = 0
-        elided_start = 0
-        elided_end = 0
+
         for child in self.children:
-            self._child_rows[id(child)] = y - area.y
-            split = getattr(child, "render_split_cells", None)
+            start = len(lines)
+            self._child_rows[id(child)] = start
+            split = getattr(child, "render_split_lines", None)
             if split is not None:
-                frozen_buf, live_lines = split(area.width)
-                if frozen_buf is not None and frozen_buf.area.height:
-                    frozen_rows = frozen_buf.area.height
-                    child_start = y
-                    buf.grow_to(y + frozen_rows)
-                    gen = getattr(child, "frozen_generation", None)
-                    frozen_content_changed = (
-                        gen is not None and self._child_frozen_gen.get(id(child)) != gen
-                    )
-                    if frozen_content_changed and gen is not None:
-                        # The frozen cache was rebuilt since we last saw this child (e.g.
-                        # a theme/prefix change) — row count may be unchanged while the
-                        # actual cell content differs, which a row-count-only comparison
-                        # below can't detect. Force one full re-diff of the frozen span
-                        # this frame so the renderer can't skip painting the change.
-                        self._child_frozen_gen[id(child)] = gen
-                    stable_prefix_rows = min(frozen_rows, self._prev_stable_rows)
-                    can_elide = (
-                        self._elide_stable_prefix_for_next_render
-                        and not frozen_content_changed
-                        and stable_prefix_rows > 0
-                    )
-                    if can_elide:
-                        # Native-scrollback Option A: keep the full logical row
-                        # count, but do not copy rows ScrollbackTerminal will skip
-                        # via stable_through anyway.  Copy only any newly-frozen
-                        # rows after the already-stable prefix.
-                        # (ScrollbackTerminal reinstates the skipped span from
-                        # its previous buffer before diffing/committing _prev —
-                        # otherwise these holes would paint as blanks or poison
-                        # the next frame's baseline.)
-                        elided_start = child_start
-                        elided_end = child_start + stable_prefix_rows
-                        if frozen_rows > stable_prefix_rows:
-                            self._splice_frozen_rows(
-                                child,
-                                frozen_buf,
-                                buf,
-                                y + stable_prefix_rows,
-                                area.x,
-                                source_start_row=stable_prefix_rows,
-                            )
-                    else:
-                        self._splice_frozen_rows(child, frozen_buf, buf, y, area.x)
-                    frozen_rows_this_frame = frozen_rows
-                    if not frozen_content_changed:
-                        # Absolute: header/spacer rows above the MessageList plus
-                        # the MessageList-relative rows still covered by last
-                        # frame's frozen cache.
-                        stable_rows_abs = child_start + stable_prefix_rows
-                    y += frozen_rows
-                if live_lines:
-                    for line in live_lines:
-                        y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
+                frozen, live = split(width)
+                lines.extend(frozen)
+                frozen_rows_this_frame = len(frozen)
+
+                gen = getattr(child, "frozen_generation", None)
+                frozen_content_changed = (
+                    gen is not None and self._child_frozen_gen.get(id(child)) != gen
+                )
+                if gen is not None:
+                    self._child_frozen_gen[id(child)] = gen
+
+                # A row is only safe to skip re-diffing if it was ALSO part of
+                # the frozen prefix last frame. Rows that just became frozen
+                # (a tool call settling, a reply finishing) are new here but
+                # occupied by *different* content on screen — the live tail
+                # that was there a frame ago. Declaring them stable makes the
+                # diff skip them, so the old live rendering (a spinner frame,
+                # a half-streamed line) is never overwritten and stays visible
+                # until something forces a full repaint, e.g. a resize.
+                stable_rows_abs = start + min(frozen_rows_this_frame, self._prev_stable_rows)
+
+                for line in live:
+                    lines.extend(wrap_to_rows(line, width))
             else:
-                y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
-        # Rows are only safe to skip re-diffing if they were ALSO the frozen
-        # prefix last frame (same cached Cell objects both times) — a prefix
-        # that just became frozen this frame may still differ from whatever
-        # (different) content occupied those rows in last frame's buffer.
+                child_lines = _child_lines(child, width)
+                lines.extend(child_lines)
+            child_cursor = getattr(child, "cursor_position", None)
+            if child_cursor is not None:
+                self.cursor_position = Position(child_cursor.x, start + child_cursor.y)
+
+        # A rebuilt cache (theme swap, ctrl+O, width change) can keep the same
+        # row count while every row's content differs, which the count-based
+        # check above cannot see. Re-diff everything this frame.
         self._stable_rows = 0 if frozen_content_changed else stable_rows_abs
-        if frozen_content_changed:
-            self._elided_start = 0
-            self._elided_end = 0
-        else:
-            self._elided_start = elided_start
-            self._elided_end = elided_end
         self._prev_stable_rows = frozen_rows_this_frame
-        return y - area.y
-
-    def _splice_frozen_rows(
-        self,
-        child: Component,
-        frozen_buf: Buffer,
-        buf: Buffer,
-        y: int,
-        x: int,
-        *,
-        source_start_row: int = 0,
-    ) -> None:
-        """Copy ``frozen_buf``'s rows into ``buf`` at screen row ``y``, column ``x``.
-        Caches the "widened" (padded to ``buf``'s full width, positioned at
-        ``x``) form of the child's frozen rows across frames, keyed on the
-        child's ``frozen_generation`` — a long session's frozen span can be
-        thousands of rows, and re-widening every one of them from scratch on
-        every single frame (even when the child added nothing new) is an
-        O(total finalized history) cost paid on every keystroke. When the
-        generation, source width, or screen column hasn't changed since the
-        last call, only rows appended since then are widened, and the whole
-        span is applied to ``buf`` as one bulk contiguous list copy instead
-        of a per-row Python loop.
-        """
-        cache = self._child_row_cache.get(id(child))
-        gen = getattr(child, "frozen_generation", None)
-        source_width = frozen_buf.area.width
-        dst_width = buf.area.width
-        source_rows = frozen_buf.area.height
-
-        reusable = (
-            cache is not None
-            and cache.x == x
-            and cache.row_width == dst_width
-            and cache.source_width == source_width
-            and (gen is None or cache.generation == gen)
-            and cache.rows <= source_rows
-        )
-        if not reusable:
-            cache = _ChildRowCache(
-                generation=gen if gen is not None else -1,
-                x=x,
-                source_width=source_width,
-                row_width=dst_width,
-            )
-            self._child_row_cache[id(child)] = cache
-
-        assert cache is not None
-        if cache.rows < source_rows:
-            # Widen only the rows appended since the cache was last built —
-            # a child's frozen buffer is only ever grown, never rewritten in
-            # place, between generation bumps (see MessageList._frozen_buf).
-            new_rows = source_rows - cache.rows
-            widened = [_BLANK_CELL] * (new_rows * dst_width)
-            for r in range(new_rows):
-                src = (cache.rows + r) * source_width
-                dst = r * dst_width + x
-                widened[dst : dst + source_width] = frozen_buf.content[src : src + source_width]
-            cache.content.extend(widened)
-            cache.rows = source_rows
-
-        source_start_row = max(0, min(source_start_row, source_rows))
-        rows_to_copy = source_rows - source_start_row
-        if rows_to_copy <= 0:
-            return
-
-        dst_start = y * dst_width
-        cache_start = source_start_row * dst_width
-        span = rows_to_copy * dst_width
-        cache_end = cache_start + span
-        # Avoid slicing cache.content when it's used in full (the common
-        # case) — list.__getitem__ with a slice allocates a new list before
-        # the assignment even runs, which would silently double the copy
-        # cost this cache exists to avoid.
-        if cache_start == 0 and span == len(cache.content):
-            copy_content = cache.content
-        else:
-            copy_content = cache.content[cache_start:cache_end]
-        buf.content[dst_start : dst_start + span] = copy_content
-
-        if frozen_buf.raw_writes:
-            buf.raw_writes.extend(
-                RawWrite(x + rw.x, y + rw.y - source_start_row, rw.data, rw.token)
-                for rw in frozen_buf.raw_writes
-                if source_start_row <= rw.y < source_rows
-            )
-
+        return lines
 
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
         """Return a mouse event as zero-based coordinates relative to a direct child."""
@@ -947,14 +720,13 @@ class TUI(Container):
         super().clear()
         self._child_rows = {}
         self._child_frozen_gen = {}
-        self._child_row_cache = {}
         self._renderer.clear()
         self._request_render()
 
     def _forget_child_state(self, component: Component) -> None:
         """Drop id()-keyed render-cache state for a component leaving the tree.
 
-        Without this, ``_child_frozen_gen``/``_child_row_cache`` (see
+        Without this, ``_child_frozen_gen`` (see
         render_cells) only ever grow — a long session that dynamically swaps
         widgets (e.g. ``Layout.set_footer``) leaks one entry per removal.
         Worse than the leak itself: once the removed component is garbage
@@ -965,7 +737,6 @@ class TUI(Container):
         key = id(component)
         self._child_rows.pop(key, None)
         self._child_frozen_gen.pop(key, None)
-        self._child_row_cache.pop(key, None)
 
     # -------------------------------------------------------------------------
     # Public API
@@ -1219,7 +990,7 @@ class TUI(Container):
         return self._terminal
 
     @property
-    def renderer(self) -> Renderer:
+    def renderer(self) -> StringRenderer:
         return self._renderer
 
     # -------------------------------------------------------------------------
@@ -1602,7 +1373,7 @@ class TUI(Container):
         emits them far faster than that — coalesce into a single trailing
         paint instead of each forcing its own. A resize repaint is the most
         expensive frame the renderer produces (full clear, full rewrap from
-        block 0, full transcript replay: see ScrollbackTerminal._full_render
+        block 0, full transcript replay: see ScrollbackRenderer._full_render
         and MessageList's frozen-prefix discard), so running one per signal
         makes a drag progressively less responsive on a long session. Nothing
         is dropped by coalescing: the renderer's state is armed per signal, and

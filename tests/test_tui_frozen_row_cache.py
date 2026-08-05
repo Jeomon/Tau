@@ -1,23 +1,16 @@
-"""Tests for TUI.render_cells's cross-frame cache of widened frozen rows.
+"""MessageList's frozen prefix must stay correct as history changes.
 
-TUI.render_cells splices a render_split_cells-capable child's (currently just
-MessageList) already-finalized rows into the frame buffer every frame. Doing
-that by re-widening every frozen row from scratch each time is an O(total
-finalized history) cost paid on every keystroke in a long session (see
-_ChildRowCache / _splice_frozen_rows in tau/tui/service.py). These tests pin
-the invariants that caching must not break: identical output to the
-uncached path, correct incremental growth, and — critically — no stale
-content surviving a cache reset (clear(), undo) that doesn't also bump
-row count in a way the cache would otherwise notice.
+Originally tests for TUI.render_cells's cross-frame cache of pre-widened Cell
+rows. That cache is gone with the cell renderer — copying string references is
+free, so there is nothing to widen or cache — but the behaviour it existed to
+protect is not: the frozen prefix must still reflect growth, clears, undo and
+width changes without leaking rows for content that no longer exists.
 """
 
 from __future__ import annotations
 
 from tau.message.types import AssistantMessage, UserMessage
 from tau.modes.interactive.components.message_list import MessageList
-from tau.tui.ansi_bridge import row_to_ansi
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.service import TUI
 from tau.tui.theme import MessageTheme
 
@@ -47,9 +40,7 @@ class FakeTerminal:
 
 
 def _render_lines(tui: TUI, inner_width: int) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, tui.terminal.width, 0))
-    tui.render_cells(Rect(1, 0, inner_width, 0), buf)
-    return [row_to_ansi(buf, y) for y in range(buf.area.height)]
+    return tui.render(inner_width)
 
 
 def _make(width: int = WIDTH) -> tuple[TUI, MessageList]:
@@ -73,45 +64,6 @@ def test_cache_reuse_matches_uncached_output_as_history_grows() -> None:
         ml.add_message(UserMessage.from_text(f"question {i}"))
         ml.add_message(AssistantMessage.from_text(f"answer {i}"))
         assert _render_lines(tui, inner) == _render_lines(tui, inner)
-
-
-def test_cache_is_reused_across_frames_when_nothing_changed() -> None:
-    tui, ml = _make()
-    inner = WIDTH - 2
-    for i in range(20):
-        ml.add_message(UserMessage.from_text(f"q{i}"))
-        ml.add_message(AssistantMessage.from_text(f"a{i}"))
-
-    _render_lines(tui, inner)
-    cache = tui._child_row_cache[id(ml)]
-    content_before = cache.content
-    rows_before = cache.rows
-    assert rows_before > 0
-
-    _render_lines(tui, inner)
-    cache_after = tui._child_row_cache[id(ml)]
-    assert cache_after is cache
-    assert cache_after.content is content_before  # never reallocated, only extended
-    assert cache_after.rows == rows_before
-
-
-def test_cache_grows_incrementally_with_new_messages() -> None:
-    tui, ml = _make()
-    inner = WIDTH - 2
-    for i in range(20):
-        ml.add_message(UserMessage.from_text(f"q{i}"))
-        ml.add_message(AssistantMessage.from_text(f"a{i}"))
-    _render_lines(tui, inner)
-    rows_before = tui._child_row_cache[id(ml)].rows
-
-    ml.add_message(UserMessage.from_text("one more"))
-    ml.add_message(AssistantMessage.from_text("final answer"))
-    lines = _render_lines(tui, inner)
-
-    rows_after = tui._child_row_cache[id(ml)].rows
-    assert rows_after >= rows_before
-    assert any("final answer" in line for line in lines)
-    assert any("q0" in line for line in lines)  # old content preserved
 
 
 def test_clear_does_not_leak_stale_cached_rows() -> None:
@@ -168,54 +120,3 @@ def test_width_change_rebuilds_cache_cleanly() -> None:
     assert _render_lines(tui, 20) == narrow
     # And back to wide must match too.
     assert _render_lines(tui, WIDTH - 2) == wide
-
-
-def test_elided_frozen_prefix_survives_across_renderer_frames() -> None:
-    """Regression: eliding stable MessageList rows must not erase history.
-
-    ``TUI.render_cells`` can skip re-copying already-stable frozen rows into
-    the frame buffer (perf path from 1c89b65). Those holes must be reinstated
-    from the previous frame before ScrollbackTerminal diffs/commits — otherwise
-    user/assistant messages vanish until a full redraw (e.g. terminal resize).
-    """
-    from tau.tui.component import StaticComponent
-    from tau.tui.service import Renderer
-
-    term = FakeTerminal(width=WIDTH, height=24)
-    tui = TUI(terminal=term)  # type: ignore[arg-type]
-    ml = MessageList(theme=MessageTheme())
-    # Match interactive Layout order: header + spacer + messages.
-    tui.children.extend(
-        [StaticComponent(["Tau v0.7.9"]), StaticComponent([""]), ml]
-    )
-    renderer = Renderer(term)  # type: ignore[arg-type]
-
-    ml.add_message(UserMessage.from_text("hi"))
-    ml.add_message(AssistantMessage.from_text("Hello! How can I help you today?"))
-    for block in ml._blocks:
-        block.finalize()
-    renderer.render(tui)
-
-    ml.add_message(UserMessage.from_text("second"))
-    ml.add_message(AssistantMessage.from_text("second answer"))
-    for block in ml._blocks:
-        block.finalize()
-    renderer.render(tui)
-
-    prev = renderer._engine._prev
-    assert prev is not None
-    joined = "\n".join(row_to_ansi(prev, y) for y in range(prev.area.height))
-    assert "hi" in joined
-    assert "Hello! How can I help you today?" in joined
-    assert "second" in joined
-    assert "second answer" in joined
-    # Absolute stable_through must cover header/spacer + frozen MessageList.
-    assert tui._stable_rows > 0
-
-    ml.add_message(UserMessage.from_text("third live"))
-    renderer.render(tui)
-    prev = renderer._engine._prev
-    assert prev is not None
-    joined = "\n".join(row_to_ansi(prev, y) for y in range(prev.area.height))
-    for needle in ("hi", "Hello", "second", "second answer", "third live"):
-        assert needle in joined

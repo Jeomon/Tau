@@ -194,7 +194,7 @@ def session_to_html(session_manager: Any, *, title: str | None = None) -> str:
         f'<html lang="en"><head><meta charset="utf-8">'
         f'<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{_esc(heading)}</title><style>{_STYLE}</style></head><body>"
-        f"<header><h1>{_esc(heading)}</h1><dl class=\"meta\">{meta_html}</dl></header>"
+        f'<header><h1>{_esc(heading)}</h1><dl class="meta">{meta_html}</dl></header>'
         + ("".join(sections) or "<p>This session has no messages.</p>")
         + "<footer>Exported by tau</footer></body></html>\n"
     )

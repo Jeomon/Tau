@@ -257,9 +257,7 @@ class TestMediaMappers:
 
     def test_image_rejects_chat_and_deprecated(self):
         chat = _entry(modalities={"input": ["text"], "output": ["text"]})
-        dep = _entry(
-            status="deprecated", modalities={"input": ["text"], "output": ["image"]}
-        )
+        dep = _entry(status="deprecated", modalities={"input": ["text"], "output": ["image"]})
         assert catalog_mod._to_image_model("openai", chat) is None
         assert catalog_mod._to_image_model("openai", dep) is None
 
@@ -286,9 +284,7 @@ class TestMediaMappers:
     def test_audio_chat_models_excluded(self):
         # Gemini-style chat (audio+text in, text out) belongs to the text
         # registry, not the audio one.
-        gemini_chat = _entry(
-            modalities={"input": ["text", "image", "audio"], "output": ["text"]}
-        )
+        gemini_chat = _entry(modalities={"input": ["text", "image", "audio"], "output": ["text"]})
         realtime = _entry(modalities={"input": ["audio", "text"], "output": ["audio", "text"]})
         assert catalog_mod._to_audio_model("google", gemini_chat) is None
         assert catalog_mod._to_audio_model("openai", realtime) is None
@@ -384,9 +380,7 @@ class TestRealPayloadShape:
                         "name": "Claude Test",
                         "attachment": True,
                         "reasoning": True,
-                        "reasoning_options": [
-                            {"type": "effort", "values": ["low", "high", "max"]}
-                        ],
+                        "reasoning_options": [{"type": "effort", "values": ["low", "high", "max"]}],
                         "cost": {"input": 5, "output": 25, "cache_read": 0.5, "tiers": []},
                         "limit": {"context": 1_000_000, "output": 128_000},
                         "modalities": {"input": ["text", "image", "pdf"], "output": ["text"]},

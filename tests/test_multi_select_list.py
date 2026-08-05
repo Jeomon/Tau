@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
 from tau.tui.components.multi_select_list import (
     CHECKED_SYMBOL,
     UNCHECKED_SYMBOL,
     MultiSelectItem,
     MultiSelectList,
 )
-from tau.tui.geometry import Rect
 from tau.tui.input import KeyEvent
+from tau.tui.utils import strip_ansi
 
 
 def _key(name: str) -> KeyEvent:
@@ -29,11 +28,7 @@ def _list(labels=("Web", "CLI", "Mobile"), **kwargs):
 
 
 def _render(component, width: int = 70) -> str:
-    buf = Buffer.empty(Rect(0, 0, width, 40))
-    rows = component.render_cells(Rect(0, 0, width, 40), buf)
-    return "\n".join(
-        "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)
-    )
+    return "\n".join(strip_ansi(line).rstrip() for line in component.render(width))
 
 
 class TestSelection:

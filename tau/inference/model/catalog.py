@@ -88,6 +88,7 @@ def _all_dev_ids() -> set[str]:
         | set(AUDIO_PROVIDER_MAP.values())
     )
 
+
 # Input modalities each tau adapter actually wires beyond text+image — mirrors
 # the constraints documented in tau/builtins/models/text.py. The catalog's
 # declared modalities are intersected with this set so a dynamic model can't

@@ -447,9 +447,7 @@ class TestGetEntries:
     async def test_returns_every_entry_and_the_leaf(self, captured):
         sm = _EntriesSessionManager([_Entry("e1"), _Entry("e2"), _Entry("e3")])
 
-        await mode._handle_command(
-            {"type": "get_entries", "id": "1"}, _Runtime(_Agent(), sm), {}
-        )
+        await mode._handle_command({"type": "get_entries", "id": "1"}, _Runtime(_Agent(), sm), {})
 
         data = captured[-1]["data"]
         assert [e["id"] for e in data["entries"]] == ["e1", "e2", "e3"]

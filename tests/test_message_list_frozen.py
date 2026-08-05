@@ -1,10 +1,15 @@
-"""render_split_cells must visually agree with the full native render.
+"""render_split_lines must agree with rendering the whole list.
 
-MessageList caches "finalized" render units as Cell rows (render_split_cells)
-so a long session doesn't re-parse and re-diff its entire history every
-frame. These tests pin the one invariant that matters: whatever the cache
-returns must produce the same styled cells as the compatibility render path —
-across growth, streaming, undo, toggling, theme changes, and resize.
+MessageList caches "finalized" render units as ANSI rows
+(``render_split_lines``) so a long session doesn't re-render its entire
+history every frame. These tests pin the invariant that matters: whatever the
+cache returns must produce the same content as rendering everything — across
+growth, streaming, undo, toggling, theme changes and resize — plus the
+freezing rules themselves (the last unit is never frozen, a finalized unit
+freezes immediately, and so on).
+
+Ported from the Cell-based cache these originally covered; the invariants are
+the cache's, not the representation's.
 """
 
 from __future__ import annotations
@@ -19,9 +24,7 @@ from tau.message.types import (
     UserMessage,
 )
 from tau.modes.interactive.components.message_list import MessageList
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into, row_to_ansi
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.compose import wrap_to_rows
 from tau.tui.theme import MessageTheme
 from tau.tui.utils import strip_ansi, visible_width
 
@@ -29,90 +32,19 @@ WIDTH = 60
 
 
 def _split_as_lines(ml: MessageList, width: int) -> list[str]:
-    """Reconstruct render_split_cells's output as plain ANSI lines for comparison.
-
-    ``row_to_ansi`` always emits a full-width row (trailing blank cells become
-    trailing spaces); ``MessageBlock``'s own ``render()`` doesn't pad short
-    lines out to the terminal width. Both paint identically on a real
-    terminal (a blank cell is a blank cell), so lines are compared with
-    trailing whitespace stripped — the only thing that must match exactly is
-    the actual content and its styling.
-    """
-    frozen_buf, live_lines = ml.render_split_cells(width)
-    lines: list[str] = []
-    if frozen_buf is not None:
-        for y in range(frozen_buf.area.height):
-            lines.append(row_to_ansi(frozen_buf, y).rstrip())
-    live_buf = Buffer.empty(Rect(0, 0, width, 0))
-    live_row = 0
-    for line in live_lines:
-        live_row += parse_ansi_wrapped_into(live_buf, 0, live_row, line, width)
-    lines.extend(row_to_ansi(live_buf, y).rstrip() for y in range(live_row))
+    """The cache's output: frozen rows plus the still-live tail, wrapped."""
+    frozen, live = ml.render_split_lines(width)
+    lines = [x.rstrip() for x in frozen]
+    for line in live:
+        lines.extend(x.rstrip() for x in wrap_to_rows(line, width))
     return lines
 
 
 def _render_as_lines(ml: MessageList, width: int) -> list[str]:
-    """Render the complete message list through its native component contract."""
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    row = ml.render_cells(Rect(0, 0, width, 0), buf)
-    return [row_to_ansi(buf, y).rstrip() for y in range(row)]
+    """Render the complete message list through its component contract."""
+    return [x.rstrip() for x in ml.render(width)]
 
 
-def _viewport_as_lines(ml: MessageList, width: int, start: int, height: int) -> list[str]:
-    view = ml.render_viewport_cells(width, start, height)
-    return [row_to_ansi(view.buf, y).rstrip() for y in range(view.buf.area.height)]
-
-
-def test_row_metadata_tracks_frozen_and_live_units() -> None:
-    ml = MessageList(theme=MessageTheme())
-    _add_conversation(ml, 5)
-    ml.add_message(UserMessage.from_text("stream please"))
-    streaming = ml.add_message(AssistantMessage.from_text("partial answer"), streaming=True)
-
-    ml.render_split_cells(WIDTH, collect_metadata=True)
-
-    metadata = ml.row_metadata
-    assert metadata
-    assert sum(unit.row_count for unit in metadata) == len(_split_as_lines(ml, WIDTH))
-    assert metadata[-1].start_block == len(ml._blocks) - 1
-    assert metadata[-1].end_block == len(ml._blocks)
-    assert metadata[-1].frozen is False
-    assert any(unit.frozen for unit in metadata[:-1])
-
-    streaming.set_streaming(False)
-    streaming.finalize()
-    streaming.invalidate()
-    ml.render_split_cells(WIDTH, collect_metadata=True)
-    assert all(unit.frozen for unit in ml.row_metadata)
-
-
-def test_render_viewport_cells_matches_full_render_slices() -> None:
-    ml = MessageList(theme=MessageTheme())
-    _add_conversation(ml, 20)
-    ml.add_message(UserMessage.from_text("final question"))
-    ml.add_message(AssistantMessage.from_text("final answer " * 20), streaming=True)
-
-    full = _split_as_lines(ml, WIDTH)
-    for start in (0, 3, 17, max(0, len(full) - 8), len(full) + 5):
-        height = 7
-        view = ml.render_viewport_cells(WIDTH, start, height)
-        expected = full[start : start + height]
-        assert view.total_rows == len(full)
-        assert view.row_offset == max(0, start)
-        assert _viewport_as_lines(ml, WIDTH, start, height) == expected
-
-
-def test_render_viewport_cells_reflows_after_width_change() -> None:
-    ml = MessageList(theme=MessageTheme())
-    _add_conversation(ml, 8)
-    ml.add_message(AssistantMessage.from_text("wide words " * 30), streaming=True)
-
-    narrow_full = _split_as_lines(ml, 32)
-    wide_full = _split_as_lines(ml, WIDTH)
-    assert narrow_full != wide_full
-
-    assert _viewport_as_lines(ml, 32, 2, 10) == narrow_full[2:12]
-    assert _viewport_as_lines(ml, WIDTH, 2, 10) == wide_full[2:12]
 def _add_conversation(ml: MessageList, n: int) -> None:
     for i in range(n):
         ml.add_message(UserMessage.from_text(f"question number {i}"))
@@ -164,33 +96,32 @@ def test_frozen_cache_survives_incremental_calls_without_rebuilding() -> None:
     """Cached frozen rows must be reused (never rebuilt) across calls."""
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 20)
-    ml.render_split_cells(WIDTH)
-    frozen_buf_before = ml._frozen_buf
-    frozen_rows_before = frozen_buf_before.area.height if frozen_buf_before else 0
+    ml.render_split_lines(WIDTH)
+    frozen_before = list(ml._frozen_lines)
+    frozen_rows_before = len(frozen_before)
     assert frozen_rows_before > 0
 
     ml.add_message(UserMessage.from_text("new question"))
     ml.add_message(AssistantMessage.from_text("new answer"))
-    ml.render_split_cells(WIDTH)
+    ml.render_split_lines(WIDTH)
 
     # Same Buffer object, only grown — old rows are the *same* Cell objects.
-    assert ml._frozen_buf is frozen_buf_before
-    assert ml._frozen_buf.area.height >= frozen_rows_before
+    assert len(ml._frozen_lines) >= frozen_rows_before
     for y in range(frozen_rows_before):
-        assert ml._frozen_buf.get(0, y) is frozen_buf_before.get(0, y)
+        assert ml._frozen_lines[y] == frozen_before[y]
 
 
 def test_undo_pops_only_the_live_tail() -> None:
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 20)
-    ml.render_split_cells(WIDTH)
-    frozen_before = ml._frozen_block_count
+    ml.render_split_lines(WIDTH)
+    frozen_before = ml._lines_block_count
     assert frozen_before > 0
 
     ml.add_message(UserMessage.from_text("oops"))
     assert ml.remove_last()
 
-    assert ml._frozen_block_count == frozen_before
+    assert ml._lines_block_count == frozen_before
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
 
@@ -205,7 +136,7 @@ def test_toggle_details_expanded_invalidates_frozen_cache() -> None:
             )
         )
     before = _render_as_lines(ml, WIDTH)
-    ml.render_split_cells(WIDTH)  # populate the frozen cache
+    ml.render_split_lines(WIDTH)  # populate the frozen cache
 
     ml.toggle_details_expanded()
 
@@ -216,7 +147,7 @@ def test_toggle_details_expanded_invalidates_frozen_cache() -> None:
 def test_set_theme_invalidates_frozen_cache() -> None:
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 15)
-    ml.render_split_cells(WIDTH)
+    ml.render_split_lines(WIDTH)
 
     from tau.tui.style import Style
 
@@ -229,7 +160,7 @@ def test_set_theme_invalidates_frozen_cache() -> None:
 def test_width_change_invalidates_frozen_cache() -> None:
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 15)
-    ml.render_split_cells(WIDTH)
+    ml.render_split_lines(WIDTH)
 
     narrower = WIDTH - 10
     assert _split_as_lines(ml, narrower) == _render_as_lines(ml, narrower)
@@ -265,41 +196,16 @@ def test_long_tool_error_wraps_without_losing_content_and_reflows_on_resize() ->
 def test_clear_resets_frozen_cache() -> None:
     ml = MessageList(theme=MessageTheme())
     _add_conversation(ml, 15)
-    ml.render_split_cells(WIDTH)
-    assert ml._frozen_buf is not None
+    ml.render_split_lines(WIDTH)
+    assert ml._frozen_lines
 
     ml.clear()
 
-    assert ml._frozen_buf is None
-    assert ml._frozen_block_count == 0
-    frozen_buf, live_lines = ml.render_split_cells(WIDTH)
-    assert frozen_buf is None or frozen_buf.area.height == 0
+    assert ml._frozen_lines == []
+    assert ml._lines_block_count == 0
+    frozen_buf, live_lines = ml.render_split_lines(WIDTH)
+    assert frozen_buf == []
     assert live_lines == []
-
-
-def test_frozen_buf_cell_rows_render_identically_via_row_to_ansi() -> None:
-    """Splicing frozen_buf's cells into a larger buffer must reproduce the
-    exact same text as parsing the original ANSI lines directly — the core
-    assumption TUI.render_cells relies on when it copies these rows by
-    reference instead of re-parsing them."""
-    ml = MessageList(theme=MessageTheme())
-    _add_conversation(ml, 10)
-    full_lines = _render_as_lines(ml, WIDTH)
-
-    frozen_buf, _live_lines = ml.render_split_cells(WIDTH)
-    assert frozen_buf is not None
-    frozen_rows = frozen_buf.area.height
-
-    target = Buffer.empty(Rect(0, 0, WIDTH + 2, 0))
-    target.grow_to(frozen_rows)
-    for r in range(frozen_rows):
-        for x in range(WIDTH):
-            cell = frozen_buf.get(x, r)
-            target.set(x + 1, r, cell.symbol, cell.style)
-
-    spliced_lines = [row_to_ansi(target, y)[1 : 1 + WIDTH].rstrip() for y in range(frozen_rows)]
-    expected = [line.rstrip() for line in full_lines[:frozen_rows]]
-    assert spliced_lines == expected
 
 
 def test_large_finished_unit_freezes_once_something_follows_it() -> None:
@@ -315,10 +221,10 @@ def test_large_finished_unit_freezes_once_something_follows_it() -> None:
     ml.add_message(AssistantMessage.from_text(huge_output))  # not streaming, but still last
     ml.add_message(UserMessage.from_text("looks good"))  # proves the previous unit is done
 
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    _frozen_lines, live_lines = ml.render_split_lines(WIDTH)
 
     # Only the new trailing message stays live; the huge output got frozen.
-    assert ml._frozen_block_count == len(ml._blocks) - 1
+    assert ml._lines_block_count == len(ml._blocks) - 1
     assert len(live_lines) < 10
 
 
@@ -336,9 +242,9 @@ def test_finalized_large_unit_freezes_immediately_even_while_last() -> None:
     block.set_streaming(False)
     block.finalize()  # mirrors agent_hooks.py's terminal-execution-end handler
 
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    _frozen_lines, live_lines = ml.render_split_lines(WIDTH)
 
-    assert ml._frozen_block_count == len(ml._blocks)
+    assert ml._lines_block_count == len(ml._blocks)
     assert len(live_lines) == 0
 
 
@@ -357,19 +263,19 @@ def test_last_unit_is_never_frozen_even_when_not_streaming() -> None:
     placeholder = ml.add_message(AssistantMessage.from_text(""), streaming=False)
 
     # A render happens here in the real app (request_render() after message_start).
-    ml.render_split_cells(WIDTH)
+    ml.render_split_lines(WIDTH)
 
     # Now the "stream" actually delivers content, exactly like _update_block.
     placeholder._message = AssistantMessage.from_text("Hi there!")
     placeholder.set_streaming(True)
     placeholder.invalidate()
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    _frozen_lines, live_lines = ml.render_split_lines(WIDTH)
     assert any("Hi there!" in line for line in live_lines)
 
     # And once the turn ends (streaming=False for good, nothing further).
     placeholder.set_streaming(False)
     placeholder.invalidate()
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
+    _frozen_lines, live_lines = ml.render_split_lines(WIDTH)
     assert any("Hi there!" in line for line in live_lines)
     assert _split_as_lines(ml, WIDTH) == _render_as_lines(ml, WIDTH)
 
@@ -386,8 +292,8 @@ def test_toggle_details_expanded_reaches_an_already_frozen_block() -> None:
         ToolMessage(contents=[ToolResultContent(id="t1", tool_name="grep", content=big_result)])
     )
     ml.add_message(UserMessage.from_text("thanks"))  # pushes the tool result out of "last unit"
-    ml.render_split_cells(WIDTH)
-    assert ml._frozen_block_count == len(ml._blocks) - 1  # confirms it's actually frozen
+    ml.render_split_lines(WIDTH)
+    assert ml._lines_block_count == len(ml._blocks) - 1  # confirms it's actually frozen
 
     before = _render_as_lines(ml, WIDTH)
     ml.toggle_details_expanded()
@@ -425,14 +331,14 @@ def test_ctrl_o_still_works_after_a_reply_is_finalized_and_frozen() -> None:
     block = ml.add_message(
         AssistantMessage(contents=[ThinkingContent(content=long_thinking)]), streaming=True
     )
-    ml.render_split_cells(WIDTH)  # mid-stream render, like a real session
+    ml.render_split_lines(WIDTH)  # mid-stream render, like a real session
 
     # Mirrors _on_message_end -> _update_block(msg, streaming=False, clear=True).
     block.set_streaming(False)
     block.invalidate()
     block.finalize()
-    _frozen_buf, live_lines = ml.render_split_cells(WIDTH)
-    assert ml._frozen_block_count == len(ml._blocks)
+    _frozen_lines, live_lines = ml.render_split_lines(WIDTH)
+    assert ml._lines_block_count == len(ml._blocks)
     assert live_lines == []
 
     before = _render_as_lines(ml, WIDTH)

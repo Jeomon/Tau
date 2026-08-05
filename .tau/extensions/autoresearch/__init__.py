@@ -16,9 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 
 from .dashboard import DashboardOverlay, widget_lines
 from .hooks import run_hook
@@ -51,13 +49,13 @@ class _Widget(Component):
     def set_lines(self, lines: list[str]) -> None:
         self._lines = list(lines)
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import wrap_to_rows
 
-        row = 0
+        rows: list[str] = []
         for line in self._lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+            rows.extend(wrap_to_rows(line, width))
+        return rows
 
 
 class Session:
@@ -321,7 +319,6 @@ def register(tau: Any) -> None:
                 trigger_turn=True,
             )
             return
-
 
         _notify(
             ctx,

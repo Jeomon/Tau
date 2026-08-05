@@ -323,8 +323,7 @@ class TextLLM:
             return ErrorEvent(
                 reason=StopReason.Error,
                 error=(
-                    "Authentication failed — your session has expired."
-                    " Run /login to sign in again."
+                    "Authentication failed — your session has expired. Run /login to sign in again."
                 ),
                 kind=ErrorKind.AUTH,
             )
@@ -648,8 +647,7 @@ class TextLLM:
                                 ErrorEvent(
                                     reason=StopReason.Error,
                                     error=(
-                                        f"Empty response from {self.provider_id};"
-                                        " retry aborted."
+                                        f"Empty response from {self.provider_id}; retry aborted."
                                     ),
                                 ),
                             ]

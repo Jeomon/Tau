@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
@@ -81,9 +79,9 @@ class CommandPalette(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         if not self._commands:
-            return 0
+            return []
 
         count = len(self._commands)
         visible = min(VISIBLE_ROWS, count)
@@ -103,20 +101,15 @@ class CommandPalette(Component):
                 20,
             ),
         )
-        desc_w = max(0, area.width - label_w - 4)  # 4 = "  " + " " + margin
+        desc_w = max(0, width - label_w - 4)  # 4 = "  " + " " + margin
 
         t = self._theme
-        y = area.y
+        out: list[str] = []
 
         def write(line: str) -> None:
-            nonlocal y
-            from tau.tui.ansi_bridge import parse_ansi_into
-            from tau.tui.utils import visible_width, wrap
+            from tau.tui.compose import wrap_to_rows
 
-            for wl in wrap(line, area.width) if visible_width(line) > area.width else [line]:
-                buf.grow_to(y + 1)
-                parse_ansi_into(buf, area.x, y, wl, area.width)
-                y += 1
+            out.extend(wrap_to_rows(line, width))
 
         if start > 0:
             write(apply_style(t.indicator, f"  ↑ {start} more"))
@@ -141,21 +134,18 @@ class CommandPalette(Component):
 
         self._list_state.select(self._selected)
         self._list_state.offset = start
-        list_area = Rect(area.x, y, area.width, visible)
-        buf.grow_to(y + visible)
         widget = List(
             items=list_items,
             highlight_symbol="",
             highlight_style=t.selected_bg if t.selected_bg is not None else Style(),
         )
-        widget.render(list_area, buf, self._list_state)
-        y += visible
+        out.extend(widget.render_lines(width, visible, self._list_state))
 
         remaining = count - (start + visible)
         if remaining > 0:
             write(apply_style(t.indicator, f"  ↓ {remaining} more"))
 
-        return y - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

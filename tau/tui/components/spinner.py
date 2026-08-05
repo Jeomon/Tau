@@ -4,9 +4,9 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
+from tau.tui.compose import line_to_ansi
+from tau.tui.text import Line, Span
 from tau.tui.theme import SpinnerTheme
 from tau.tui.utils import format_number
 
@@ -215,19 +215,23 @@ class Spinner(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        """One line of styled segments.
+
+        This repaints on every animation tick, so it is the component that
+        most wants to avoid the cell round trip. The segments are assembled as
+        spans and flattened once; ``line_to_ansi`` clips them to the width the
+        way ``set_string(max_width=...)`` used to.
+        """
         if not self.active or self._force_hidden:
-            return 0
-        buf.grow_to(area.y + 1)
+            return []
         t = self._theme
         frames = self._custom_frames if self._custom_frames is not None else (t.frames or ["…"])
-        char = frames[self._frame % len(frames)]
-        col = buf.set_string(area.x, area.y, char, t.frame_color, max_width=area.width)
+        spans = [Span(frames[self._frame % len(frames)], t.frame_color)]
         # A layered reason (e.g. "Compacting…") takes precedence over the base label.
         text = self._reasons[-1][1] if self._reasons else self._label
         if text:
-            remaining = area.x + area.width - col
-            col = buf.set_string(col, area.y, f" {text}", t.label_color, max_width=remaining)
+            spans.append(Span(f" {text}", t.label_color))
         if self._turn_started_at is not None:
             elapsed = _format_elapsed(time.monotonic() - self._turn_started_at)
             # ↑ = outgoing (prompt/input tokens sent), ↓ = incoming (output
@@ -235,10 +239,8 @@ class Spinner(Component):
             # actually streaming in, so it belongs on the down side.
             up = format_number(self._tokens_up)
             down = format_number(self._tokens_down + self._streaming_estimate)
-            stats = f" ({elapsed} · ↑{up} ↓{down})"
-            remaining = area.x + area.width - col
-            buf.set_string(col, area.y, stats, t.stat_color, max_width=remaining)
-        return 1
+            spans.append(Span(f" ({elapsed} · ↑{up} ↓{down})", t.stat_color))
+        return [line_to_ansi(Line(spans), width)]
 
     # -------------------------------------------------------------------------
     # Animation loop

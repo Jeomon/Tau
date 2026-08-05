@@ -5,7 +5,7 @@ the cursor, Enter confirms the whole set, Esc cancels — so an empty result and
 a cancelled one stay distinguishable (``[]`` vs ``None``).
 
 Layering follows the rest of the TUI: this owns the state and the keys, while
-the scroll window and row painting go through ``render_picker_cells`` and, under
+the scroll window and row painting go through ``render_picker_lines`` and, under
 that, the ``List`` widget in ``tui/widgets/``. Nothing interactive belongs in
 ``widgets/`` — those are immediate-mode painters that never read input.
 """
@@ -16,8 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.component import Component
-from tau.tui.components.simple_picker import PickerRow, render_picker_cells
-from tau.tui.geometry import Rect
+from tau.tui.components.simple_picker import PickerRow, render_picker_lines
 from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import Style
 from tau.tui.text import Span
@@ -26,7 +25,7 @@ from tau.tui.utils import wrap
 from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
+    pass
 
 #: Continuation rows sit under the label, past the arrow + checkbox columns.
 DETAIL_INDENT = "      "
@@ -88,7 +87,7 @@ class MultiSelectList(Component):
 
     # ── Render ────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         t = self.theme
         header = [f"  {self.title}"] if self.title else []
         if self._warning:
@@ -97,7 +96,7 @@ class MultiSelectList(Component):
         # Descriptions go on their own wrapped rows beneath the label rather
         # than trailing it — at narrow widths a trailing description is just
         # truncated, and long ones are exactly where the detail matters.
-        detail_width = max(area.width - len(DETAIL_INDENT) - 4, 20)
+        detail_width = max(width - len(DETAIL_INDENT) - 4, 20)
 
         rows: list[PickerRow] = []
         for item in self.items:
@@ -125,9 +124,8 @@ class MultiSelectList(Component):
         count = sum(1 for item in self.items if item.checked)
         hint = f"{count} selected  ·  {self.hint}" if count else self.hint
 
-        return render_picker_cells(
-            buf,
-            area,
+        return render_picker_lines(
+            width,
             header=header,
             rows=rows,
             selected=self._cursor,

@@ -149,9 +149,7 @@ class TestToggling:
         layout.on_toggle(entry, False)
 
         written = saved["project"]
-        assert [(e.path, e.enabled) for e in written] == [
-            (".tau/extensions/discovered_ext", False)
-        ]
+        assert [(e.path, e.enabled) for e in written] == [(".tau/extensions/discovered_ext", False)]
 
     def test_toggling_a_configured_extension_updates_it_in_place(self, project):
         ctx, layout, saved, _ = _ctx(
@@ -200,9 +198,7 @@ class TestCrossInstallBuiltinDedup:
         self._make_builtin_dir(running_install, "web")
         other_web = self._make_builtin_dir(other_install, "web")
 
-        monkeypatch.setattr(
-            "tau.settings.paths.get_builtins_dir", lambda: running_install
-        )
+        monkeypatch.setattr("tau.settings.paths.get_builtins_dir", lambda: running_install)
 
         ctx, layout, _, _ = _ctx(
             tmp_path,
@@ -219,9 +215,9 @@ class TestCrossInstallBuiltinDedup:
 
         open_config_panel(ctx)
 
-        assert not any(
-            e.scope == "global" and "web" in e.path for e in layout.entries
-        ), "cross-install builtin entry leaked into the Global listing"
+        assert not any(e.scope == "global" and "web" in e.path for e in layout.entries), (
+            "cross-install builtin entry leaked into the Global listing"
+        )
         builtin_entries = [e for e in layout.entries if e.scope == "builtin"]
         assert any(e.name == "web" for e in builtin_entries)
 
@@ -230,9 +226,7 @@ class TestCrossInstallBuiltinDedup:
     ):
         running_install = tmp_path / "running_install"
         self._make_builtin_dir(running_install, "web")
-        monkeypatch.setattr(
-            "tau.settings.paths.get_builtins_dir", lambda: running_install
-        )
+        monkeypatch.setattr("tau.settings.paths.get_builtins_dir", lambda: running_install)
 
         third_party = tmp_path / "third_party_ext"
         third_party.mkdir()
@@ -246,9 +240,7 @@ class TestCrossInstallBuiltinDedup:
 
         open_config_panel(ctx)
 
-        assert any(
-            e.scope == "global" and e.name == "third_party_ext" for e in layout.entries
-        )
+        assert any(e.scope == "global" and e.name == "third_party_ext" for e in layout.entries)
 
 
 class TestCrossScopeDuplicate:

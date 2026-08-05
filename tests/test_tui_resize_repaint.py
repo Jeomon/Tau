@@ -13,10 +13,6 @@ import time
 
 import pytest
 
-from tau.tui.buffer import Buffer
-from tau.tui.component import StaticComponent
-from tau.tui.frame import ScrollbackTerminal
-from tau.tui.geometry import Rect
 from tau.tui.service import TUI
 
 
@@ -57,82 +53,12 @@ class FakeTerminal:
         return lambda *a, **k: ""
 
 
-def _buf(lines: list[str], width: int) -> Buffer:
-    component = StaticComponent(lines)
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    component.render_cells(Rect(0, 0, width, 0), buf)
-    return buf
-
-
 def _cleared(term: FakeTerminal) -> bool:
     return any("\x1b[2J" in w for w in term.writes)
 
 
 # ---------------------------------------------------------------------------
 # Termux: a height-only change is the soft keyboard, not a reflow
-# ---------------------------------------------------------------------------
-
-
-class TestTermuxHeightExemption:
-    def test_height_only_change_keeps_diff_state(self, monkeypatch):
-        """Keyboard show/hide must not replay the whole transcript."""
-        monkeypatch.setattr("tau.tui.frame._IS_TERMUX", True)
-        term = FakeTerminal()
-        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
-        renderer.render(_buf(["a", "b", "c"], term.width))
-        term.writes.clear()
-
-        term.height = 12  # soft keyboard appears; width untouched
-        term.fire_resize()
-        renderer.render(_buf(["a", "b", "d"], term.width))
-
-        assert not _cleared(term)  # differential, not a full clear+replay
-        assert any("d" in w for w in term.writes)
-
-    def test_height_only_change_reanchors_viewport(self, monkeypatch):
-        """The terminal scrolled content itself; the anchor must follow."""
-        monkeypatch.setattr("tau.tui.frame._IS_TERMUX", True)
-        term = FakeTerminal()
-        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
-        renderer.render(_buf([f"line{i}" for i in range(40)], term.width))
-        before = renderer._viewport_top
-
-        term.height = 12
-        term.fire_resize()
-
-        assert renderer._viewport_top == max(0, before + 24 - 12)
-
-    def test_width_change_still_forces_full_redraw(self, monkeypatch):
-        """Rewrapping is unavoidable, Termux or not."""
-        monkeypatch.setattr("tau.tui.frame._IS_TERMUX", True)
-        term = FakeTerminal()
-        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
-        renderer.render(_buf(["a", "b", "c"], term.width))
-        term.writes.clear()
-
-        term.width = 60
-        term.fire_resize()
-        renderer.render(_buf(["a", "b", "c"], term.width))
-
-        assert _cleared(term)
-
-    def test_height_change_off_termux_forces_full_redraw(self, monkeypatch):
-        """Everywhere else a height change is a real resize."""
-        monkeypatch.setattr("tau.tui.frame._IS_TERMUX", False)
-        term = FakeTerminal()
-        renderer = ScrollbackTerminal(term)  # type: ignore[arg-type]
-        renderer.render(_buf(["a", "b", "c"], term.width))
-        term.writes.clear()
-
-        term.height = 12
-        term.fire_resize()
-        renderer.render(_buf(["a", "b", "c"], term.width))
-
-        assert _cleared(term)
-
-
-# ---------------------------------------------------------------------------
-# Drag coalescing: leading edge immediate, tail collapsed
 # ---------------------------------------------------------------------------
 
 

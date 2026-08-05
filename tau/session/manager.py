@@ -489,9 +489,7 @@ class SessionManager:
             if isinstance(entry, MessageEntry) and isinstance(entry.message, AssistantMessage):
                 if entry.id in self._shed_ids:
                     # Body was freed from RAM; rehydrate this one from disk.
-                    hydrated = next(
-                        (e for e in self._full_entries() if e.id == entry.id), None
-                    )
+                    hydrated = next((e for e in self._full_entries() if e.id == entry.id), None)
                     if isinstance(hydrated, MessageEntry) and isinstance(
                         hydrated.message, AssistantMessage
                     ):
@@ -859,9 +857,7 @@ class SessionManager:
                 if (
                     isinstance(resident, MessageEntry)
                     and isinstance(fresh, MessageEntry)
-                    and isinstance(
-                        resident.message, (UserMessage, AssistantMessage, ToolMessage)
-                    )
+                    and isinstance(resident.message, (UserMessage, AssistantMessage, ToolMessage))
                     and isinstance(fresh.message, (UserMessage, AssistantMessage, ToolMessage))
                 ):
                     # In-place content swap keeps entry identity (indices,

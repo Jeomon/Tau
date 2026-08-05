@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_cells
-from tau.tui.geometry import Rect
+from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_lines
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import apply_style
 from tau.tui.widgets.list import ListState
@@ -48,13 +46,12 @@ class ExtensionSelector(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         t = self._theme
         header = ["  " + apply_style(t.emphasis, line) for line in self._title.splitlines()]
         rows = [PickerRow(opt) for opt in self._options]
-        return render_picker_cells(
-            buf,
-            area,
+        return render_picker_lines(
+            width,
             header=header,
             rows=rows,
             selected=self._selected,

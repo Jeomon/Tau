@@ -13,8 +13,6 @@ from tau.tui.text import Line, Span
 from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
     from tau.tui.theme import SelectListTheme
 
 _log = logging.getLogger(__name__)
@@ -153,9 +151,11 @@ class AutocompletePicker(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi_row
+
         if not self.active:
-            return 0
+            return []
 
         count = len(self._items)
         visible = min(self._max_visible, count)
@@ -168,16 +168,13 @@ class AutocompletePicker(Component):
                 24,
             ),
         )
-        desc_w = max(0, area.width - label_w - 4)
+        desc_w = max(0, width - label_w - 4)
 
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
-        def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+        def write(spans: list[Span], row_style=None) -> None:
+            out.append(line_to_ansi_row(Line(spans), width, row_style))
 
         if start > 0:
             write([Span(f"  ↑ {start} more", t.indicator)])
@@ -201,10 +198,9 @@ class AutocompletePicker(Component):
                         Span(label, t.selected_label),
                         Span("  "),
                         Span(desc, t.selected_desc),
-                    ]
+                    ],
+                    t.selected_bg or None,
                 )
-                if t.selected_bg:
-                    buf.set_style(Rect(area.x, row - 1, area.width, 1), t.selected_bg)
             else:
                 write(
                     [
@@ -219,7 +215,7 @@ class AutocompletePicker(Component):
         if remaining > 0:
             write([Span(f"  ↓ {remaining} more", t.indicator)])
 
-        return row - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -262,7 +258,7 @@ class AutocompleteManager:
 
         sync(text, cursor, commands)   — called after every keystroke
         handle_input(event, text, cursor) -> (consumed, new_text | None)
-        render_cells(area, buf) -> int
+        render(width) -> list[str]
 
     Two pickers are managed internally:
     - Extension autocomplete  (_ac_picker)     — trigger chars registered by providers
@@ -419,13 +415,17 @@ class AutocompleteManager:
 
         return False, None
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.geometry import Rect
+    def render(self, width: int) -> list[str]:
+        """Return the popup's lines: the extension picker stacked above the command-arg one.
 
-        row = area.y
-        row += self._ac_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
-        row += self._cmd_arg_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
-        return row - area.y
+        Not a ``Component`` -- its ``handle_input(event, text, cursor)`` is a
+        different protocol from ``Component.handle_input(event)``, so
+        subclassing would be a Liskov violation that mypy correctly rejects.
+        Only one of the two pickers is active at a time in practice, so an
+        inactive one contributes no lines.
+        """
+        w = max(1, width)
+        return [*self._ac_picker.render(w), *self._cmd_arg_picker.render(w)]
 
     # -------------------------------------------------------------------------
     # Trigger detection

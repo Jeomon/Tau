@@ -12,7 +12,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import RESET, apply_style
 from tau.tui.utils import rule, truncate, visible_width
@@ -24,7 +23,7 @@ from .state import (
 )
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
+    pass
 
 TITLE = "autoresearch"
 
@@ -283,18 +282,12 @@ class DashboardOverlay(Component):
             term_h = 40
         return max(6, int(term_h * 0.85) - 2)
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_into
-
+    def render(self, width: int) -> list[str]:
         theme = self._theme
-        lines = self._lines(area.width)
-        # Never exceed the area we were handed. _viewport_rows() sizes from a
-        # terminal-height hint, which is a guess about what the host will clamp
-        # to — when the real area is smaller, honouring the guess pushed the
-        # footer past the bottom and it vanished. One row is reserved for it.
+        lines = self._lines(width)
+        # _viewport_rows() sizes from a terminal-height hint; the overlay
+        # machinery clamps whatever we return to the space actually available.
         body_rows = min(len(lines), self._viewport_rows())
-        if area.height > 0:
-            body_rows = min(body_rows, max(1, area.height - 1))
         self._last_height = body_rows
         self._offset = max(0, min(self._offset, max(0, len(lines) - body_rows)))
         visible = lines[self._offset : self._offset + body_rows]
@@ -305,14 +298,7 @@ class DashboardOverlay(Component):
             footer_bits.append(f"line {self._offset + 1}–{self._offset + body_rows}/{len(lines)}")
         footer = "  " + apply_style(theme.muted, "  ·  ".join(footer_bits)) + RESET
 
-        rows = 0
-        buf.grow_to(area.y + len(visible) + 1)
-        for line in visible:
-            parse_ansi_into(buf, area.x, area.y + rows, line, area.width)
-            rows += 1
-        parse_ansi_into(buf, area.x, area.y + rows, footer, area.width)
-        rows += 1
-        return rows
+        return [*visible, footer]
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

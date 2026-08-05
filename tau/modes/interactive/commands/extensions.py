@@ -271,9 +271,7 @@ def open_config_panel(ctx: CommandContext) -> None:
         return rows
 
     configured_dirs = {
-        _ext_dir(e.path).resolve()
-        for e in [*global_list, *project_list]
-        if not _is_builtin(e.path)
+        _ext_dir(e.path).resolve() for e in [*global_list, *project_list] if not _is_builtin(e.path)
     }
     # ConfigSelector emits a scope header whenever the scope changes from one
     # row to the next, so rows must arrive grouped by scope — otherwise a

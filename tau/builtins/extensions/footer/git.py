@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
+from tau.tui.compose import line_to_ansi
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 
 from .utils import read_branch, shorten_home
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
+    pass
 
 
 class GitBadge(Component):
@@ -30,10 +30,8 @@ class GitBadge(Component):
         self._text = text
         return changed
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        buf.grow_to(area.y + 1)
-        buf.set_line(area.x, area.y, Line([Span(self._text, Style().dim())]), area.width)
-        return 1
+    def render(self, width: int) -> list[str]:
+        return [line_to_ansi(Line([Span(self._text, Style().dim())]), width)]
 
     def handle_input(self, event: object) -> bool:  # noqa: ARG002
         return False

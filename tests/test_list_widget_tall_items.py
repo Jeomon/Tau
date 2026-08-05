@@ -7,10 +7,9 @@ depends on it — so these tests check both.
 
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line
+from tau.tui.utils import strip_ansi
 from tau.tui.widgets.list import List, ListDirection, ListItem, ListState
 
 
@@ -19,11 +18,8 @@ def _line(text: str) -> Line:
 
 
 def _render(items, height=10, width=30, state=None, **kwargs) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, width, height))
-    List(items=items, **kwargs).render(Rect(0, 0, width, height), buf, state or ListState())
-    return [
-        "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(height)
-    ]
+    rows = List(items=items, **kwargs).render_lines(width, height, state or ListState())
+    return [strip_ansi(row).rstrip() for row in rows]
 
 
 class TestHeight:
