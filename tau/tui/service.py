@@ -858,6 +858,8 @@ class TUI(Container):
         self._child_rows = {}
         self.cursor_position = None
         stable_rows_abs = 0
+        frozen_rows_this_frame = 0
+        frozen_content_changed = False
 
         for child in self.children:
             start = len(lines)
@@ -866,8 +868,25 @@ class TUI(Container):
             if split is not None:
                 frozen, live = split(width)
                 lines.extend(frozen)
-                # Everything above plus this child's frozen prefix is stable.
-                stable_rows_abs = len(lines)
+                frozen_rows_this_frame = len(frozen)
+
+                gen = getattr(child, "frozen_generation", None)
+                frozen_content_changed = (
+                    gen is not None and self._child_frozen_gen.get(id(child)) != gen
+                )
+                if gen is not None:
+                    self._child_frozen_gen[id(child)] = gen
+
+                # A row is only safe to skip re-diffing if it was ALSO part of
+                # the frozen prefix last frame. Rows that just became frozen
+                # (a tool call settling, a reply finishing) are new here but
+                # occupied by *different* content on screen — the live tail
+                # that was there a frame ago. Declaring them stable makes the
+                # diff skip them, so the old live rendering (a spinner frame,
+                # a half-streamed line) is never overwritten and stays visible
+                # until something forces a full repaint, e.g. a resize.
+                stable_rows_abs = start + min(frozen_rows_this_frame, self._prev_stable_rows)
+
                 for line in live:
                     lines.extend(wrap_to_rows(line, width))
             else:
@@ -878,7 +897,11 @@ class TUI(Container):
                     child.cursor_position.x, start + child.cursor_position.y
                 )
 
-        self._stable_rows = stable_rows_abs
+        # A rebuilt cache (theme swap, ctrl+O, width change) can keep the same
+        # row count while every row's content differs, which the count-based
+        # check above cannot see. Re-diff everything this frame.
+        self._stable_rows = 0 if frozen_content_changed else stable_rows_abs
+        self._prev_stable_rows = frozen_rows_this_frame
         return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
