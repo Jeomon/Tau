@@ -5,9 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC
 from typing import Literal, TypeVar
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 from tau.tui.utils import fuzzy_filter, rule
@@ -493,19 +491,19 @@ class TreeSelectList[T](Component):
     # Render
     # ------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        output_row = area.y
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi_row
+
+        out: list[str] = []
 
         def write(spans: list[Span], background: Style | None = None) -> None:
-            nonlocal output_row
-            buf.grow_to(output_row + 1)
-            buf.set_line(area.x, output_row, Line(spans), area.width)
-            if background is not None:
-                buf.set_style(Rect(area.x, output_row, area.width, 1), background)
-            output_row += 1
+            # background reproduces the cell path's set_style over the whole
+            # row: it lands on the trailing blanks too, so a selected node
+            # reads as a full-width bar rather than a highlighted label.
+            out.append(line_to_ansi_row(Line(spans), width, background))
 
         write([Span("  Session Tree", Style().bold())])
-        for help_line in self._help_lines(area.width):
+        for help_line in self._help_lines(width):
             write([Span(help_line, self._dim_style)])
         if self._query:
             write(
@@ -517,7 +515,7 @@ class TreeSelectList[T](Component):
             )
         else:
             write([Span("  Type to search:", self._dim_style)])
-        write([Span(rule(area.width), self._dim_style)])
+        write([Span(rule(width), self._dim_style)])
         write([])
 
         # Label-editing sub-mode: replace tree items with input prompt
@@ -526,14 +524,14 @@ class TreeSelectList[T](Component):
             write([Span(f"  {self._label_input}█")])
             write([Span("  enter: save  ·  esc: cancel", self._dim_style)])
             write([])
-            return output_row - area.y
+            return out
 
         items = self._filtered
         if not items:
             write([Span("  no matches", self._dim_style)])
             write([Span(f"  (0/0){self._status_label()}", self._dim_style)])
             write([])
-            return output_row - area.y
+            return out
 
         count = len(items)
         visible = min(self._max_visible, count)
@@ -597,4 +595,4 @@ class TreeSelectList[T](Component):
             status += "  [+label time]"
         write([Span(f"  ({self._selected + 1}/{count}){status}", self._dim_style)])
         write([])
-        return output_row - area.y
+        return out
