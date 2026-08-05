@@ -13,29 +13,14 @@ It only shows up when the left group is wide enough to win that max().
 
 from __future__ import annotations
 
-from tau.tui.ansi_bridge import parse_ansi_into
-from tau.tui.buffer import Buffer
-from tau.tui.component import Row, StaticComponent
-from tau.tui.geometry import Rect
+from tau.tui.component import Row, StaticComponent, _content_width
 from tau.tui.style import Style, apply_style
 from tau.tui.utils import strip_ansi
 
 
-def _cell_content_width(line: str, width: int) -> int:
-    """Verbatim copy of the pre-pivot measurement."""
-    buf = Buffer.empty(Rect(0, 0, width, 1))
-    parse_ansi_into(buf, 0, 0, line, width)
-    content = 0
-    for column in range(width):
-        cell = buf.get(column, 0)
-        if cell.symbol != " " or cell.style != Style() or cell.skip:
-            content = column + 1
-    return content
-
-
 def test_trailing_plain_padding_does_not_push_the_centre_group() -> None:
     left = "aaaaaaaaaaaa   "  # 12 columns of content, 3 of padding
-    assert _cell_content_width(left, 20) == 12
+    assert _content_width(left, 20) == 12
 
     row = Row([(StaticComponent([left]), "left"), (StaticComponent(["C"]), "center")])
     rendered = strip_ansi(row.render(20)[0])
@@ -45,7 +30,7 @@ def test_trailing_plain_padding_does_not_push_the_centre_group() -> None:
 def test_trailing_styled_blanks_do_count_as_content() -> None:
     """A styled space paints a background, so it is content, not padding."""
     left = apply_style(Style().with_bg((80, 0, 0)), "abc   ")
-    assert _cell_content_width(left, 20) == 6
+    assert _content_width(left, 20) == 6
 
     row = Row([(StaticComponent([left]), "left"), (StaticComponent(["C"]), "center")])
     assert strip_ansi(row.render(20)[0]).index("C") == 9

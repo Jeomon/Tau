@@ -11,9 +11,6 @@ from __future__ import annotations
 
 from tau.message.types import AssistantMessage, UserMessage
 from tau.modes.interactive.components.message_list import MessageList
-from tau.tui.ansi_bridge import row_to_ansi
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.service import TUI
 from tau.tui.theme import MessageTheme
 
@@ -43,9 +40,7 @@ class FakeTerminal:
 
 
 def _render_lines(tui: TUI, inner_width: int) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, tui.terminal.width, 0))
-    tui.render_cells(Rect(1, 0, inner_width, 0), buf)
-    return [row_to_ansi(buf, y) for y in range(buf.area.height)]
+    return tui.render(inner_width)
 
 
 def _make(width: int = WIDTH) -> tuple[TUI, MessageList]:

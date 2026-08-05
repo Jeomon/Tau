@@ -558,17 +558,10 @@ class TestOverlay:
             closed,
         )
 
-    def _render(self, overlay, width=100, height=20):
-        from tau.tui.buffer import Buffer
-        from tau.tui.geometry import Rect
+    def _render(self, overlay, width=100, height=20):  # noqa: ARG002
         from tau.tui.utils import strip_ansi
 
-        buf = Buffer.empty(Rect(0, 0, width, height))
-        overlay.render_cells(Rect(0, 0, width, height), buf)
-        return [
-            strip_ansi("".join(buf.get(x, y).symbol for x in range(width))).rstrip()
-            for y in range(height)
-        ]
+        return [strip_ansi(line).rstrip() for line in overlay.render(width)]
 
     def _key(self, name: str):
         from tau.tui.input import KeyEvent

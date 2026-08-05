@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, Flag, auto
 
-from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
 from tau.tui.style import Style, apply_style
@@ -194,18 +193,3 @@ class Block:
             if text_width:
                 rows[row] = _overlay(rows[row], text, left_inset + offset, text_width, width)
         return rows
-
-    def render(self, area: Rect, buf: Buffer) -> None:
-        """Buffer-writing form, for callers still holding one.
-
-        Implemented via ``render_lines`` so there is a single implementation
-        rather than two that can drift.
-        """
-        from tau.tui.ansi_bridge import parse_ansi_into
-
-        if area.is_empty():
-            return
-        if self.style != Style():
-            buf.set_style(area, self.style)
-        for i, line in enumerate(self.render_lines(area.width, area.height)):
-            parse_ansi_into(buf, area.left, area.top + i, line, area.width)

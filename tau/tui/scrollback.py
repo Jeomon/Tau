@@ -26,12 +26,32 @@ synchronized-output batching, and novelty-tracked raw writes for inline images.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import RawWrite
     from tau.tui.geometry import Position
     from tau.tui.terminal import Terminal
+
+
+@dataclass(slots=True)
+class RawWrite:
+    """Content that must bypass normal line diffing entirely.
+
+    e.g. a Kitty/iTerm2 inline-image escape sequence — its payload isn't
+    printable text, and the terminal (not this process) owns the pixels once
+    drawn, so it must never be re-sent just because a neighbouring line
+    changed. ``token`` identifies this write's content cheaply for change
+    detection (the escape ``data`` itself may be a huge base64 blob) — the
+    renderer resends only when ``token`` differs from what it last sent at
+    this position.
+    """
+
+    x: int
+    y: int
+    data: str
+    token: str
+
 
 _IS_TERMUX = "com.termux" in os.environ.get("PREFIX", "") or bool(os.environ.get("TERMUX_VERSION"))
 

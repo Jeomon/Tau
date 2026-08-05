@@ -1,14 +1,14 @@
 """Concrete widgets built on the Buffer/Rect/Widget render layer (see ``tau.tui.widget``).
 
 The core rendering contract is separate from this widget library. Everything
-here writes into a ``Buffer`` via ``Rect`` — none of
-it touches ``Component``/``list[str]`` rendering in ``tau.tui.component``.
+here returns styled ANSI lines, computing column positions itself (``List``
+highlights a row's span, ``Block`` draws a border, ``Tabs`` positions
+dividers) using the width-aware helpers in ``tau.tui.ansi_text``.
 
-A ``Buffer`` is the right tool at *this* layer and only this one: these widgets
-place individual cells at computed coordinates (``List`` highlights a row's
-span, ``Block`` draws a border, ``Tabs`` positions dividers), which is what a
-grid is for. Frame rendering itself no longer goes through cells at all — see
-``tau.tui.scrollback``.
+``Rect`` is still used for geometry — ``Block.inner(area)`` shrinks a
+rectangle past its borders so callers can lay out inside it — but nothing
+here writes into a cell grid. Frame rendering goes through lines end to end;
+see ``tau.tui.scrollback``.
 
 Exports are lazy (see ``tau.tui.__init__`` for why): nothing is imported
 until a symbol is actually accessed via ``tau.tui.widgets``.

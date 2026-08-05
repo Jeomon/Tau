@@ -14,8 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from tau.modes.interactive.components.session_selector import ResumeSelector
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.utils import strip_ansi
 
 WIDTH = 72
 
@@ -47,9 +46,7 @@ def selector():
 
 
 def _rows(selector) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, WIDTH, 40))
-    written = selector.render_cells(Rect(0, 0, WIDTH, 40), buf)
-    return ["".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)]
+    return [strip_ansi(line).rstrip() for line in selector.render(WIDTH)]
 
 
 class TestLayout:

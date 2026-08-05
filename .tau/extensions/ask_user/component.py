@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import textwrap
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from tau.tui.ansi_text import splice_ansi, wrap_ansi
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
-from tau.tui.style import RESET, Style
+from tau.tui.style import RESET, Style, apply_style
 from tau.tui.text import Line, Span
 from tau.tui.theme import LayoutTheme
 from tau.tui.utils import rule
@@ -18,8 +19,10 @@ from .schema import (
     AskUserOption,
 )
 
-if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
+
+def _wrap_all(lines: list[str], width: int) -> list[str]:
+    """Wrap each line to ``width``, flattened. An empty line still occupies a row."""
+    return [row for line in lines for row in wrap_ansi(line, width)]
 
 
 def _typed_char(event: KeyEvent) -> str | None:
@@ -173,58 +176,36 @@ class _AskUserComponent(Component):
     def render(self, width: int) -> list[str]:
         """Return the prompt's lines.
 
-        The layout itself is two columns plus a bordered ``Block`` widget, so
-        it is still drawn positionally — into a *local* buffer sized to this
-        component, which is then flattened to lines. That is the pattern to
-        copy when a component needs grid placement: keep cells local to the
-        drawing, and expose ``render(width)``.
+        The layout is two columns plus a bordered ``Block``. Each column is
+        rendered to its own lines at its own width, then the preview column is
+        spliced onto the left column's rows at a fixed offset — column
+        arithmetic stays in ``ansi_text.splice_ansi``, which accounts for wide
+        glyphs rather than assuming one column per character.
         """
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer as _Buffer
-
         w = max(1, width)
-        buf = _Buffer.empty(Rect(0, 0, w, 0))
-        rows = self._draw(Rect(0, 0, w, 0), buf)
-        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
-
-    def _draw(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        def _write(lines: list[str], x: int, y: int, width: int) -> int:
-            row = 0
-            for line in lines:
-                row += parse_ansi_wrapped_into(buf, x, y + row, line, width)
-            return row
-
         t = self._theme
+
         header: list[str] = []
         if self._context:
             for line in self._context.splitlines():
                 header.append(f"  {t.muted.sgr()}{line}{RESET}")
             header.append("")
         header.append(f"  {t.accent.sgr()}{self._question}{RESET}")
-        header.append(self._divider(area.width))
+        header.append(self._divider(w))
+        header_lines = _wrap_all(header, w)
 
-        header_rows = _write(header, area.x, area.y, area.width)
-        body_y = area.y + header_rows
-
-        show_preview = (
-            self._has_preview_capable_options() and area.width >= self.PREVIEW_MIN_TOTAL_WIDTH
-        )
-
-        left_width = min(46, max(30, area.width // 3)) if show_preview else area.width
+        show_preview = self._has_preview_capable_options() and w >= self.PREVIEW_MIN_TOTAL_WIDTH
+        left_width = min(46, max(30, w // 3)) if show_preview else w
         content_lines, footer_lines = self._build_body_lines(left_width)
 
         # A rule separates the answer area from the key hints, mirroring the one
         # under the question.
-        footer_lines = [self._divider(area.width), *footer_lines]
+        footer_lines = [self._divider(w), *footer_lines]
 
         if not show_preview:
-            body_rows = _write(content_lines, area.x, body_y, area.width)
-            footer_rows = _write(footer_lines, area.x, body_y + body_rows, area.width)
-            return header_rows + body_rows + footer_rows
+            return [*header_lines, *_wrap_all(content_lines, w), *_wrap_all(footer_lines, w)]
 
-        right_width = area.width - left_width - self.PREVIEW_GAP
+        right_width = w - left_width - self.PREVIEW_GAP
 
         preview: str | None = None
         if self._cursor != self._freeform_index and self._options:
@@ -232,20 +213,23 @@ class _AskUserComponent(Component):
 
         box_height = max(len(content_lines), self.PREVIEW_MIN_BOX_HEIGHT)
 
-        left_rows = _write(content_lines, area.x, body_y, left_width)
-        self._render_preview(
-            preview,
-            Rect(area.x + left_width + self.PREVIEW_GAP, body_y, right_width, box_height),
-            buf,
-        )
-        col_rows = max(left_rows, box_height)
+        left_rows = _wrap_all(content_lines, left_width)
+        preview_rows = self._preview_lines(preview, right_width, box_height)
+
+        col_rows = max(len(left_rows), box_height)
+        body: list[str] = []
+        for i in range(col_rows):
+            base = left_rows[i] if i < len(left_rows) else ""
+            overlay = preview_rows[i] if i < len(preview_rows) else ""
+            if overlay:
+                base = splice_ansi(base, overlay, left_width + self.PREVIEW_GAP, right_width, w)
+            body.append(base)
 
         # Footer spans the FULL width beneath both columns — it's not part of
         # either column, so it never wraps just because the left column is
         # narrow, and it visually separates from the preview box like the
         # bottom nav-hint line in the reference screenshot.
-        footer_rows = _write(footer_lines, area.x, body_y + col_rows, area.width)
-        return header_rows + col_rows + footer_rows
+        return [*header_lines, *body, *_wrap_all(footer_lines, w)]
 
     def _build_body_lines(self, width: int) -> tuple[list[str], list[str]]:
         """Everything below the header: the option list, or whichever freeform
@@ -379,49 +363,50 @@ class _AskUserComponent(Component):
         footer = [f"  {muted}" + "  ·  ".join(hints) + RESET]
         return inner, footer
 
-    def _render_preview(self, preview: str | None, area: Rect, buf: Buffer) -> None:
-        """Draw the preview pane into ``area``.
+    def _preview_lines(self, preview: str | None, width: int, height: int) -> list[str]:
+        """Return the preview pane as ``height`` lines of ``width`` columns.
 
         The frame is the shared ``Block`` widget rather than hand-assembled
-        ┌─┐│└┘ strings; content goes into ``block.inner(area)``. The box height
-        is pinned by the caller to the paired option list so the two columns
-        stay aligned row-for-row, so anything that does not fit is truncated
-        with a "N lines hidden" footer instead of growing the box.
+        ┌─┐│└┘ strings; content is spliced into ``block.inner(...)``. The box
+        height is pinned by the caller to the paired option list so the two
+        columns stay aligned row-for-row, so anything that does not fit is
+        truncated with a "N lines hidden" footer instead of growing the box.
         """
-        import textwrap
+        if width <= 0 or height <= 0:
+            return []
 
-        buf.grow_to(area.y + area.height)
         block = Block(
             borders=Borders.ALL,
             border_style=self._theme.border,
             padding=Padding.symmetric(1, 0),
         ).with_title(Line([Span(" Preview ", self._theme.muted)]))
-        block.render(area, buf)
 
-        inner = block.inner(area)
+        frame = block.render_lines(width, height)
+        inner = block.inner(Rect(0, 0, width, height))
         if inner.width <= 0 or inner.height <= 0:
-            return
+            return frame
 
         if not preview:
-            buf.set_string(
-                inner.x, inner.y, "(no preview for this option)"[: inner.width], self._theme.muted
-            )
-            return
-
-        wrapped: list[str] = []
-        for src_line in preview.splitlines() or [""]:
-            wrapped.extend(textwrap.wrap(src_line, inner.width) or [""])
-
-        if len(wrapped) > inner.height:
-            visible = wrapped[: max(inner.height - 1, 1)]
-            hidden = len(wrapped) - len(visible)
-            footer = f"\u2702 {hidden} lines hidden".center(inner.width)
-            rows = [*visible, footer]
+            rows = [apply_style(self._theme.muted, "(no preview for this option)"[: inner.width])]
         else:
-            rows = wrapped
+            wrapped: list[str] = []
+            for src_line in preview.splitlines() or [""]:
+                wrapped.extend(textwrap.wrap(src_line, inner.width) or [""])
 
+            if len(wrapped) > inner.height:
+                visible = wrapped[: max(inner.height - 1, 1)]
+                hidden = len(wrapped) - len(visible)
+                footer = f"\u2702 {hidden} lines hidden".center(inner.width)
+                rows = [*visible, footer]
+            else:
+                rows = wrapped
+
+        out = list(frame)
         for i, text in enumerate(rows[: inner.height]):
-            buf.set_string(inner.x, inner.y + i, text[: inner.width], Style())
+            y = inner.y + i
+            if 0 <= y < len(out):
+                out[y] = splice_ansi(out[y], text[: inner.width], inner.x, inner.width, width)
+        return out
 
     # ── Input ─────────────────────────────────────────────────────────────
 
@@ -691,37 +676,26 @@ class _AskUserSequence(Component):
     # ── Render ────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
-        """See _AskUserComponent.render — same local-buffer pattern."""
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer as _Buffer
-
+        """The tab strip, its trailer, then either the review or the active child."""
         w = max(1, width)
-        buf = _Buffer.empty(Rect(0, 0, w, 0))
-        rows = self._draw(Rect(0, 0, w, 0), buf)
-        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
 
-    def _draw(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+        lines = self._tab_lines(w)
+        lines.extend(_wrap_all(self._tab_trailer(), w))
 
-        rows = self._render_tabs(area, buf)
-        for line in self._tab_trailer():
-            rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
-
-        body_area = Rect(area.x, area.y + rows, area.width, max(area.height - rows, 1))
         if self._on_review:
-            for line in self._review_lines(area.width):
-                rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
-            return rows
-        return rows + self._children[self._index]._draw(body_area, buf)
+            lines.extend(_wrap_all(self._review_lines(w), w))
+            return lines
+        lines.extend(self._children[self._index].render(w))
+        return lines
 
-    def _render_tabs(self, area: Rect, buf: Buffer) -> int:
-        """Draw the tab strip with the shared ``Tabs`` widget.
+    def _tab_lines(self, width: int) -> list[str]:
+        """The tab strip, as one line, via the shared ``Tabs`` widget.
 
         Hand-joining the titles into one ANSI string worked, but a strip wider
         than the terminal wrapped onto a second row and pushed the body down;
         ``Tabs`` clips at the right edge instead. Each title's own spans keep
-        their colour (``set_line`` patches the tab style *under* the span
-        style), so an answered tab's ✔ stays green while its label follows the
+        their colour (the tab style is patched *under* the span style), so an
+        answered tab's ✔ stays green while its label follows the
         selected/unselected style.
         """
         titles: list[Line] = []
@@ -732,16 +706,16 @@ class _AskUserSequence(Component):
             titles.append(Line([*spans, Span(header, Style())]))
         titles.append(Line([Span("  ", Style()), Span(self.REVIEW_LABEL, Style())]))
 
-        buf.grow_to(area.y + 1)
-        Tabs(
+        strip = Tabs(
             titles=titles,
             selected=self._index,
             style=self._theme.muted,
             highlight_style=self._theme.emphasis,
             padding_left=1,
             padding_right=1,
-        ).render(Rect(area.x + 2, area.y, max(area.width - 2, 1), 1), buf)
-        return 1
+        ).render_line(max(width - 2, 1))
+        # Indented two columns, matching where the strip used to be drawn.
+        return ["  " + strip]
 
     def _tab_trailer(self) -> list[str]:
         """The warning line (if any) and the blank row under the tab strip."""

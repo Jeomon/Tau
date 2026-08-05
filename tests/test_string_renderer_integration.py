@@ -18,7 +18,7 @@ import pytest
 from tau.message.types import TextContent, UserMessage
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.tui.component import Component
-from tau.tui.geometry import Position, Rect
+from tau.tui.geometry import Position
 from tau.tui.service import StringRenderer
 from tests.test_scrollback_renderer import Screen
 
@@ -53,26 +53,23 @@ class _Term:
 
 
 class Lines(Component):
-    """A plain cell-based component, i.e. one that has not been migrated."""
+    """A plain multi-line component."""
 
     def __init__(self, lines: list[str]) -> None:
         self._lines = lines
 
-    def render_cells(self, area: Rect, buf) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.ansi_text import wrap_ansi
 
-        row = 0
-        for line in self._lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+        return [row for line in self._lines for row in wrap_ansi(line, width)]
 
 
 class WithCursor(Lines):
     """A focused, cursor-bearing component (what TextInput is)."""
 
-    def render_cells(self, area: Rect, buf) -> int:
-        rows = super().render_cells(area, buf)
-        buf.cursor_position = Position(area.x + 4, area.y)
+    def render(self, width: int) -> list[str]:
+        rows = super().render(width)
+        self.cursor_position = Position(4, 0)
         return rows
 
 

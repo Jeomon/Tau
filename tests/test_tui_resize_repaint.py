@@ -13,9 +13,6 @@ import time
 
 import pytest
 
-from tau.tui.buffer import Buffer
-from tau.tui.component import StaticComponent
-from tau.tui.geometry import Rect
 from tau.tui.service import TUI
 
 
@@ -54,13 +51,6 @@ class FakeTerminal:
 
     def __getattr__(self, name):  # tolerate the rest of the Terminal surface
         return lambda *a, **k: ""
-
-
-def _buf(lines: list[str], width: int) -> Buffer:
-    component = StaticComponent(lines)
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    component.render_cells(Rect(0, 0, width, 0), buf)
-    return buf
 
 
 def _cleared(term: FakeTerminal) -> bool:

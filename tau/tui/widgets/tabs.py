@@ -2,9 +2,8 @@
 
 Supports styled tab titles, selection, dividers, and padding.
 
-Produces a line rather than writing cells: this is a single row of styled
-runs, and the renderer consumes lines. ``render_line`` is the contract;
-``render(area, buf)`` remains for callers still holding a ``Buffer``.
+Produces a line: this is a single row of styled runs, and the renderer
+consumes lines. ``render_line`` is the contract.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
@@ -109,15 +107,3 @@ class Tabs:
                     out.append(apply_style(self.style, div))
                     col += visible_width(div)
         return "".join(out)
-
-    def render(self, area: Rect, buf) -> None:
-        """Buffer-writing form, for callers that still hold one.
-
-        Kept so ``WidgetComponent`` and any extension using the widget
-        protocol keep working while everything migrates to lines.
-        """
-        from tau.tui.ansi_bridge import parse_ansi_into
-
-        if area.is_empty() or not self.titles:
-            return
-        parse_ansi_into(buf, area.left, area.top, self.render_line(area.width), area.width)

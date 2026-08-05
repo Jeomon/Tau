@@ -12,8 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
 from tau.tui.utils import truncate_to_width, visible_width
@@ -182,22 +180,6 @@ class List:
                 runs, width, self.highlight_style if is_selected else None
             )
         return rows
-
-    def render(self, area: Rect, buf: Buffer, state: ListState) -> None:
-        """Buffer-writing form, implemented via ``render_lines``.
-
-        Kept for ``WidgetComponent`` and any extension on the widget protocol;
-        one implementation, so the two cannot drift.
-        """
-        from tau.tui.ansi_bridge import parse_ansi_into
-
-        if area.is_empty() or not self.items:
-            return
-        if self.style != Style():
-            buf.set_style(area, self.style)
-        for i, line in enumerate(self.render_lines(area.width, area.height, state)):
-            if line:
-                parse_ansi_into(buf, area.left, area.top + i, line, area.width)
 
     def _render_tall_lines(
         self, width: int, height: int, state: ListState, rows: list[str]

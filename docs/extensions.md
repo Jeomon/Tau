@@ -1344,9 +1344,8 @@ class CounterComponent(Component):
         self._count = 0
         self._done = done
 
-    # Return styled ANSI lines. `render_cells(area, buf)` also still works and
-    # is bridged automatically -- see docs/tui.md, "The Component Contract" --
-    # but `render` is what the renderer consumes natively.
+    # Return styled ANSI lines -- `render(width)` is the sole render contract.
+    # See docs/tui.md, "The Component Contract".
     def render(self, width):
         return [f"  Count: {self._count}  (Enter to confirm)"]
 

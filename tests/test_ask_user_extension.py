@@ -10,9 +10,10 @@ import pytest
 
 from tau.extensions.loader import _RuntimeRef
 from tau.tool.types import ToolInvocation
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.ansi_text import tokenize
 from tau.tui.input import KeyEvent
+from tau.tui.style import Style
+from tau.tui.utils import strip_ansi
 from tests.ext_loader import load_extension
 
 # Loaded as a package, exactly as tau's loader does — its modules use relative
@@ -88,11 +89,28 @@ def _component(**kwargs):
     return _AskUserComponent(**defaults), results
 
 
-def _rendered_text(buf) -> str:
-    """Flatten a rendered Buffer back into plain text for assertions."""
-    return "\n".join(
-        "".join(buf.get(x, y).symbol for x in range(buf.area.width)) for y in range(buf.area.height)
-    )
+def _rendered_text(component, width: int = 80) -> str:
+    """Flatten a component's rendered lines into plain text for assertions."""
+    return "\n".join(strip_ansi(line) for line in component.render(width))
+
+
+def _rows(component, width: int) -> list[str]:
+    """The component's rendered rows as plain text, trailing blanks stripped."""
+    return [strip_ansi(line).rstrip() for line in component.render(width)]
+
+
+def _row_styles(component, width: int, row: int = 0) -> list[tuple[str, Style]]:
+    """One rendered row expanded to (symbol, style) per column."""
+    columns: list[tuple[str, Style]] = [(" ", Style())] * width
+    column = 0
+    for cluster, glyph_width, style in tokenize(component.render(width)[row]):
+        if column + glyph_width > width:
+            break
+        columns[column] = (cluster, style)
+        if glyph_width == 2 and column + 1 < width:
+            columns[column + 1] = (" ", style)
+        column += glyph_width
+    return columns
 
 
 def _type(component, text: str) -> None:
@@ -178,9 +196,7 @@ class TestMultiSelectFreeText:
         _type(c, "custom answer")
         c.handle_input(_key("enter"))
 
-        buf = Buffer.empty(Rect(0, 0, 80, 40))
-        c.render_cells(Rect(0, 0, 80, 40), buf)
-        rendered = _rendered_text(buf)
+        rendered = _rendered_text(c)
         assert "custom answer" in rendered
 
 
@@ -277,9 +293,7 @@ class TestSequence:
         seq, _, _ = _sequence()
         seq.handle_input(_key("enter"))
 
-        buf = Buffer.empty(Rect(0, 0, 80, 40))
-        seq.render_cells(Rect(0, 0, 80, 40), buf)
-        rendered = _rendered_text(buf)
+        rendered = _rendered_text(seq)
         assert "H0" in rendered and "H1" in rendered and "Review" in rendered
         assert "✔" in rendered
 
@@ -652,36 +666,28 @@ class TestTabStrip:
             seq._answers[i] = {"kind": "selection", "selections": ["A"]}
         return seq
 
-    def _cells(self, seq, width=70):
-        buf = Buffer.empty(Rect(0, 0, width, 30))
-        seq.render_cells(Rect(0, 0, width, 30), buf)
-        return buf
-
     def test_titles_and_review_share_one_row(self):
-        buf = self._cells(self._seq(["Auth", "Surfaces"]))
-        row = "".join(buf.get(x, 0).symbol for x in range(70))
+        row = _rows(self._seq(["Auth", "Surfaces"]), 70)[0]
 
         assert "Auth" in row and "Surfaces" in row and "Review" in row
         assert "│" in row  # the widget's divider
 
     def test_an_answered_tab_keeps_its_tick_coloured(self):
         seq = self._seq(["Auth", "Surfaces"], answered=[0])
-        buf = self._cells(seq)
-
-        row = [buf.get(x, 0) for x in range(70)]
-        tick = next(cell for cell in row if cell.symbol == "✔")
-        label = next(cell for cell in row if cell.symbol == "A")
+        row = _row_styles(seq, 70)
+        tick = next(cell for cell in row if cell[0] == "✔")
+        label = next(cell for cell in row if cell[0] == "A")
 
         # The span's own style wins over the tab style, so the tick is not
         # repainted by the selected/unselected colour applied to the label.
-        assert tick.style.fg != label.style.fg
+        assert tick[1].fg != label[1].fg
 
     def test_a_strip_wider_than_the_terminal_stays_one_row(self):
         seq = self._seq(["Authentication method", "Deployment surfaces", "Rollout strategy"])
-        buf = self._cells(seq, width=40)
+        rows = _rows(seq, 40)
 
         # Row 1 is the blank separator, not a wrapped continuation of the tabs.
-        assert "".join(buf.get(x, 1).symbol for x in range(40)).strip() == ""
+        assert rows[1].strip() == ""
 
 
 class TestPreviewPane:
@@ -691,9 +697,7 @@ class TestPreviewPane:
         c, _ = _component(options=options)
         for _ in range(cursor):
             c.handle_input(_key("down"))
-        buf = Buffer.empty(Rect(0, 0, width, 30))
-        rows = c.render_cells(Rect(0, 0, width, 30), buf)
-        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
+        return _rows(c, width)
 
     def _opts(self):
         return [
@@ -744,9 +748,7 @@ class TestFreeformRowLayout:
         )
         for k in keys:
             c.handle_input(_key(k, char=k if len(k) == 1 else None))
-        buf = Buffer.empty(Rect(0, 0, width, 24))
-        rows = c.render_cells(Rect(0, 0, width, 24), buf)
-        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
+        return _rows(c, width)
 
     def _col_of(self, rows, needle):
         return next(r.index(needle) for r in rows if needle in r)
@@ -865,9 +867,7 @@ class TestDividers:
 
     def _rows(self, width=72, **kwargs):
         c, _ = _component(**kwargs)
-        buf = Buffer.empty(Rect(0, 0, width, 26))
-        rows = c.render_cells(Rect(0, 0, width, 26), buf)
-        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
+        return _rows(c, width)
 
     def _rule_rows(self, rows, width=72):
         return [i for i, r in enumerate(rows) if r == "─" * width]

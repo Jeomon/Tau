@@ -13,8 +13,6 @@ from tau.tui.text import Line, Span
 from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
     from tau.tui.theme import SelectListTheme
 
 _log = logging.getLogger(__name__)
@@ -260,7 +258,7 @@ class AutocompleteManager:
 
         sync(text, cursor, commands)   — called after every keystroke
         handle_input(event, text, cursor) -> (consumed, new_text | None)
-        render_cells(area, buf) -> int
+        render(width) -> list[str]
 
     Two pickers are managed internally:
     - Extension autocomplete  (_ac_picker)     — trigger chars registered by providers
@@ -418,32 +416,16 @@ class AutocompleteManager:
         return False, None
 
     def render(self, width: int) -> list[str]:
-        """Return the popup's lines.
+        """Return the popup's lines: the extension picker stacked above the command-arg one.
 
         Not a ``Component`` -- its ``handle_input(event, text, cursor)`` is a
         different protocol from ``Component.handle_input(event)``, so
         subclassing would be a Liskov violation that mypy correctly rejects.
-        That means no inherited bridge, so both contracts are provided here.
-
-        Layout composes this through ``_child_lines`` now that it renders
-        lines, so this is the live path rather than a forward-looking one.
+        Only one of the two pickers is active at a time in practice, so an
+        inactive one contributes no lines.
         """
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer as _Buffer
-        from tau.tui.geometry import Rect
-
         w = max(1, width)
-        buf = _Buffer.empty(Rect(0, 0, w, 0))
-        rows = self.render_cells(Rect(0, 0, w, 0), buf)
-        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.geometry import Rect
-
-        row = area.y
-        row += self._ac_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
-        row += self._cmd_arg_picker.render_cells(Rect(area.x, row, area.width, 0), buf)
-        return row - area.y
+        return [*self._ac_picker.render(w), *self._cmd_arg_picker.render(w)]
 
     # -------------------------------------------------------------------------
     # Trigger detection

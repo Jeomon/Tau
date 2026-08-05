@@ -1,24 +1,16 @@
 """Composite an overlay's lines onto base lines, for the string renderer.
 
-The transcript moved to strings because it is huge and the cell round trip
-dominated it. Overlays are the opposite: bounded by the overlay's own size —
-tens of rows, redrawn only while one is open — so the round trip costs nothing
-measurable here, while getting column arithmetic wrong is very visible (a
-misaligned box border, a popup bleeding into the text behind it).
-
-So compositing deliberately still goes through cells. That reuses the exact
-width handling the cell renderer already had — wide glyphs occupying two
-columns, multi-codepoint grapheme clusters, ANSI state carried across the
-splice — rather than reimplementing a width-aware string slicer with its own
-bug surface. ``utils.wrap``-style per-codepoint slicing would misplace any
+Width handling — wide glyphs occupying two columns, multi-codepoint grapheme
+clusters, ANSI state carried across a splice — lives in ``ansi_text``, which
+works on styled grapheme tokens rather than raw codepoints. Getting that wrong
+is very visible (a misaligned box border, a popup bleeding into the text
+behind it), and ``utils.wrap``-style per-codepoint slicing would misplace any
 line containing a ZWJ emoji.
 """
 
 from __future__ import annotations
 
-from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into, row_to_ansi
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.ansi_text import splice_ansi, wrap_ansi
 from tau.tui.layout import Alignment
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
@@ -63,40 +55,15 @@ def composite_line(
 ) -> str:
     """Return ``base`` with ``overlay`` painted over it starting at column ``col``.
 
-    Still goes through cells, deliberately. A pure-string version was written
-    and rejected: compared symmetrically it diverged on 5.4% of fuzzed
-    splices, every one of them involving a wide glyph. In the cell model a
-    double-width glyph
-    survives having its *continuation* cell overwritten -- ``row_to_ansi``
-    skips by glyph width, so the glyph still prints and the overlay's first
-    column is swallowed. Reproducing that in string form means tracking which
-    columns are continuations, i.e. rebuilding the cell model.
+    Delegates to ``ansi_text.splice_ansi``, which tracks column occupancy so a
+    double-width glyph survives having its *continuation* column overwritten:
+    the glyph still prints and the overlay's first column is swallowed. Getting
+    that wrong is the entire difficulty here — a naive string splice diverges
+    on wide glyphs.
 
-    The cost is nil here: compositing runs per overlay row, tens of rows at a
-    time, only while an overlay is open. Correctness is worth more than
-    removing the last Buffer from this path.
-
-    Columns outside ``[0, total_width)`` are dropped, matching the cell blit,
-    which skipped out-of-range target columns rather than wrapping them.
+    Columns outside ``[0, total_width)`` are dropped rather than wrapped.
     """
-    if total_width <= 0 or overlay_width <= 0:
-        return base
-
-    buf = Buffer.empty(Rect(0, 0, total_width, 1))
-    parse_ansi_into(buf, 0, 0, base, total_width)
-
-    ov = Buffer.empty(Rect(0, 0, overlay_width, 1))
-    parse_ansi_into(ov, 0, 0, overlay, overlay_width)
-
-    for x in range(overlay_width):
-        target = col + x
-        if 0 <= target < total_width:
-            # Replace the reference rather than mutating through Buffer.set:
-            # base rows may share Cell objects with a frozen cache, and an
-            # in-place write would bake overlay pixels into it permanently.
-            buf.content[target] = ov.content[x]
-
-    return row_to_ansi(buf, 0, embed_raw=True, trim_trailing_blanks=True)
+    return splice_ansi(base, overlay, col, overlay_width, total_width)
 
 
 def composite_lines(
@@ -170,26 +137,24 @@ _PRINTABLE_ASCII = frozenset(chr(c) for c in range(0x20, 0x7F))
 
 
 def wrap_to_rows(line: str, width: int) -> list[str]:
-    """Split one styled line into terminal rows, exactly as the cell path would.
+    """Split one styled line into terminal rows.
 
     Fast path: a line that is printable ASCII and already fits is provably a
-    single row of one-column cells. ASCII cannot contain a combining mark, ZWJ,
-    variation selector or regional indicator (all are well above U+007F), and
-    every printable ASCII character is exactly one column — so no measurement
-    or segmentation is needed. This covers ~99.8% of tool output and ~71% of
-    rendered markdown.
+    single row of one-column glyphs. ASCII cannot contain a combining mark,
+    ZWJ, variation selector or regional indicator (all are well above U+007F),
+    and every printable ASCII character is exactly one column — so no
+    measurement or segmentation is needed. This covers ~99.8% of tool output
+    and ~71% of rendered markdown.
 
-    Everything else goes through ``parse_ansi_wrapped_into`` and back, which is
-    the existing, exact wrapping. Slower, but it is the same code the cell
-    renderer used, so the two paths can never disagree — notably for wide
-    glyphs and multi-codepoint clusters, where the string-level ``utils.wrap``
-    still measures per codepoint and would break a ZWJ emoji in the wrong place.
+    Everything else goes through ``ansi_text.wrap_ansi``, which segments into
+    grapheme clusters and measures their display width. Slower, but correct for
+    wide glyphs and multi-codepoint clusters, where the string-level
+    ``utils.wrap`` still measures per codepoint and would break a ZWJ emoji in
+    the wrong place.
     """
     if line.isascii():
         visible = strip_ansi(line) if "\x1b" in line else line
         if len(visible) <= width and _PRINTABLE_ASCII.issuperset(visible):
             return [line]
 
-    buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
-    rows = parse_ansi_wrapped_into(buf, 0, 0, line, width)
-    return [row_to_ansi(buf, y, embed_raw=True, trim_trailing_blanks=True) for y in range(rows)]
+    return wrap_ansi(line, width)

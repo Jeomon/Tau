@@ -5,9 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
@@ -30,17 +28,10 @@ class SelectorComponent(Protocol):
     import (the concrete selectors live in ``tau.modes.interactive``, which
     imports this module) — this Protocol lets ``InlineSelector`` still
     isinstance-check it at construction time instead of only discovering a
-    missing ``render_cells`` mid-render.
+    missing ``render`` mid-render.
     """
 
-    # Deliberately render_cells and not render, even though every selector in
-    # the tree now implements render. A runtime_checkable Protocol turns every
-    # listed method into an isinstance requirement, and Component supplies
-    # render_cells to all its subclasses via the bridge -- so requiring
-    # render_cells accepts strictly more than requiring render would, including
-    # a duck-typed selector from an extension that only writes cells. This
-    # flips when the bridge goes and there is one contract again.
-    def render_cells(self, area: Rect, buf: Buffer) -> int: ...
+    def render(self, width: int) -> list[str]: ...
 
 
 @dataclass
@@ -75,7 +66,7 @@ class SelectList[T](Component):
         lst = SelectList(items, max_visible=5, theme=theme.select)
         lst.set_query(current_input)
         lst.on_confirm(lambda item: ...)
-        rows = lst.render_cells(area, buf)
+        rows = lst.render(width)
     """
 
     def __init__(
@@ -327,7 +318,7 @@ class InlineSelector[T]:
         if not isinstance(self.selector, SelectorComponent):
             _log.warning(
                 "InlineSelector(kind=%r).selector (%r) does not satisfy "
-                "SelectorComponent (missing render_cells); it will crash the "
+                "SelectorComponent (missing render); it will crash the "
                 "next render instead of here. See tau.tui.components.select_list.",
                 self.kind,
                 type(self.selector).__name__,

@@ -7,17 +7,14 @@ matching the selector lists and the input prompt.
 
 from __future__ import annotations
 
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
 from tau.tui.theme import LayoutTheme, SelectListTheme
+from tau.tui.utils import strip_ansi
 
 WIDTH = 80
 
 
-def _rows(component, height: int = 20) -> list[str]:
-    buf = Buffer.empty(Rect(0, 0, WIDTH, height))
-    written = component.render_cells(Rect(0, 0, WIDTH, height), buf)
-    return ["".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)]
+def _rows(component, height: int = 20) -> list[str]:  # noqa: ARG001
+    return [strip_ansi(line).rstrip() for line in component.render(WIDTH)]
 
 
 def _autocomplete(theme=None):

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from tau.tui.ansi_bridge import row_to_ansi
-from tau.tui.buffer import Buffer
+from tau.tui.ansi_text import patch_row_style
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent
 from tau.tui.style import Style
 from tau.tui.widgets.block import Block, Borders
@@ -51,18 +49,12 @@ class Box(Component):
     def render(self, width: int) -> list[str]:
         """Return the padded, background-filled child as lines.
 
-        The composition itself (child + padding + a background patched *behind*
-        the child's own styles) is genuinely grid work, so it is still built in
-        a local Buffer — but only once per width, and it is flattened to lines
-        there rather than copied cell by cell into the frame on every render.
-        That copy was the whole cost here: width x rows Buffer.set calls per
-        frame for content that had not changed.
+        Cached per width: the child's own render is the expensive part, and
+        the padding and background around it do not change until the width or
+        the style does.
         """
         if self._cache_lines is None or self._cache_width != width:
-            built = self._build(width)
-            self._cache_lines = [
-                row_to_ansi(built, y, embed_raw=True) for y in range(built.area.height)
-            ]
+            self._cache_lines = self._build(width)
             self._cache_width = width
         return list(self._cache_lines)
 
@@ -76,26 +68,25 @@ class Box(Component):
     # Internal
     # -------------------------------------------------------------------------
 
-    def _build(self, width: int) -> Buffer:
+    def _build(self, width: int) -> list[str]:
         inner_w = max(1, width - self._padding_x * 2)
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        inner_rows = self._child.render_cells(Rect(0, 0, inner_w, 0), inner)
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        buf.grow_to(self._padding_y + inner_rows + self._padding_y)
-        buf.blit(
-            inner,
-            self._padding_x,
-            self._padding_y,
-            Rect(0, 0, inner_w, inner_rows),
-        )
+        pad = " " * self._padding_x
+        blank = [""] * self._padding_y
 
-        # Apply after content so Style.patch merges the background behind
-        # whatever fg/modifiers the content itself set, instead of a plain
-        # overwrite clobbering them (matches the old ColorFn wrap, which
-        # layered bg onto already-styled content via cumulative SGR codes).
+        rows = [
+            *blank,
+            *(pad + line for line in self._child.render(inner_w)),
+            *blank,
+        ]
+
+        # Patched behind the content so the background merges with whatever
+        # fg/modifiers the content itself set, instead of a plain overwrite
+        # clobbering them (matches the old ColorFn wrap, which layered bg onto
+        # already-styled content via cumulative SGR codes). Padding columns are
+        # filled too, so the box reads as a solid block.
         if self._bg_style is not None:
-            buf.set_style(buf.area, self._bg_style)
-        return buf
+            rows = [patch_row_style(row, width, self._bg_style) for row in rows]
+        return rows
 
 
 # ── DynamicBorder ─────────────────────────────────────────────────────────────

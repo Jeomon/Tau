@@ -28,8 +28,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from tau.tui.input import InputEvent
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
+    pass
 
 
 @runtime_checkable
@@ -37,18 +36,10 @@ class EditorComponent(Protocol):
     """Minimum interface for a Layout prompt editor."""
 
     # ── Rendering + input (the Component contract) ─────────────────────────────
-    # Still ``render_cells``, not ``render``, even though TextInput has moved to
-    # the string contract. This Protocol is ``runtime_checkable``, so every
-    # method listed becomes a requirement of ``isinstance`` — and a Protocol can
-    # no more express "implement either of these" than ``@abstractmethod`` could.
-    # Listing ``render`` would reject any duck-typed editor (an extension's, say)
-    # that provides only ``render_cells``, which Component still bridges
-    # perfectly well. This flips to ``render`` when the bridge is deleted and
-    # there is a single contract again.
-    def render_cells(self, area: Rect, buf: Buffer) -> int: ...
+    def render(self, width: int) -> list[str]: ...
     def handle_input(self, event: InputEvent) -> bool: ...
 
-    # ── Buffer access ──────────────────────────────────────────────────────────
+    # ── Text access ────────────────────────────────────────────────────────────
     @property
     def text(self) -> str: ...
     @property

@@ -150,26 +150,22 @@ tau/
 ├── tui/                    # Standalone terminal UI framework
 │   ├── service.py          # TUI, Renderer, overlays, focus
 │   ├── terminal.py         # Terminal control and capability detection
-│   ├── backend.py          # What a Terminal draws through
-│   ├── frame.py            # Frame / BufferedTerminal double-buffered loop
-│   ├── buffer.py           # Buffer / Cell grid
-│   ├── widget.py           # Widget / StatefulWidget render contract
+│   ├── scrollback.py       # Differential line painter + inline-image raw writes
+│   ├── ansi_text.py        # Grapheme-aware ANSI tokenize / wrap / splice
+│   ├── compose.py          # Overlay compositing and Line → ANSI flattening
 │   ├── layout.py           # Rect splitting
 │   ├── geometry.py         # Rect
 │   ├── style.py            # Style / Modifier / Color
 │   ├── text.py             # Span / Line / Text
 │   ├── palette.py          # Named color palettes
-│   ├── ansi_bridge.py      # ANSI strings ↔ Buffer cells
 │   ├── component.py        # Component and Container primitives
 │   ├── components/         # editor, text_input, select_list, spinner, image, box
-│   ├── widgets/            # block, paragraph, list, table, tabs, chart, barchart,
-│   │                       #   sparkline, gauge, calendar, canvas, scrollbar, clear
+│   ├── widgets/            # block, list, tabs, shared symbols
 │   ├── input.py            # Input events, terminal parser, keybinding registry
 │   ├── autocomplete.py     # Generic autocomplete management
 │   ├── markdown.py         # Markdown → ANSI
 │   ├── keybinding_hints.py # Keybinding hint formatting
 │   ├── theme.py            # TUI theme types
-│   ├── testing.py          # Buffer/Widget render test helpers
 │   └── utils.py
 └── utils/                  # Cross-cutting helpers
     ├── format.py           # human_size and friends
@@ -280,13 +276,15 @@ has two layers:
 
 | Layer | Files | Role |
 |-------|-------|------|
-| Render core | `buffer.py`, `widget.py`, `frame.py`, `backend.py`, `geometry.py`, `layout.py`, `style.py`, `text.py`, `palette.py` | Immediate-mode widgets drawn into a double-buffered cell grid |
+| Render core | `scrollback.py`, `ansi_text.py`, `compose.py`, `geometry.py`, `layout.py`, `style.py`, `text.py`, `palette.py` | Styled ANSI lines, measured and composited by grapheme cluster |
 | Component core | `service.py`, `component.py`, `components/`, `input.py`, `autocomplete.py` | Retained components, focus, overlays, differential rendering |
 
-`ansi_bridge.py` converts between the two representations. `widgets/` holds the
-render-core widget library: `block`, `paragraph`, `list`, `table`, `tabs`,
-`chart`, `barchart`, `sparkline`, `gauge`, `calendar`, `canvas`, `scrollbar`,
-`clear`, and shared `symbols`. `testing.py` provides render assertions.
+Everything renders to `list[str]`. `ansi_text.py` does the width-aware work —
+tokenizing an ANSI string into styled grapheme clusters, then wrapping,
+splicing and measuring in *columns* rather than characters. `compose.py` builds
+on it for overlay compositing, and `scrollback.py` paints the resulting lines
+differentially into the terminal's native scrollback. `widgets/` holds the
+fixed-size widget library: `block`, `list`, `tabs`, and shared `symbols`.
 
 Tau-specific UI composition lives in `modes/interactive/`, never in `tui/`. See
 [Terminal UI](tui.md).

@@ -1,27 +1,27 @@
 """Third-party components must keep working across the string-renderer change.
 
 Extensions add components via ``layout.header.add_child(...)`` and friends.
-``add_child`` type-hints ``Component``, but Python does not enforce it, so
-three shapes exist in the wild:
+``add_child`` type-hints ``Component``, but Python does not enforce it, so two
+shapes exist in the wild:
 
-* the documented one — subclasses ``Component``, implements ``render_cells``
-* the new one — subclasses ``Component``, implements ``render``
-* a duck-typed object implementing only ``render_cells``, which worked before
-  because containers only ever called that
+* the documented one — subclasses ``Component``, implements ``render``
+* a duck-typed object implementing only ``render``, with no ``Component`` base
 
-All three must render. The third would otherwise raise inside
-``TUI._do_render``, which swallows exceptions — so a third-party extension
-would present as a frozen screen with no error shown to the user.
+Both must render. Either would otherwise raise inside ``TUI._do_render``,
+which swallows exceptions — so a third-party extension would present as a
+frozen screen with no error shown to the user.
+
+The ``render_cells(area, buf)`` shape is gone along with the cell grid. A
+component still on it gets a named TypeError rather than a silent freeze,
+which is the point of ``_child_lines`` raising explicitly.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component, Container
-from tau.tui.geometry import Position, Rect
+from tau.tui.geometry import Position
 
 WIDTH = 40
 
@@ -29,28 +29,28 @@ WIDTH = 40
 class DocumentedWidget(Component):
     """What docs/extensions.md tells authors to write."""
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        return parse_ansi_wrapped_into(buf, area.x, area.y, "documented", area.width)
-
-
-class ModernWidget(Component):
-    """The contract everything is moving to."""
-
-    def render(self, width: int) -> list[str]:
-        return ["modern"]
+    def render(self, width: int) -> list[str]:  # noqa: ARG002
+        return ["documented"]
 
 
 class DuckTypedWidget:
-    """No Component base — worked before because containers called render_cells."""
+    """No Component base — containers only ever call render()."""
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        return parse_ansi_wrapped_into(buf, area.x, area.y, "duck typed", area.width)
+    def render(self, width: int) -> list[str]:  # noqa: ARG002
+        return ["duck typed"]
 
     def handle_input(self, event: object) -> bool:
         return False
 
     def invalidate(self) -> None:
         pass
+
+
+class LegacyCellWidget(Component):
+    """The removed contract. Must fail loudly rather than freeze the screen."""
+
+    def render_cells(self, area: object, buf: object) -> int:
+        raise AssertionError("should never be called")
 
 
 class NotRenderable:
@@ -61,10 +61,9 @@ class NotRenderable:
     ("widget", "expected"),
     [
         (DocumentedWidget(), "documented"),
-        (ModernWidget(), "modern"),
         (DuckTypedWidget(), "duck typed"),
     ],
-    ids=["documented", "modern", "duck-typed"],
+    ids=["documented", "duck-typed"],
 )
 def test_container_renders_every_extension_shape(widget: object, expected: str) -> None:
     container = Container()
@@ -74,22 +73,12 @@ def test_container_renders_every_extension_shape(widget: object, expected: str) 
 
 def test_mixed_extension_shapes_in_one_container() -> None:
     container = Container()
-    for w in (DocumentedWidget(), DuckTypedWidget(), ModernWidget()):
+    for w in (DocumentedWidget(), DuckTypedWidget()):
         container.add_child(w)  # type: ignore[arg-type]
     assert [x.rstrip() for x in container.render(WIDTH)] == [
         "documented",
         "duck typed",
-        "modern",
     ]
-
-
-def test_every_shape_also_renders_through_the_cell_contract() -> None:
-    """A not-yet-migrated parent renders extension children into cells."""
-    container = Container()
-    for w in (DocumentedWidget(), DuckTypedWidget(), ModernWidget()):
-        container.add_child(w)  # type: ignore[arg-type]
-    buf = Buffer.empty(Rect(0, 0, WIDTH, 0))
-    assert container.render_cells(Rect(0, 0, WIDTH, 0), buf) == 3
 
 
 def test_a_non_renderable_child_says_so_clearly() -> None:
@@ -97,6 +86,14 @@ def test_a_non_renderable_child_says_so_clearly() -> None:
     container = Container()
     container.add_child(NotRenderable())  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="NotRenderable is not renderable"):
+        container.render(WIDTH)
+
+
+def test_a_cells_only_component_fails_loudly() -> None:
+    """render_cells is gone; a component still on it must not silently render blank."""
+    container = Container()
+    container.add_child(LegacyCellWidget())
+    with pytest.raises(NotImplementedError, match="LegacyCellWidget"):
         container.render(WIDTH)
 
 
@@ -110,7 +107,7 @@ def test_duck_typed_widget_without_cursor_support_is_fine() -> None:
 
 def test_extension_cursor_still_propagates() -> None:
     class CursorWidget(Component):
-        def render(self, width: int) -> list[str]:
+        def render(self, width: int) -> list[str]:  # noqa: ARG002
             self.cursor_position = Position(3, 0)
             return ["prompt"]
 

@@ -15,23 +15,29 @@ import pytest
 
 from tau.modes.interactive.components.session_selector import ResumeSelector
 from tau.modes.interactive.components.settings_selector import SettingItem, SettingsSelector
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.ansi_text import tokenize
+from tau.tui.style import Style
+from tau.tui.utils import strip_ansi
 
 WIDTH = 70
 
 
 def _strip(component) -> str:
     """The first rendered row — the tab strip."""
-    buf = Buffer.empty(Rect(0, 0, WIDTH, 40))
-    component.render_cells(Rect(0, 0, WIDTH, 40), buf)
-    return "".join(buf.get(x, 0).symbol for x in range(WIDTH)).rstrip()
+    return strip_ansi(component.render(WIDTH)[0]).rstrip()
 
 
-def _styles(component) -> list:
-    buf = Buffer.empty(Rect(0, 0, WIDTH, 40))
-    component.render_cells(Rect(0, 0, WIDTH, 40), buf)
-    return [buf.get(x, 0) for x in range(WIDTH)]
+def _styles(component) -> list[Style]:
+    """The first rendered row's per-column styles, blank-padded out to WIDTH."""
+    columns: list[Style] = [Style()] * WIDTH
+    column = 0
+    for _cluster, glyph_width, style in tokenize(component.render(WIDTH)[0]):
+        if column + glyph_width > WIDTH:
+            break
+        for offset in range(glyph_width):
+            columns[column + offset] = style
+        column += glyph_width
+    return columns
 
 
 @pytest.fixture
@@ -84,8 +90,8 @@ class TestResumeScopeStrip:
         resume.toggle_scope()
         after = _styles(resume)
 
-        assert before[folder_x].style != after[folder_x].style
-        assert before[all_x].style != after[all_x].style
+        assert before[folder_x] != after[folder_x]
+        assert before[all_x] != after[all_x]
 
 
 class TestSettingsTabStrip:
@@ -98,8 +104,8 @@ class TestSettingsTabStrip:
 
     def test_cycling_moves_the_emphasis(self, settings):
         general_x = _strip(settings).index("General")
-        before = _styles(settings)[general_x].style
+        before = _styles(settings)[general_x]
 
         settings.next_tab()
 
-        assert _styles(settings)[general_x].style != before
+        assert _styles(settings)[general_x] != before

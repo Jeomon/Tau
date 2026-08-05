@@ -5,45 +5,20 @@ from abc import ABC
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.geometry import Position, Rect
+from tau.tui.geometry import Position
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
     from tau.tui.input import InputEvent
 
 
-def lines_from_cells(component: object, width: int) -> list[str]:
-    """Render a cell-only object to lines, for things that are not Components.
-
-    ``add_child`` type-hints ``Component``, but Python does not enforce it, and
-    before the string renderer a duck-typed object implementing only
-    ``render_cells`` worked — containers only ever called that. Such an object
-    now has no ``render``, and the resulting AttributeError is swallowed by
-    ``TUI._do_render`` into a frozen screen.
-
-    Third-party extensions are the realistic source, so containers fall back to
-    this rather than breaking them. Components proper never reach it: they
-    inherit the bridge.
-    """
-    from tau.tui.ansi_bridge import row_to_ansi
-    from tau.tui.buffer import Buffer
-
-    w = max(1, width)
-    buf = Buffer.empty(Rect(0, 0, w, 0))
-    rows = component.render_cells(Rect(0, 0, w, 0), buf)  # type: ignore[attr-defined]
-    return [row_to_ansi(buf, buf.area.y + y, embed_raw=True) for y in range(rows)]
-
-
 def _child_lines(child: object, width: int) -> list[str]:
-    """Ask a child for lines, tolerating a cell-only duck-typed object."""
+    """Ask a child for its lines."""
     render = getattr(child, "render", None)
     if callable(render):
         return render(width)
-    if callable(getattr(child, "render_cells", None)):
-        return lines_from_cells(child, width)
     raise TypeError(
-        f"{type(child).__name__} is not renderable: it implements neither "
-        "render(width) nor render_cells(area, buf)"
+        f"{type(child).__name__} is not renderable: it does not implement "
+        "render(width) -> list[str]"
     )
 
 
@@ -51,96 +26,29 @@ class Component(ABC):  # noqa: B024 - see the either/or render contract below
     """
     Base class for all TUI components.
 
-    There are two render contracts, and a component implements **exactly one**:
+    A component implements one render contract:
 
-    * ``render(width) -> list[str]`` — return styled ANSI lines. This is the
-      target contract: the string renderer (``tui/scrollback.py``) consumes
-      lines directly, with no per-character cell grid in between.
-    * ``render_cells(area, buf) -> int`` — write into a ``Buffer`` and return
-      rows written. The original contract, kept while components migrate.
+    * ``render(width) -> list[str]`` — return styled ANSI lines. The string
+      renderer (``tui/scrollback.py``) consumes them directly, with no
+      per-character cell grid in between.
 
-    Whichever one a component does not implement, this class supplies by
-    bridging to the other. That is what lets the 57 existing ``render_cells``
-    implementations migrate one at a time with the suite green, instead of one
-    flag day where nothing renders until everything is converted. Both bridges
-    are scaffolding and get deleted along with ``buffer.py``/``ansi_bridge.py``
-    once nothing implements ``render_cells`` any more.
-
-    Bridging is not free — it does exactly the string -> Cell -> string round
-    trip the migration exists to remove — so a component still on
-    ``render_cells`` costs *more* under the string renderer than it did
-    before. That is expected and temporary; it is the price of being able to
-    move incrementally, and it disappears as each component is converted.
+    Width-aware work that used to justify a cell grid — wrapping, splicing,
+    measuring wide glyphs and multi-codepoint clusters — lives in
+    ``tui/ansi_text.py``, which operates on styled grapheme tokens.
     """
 
     #: Where this component wants the text cursor after its last render, in
     #: its own coordinate space (row 0 == its first line). Only meaningful for
-    #: focused, cursor-bearing components (currently TextInput). A cell-based
-    #: component sets ``buf.cursor_position`` instead; the bridge below lifts
-    #: that out, because the scratch Buffer it renders into is discarded and
-    #: the position would otherwise be lost on the way to a string renderer.
+    #: focused, cursor-bearing components (currently TextInput). A container
+    #: offsets a child's request by where that child starts, so the position
+    #: survives however many nested containers sit above it.
     cursor_position: Position | None = None
 
     def render(self, width: int) -> list[str]:
-        """Return this component's styled ANSI lines at ``width`` columns.
-
-        Default implementation bridges to ``render_cells``: render into a
-        scratch ``Buffer`` and serialise its rows back to ANSI. Override this
-        directly (and drop ``render_cells``) to skip the round trip.
-
-        Inline images are embedded rather than tracked separately, matching
-        how a string-based renderer carries them.
-        """
-        if type(self).render_cells is Component.render_cells:
-            raise TypeError(
-                f"{type(self).__name__} implements neither render() nor render_cells(); "
-                "a Component must implement exactly one of them"
-            )
-        from tau.tui.ansi_bridge import row_to_ansi
-        from tau.tui.buffer import Buffer
-
-        w = max(1, width)
-        buf = Buffer.empty(Rect(0, 0, w, 0))
-        rows = self.render_cells(Rect(0, 0, w, 0), buf)
-        # The scratch buffer is discarded, so lift any cursor request out of it
-        # before it goes. area.y is 0 here, which makes the recorded row already
-        # relative to this component — exactly what a parent needs to offset.
-        self.cursor_position = buf.cursor_position
-        return [row_to_ansi(buf, buf.area.y + y, embed_raw=True) for y in range(rows)]
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render into ``buf`` starting at row ``area.y``; return rows written.
-
-        ``buf`` starts at height 0 and grows on demand — an override must
-        call ``buf.grow_to(area.y + n)`` before writing row
-        ``area.y + n - 1``; ``Buffer.set``/``set_string`` silently no-op on
-        an out-of-bounds row rather than growing it themselves (growing
-        implicitly on every write would be surprising for the fixed-size
-        buffers the grid widgets in ``tui/widgets/`` render into).
-
-        Default implementation bridges to ``render``, so a migrated component
-        still works when a not-yet-migrated parent renders it into cells.
-        """
-        if type(self).render is Component.render:
-            raise TypeError(
-                f"{type(self).__name__} implements neither render() nor render_cells(); "
-                "a Component must implement exactly one of them"
-            )
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        y = area.y
-        for line in self.render(area.width):
-            y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
-        # Mirror of the other bridge: a migrated component publishes its cursor
-        # on itself, but a cell-based caller reads buf.cursor_position. Without
-        # this the cursor silently vanishes for any component that has moved to
-        # render() while its caller has not — which is every frame of typing
-        # during the migration.
-        if self.cursor_position is not None:
-            buf.cursor_position = Position(
-                area.x + self.cursor_position.x, area.y + self.cursor_position.y
-            )
-        return y - area.y
+        """Return this component's styled ANSI lines at ``width`` columns."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement render(width) -> list[str]"
+        )
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """
@@ -175,11 +83,9 @@ class Focusable:
     Example::
 
         class MyInput(Component, Focusable):
-            def render_cells(self, area, buf):
+            def render(self, width):
                 cursor = "█" if self.focused else ""
-                buf.grow_to(area.y + 1)
-                buf.set_string(area.x, area.y, f"> {self._text}{cursor}")
-                return 1
+                return [f"> {self._text}{cursor}"]
     """
 
     focused: bool = False
@@ -245,12 +151,6 @@ class Container(Component):
             if child_cursor is not None:
                 self.cursor_position = Position(child_cursor.x, start + child_cursor.y)
         return lines
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        y = area.y
-        for child in self.children:
-            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
-        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child in self.children)
@@ -436,25 +336,36 @@ class Row(Component):
 def _content_width(line: str, width: int) -> int:
     """Columns of ``line`` that carry content, ignoring trailing blanks.
 
-    Matches how the cell path measured a child before placing it in a Row: a
-    trailing *plain* space is not content, but a styled one is (it paints a
-    background), and so is a skip cell. Measuring with visible_width instead
-    counts padding as content and pushes the next alignment group right.
+    A trailing *plain* space is not content, but a styled one is (it paints a
+    background). Measuring with visible_width instead counts padding as content
+    and pushes the next alignment group right.
+
+    An inline-image line reports zero: its escape draws pixels but occupies no
+    columns of the text grid.
     """
-    from tau.tui.ansi_bridge import parse_ansi_into
-    from tau.tui.buffer import Buffer
+    from tau.tui.ansi_text import is_image_escape, tokenize
     from tau.tui.style import Style
 
-    if not line:
+    if not line or width <= 0:
         return 0
-    buf = Buffer.empty(Rect(0, 0, width, 1))
-    parse_ansi_into(buf, 0, 0, line, width)
-    content = 0
+    if is_image_escape(line):
+        return 0
+
     blank = Style()
-    for column in range(width):
-        cell = buf.get(column, 0)
-        if cell.symbol != " " or cell.style != blank or cell.skip:
-            content = column + 1
+    columns: list[tuple[str, Style]] = [(" ", blank)] * width
+    column = 0
+    for cluster, glyph_width, style in tokenize(line):
+        if column + glyph_width > width:
+            break
+        columns[column] = (cluster, style)
+        if glyph_width == 2 and column + 1 < width:
+            columns[column + 1] = (" ", style)
+        column += glyph_width
+
+    content = 0
+    for index, (symbol, style) in enumerate(columns):
+        if symbol != " " or style != blank:
+            content = index + 1
     return content
 
 
@@ -610,7 +521,7 @@ class Rows(Component):
     separate rows. Each child is padded (with blank lines) or truncated to its
     row height so the total layout is predictable.
 
-    Because ``render_cells`` only receives the available *width* via ``area``,
+    Because ``render`` only receives the available *width*,
     the total height budget must be supplied explicitly via ``height`` — e.g. an overlay's
     ``max_height`` or a fixed dashboard region. When ``height`` is ``None``,
     percent/flex rows fall back to their natural content height and only

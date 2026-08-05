@@ -7,10 +7,8 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-from tau.tui.buffer import Buffer, RawWrite
+from tau.tui.ansi_text import wrap_ansi
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 
 _log = logging.getLogger(__name__)
 
@@ -197,40 +195,32 @@ class Image(Component):
             return ("escape", rows - 1, rows, move_up + seq)
         return ("fallback", 0, 1, self._fallback_text())
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Stays on cells deliberately, and is the only component that does.
+    def render(self, width: int) -> list[str]:
+        """Return the image as ANSI lines.
 
-        An image is not text. The terminal owns those pixels once it draws
-        them, so the block has to be marked skip=True cell by cell to stop any
-        later SGR write or diff from touching it. A list[str] has nowhere to
-        carry "these columns are not mine to repaint" -- expressing it would
-        mean inventing a parallel skip channel alongside the strings, i.e.
-        rebuilding the grid for one component. Component's bridge renders this
-        into whatever the parent is composing.
+        An image is not text, and the escape sequence is what actually draws
+        it — the terminal owns those pixels once it has. So the block is
+        emitted as one line carrying the escape verbatim plus blank lines for
+        the rest of its height, reserving the vertical space the drawn image
+        occupies without painting anything into it. Nothing writes glyphs over
+        those rows, so there is nothing to protect them from.
+
+        Which row carries the escape differs by protocol: Kitty draws from the
+        top row, while iTerm2 draws from wherever the cursor sits, so its
+        sequence rides the last row behind a relative cursor-up move (see
+        ``_compute``).
         """
-        if self._cache is None or self._cache_width != area.width:
-            self._cache = self._compute(area.width)
-            self._cache_width = area.width
+        if self._cache is None or self._cache_width != width:
+            self._cache = self._compute(width)
+            self._cache_width = width
             self._raw = b""  # decoded bytes no longer needed after first render
 
         kind, escape_row, rows, content = self._cache
 
-        buf.grow_to(area.y + rows)
         if kind == "fallback":
-            line = self._fallback_color(content)
-            return parse_ansi_wrapped_into(buf, area.x, area.y, line, area.width)
+            return wrap_ansi(self._fallback_color(content), width)
 
-        # The whole block's cells are invisible to the terminal's normal text
-        # grid — the terminal itself owns those pixels once it draws them, so
-        # a stray SGR write or cell diff here would corrupt the image. Mark
-        # every cell skip=True (blank symbol) rather than writing content.
-        for yy in range(rows):
-            for xx in range(area.width):
-                buf.set(area.x + xx, area.y + yy, " ")
-                buf.get(area.x + xx, area.y + yy).skip = True
-        token = f"{self._mime}:{self._image_id}:{area.x}x{area.y}:{area.width}"
-        buf.raw_writes.append(RawWrite(area.x, area.y + escape_row, content, token))
-        return rows
+        return [content if row == escape_row else "" for row in range(rows)]
 
     def _fallback_text(self) -> str:
         parts = []

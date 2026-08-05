@@ -9,9 +9,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from tau.modes.interactive.components.layout import Layout
     from tau.settings.manager import SettingsManager
-    from tau.tui.buffer import Buffer
     from tau.tui.component import Component
-    from tau.tui.geometry import Position, Rect
+    from tau.tui.geometry import Position
     from tau.tui.input import InputEvent
     from tau.tui.theme import LayoutTheme
 
@@ -47,14 +46,11 @@ class _InterceptComponent:
 
     Intentionally does not subclass Component to avoid the ABC machinery —
     duck-typing is sufficient since TUI only calls
-    render/render_cells/handle_input/invalidate.
+    render/handle_input/invalidate.
 
-    Being a transparent proxy, it forwards *both* render contracts to the
-    wrapped component rather than picking one: whichever the caller uses must
-    reach the inner component unchanged. Forwarding only render_cells was
-    enough until the renderer started asking for lines, at which point every
-    frame with an interceptor installed raised — and TUI._do_render swallows
-    that into a frozen screen.
+    Being a transparent proxy, it forwards render to the wrapped component and
+    republishes its cursor request: TUI._do_render swallows exceptions, so a
+    proxy that dropped either would present as a frozen screen.
     """
 
     def __init__(
@@ -70,9 +66,6 @@ class _InterceptComponent:
         lines = self._inner.render(width)
         self.cursor_position = self._inner.cursor_position
         return lines
-
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        return self._inner.render_cells(area, buf)
 
     def handle_input(self, event: InputEvent) -> bool:
         if self._on_handle(event) is True:
@@ -407,12 +400,8 @@ class UIContext:
                     self._count = 0
                     self._done = done
 
-                def render_cells(self, area, buf):
-                    buf.grow_to(area.y + 1)
-                    buf.set_string(
-                        area.x, area.y, f"  Count: {self._count}  (Enter to confirm, Esc to cancel)"
-                    )
-                    return 1
+                def render(self, width):
+                    return [f"  Count: {self._count}  (Enter to confirm, Esc to cancel)"]
 
                 def handle_input(self, event):
                     if event.matches("enter"):

@@ -15,7 +15,7 @@ submodule (e.g. ``tau.tui.utils``).
 
 Because ``__getattr__``/``__all__`` (PEP 562) resolve lazily, ``tau.tui``
 already doubles as its own prelude: ``from tau.tui import *`` or
-``from tau.tui import Rect, Buffer, Widget, Layout, ...`` pulls in the
+``from tau.tui import Rect, Style, Component, Layout, ...`` pulls in the
 render-layer types on demand without a separate ``prelude`` submodule.
 """
 
@@ -25,8 +25,6 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tau.tui.backend import AnsiBackend, Backend, TestBackend
-    from tau.tui.buffer import Buffer, Cell
     from tau.tui.component import (
         Column,
         Columns,
@@ -74,7 +72,6 @@ if TYPE_CHECKING:
         get_capabilities,
         get_cell_dimensions,
     )
-    from tau.tui.testing import assert_buffer_eq
     from tau.tui.text import Line as TextLine
     from tau.tui.text import Masked, Span
     from tau.tui.text import Text as StyledText
@@ -91,7 +88,6 @@ if TYPE_CHECKING:
         rgb_bold,
         rgb_italic,
     )
-    from tau.tui.widget import StatefulWidget, Widget, render_widget
 
 __all__ = [
     # Application and rendering
@@ -123,11 +119,9 @@ __all__ = [
     "InlineSelector",
     "Box",
     "DynamicBorder",
-    # Buffer/Cell/Rect/Style/Widget (grid render layer)
+    # Rect/Style/Text (render layer)
     "Rect",
     "Position",
-    "Buffer",
-    "Cell",
     "Style",
     "Stylize",
     "Color",
@@ -138,13 +132,6 @@ __all__ = [
     "Masked",
     "TextLine",
     "StyledText",
-    "Widget",
-    "StatefulWidget",
-    "render_widget",
-    "Backend",
-    "TestBackend",
-    "AnsiBackend",
-    "assert_buffer_eq",
     # Layout constraint solver
     "Layout",
     "Constraint",
@@ -193,9 +180,6 @@ __all__ = [
 ]
 
 _SUBMODULE_OF = {
-    "Backend": "tau.tui.backend",
-    "TestBackend": "tau.tui.backend",
-    "AnsiBackend": "tau.tui.backend",
     "Column": "tau.tui.component",
     "Columns": "tau.tui.component",
     "Component": "tau.tui.component",
@@ -224,22 +208,16 @@ _SUBMODULE_OF = {
     "TextInput": "tau.tui.components.text_input",
     "Rect": "tau.tui.geometry",
     "Position": "tau.tui.geometry",
-    "Buffer": "tau.tui.buffer",
-    "Cell": "tau.tui.buffer",
     "Style": "tau.tui.style",
     "RESET_COLOR": "tau.tui.style",
     "parse_color": "tau.tui.style",
     "Stylize": "tau.tui.style",
-    "assert_buffer_eq": "tau.tui.testing",
     "Color": "tau.tui.style",
     "Modifier": "tau.tui.style",
     "Span": "tau.tui.text",
     "Masked": "tau.tui.text",
     "TextLine": "tau.tui.text",
     "StyledText": "tau.tui.text",
-    "Widget": "tau.tui.widget",
-    "StatefulWidget": "tau.tui.widget",
-    "render_widget": "tau.tui.widget",
     "Layout": "tau.tui.layout",
     "Constraint": "tau.tui.layout",
     "Direction": "tau.tui.layout",

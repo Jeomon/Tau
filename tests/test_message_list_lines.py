@@ -28,9 +28,7 @@ from tau.modes.interactive.components.message_list import (
     MessageList,
     _wrap_to_rows,
 )
-from tau.tui.ansi_bridge import parse_ansi_into, row_to_ansi
-from tau.tui.buffer import Buffer
-from tau.tui.geometry import Rect
+from tau.tui.ansi_text import tokenize, wrap_ansi
 
 WIDTH = 80
 
@@ -70,18 +68,15 @@ def _session(turns: int = 4, output_lines: int = 30, unicode: bool = False) -> M
     return ml
 
 
-def _same_pixels(a: list[str], b: list[str], width: int = WIDTH) -> bool:
+def _same_pixels(a: list[str], b: list[str], width: int = WIDTH) -> bool:  # noqa: ARG001
     """Compare rendered result, not bytes: the paths emit equivalent SGR runs."""
     if len(a) != len(b):
         return False
-    for ra, rb in zip(a, b, strict=True):
-        pa = Buffer.empty(Rect(0, 0, width, 1))
-        pb = Buffer.empty(Rect(0, 0, width, 1))
-        parse_ansi_into(pa, 0, 0, ra, width)
-        parse_ansi_into(pb, 0, 0, rb, width)
-        if pa.content != pb.content:
-            return False
-    return True
+    return all(
+        [(cluster, style) for cluster, _w, style in tokenize(ra)]
+        == [(cluster, style) for cluster, _w, style in tokenize(rb)]
+        for ra, rb in zip(a, b, strict=True)
+    )
 
 
 def test_incremental_append_matches_a_fresh_build() -> None:
@@ -138,12 +133,6 @@ class TestWrapToRows:
             "",
         ],
     )
-    def test_non_ascii_matches_the_cell_wrapper(self, line: str) -> None:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-
-        buf = Buffer.empty(Rect(0, 0, 20, 0))
-        n = parse_ansi_wrapped_into(buf, 0, 0, line, 20)
-        expected = [
-            row_to_ansi(buf, y, embed_raw=True, trim_trailing_blanks=True) for y in range(n)
-        ]
-        assert _wrap_to_rows(line, 20) == expected
+    def test_non_ascii_takes_the_exact_wrapper(self, line: str) -> None:
+        """Content the ASCII fast path must refuse falls through to wrap_ansi."""
+        assert _wrap_to_rows(line, 20) == wrap_ansi(line, 20)

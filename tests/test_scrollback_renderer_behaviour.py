@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from tau.tui.buffer import RawWrite
-from tau.tui.scrollback import ScrollbackRenderer
+from tau.tui.scrollback import RawWrite, ScrollbackRenderer
 
 
 class _Term:

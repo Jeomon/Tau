@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.compose import wrap_to_rows as _wrap_to_rows
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
 from tau.tui.style import Style, apply_style
@@ -225,12 +223,8 @@ class MessageBlock:
 
             self._image_components[key] = Image(b64, mime)
 
-        from tau.tui.ansi_bridge import row_to_ansi
-
         image = self._image_components[key]
-        buf = Buffer.empty(Rect(0, 0, width, 0))
-        rows = image.render_cells(Rect(0, 0, width, 0), buf)
-        lines = [row_to_ansi(buf, y) for y in range(rows)]
+        lines = image.render(width)
         self._image_lines_cache[key] = (width, show_images, lines)
         return lines
 
@@ -1281,9 +1275,9 @@ class MessageList(Component):
         The split exists so the renderer can be told how far the frozen prefix
         reaches (``stable_through``) and skip diffing it.
 
-        Keeping frozen content as rows rather than a ``Buffer`` of ``Cell`` is
-        the whole point: a ctrl+O expand rebuilt ~3.2M Cell objects only to
-        serialise them straight back to ANSI. Measured on a 40-turn session
+        Keeping frozen content as rows of text is the whole point: the old
+        cell grid rebuilt ~3.2M per-character objects on a ctrl+O expand only
+        to serialise them straight back to ANSI. Measured on a 40-turn session
         with 800-line tool outputs, build+emit went 1737ms -> 33ms.
         """
         if width != self._lines_width:
@@ -1366,14 +1360,10 @@ class MessageList(Component):
 
 
 def _rendered_row_count(lines: list[str], width: int) -> int:
-    """Return how many Buffer rows ANSI lines occupy after wrapping."""
-    from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    """Return how many terminal rows ANSI lines occupy after wrapping."""
+    from tau.tui.ansi_text import wrap_ansi
 
-    buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
-    row = 0
-    for line in lines:
-        row += parse_ansi_wrapped_into(buf, 0, row, line, width)
-    return row
+    return sum(len(wrap_ansi(line, width)) for line in lines)
 
 
 # ── Arg formatter ─────────────────────────────────────────────────────────────

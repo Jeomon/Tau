@@ -98,16 +98,13 @@ def test_the_audit_actually_found_things() -> None:
 @pytest.mark.parametrize(
     ("name", "cls"), _CANDIDATES, ids=[n.rsplit(".", 1)[-1] for n, _ in _CANDIDATES]
 )
-def test_render_capable_class_satisfies_both_contracts(name: str, cls: type) -> None:
+def test_render_capable_class_implements_render(name: str, cls: type) -> None:
     if name in _NOT_IN_THE_TREE:
         pytest.skip("not reachable through the Component tree")
-    has_render = callable(getattr(cls, "render", None))
-    has_cells = callable(getattr(cls, "render_cells", None))
-    assert has_render and has_cells, (
-        f"{name} provides only "
-        f"{'render()' if has_render else 'render_cells()'}. Inherit Component so "
-        "the bridge supplies the other, or forward both explicitly if it is a "
-        "transparent proxy — otherwise whichever caller uses the missing one "
+    assert callable(getattr(cls, "render", None)), (
+        f"{name} does not provide render(width) -> list[str], the sole render "
+        "contract. Inherit Component and implement it, or forward it explicitly "
+        "if this is a transparent proxy — otherwise whichever caller renders it "
         "raises, and TUI._do_render turns that into a frozen screen."
     )
 

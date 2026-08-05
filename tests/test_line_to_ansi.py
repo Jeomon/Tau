@@ -1,39 +1,23 @@
-"""line_to_ansi is the string-contract counterpart of Buffer.set_line.
+"""line_to_ansi flattens structured Line/Span content into one ANSI string.
 
-Components migrating off render_cells build structured Line/Span content and
-wrote it with buf.set_line. This must place text in the same columns, resolve
-alignment the same way, and clip the same — otherwise selectors and footers
-shift by a column when they migrate.
+Selectors, pickers, the spinner and the footer widgets all build ``Line``s and
+render through this, so it has to place text in the right columns, resolve
+alignment, and clip on a glyph boundary. Column placement is measured in
+*columns*, not characters — a CJK or ZWJ span is wider than its length.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tau.tui.ansi_bridge import parse_ansi_into, row_to_ansi
-from tau.tui.buffer import Buffer
+from tau.tui.ansi_text import tokenize
 from tau.tui.compose import line_to_ansi
-from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
+from tau.tui.utils import strip_ansi, visible_width
 
 WIDTH = 30
-
-
-def _via_set_line(line: Line, width: int, x: int = 0) -> str:
-    buf = Buffer.empty(Rect(0, 0, max(1, x + width), 1))
-    buf.set_line(x, 0, line, width)
-    return row_to_ansi(buf, 0, embed_raw=True, trim_trailing_blanks=True)
-
-
-def _same_pixels(a: str, b: str, width: int) -> bool:
-    pa = Buffer.empty(Rect(0, 0, width, 1))
-    pb = Buffer.empty(Rect(0, 0, width, 1))
-    parse_ansi_into(pa, 0, 0, a, width)
-    parse_ansi_into(pb, 0, 0, b, width)
-    return pa.content == pb.content
-
 
 CASES = {
     "plain": Line([Span("hello")]),
@@ -50,24 +34,58 @@ CASES = {
 
 @pytest.mark.parametrize("name", list(CASES))
 @pytest.mark.parametrize("width", [10, 30, 60])
-def test_matches_set_line(name: str, width: int) -> None:
-    line = CASES[name]
-    assert _same_pixels(line_to_ansi(line, width), _via_set_line(line, width), width)
+def test_never_exceeds_its_width(name: str, width: int) -> None:
+    """Content is clipped to the available columns, never overrun."""
+    assert visible_width(line_to_ansi(CASES[name], width)) <= width
+
+
+@pytest.mark.parametrize("name", list(CASES))
+@pytest.mark.parametrize("width", [10, 30, 60])
+def test_clipping_lands_on_a_glyph_boundary(name: str, width: int) -> None:
+    """A wide glyph is dropped whole rather than cut in half."""
+    out = line_to_ansi(CASES[name], width)
+    source = "".join(span.content for span in CASES[name])
+    kept = "".join(c for c, _w, _s in tokenize(out))
+    assert source.startswith(kept.rstrip()) or kept.strip() == ""
+
+
+def test_spans_are_concatenated_in_order() -> None:
+    out = strip_ansi(line_to_ansi(CASES["multi span"], WIDTH))
+    assert out == "abc"
+
+
+def test_span_styles_are_preserved() -> None:
+    tokens = tokenize(line_to_ansi(CASES["multi span"], WIDTH))
+    assert tokens[0][2].add_modifier  # "a" is bold
+    assert not tokens[1][2].add_modifier  # "b" is plain
 
 
 @pytest.mark.parametrize(
     "alignment", [Alignment.LEFT, Alignment.CENTER, Alignment.RIGHT], ids=lambda a: a.name
 )
-def test_alignment_matches_set_line(alignment) -> None:
+def test_alignment_positions_the_content(alignment) -> None:
     line = Line([Span("mid")], alignment=alignment)
-    assert _same_pixels(line_to_ansi(line, WIDTH), _via_set_line(line, WIDTH), WIDTH)
+    out = line_to_ansi(line, WIDTH)
+    lead = len(strip_ansi(out)) - len(strip_ansi(out).lstrip(" "))
+    expected = {
+        Alignment.LEFT: 0,
+        Alignment.CENTER: (WIDTH - 3) // 2,
+        Alignment.RIGHT: WIDTH - 3,
+    }[alignment]
+    assert lead == expected
 
 
 @pytest.mark.parametrize("x", [0, 1, 4])
-def test_x_offset_matches_set_line(x: int) -> None:
-    line = Line([Span("shifted")])
-    total = x + WIDTH
-    assert _same_pixels(line_to_ansi(line, WIDTH, x), _via_set_line(line, WIDTH, x), total)
+def test_x_offset_indents_the_content(x: int) -> None:
+    out = strip_ansi(line_to_ansi(Line([Span("shifted")]), WIDTH, x))
+    assert out.startswith(" " * x + "shifted")
+
+
+def test_a_wide_span_is_measured_in_columns() -> None:
+    """日本語のテキスト is 16 columns, so it does not fit in 10."""
+    out = line_to_ansi(CASES["unicode"], 10)
+    assert visible_width(out) <= 10
+    assert "\ufffd" not in strip_ansi(out)
 
 
 def test_ported_footer_components_render_the_same_as_before() -> None:
@@ -76,8 +94,7 @@ def test_ported_footer_components_render_the_same_as_before() -> None:
 
     c = GitBadge.__new__(GitBadge)
     c._text = "main *2"
-    expected = _via_set_line(Line([Span("main *2", Style().dim())]), WIDTH)
-    assert _same_pixels(c.render(WIDTH)[0], expected, WIDTH)
+    assert strip_ansi(c.render(WIDTH)[0]).rstrip() == "main *2"
 
 
 def test_selector_controller_with_nothing_active_renders_nothing() -> None:

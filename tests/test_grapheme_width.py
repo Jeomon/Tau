@@ -17,8 +17,7 @@ from __future__ import annotations
 import grapheme
 import pytest
 
-from tau.tui.ansi_bridge import grapheme_width
-from tau.tui.utils import strip_ansi, visible_width
+from tau.tui.utils import grapheme_width, strip_ansi, visible_width
 
 
 def reference_width(text: str) -> int:
