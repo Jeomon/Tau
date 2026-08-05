@@ -48,6 +48,7 @@ __all__ = [
     "MessageStartEvent",
     "MessageUpdateEvent",
     "MessageEndEvent",
+    "MessageRollbackEvent",
     "ToolExecutionStartEvent",
     "ToolExecutionUpdateEvent",
     "ToolExecutionEndEvent",

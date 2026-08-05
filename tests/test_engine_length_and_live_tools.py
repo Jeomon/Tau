@@ -8,6 +8,12 @@
 2. Live tool-set refresh — an extension changing ``engine.tools`` mid-run (e.g.
    via a tool calling ``set_active_tools``) must be reflected in the very next
    provider request within the same run, not only on the next ``run()`` call.
+
+3. Context adoption — the loop refreshes the system prompt and tool list from
+   the live engine attributes before every provider request (that is what makes
+   (2) work), so ``run()`` must adopt ``EngineContext`` onto those attributes.
+   Otherwise a caller that passes the prompt/tools only via the context — the
+   documented public pattern — silently gets the ``__init__`` values instead.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ class ScriptedLLM:
         self._turns = list(turns)
         self.calls = 0
         self.tools_seen: list[list] = []
+        self.system_prompts_seen: list[str | None] = []
         self.model = _Model()
         self.api = _Api()
         self.provider_id = "fake-provider"
@@ -55,6 +62,7 @@ class ScriptedLLM:
     async def _gen(self, ctx):
         self.calls += 1
         self.tools_seen.append(list(ctx.tools))
+        self.system_prompts_seen.append(ctx.system_prompt)
         turn = self._turns.pop(0) if self._turns else [EndEvent(reason=StopReason.Stop)]
         for ev in turn:
             yield ev
@@ -131,3 +139,33 @@ def test_extension_tool_change_applies_to_next_request_in_same_run() -> None:
     assert llm.calls == 2
     assert llm.tools_seen[0] == initial_tools
     assert llm.tools_seen[1] == new_tools
+
+
+def test_context_system_prompt_and_tools_reach_the_provider() -> None:
+    """The documented public pattern — build the Engine bare, pass the prompt and
+    tools per run via EngineContext — must actually reach the provider request.
+
+    Regression: the loop's live-attribute refresh overwrote both with the
+    ``__init__`` values, so ``system_prompt`` arrived as None (no provider sends
+    an empty system block) and the model was advertised the constructor's tools
+    while dispatch used the context's.
+    """
+    llm = ScriptedLLM([_text_turn("hi")])
+    # No system_prompt and no tools passed to __init__, as in README/docs/engine.md.
+    engine = Engine(cwd=Path("."), llm=llm, tools=[])  # type: ignore[arg-type]
+    ctx_tools: list = [SimpleNamespace(name="ctx_only_tool")]
+
+    run(
+        engine.run(
+            EngineContext(
+                system_prompt="Answer concisely.",
+                messages=[UserMessage.from_text("hello")],
+                tools=ctx_tools,
+            )
+        )
+    )
+
+    assert llm.system_prompts_seen == ["Answer concisely."]
+    assert llm.tools_seen == [ctx_tools]
+    # The advertised tool list and the execution lookup must not diverge.
+    assert list(engine._tools) == ["ctx_only_tool"]
