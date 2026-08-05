@@ -119,7 +119,9 @@ def line_to_ansi(line: Line, width: int, x: int = 0) -> str:
         text = truncate_to_width(span.content, limit - col)
         if not text:
             continue
-        out.append(apply_style(span.style, text))
+        # Mirrors Buffer.set_line: the line's base style sits behind the span's
+        # own, so a Line carrying a style is not silently dropped.
+        out.append(apply_style(line.style.patch(span.style), text))
         col += visible_width(text)
     return "".join(out)
 
