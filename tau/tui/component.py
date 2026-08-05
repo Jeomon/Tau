@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import contextlib
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -12,17 +12,55 @@ if TYPE_CHECKING:
     from tau.tui.input import InputEvent
 
 
-class Component(ABC):
+class Component(ABC):  # noqa: B024 - see the either/or render contract below
     """
     Base class for all TUI components.
 
-    ``render_cells(area, buf) -> int`` is the sole render contract: write
-    directly into ``buf`` starting at row ``area.y`` and return the number of
-    rows written. Every subclass must override it — a subclass that doesn't
-    fails at construction time (``TypeError``) rather than at first render.
+    There are two render contracts, and a component implements **exactly one**:
+
+    * ``render(width) -> list[str]`` — return styled ANSI lines. This is the
+      target contract: the string renderer (``tui/scrollback.py``) consumes
+      lines directly, with no per-character cell grid in between.
+    * ``render_cells(area, buf) -> int`` — write into a ``Buffer`` and return
+      rows written. The original contract, kept while components migrate.
+
+    Whichever one a component does not implement, this class supplies by
+    bridging to the other. That is what lets the 57 existing ``render_cells``
+    implementations migrate one at a time with the suite green, instead of one
+    flag day where nothing renders until everything is converted. Both bridges
+    are scaffolding and get deleted along with ``buffer.py``/``ansi_bridge.py``
+    once nothing implements ``render_cells`` any more.
+
+    Bridging is not free — it does exactly the string -> Cell -> string round
+    trip the migration exists to remove — so a component still on
+    ``render_cells`` costs *more* under the string renderer than it did
+    before. That is expected and temporary; it is the price of being able to
+    move incrementally, and it disappears as each component is converted.
     """
 
-    @abstractmethod
+    def render(self, width: int) -> list[str]:
+        """Return this component's styled ANSI lines at ``width`` columns.
+
+        Default implementation bridges to ``render_cells``: render into a
+        scratch ``Buffer`` and serialise its rows back to ANSI. Override this
+        directly (and drop ``render_cells``) to skip the round trip.
+
+        Inline images are embedded rather than tracked separately, matching
+        how a string-based renderer carries them.
+        """
+        if type(self).render_cells is Component.render_cells:
+            raise TypeError(
+                f"{type(self).__name__} implements neither render() nor render_cells(); "
+                "a Component must implement exactly one of them"
+            )
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer
+
+        w = max(1, width)
+        buf = Buffer.empty(Rect(0, 0, w, 0))
+        rows = self.render_cells(Rect(0, 0, w, 0), buf)
+        return [row_to_ansi(buf, buf.area.y + y, embed_raw=True) for y in range(rows)]
+
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Render into ``buf`` starting at row ``area.y``; return rows written.
 
@@ -32,7 +70,21 @@ class Component(ABC):
         an out-of-bounds row rather than growing it themselves (growing
         implicitly on every write would be surprising for the fixed-size
         buffers the grid widgets in ``tui/widgets/`` render into).
+
+        Default implementation bridges to ``render``, so a migrated component
+        still works when a not-yet-migrated parent renders it into cells.
         """
+        if type(self).render is Component.render:
+            raise TypeError(
+                f"{type(self).__name__} implements neither render() nor render_cells(); "
+                "a Component must implement exactly one of them"
+            )
+        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+
+        y = area.y
+        for line in self.render(area.width):
+            y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
+        return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
         """
@@ -115,6 +167,18 @@ class Container(Component):
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
+
+    def render(self, width: int) -> list[str]:
+        """Concatenate the children's lines.
+
+        Defined explicitly so a container never forces its children back
+        through the cell bridge: a migrated child stays on strings end to end
+        even while its siblings have not moved yet.
+        """
+        lines: list[str] = []
+        for child in self.children:
+            lines.extend(child.render(width))
+        return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         y = area.y
