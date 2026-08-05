@@ -479,7 +479,11 @@ class ScrollbackTerminal:
                 # redraw it as-is rather than clearing and rewriting.
                 out += "\x1b[2K"
                 if y < new_rows:
-                    out += row_to_ansi(buf, buf.area.y + y, embed_raw=False)
+                    # \x1b[2K above already blanked the row, so the trailing
+                    # blank run would only re-send padding.
+                    out += row_to_ansi(
+                        buf, buf.area.y + y, embed_raw=False, trim_trailing_blanks=True
+                    )
                 continue
             out += _diff_row_cells(prev, buf, y, width)
 
@@ -578,7 +582,9 @@ class ScrollbackTerminal:
             if i > 0:
                 out += "\r\n"
             out += "\x1b[2K"
-            out += row_to_ansi(buf, buf.area.y + i, embed_raw=False)
+            # Line already erased above, so trailing blanks are pure padding —
+            # over half the bytes of a full-transcript repaint.
+            out += row_to_ansi(buf, buf.area.y + i, embed_raw=False, trim_trailing_blanks=True)
 
         self._hw_cursor_row = max(0, rows - 1)
         self._max_lines = rows if clear else max(self._max_lines, rows)

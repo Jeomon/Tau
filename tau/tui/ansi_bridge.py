@@ -27,7 +27,7 @@ import re
 
 import grapheme
 
-from tau.tui.buffer import _BLANK_CELL, Buffer, RawWrite
+from tau.tui.buffer import _BLANK_CELL, Buffer, Cell, RawWrite
 from tau.tui.style import OSC8_CLOSE, Color, Modifier, Style, style_transition
 from tau.tui.utils import _ANSI_RE, grapheme_width
 
@@ -289,20 +289,50 @@ def parse_ansi_wrapped_into(buf: Buffer, x: int, y: int, line: str, max_width: i
         buf.grow_to(y + row + 1)
         col = x
         limit = x + max_width
-        for cluster, width, style in row_tokens:
-            if col + width > limit:
-                break
-            buf.set(col, y + row, cluster, style)
-            if width == 2 and col + 1 < limit:
-                buf.set(col + 1, y + row, "", style)
-            col += width
+        # Build the row's cells and splice them in as one slice assignment.
+        # This is the hottest loop in the whole TUI — a ctrl+O expand on a big
+        # session pushes ~1.3M glyphs through here — and Buffer.set costs a
+        # method call plus a bounds check plus index arithmetic *per glyph*,
+        # all of it re-deriving the same row base. The cells are contiguous by
+        # construction (col advances monotonically from x), so one splice is
+        # equivalent. Falls back to the per-cell path for geometries the
+        # splice can't express, where Buffer.set's silent out-of-bounds
+        # clipping is doing real work.
+        area = buf.area
+        start_col = x - area.x
+        row_index = (y + row) - area.y
+        if start_col >= 0 and row_index >= 0:
+            capacity_cells = area.width - start_col
+            cells: list[Cell] = []
+            for cluster, width, style in row_tokens:
+                if col + width > limit or len(cells) >= capacity_cells:
+                    break
+                # Mirrors Buffer.set: an empty symbol becomes " ", and a
+                # missing style becomes the default.
+                cells.append(Cell(cluster or " ", style if style is not None else Style()))
+                if width == 2 and col + 1 < limit and len(cells) < capacity_cells:
+                    cells.append(Cell(" ", style if style is not None else Style()))
+                col += width
+            if cells:
+                base = row_index * area.width + start_col
+                buf.content[base : base + len(cells)] = cells
+        else:
+            for cluster, width, style in row_tokens:
+                if col + width > limit:
+                    break
+                buf.set(col, y + row, cluster, style)
+                if width == 2 and col + 1 < limit:
+                    buf.set(col + 1, y + row, "", style)
+                col += width
         remaining = remaining[taken:]
         row += 1
         first = False
     return row
 
 
-def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
+def row_to_ansi(
+    buf: Buffer, y: int, *, embed_raw: bool = True, trim_trailing_blanks: bool = False
+) -> str:
     """Flatten one ``Buffer`` row back into an ANSI string (skip cells excluded).
 
     Double-width glyphs occupy two cells (the glyph, then a continuation
@@ -319,6 +349,16 @@ def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
     since it has its own novelty-tracked flush for raw writes (resending a
     multi-MB image payload every time an unrelated cell nearby changes
     would be wasteful, unlike plain text which is cheap to resend as-is).
+
+    ``trim_trailing_blanks`` drops the row's trailing run of untouched blank
+    cells instead of emitting it as spaces. Only safe when the caller has
+    already erased the line — ``frame.py`` prefixes every row it paints with
+    ``\\x1b[2K`` — because those spaces exist purely to overwrite whatever was
+    there before. It is a large saving on exactly the frames that hurt: a
+    ctrl+O expand emits ~3.4 MiB, over half of it trailing padding, and at
+    2 MB/s that padding alone is close to a second of terminal time. Restricted
+    to the shared ``_BLANK_CELL`` sentinel, so a styled run reaching the edge
+    (a code block's background) is never trimmed — its spaces are visible.
     """
     raw_at = {rw.x: rw.data for rw in buf.raw_writes if rw.y == y} if embed_raw else {}
 
@@ -344,11 +384,10 @@ def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
     # Most transcript rows are a little text followed by a long tail of
     # untouched blanks, and every one of those tail cells is the *same*
     # _BLANK_CELL object (default style, " ", not skipped). Emit that run as a
-    # single string multiply instead of looping per cell. Output is unchanged:
-    # the run contributes one style transition to the default style (only when
-    # the active style isn't already default) followed by N spaces. The row is
-    # still emitted full-width — callers rely on trailing blanks overwriting
-    # whatever the terminal previously showed there.
+    # single string multiply instead of looping per cell — or, when the caller
+    # has already erased the line, skip it entirely. Output is otherwise
+    # unchanged: the run contributes one style transition to the default style
+    # (only when the active style isn't already default) followed by N spaces.
     tail = 0
     if not raw_at:
         j = width - 1
@@ -383,7 +422,7 @@ def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
         if not (symbol.isascii() and len(symbol) == 1):
             skip_cols = max(grapheme_width(symbol) - 1, 0)
 
-    if tail:
+    if tail and not trim_trailing_blanks:
         blank_style = _BLANK_CELL.style
         # A pending double-width continuation eats into the blank run exactly
         # as it would have per-cell.
