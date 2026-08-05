@@ -9,7 +9,7 @@ from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
-from tau.tui.style import Style
+from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
 from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
 from tau.tui.widgets.list import List, ListItem, ListState
@@ -170,21 +170,19 @@ class SelectList[T](Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         t = self._theme
         items = self._filtered
 
         if not items:
-            buf.grow_to(area.y + 1)
-            buf.set_string(area.x, area.y, "  no matches", t.empty)
-            return 1
+            return [apply_style(t.empty, "  no matches")]
 
         count = len(items)
         visible = min(self._max_visible, count)
 
-        # Keep scroll window so selected stays in view (mirrors List.render's
-        # own ensure_visible call, run early so the label-width pass below
-        # sees the same visible slice List will actually draw).
+        # Keep scroll window so selected stays in view (mirrors List's own
+        # ensure_visible call, run early so the label-width pass below sees
+        # the same visible slice List will actually draw).
         self._clamp_scroll()
         start = self._state.offset
         selected = self._state.selected if self._state.selected is not None else -1
@@ -194,19 +192,14 @@ class SelectList[T](Component):
             8,
             min(
                 max(visible_width(it.label) for it in items[start : start + visible]),
-                area.width // 2,
+                width // 2,
             ),
         )
-        desc_w = max(0, area.width - label_w - 3)  # 3 = "  " indent + " " gap
+        desc_w = max(0, width - label_w - 3)  # 3 = "  " indent + " " gap
 
-        y = area.y
-        rows = 0
-
+        out: list[str] = []
         if start > 0:
-            buf.grow_to(y + 1)
-            buf.set_string(area.x, y, f"  ↑ {start} more", t.indicator)
-            y += 1
-            rows += 1
+            out.append(apply_style(t.indicator, f"  \u2191 {start} more"))
 
         list_items: list[ListItem] = []
         for i, item in enumerate(items):
@@ -218,24 +211,18 @@ class SelectList[T](Component):
             line = Line([Span(label, label_style), Span(" ", Style()), Span(desc, desc_style)])
             list_items.append(ListItem(line))
 
-        list_area = Rect(area.x, y, area.width, visible)
-        buf.grow_to(y + visible)
         widget = List(
             items=list_items,
             highlight_symbol="  ",
             highlight_style=t.selected_bg if t.selected_bg is not None else Style(),
         )
-        widget.render(list_area, buf, self._state)
-        y += visible
-        rows += visible
+        out.extend(widget.render_lines(width, visible, self._state))
 
         remaining = count - (start + visible)
         if remaining > 0:
-            buf.grow_to(y + 1)
-            buf.set_string(area.x, y, f"  ↓ {remaining} more", t.indicator)
-            rows += 1
+            out.append(apply_style(t.indicator, f"  \u2193 {remaining} more"))
 
-        return rows
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
