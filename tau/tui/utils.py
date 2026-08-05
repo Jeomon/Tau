@@ -244,6 +244,66 @@ def truncate_to_width(text: str, max_cols: int) -> str:
     return "".join(out)
 
 
+def slice_columns(text: str, start: int, end: int) -> str:
+    """The part of ``text`` covering columns ``[start, end)``, ANSI preserved.
+
+    Companion to ``truncate_to_width``: that takes a prefix, this takes a
+    window. Any SGR still active where the window opens is re-emitted at the
+    front, so a slice out of the middle of a styled run keeps its styling
+    instead of inheriting whatever the terminal had left over.
+
+    A wide glyph straddling either edge is dropped rather than half-printed,
+    and the gap it leaves is filled with a space so column arithmetic holds.
+    """
+    if end <= start:
+        return ""
+
+    out: list[str] = []
+    active: list[str] = []
+    col = 0
+    i = 0
+    n = len(text)
+    segment = bool(_CLUSTER_FORMING.search(text))
+    started = False
+    while i < n and col < end:
+        if text[i] == "\x1b":
+            m = _ANSI_RE.match(text, i)
+            if m:
+                code = m.group(0)
+                if code in ("\x1b[0m", "\x1b[m"):
+                    active.clear()
+                else:
+                    active.append(code)
+                if started:
+                    out.append(code)
+                i = m.end()
+                continue
+        cluster = next(iter(grapheme.graphemes(text[i:])), text[i]) if segment else text[i]
+        w = grapheme_width(cluster)
+        nxt = col + w
+        if nxt <= start:
+            col = nxt
+            i += len(cluster)
+            continue
+        if not started:
+            started = True
+            out.extend(active)
+            if col < start:  # a wide glyph straddling the left edge
+                out.append(" " * (nxt - start))
+                col = nxt
+                i += len(cluster)
+                continue
+        if nxt > end:  # straddles the right edge
+            out.append(" " * (end - col))
+            break
+        out.append(cluster)
+        col = nxt
+        i += len(cluster)
+    if active and started:
+        out.append(RESET)
+    return "".join(out)
+
+
 def visible_width(text: str) -> int:
     """Return the number of terminal columns the string will occupy.
 
