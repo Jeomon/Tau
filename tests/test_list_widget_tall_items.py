@@ -21,9 +21,7 @@ def _line(text: str) -> Line:
 def _render(items, height=10, width=30, state=None, **kwargs) -> list[str]:
     buf = Buffer.empty(Rect(0, 0, width, height))
     List(items=items, **kwargs).render(Rect(0, 0, width, height), buf, state or ListState())
-    return [
-        "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(height)
-    ]
+    return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(height)]
 
 
 class TestHeight:

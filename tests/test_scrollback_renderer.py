@@ -1,14 +1,16 @@
-"""The string renderer must put the same thing on screen as the cell renderer.
+"""ScrollbackRenderer must put the right thing on screen.
 
-``ScrollbackRenderer`` (strings) replaces ``ScrollbackTerminal`` (Cell grid).
-It deliberately emits *different bytes*: where the cell renderer overwrote a
-column run (``\\x1b[1G`` + run), this repaints the whole line
-(``\\x1b[2K`` + line). Same pixels, far less work — so equivalence has to be
-asserted on the resulting screen, not the byte stream.
+These were differential tests against ScrollbackTerminal (the Cell-grid
+renderer). That renderer is deleted, so the expected screens below were
+captured from it while both pipelines still existed and were asserted to
+agree — golden output, not a live oracle.
 
-``Screen`` below is a minimal terminal emulator covering exactly the sequences
-these two renderers emit (relative cursor moves, erases, scrolling), which is
-what makes that comparison possible.
+``Screen`` is a minimal terminal emulator covering exactly the sequences the
+renderer emits (relative cursor moves, erases, scrolling). It is what makes
+asserting on *resulting screen state* possible at all: the renderer's byte
+stream is full of relative moves that say nothing on their own.
+
+``Screen`` is also imported by test_string_renderer_integration.
 """
 
 from __future__ import annotations
@@ -18,11 +20,10 @@ import re
 
 import pytest
 
-from tau.tui.ansi_bridge import parse_ansi_wrapped_into
-from tau.tui.buffer import Buffer
-from tau.tui.frame import ScrollbackTerminal
-from tau.tui.geometry import Rect
 from tau.tui.scrollback import ScrollbackRenderer
+from tau.tui.utils import strip_ansi
+
+_VIEWPORT_HEIGHT = 10  # matches _EmulatedTerminal's default height
 
 _SGR = re.compile(r"\x1b\[[\d;]*m|\x1b\]8;;.*?(?:\x07|\x1b\\)")
 
@@ -135,26 +136,16 @@ class _EmulatedTerminal:
             cb()
 
 
-def _to_buffer(lines: list[str], width: int) -> Buffer:
-    buf = Buffer.empty(Rect(0, 0, width, 0))
-    y = 0
-    for ln in lines:
-        y += parse_ansi_wrapped_into(buf, 0, y, ln, width)
-    return buf
-
-
-def _both(frames: list[list[str]], width: int = 40, resize_to: int | None = None):
-    """Drive both renderers through the same frames; return their screens."""
-    ta, tb = _EmulatedTerminal(width), _EmulatedTerminal(width)
-    cell, string = ScrollbackTerminal(ta), ScrollbackRenderer(tb)  # type: ignore[arg-type]
+def _screen(frames: list[list[str]], width: int = 40, resize_to: int | None = None):
+    """Drive the renderer through the frames; return the resulting screen."""
+    term = _EmulatedTerminal(width)
+    renderer = ScrollbackRenderer(term)  # type: ignore[arg-type]
     for k, lines in enumerate(frames):
         if resize_to is not None and k == len(frames) - 1:
-            ta.width = tb.width = resize_to
-            ta.fire_resize()
-            tb.fire_resize()
-        cell.render(_to_buffer(lines, ta.width))
-        string.render(list(lines))
-    return ta.screen.snapshot(), tb.screen.snapshot()
+            term.width = resize_to
+            term.fire_resize()
+        renderer.render(list(lines))
+    return [strip_ansi(r).rstrip() for r in term.screen.snapshot()]
 
 
 SCENARIOS = {
@@ -181,72 +172,149 @@ SCENARIOS = {
 }
 
 
+GOLDENS = {
+    "first paint": ["alpha", "beta", "gamma"],
+    "append one line": ["a", "b", "c"],
+    "edit middle": ["a", "XX", "c"],
+    "edit first": ["Z", "b", "c"],
+    "shorter line replaces longer": ["a", "b"],
+    "shrink rows": ["a", "b", "", ""],
+    "grow past screen": [
+        "l0",
+        "l1",
+        "l2",
+        "l3",
+        "l4",
+        "l5",
+        "l6",
+        "l7",
+        "l8",
+        "l9",
+        "l10",
+        "l11",
+        "l12",
+        "l13",
+        "l14",
+        "l15",
+        "l16",
+        "l17",
+        "l18",
+        "l19",
+        "l20",
+        "l21",
+        "l22",
+        "l23",
+        "l24",
+    ],
+    "no change": ["a", "b"],
+    "styled": ["red", "bold"],
+    "full replace": ["p", "q", "r"],
+    "empty then content": ["a", "b"],
+    "content then empty": ["", ""],
+    "many frames": ["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10"],
+    "edit far above viewport": [
+        "r0",
+        "r1",
+        "r2",
+        "r3",
+        "r4",
+        "r5",
+        "r6",
+        "r7",
+        "r8",
+        "r9",
+        "r10",
+        "r11",
+        "r12",
+        "r13",
+        "r14",
+        "r15",
+        "r16",
+        "r17",
+        "r18",
+        "r19",
+        "r20",
+        "r21",
+        "r22",
+        "r23",
+        "r24",
+        "r25",
+        "r26",
+        "r27",
+        "r28",
+        "r29",
+    ],
+}
+GOLDEN_RESIZE = ["line 0", "line 1", "line 2", "line 3", "line 4", "line 5"]
+
+
 @pytest.mark.parametrize("name", list(SCENARIOS))
-def test_screen_matches_the_cell_renderer(name: str) -> None:
-    cells, strings = _both(SCENARIOS[name])
-    assert cells == strings
+def test_screen_matches_the_expected_output(name: str) -> None:
+    assert _screen(SCENARIOS[name]) == GOLDENS[name]
 
 
-def test_screen_matches_across_a_resize() -> None:
+def test_screen_is_correct_across_a_resize() -> None:
     frames = [[f"line {i}" for i in range(6)], [f"line {i}" for i in range(6)]]
-    cells, strings = _both(frames, resize_to=30)
-    assert cells == strings
+    assert _screen(frames, resize_to=30) == GOLDEN_RESIZE
 
 
-def test_screen_matches_on_randomised_frame_sequences() -> None:
-    """Fuzz the paths the named scenarios don't reach by construction."""
+def test_final_screen_always_shows_the_final_frame() -> None:
+    """Oracle-free invariant: the screen ends up showing the last frame.
+
+    Restricted to append/grow/edit sequences, which is what a transcript
+    actually does. A frame that shrinks far enough to push earlier rows out of
+    the viewport is deliberately *not* repainted above it — those rows have
+    scrolled into the terminal's native scrollback, where CSI cannot address
+    them, so the renderer only re-numbers rather than reprinting (see
+    ScrollbackRenderer._render's pure-shift path). The cell renderer behaved
+    identically; "shrink rows" in SCENARIOS pins that case explicitly.
+    """
     rng = random.Random(11)
     for _ in range(400):
         frames: list[list[str]] = []
         cur = ["init"]
         for _ in range(rng.randint(1, 6)):
             cur = list(cur)
-            op = rng.choice(["append", "edit", "shrink", "replace", "grow"])
+            op = rng.choice(["append", "edit", "grow"])
             if op == "append":
                 cur.append(f"n{rng.randint(0, 99)}")
             elif op == "edit" and cur:
-                cur[rng.randrange(len(cur))] = f"e{rng.randint(0, 99)}"
-            elif op == "shrink" and len(cur) > 1:
-                cur = cur[: rng.randrange(1, len(cur))]
-            elif op == "replace":
-                cur = [f"r{i}" for i in range(rng.randint(1, 12))]
+                # Only the live tail: rows that have scrolled past the viewport
+                # are in native scrollback and intentionally not repainted.
+                lo = max(0, len(cur) - _VIEWPORT_HEIGHT)
+                cur[rng.randrange(lo, len(cur))] = f"e{rng.randint(0, 99)}"
             elif op == "grow":
                 cur = cur + [f"g{i}" for i in range(rng.randint(1, 10))]
             frames.append(cur)
-        cells, strings = _both(frames)
-        assert cells == strings, f"diverged on {frames}"
+        got = _screen(frames)
+        expected = [x.rstrip() for x in frames[-1]]
+        assert got[: len(expected)] == expected, f"frames={frames}"
+        assert all(x == "" for x in got[len(expected) :]), f"stale rows left: {got}"
 
 
 def test_stable_through_skips_the_prefix_without_changing_the_screen() -> None:
     base = [f"h{i}" for i in range(5)]
     nxt = [*base, "tail"]
-    ta, tb = _EmulatedTerminal(), _EmulatedTerminal()
-    cell, string = ScrollbackTerminal(ta), ScrollbackRenderer(tb)  # type: ignore[arg-type]
-    cell.render(_to_buffer(base, ta.width))
-    string.render(list(base))
-    cell.render(_to_buffer(nxt, ta.width), stable_through=5)
-    string.render(list(nxt), stable_through=5)
-    assert ta.screen.snapshot() == tb.screen.snapshot()
+    term = _EmulatedTerminal()
+    r = ScrollbackRenderer(term)  # type: ignore[arg-type]
+    r.render(list(base))
+    r.render(list(nxt), stable_through=5)
+    assert [strip_ansi(x).rstrip() for x in term.screen.snapshot()] == nxt
 
 
-def test_reset_repaints_without_clearing_just_like_the_cell_renderer() -> None:
+def test_reset_repaints_without_clearing() -> None:
     """reset() means "repaint, screen state unknown" — it does NOT home first.
 
-    So the repaint lands below what's already there. That is the existing
-    contract (used when handing the terminal back after a suspend), not a bug:
-    both renderers produce the same duplicated-row result. reset_with_clear()
-    is the variant that homes and erases.
+    So the repaint lands below what is already there, duplicating it. That is
+    the contract (used when handing the terminal back after a suspend), not a
+    bug; reset_with_clear() is the variant that homes and erases.
     """
-    ta, tb = _EmulatedTerminal(), _EmulatedTerminal()
-    cell, string = ScrollbackTerminal(ta), ScrollbackRenderer(tb)  # type: ignore[arg-type]
-    for renderer, to_frame in (
-        (cell, lambda ls: _to_buffer(ls, 40)),
-        (string, list),
-    ):
-        renderer.render(to_frame(["a", "b"]))
-        renderer.reset()
-        renderer.render(to_frame(["a", "b"]))
-    assert ta.screen.snapshot() == tb.screen.snapshot()
+    term = _EmulatedTerminal()
+    r = ScrollbackRenderer(term)  # type: ignore[arg-type]
+    r.render(["a", "b"])
+    r.reset()
+    r.render(["a", "b"])
+    assert [strip_ansi(x).rstrip() for x in term.screen.snapshot()] == ["a", "a", "b"]
 
 
 def test_reset_with_clear_homes_and_erases() -> None:

@@ -37,7 +37,7 @@ _IS_TERMUX = "com.termux" in os.environ.get("PREFIX", "") or bool(os.environ.get
 
 
 def _window_focused() -> bool:
-    from tau.tui.frame import is_window_focused
+    from tau.tui.utils import is_window_focused
 
     return is_window_focused()
 

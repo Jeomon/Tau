@@ -1,9 +1,14 @@
-"""MessageList's string path must render exactly what the cell path did.
+"""MessageList's string rendering: incremental correctness and wrapping.
 
-``render_split_lines`` replaces ``render_split_cells``: it keeps the frozen
-prefix as already-wrapped ANSI rows instead of a Buffer of Cell. Same freezing
-and truncation rules, same rows out — this is what removes the
-string -> Cell -> string round trip that dominated ctrl+O and resize.
+The cell-vs-string comparisons that used to live here went with the cell path.
+The invariants they protected — that the split cache agrees with rendering
+everything, across growth, expansion and width changes — are now in
+test_message_list_frozen.py, asserted against the string cache directly.
+
+What remains here is what that file does not cover: that building a list
+incrementally matches building it in one go, that the frozen prefix is
+reported correctly for stable_through, and that wrap_to_rows agrees with the
+exact wrapper on content its ASCII fast path cannot take.
 """
 
 from __future__ import annotations
@@ -65,19 +70,6 @@ def _session(turns: int = 4, output_lines: int = 30, unicode: bool = False) -> M
     return ml
 
 
-def _rows_via_cells(ml: MessageList, width: int = WIDTH) -> list[str]:
-    frozen, live = ml.render_split_cells(width)
-    rows: list[str] = []
-    if frozen is not None:
-        rows += [
-            row_to_ansi(frozen, frozen.area.y + i, embed_raw=True, trim_trailing_blanks=True)
-            for i in range(frozen.area.height)
-        ]
-    for line in live:
-        rows += _wrap_to_rows(line, width)
-    return rows
-
-
 def _same_pixels(a: list[str], b: list[str], width: int = WIDTH) -> bool:
     """Compare rendered result, not bytes: the paths emit equivalent SGR runs."""
     if len(a) != len(b):
@@ -90,32 +82,6 @@ def _same_pixels(a: list[str], b: list[str], width: int = WIDTH) -> bool:
         if pa.content != pb.content:
             return False
     return True
-
-
-@pytest.mark.parametrize("unicode", [False, True], ids=["ascii", "unicode"])
-@pytest.mark.parametrize("width", [40, 80, 120])
-def test_string_path_matches_cell_path(unicode: bool, width: int) -> None:
-    a, b = _session(unicode=unicode), _session(unicode=unicode)
-    expected = _rows_via_cells(a, width)
-    got = b.render(width)
-    assert _same_pixels(expected, got, width)
-
-
-def test_matches_after_expanding_every_tool_result() -> None:
-    """The ctrl+O case this whole change exists for."""
-    a, b = _session(), _session()
-    a.render_split_cells(WIDTH)
-    b.render(WIDTH)
-    a.toggle_details_expanded()
-    b.toggle_details_expanded()
-    assert _same_pixels(_rows_via_cells(a), b.render(WIDTH))
-
-
-def test_matches_after_a_width_change() -> None:
-    a, b = _session(), _session()
-    _rows_via_cells(a, 80)
-    b.render(80)
-    assert _same_pixels(_rows_via_cells(a, 61), b.render(61), 61)
 
 
 def test_incremental_append_matches_a_fresh_build() -> None:

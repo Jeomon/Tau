@@ -201,9 +201,7 @@ async def test_ollama_headers_hook_and_raw_response_capture():
     transport = _CapturingTransport(_OLLAMA_NDJSON, extra_headers={"x-trace-id": "oll1"})
     options = LLMOptions(headers={})
     api = OllamaChatAPI(options)
-    api._client._client = httpx.AsyncClient(
-        transport=transport, base_url="http://localhost:11434"
-    )
+    api._client._client = httpx.AsyncClient(transport=transport, base_url="http://localhost:11434")
 
     captured: list[APIResponse] = []
     options.on_response = captured.append
@@ -259,7 +257,8 @@ async def test_gemini_headers_hook_and_raw_response_capture():
     from google.genai import types as genai_types
 
     transport = _CapturingTransport(
-        _gemini_sse_body(), extra_headers={"x-trace-id": "gem1", "content-type": "text/event-stream"}
+        _gemini_sse_body(),
+        extra_headers={"x-trace-id": "gem1", "content-type": "text/event-stream"},
     )
     mock_client = httpx.AsyncClient(transport=transport)
     options = LLMOptions(api_key="k", headers={})

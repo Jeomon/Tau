@@ -569,8 +569,8 @@ class TestCommandPasteExpansion:
         h._on_submit(f"/darwin {marker}")
 
         dispatched = h._invoke.call_args[0][0]
-        assert dispatched == f"/darwin {body}"          # content, not placeholder
-        assert h._pasted_texts == {}                     # buffers consumed
+        assert dispatched == f"/darwin {body}"  # content, not placeholder
+        assert h._pasted_texts == {}  # buffers consumed
         # transcript shows the compact original, not 3KB of paste
         assert h._make_slash_message.call_args[0][0] == f"/darwin {marker}"
 
@@ -597,8 +597,8 @@ class TestCommandPasteExpansion:
 
         h._on_submit(f"/darwin {marker}")
         assert h._deferred_inputs == [f"/darwin {body}"]  # replay after settle
-        h._invoke.assert_not_called()                     # cannot re-expand later:
-        assert h._pasted_texts == {}                      # buffers already consumed
+        h._invoke.assert_not_called()  # cannot re-expand later:
+        assert h._pasted_texts == {}  # buffers already consumed
 
 
 class TestCtrlVClipboardRouting:
@@ -610,6 +610,7 @@ class TestCtrlVClipboardRouting:
 
     def _handler_with_clipboard(self, monkeypatch, value):
         import sys
+
         h = make_handler()
         fake = MagicMock()
         fake.paste.return_value = value

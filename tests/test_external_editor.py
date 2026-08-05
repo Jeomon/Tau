@@ -221,9 +221,7 @@ def _writer_script(body: str) -> str:
 class TestRoundTrip:
     @pytest.mark.asyncio
     async def test_a_clean_exit_replaces_the_prompt(self):
-        editor = _writer_script(
-            "import sys; open(sys.argv[1], 'w').write('edited in vim\\n')"
-        )
+        editor = _writer_script("import sys; open(sys.argv[1], 'w').write('edited in vim\\n')")
         app, layout, notes = _app(editor)
 
         await app._open_external_editor()
@@ -256,9 +254,7 @@ class TestRoundTrip:
 
     @pytest.mark.asyncio
     async def test_only_one_trailing_newline_is_stripped(self):
-        editor = _writer_script(
-            "import sys; open(sys.argv[1], 'w').write('para\\n\\nend\\n\\n')"
-        )
+        editor = _writer_script("import sys; open(sys.argv[1], 'w').write('para\\n\\nend\\n\\n')")
         app, layout, _ = _app(editor)
 
         await app._open_external_editor()
@@ -288,9 +284,7 @@ class TestRoundTrip:
     @pytest.mark.asyncio
     async def test_editor_arguments_are_passed_through(self):
         # "editor --flag file" — the flag must not be swallowed into the path.
-        editor = _writer_script(
-            "import sys; open(sys.argv[2], 'w').write(sys.argv[1])"
-        ) + " --wait"
+        editor = _writer_script("import sys; open(sys.argv[2], 'w').write(sys.argv[1])") + " --wait"
         app, layout, _ = _app(editor)
 
         await app._open_external_editor()

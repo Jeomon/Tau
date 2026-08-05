@@ -21,9 +21,7 @@ from tau.session.utils import read_session_file
 
 def _text(msg) -> str:
     """Concatenate TextContent from any message (works for shed/full)."""
-    return "".join(
-        c.content for c in getattr(msg, "contents", []) if isinstance(c, TextContent)
-    )
+    return "".join(c.content for c in getattr(msg, "contents", []) if isinstance(c, TextContent))
 
 
 def _manager(tmp_path) -> SessionManager:

@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from tau.tui.layout import Alignment, Constraint, Direction, Flex, Layout
     from tau.tui.markdown import render_markdown
     from tau.tui.palette import material, tailwind
-    from tau.tui.service import TUI, OverlayHandle, OverlayOptions, Renderer
+    from tau.tui.service import TUI, OverlayHandle, OverlayOptions
     from tau.tui.style import RESET_COLOR, Color, Modifier, Style, Stylize, parse_color
     from tau.tui.terminal import (
         CellDimensions,
@@ -97,7 +97,6 @@ if TYPE_CHECKING:
 __all__ = [
     # Application and rendering
     "TUI",
-    "Renderer",
     "Terminal",
     "TerminalCapabilities",
     "CellDimensions",
@@ -286,7 +285,6 @@ _SUBMODULE_OF = {
     "TUI": "tau.tui.service",
     "OverlayHandle": "tau.tui.service",
     "OverlayOptions": "tau.tui.service",
-    "Renderer": "tau.tui.service",
 }
 
 

@@ -188,7 +188,6 @@ class TestAuthManagerAuthStatus:
 # ---------------------------------------------------------------------------
 
 
-
 class _FakeOAuthProvider(OAuthProvider):
     """OAuth provider whose refresh_token() replays a scripted result list."""
 

@@ -1,9 +1,14 @@
-"""StringRenderer must put the same thing on screen as Renderer, via a real TUI.
+"""End-to-end screen output for StringRenderer, driven through a real TUI.
 
-This is the end-to-end check for the swap: same component tree, same overlays,
-same focused cursor — one frame driven through the cell pipeline
-(Renderer -> ScrollbackTerminal) and one through the string pipeline
-(StringRenderer -> ScrollbackRenderer), compared on resulting screen state.
+These were differential tests, comparing the string pipeline against the cell
+one frame by frame. That oracle is gone with the cell renderer, so they now
+assert the resulting screen directly — weaker in principle, but the values
+were captured while both pipelines were still present and agreeing.
+
+Covers the pieces the renderer is responsible for stitching together: plain
+and styled children, wrapping, MessageList's frozen/live split, overlays at
+several positions, cursor propagation through nesting, successive frames (the
+diff path, not just first paint), and a resize.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from tau.message.types import TextContent, UserMessage
 from tau.modes.interactive.components.message_list import MessageBlock, MessageList
 from tau.tui.component import Component
 from tau.tui.geometry import Position, Rect
-from tau.tui.service import Renderer, StringRenderer
+from tau.tui.service import StringRenderer
 from tests.test_scrollback_renderer import Screen
 
 
@@ -108,28 +113,33 @@ def _tui_with(children: list[Component]):
     return tui
 
 
-def _screens(children, overlays=None, width=60, height=12):
-    ta, tb = _Term(width, height), _Term(width, height)
-    cell = Renderer(ta)  # type: ignore[arg-type]
-    string = StringRenderer(tb)  # type: ignore[arg-type]
-    cell.render(_tui_with(children), overlays)
-    string.render(_tui_with(children), overlays)
-    return ta.screen.snapshot(), tb.screen.snapshot()
+def _screen(children, overlays=None, width=60, height=12):
+    """Render one frame and return the resulting screen rows (SGR stripped)."""
+    from tau.tui.utils import strip_ansi
+
+    term = _Term(width, height)
+    StringRenderer(term).render(_tui_with(children), overlays)  # type: ignore[arg-type]
+    return [strip_ansi(r).rstrip() for r in term.screen.snapshot()]
 
 
-def test_plain_children_match() -> None:
-    a, b = _screens([Lines(["alpha", "beta"]), Lines(["gamma"])])
-    assert a == b
+def test_plain_children() -> None:
+    assert _screen([Lines(["alpha", "beta"]), Lines(["gamma"])]) == [
+        " alpha",
+        " beta",
+        " gamma",
+    ]
 
 
-def test_styled_children_match() -> None:
-    a, b = _screens([Lines(["\x1b[31mred\x1b[0m", "plain"])])
-    assert a == b
+def test_styled_children_keep_their_text() -> None:
+    assert _screen([Lines(["\x1b[31mred\x1b[0m", "plain"])]) == [" red", " plain"]
 
 
-def test_wrapping_children_match() -> None:
-    a, b = _screens([Lines(["word " * 40])])
-    assert a == b
+def test_long_lines_wrap_to_the_content_width() -> None:
+    rows = _screen([Lines(["word " * 40])])
+    assert len(rows) > 1
+    assert all(len(r) <= 60 for r in rows)
+    # every word survives the wrap, none duplicated or dropped
+    assert " ".join(rows).split() == ["word"] * 40
 
 
 def test_message_list_child_matches() -> None:
@@ -138,8 +148,13 @@ def test_message_list_child_matches() -> None:
         blk = MessageBlock(UserMessage(contents=[TextContent(content=f"message {i}")]))
         blk.finalize()
         ml.add_block(blk)
-    a, b = _screens([ml])
-    assert a == b
+    rows = _screen([ml])
+    assert [r.strip() for r in rows if r.strip()] == [
+        "❯ message 0",
+        "❯ message 1",
+        "❯ message 2",
+        "❯ message 3",
+    ]
 
 
 def test_message_list_plus_siblings_matches() -> None:
@@ -148,8 +163,12 @@ def test_message_list_plus_siblings_matches() -> None:
         blk = MessageBlock(UserMessage(contents=[TextContent(content=f"m{i}")]))
         blk.finalize()
         ml.add_block(blk)
-    a, b = _screens([Lines(["== header =="]), ml, Lines(["> prompt"])])
-    assert a == b
+    rows = [
+        r.strip() for r in _screen([Lines(["== header =="]), ml, Lines(["> prompt"])]) if r.strip()
+    ]
+    assert rows[0] == "== header =="
+    assert rows[-1] == "> prompt"
+    assert "❯ m0" in rows
 
 
 def test_cursor_position_survives_the_bridge() -> None:
@@ -167,8 +186,12 @@ def test_cursor_position_survives_the_bridge() -> None:
 )
 def test_overlays_match(row: int, col: int, ov_w: int) -> None:
     overlay = _Overlay(Lines(["+------+", "| menu |", "+------+"]), ov_w, row, col)
-    a, b = _screens([Lines([f"base line {i}" for i in range(8)])], [overlay])
-    assert a == b
+    rows = _screen([Lines([f"base line {i}" for i in range(8)])], [overlay])
+    painted = "\n".join(rows)
+    assert "menu" in painted
+    # the overlay must not smear across every row, nor drop base content
+    assert sum("menu" in r for r in rows) == 1
+    assert any("base line" in r for r in rows)
 
 
 def test_overlay_over_a_message_list_matches() -> None:
@@ -178,30 +201,32 @@ def test_overlay_over_a_message_list_matches() -> None:
         blk.finalize()
         ml.add_block(blk)
     overlay = _Overlay(Lines(["[ picker ]"]), 10, 1, 6)
-    a, b = _screens([ml], [overlay])
-    assert a == b
+    rows = _screen([ml], [overlay])
+    assert sum("[ picker ]" in r for r in rows) == 1
+    assert any("line 0" in r for r in rows)
 
 
-def test_successive_frames_match() -> None:
-    """Diff paths, not just first paint."""
-    ta, tb = _Term(), _Term()
-    cell, string = Renderer(ta), StringRenderer(tb)  # type: ignore[arg-type]
+def test_successive_frames_land_on_the_right_screen() -> None:
+    """The diff path, not just first paint: rows are appended one per frame."""
+    from tau.tui.utils import strip_ansi
+
+    term = _Term()
+    r = StringRenderer(term)  # type: ignore[arg-type]
     for n in range(1, 7):
-        children = [Lines([f"row {i}" for i in range(n)])]
-        cell.render(_tui_with(children))
-        string.render(_tui_with(children))
-    assert ta.screen.snapshot() == tb.screen.snapshot()
+        r.render(_tui_with([Lines([f"row {i}" for i in range(n)])]))
+    rows = [strip_ansi(x).rstrip() for x in term.screen.snapshot()]
+    assert [x.strip() for x in rows if x.strip()] == [f"row {i}" for i in range(6)]
 
 
-def test_frames_match_across_a_resize() -> None:
-    ta, tb = _Term(), _Term()
-    cell, string = Renderer(ta), StringRenderer(tb)  # type: ignore[arg-type]
+def test_resize_repaints_the_content() -> None:
+    from tau.tui.utils import strip_ansi
+
+    term = _Term()
+    r = StringRenderer(term)  # type: ignore[arg-type]
     children = [Lines([f"content row {i}" for i in range(5)])]
-    cell.render(_tui_with(children))
-    string.render(_tui_with(children))
-    ta.width = tb.width = 44
-    ta.fire_resize()
-    tb.fire_resize()
-    cell.render(_tui_with(children))
-    string.render(_tui_with(children))
-    assert ta.screen.snapshot() == tb.screen.snapshot()
+    r.render(_tui_with(children))
+    term.width = 44
+    term.fire_resize()
+    r.render(_tui_with(children))
+    rows = [strip_ansi(x).strip() for x in term.screen.snapshot()]
+    assert [x for x in rows if x] == [f"content row {i}" for i in range(5)]

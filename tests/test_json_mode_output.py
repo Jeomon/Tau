@@ -204,6 +204,5 @@ class TestOutputSizeIsLinear:
         emitted, reply_size = self._emitted_bytes(2000, capsys)
         # Pre-fix this was ~1000x the reply size (23 KB reply -> 23.9 MB).
         assert emitted < reply_size * 6, (
-            f"emitted {emitted} bytes for a {reply_size}-byte reply "
-            f"({emitted / reply_size:.0f}x)"
+            f"emitted {emitted} bytes for a {reply_size}-byte reply ({emitted / reply_size:.0f}x)"
         )

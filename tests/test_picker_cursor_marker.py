@@ -17,9 +17,7 @@ WIDTH = 80
 def _rows(component, height: int = 20) -> list[str]:
     buf = Buffer.empty(Rect(0, 0, WIDTH, height))
     written = component.render_cells(Rect(0, 0, WIDTH, height), buf)
-    return [
-        "".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)
-    ]
+    return ["".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)]
 
 
 def _autocomplete(theme=None):

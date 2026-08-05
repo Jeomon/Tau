@@ -90,9 +90,7 @@ class TestContent:
                     contents=[ToolCallContent(id="c1", name="read", args={"path": "a.py"})]
                 ),
                 UserMessage(
-                    contents=[
-                        ToolResultContent(id="c1", tool_name="read", content="file contents")
-                    ]
+                    contents=[ToolResultContent(id="c1", tool_name="read", content="file contents")]
                 ),
             ]
         )

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from tau.settings.manager import SettingsManager
     from tau.tui.buffer import Buffer
     from tau.tui.component import Component
-    from tau.tui.geometry import Rect
+    from tau.tui.geometry import Position, Rect
     from tau.tui.input import InputEvent
     from tau.tui.theme import LayoutTheme
 
@@ -64,7 +64,7 @@ class _InterceptComponent:
     ) -> None:
         self._inner = inner
         self._on_handle = on_handle
-        self.cursor_position = None
+        self.cursor_position: Position | None = None
 
     def render(self, width: int) -> list[str]:
         lines = self._inner.render(width)

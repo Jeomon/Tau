@@ -223,10 +223,10 @@ class TestDetectBinaryFormat:
         """Kept deliberately short — zip/gzip/xz/tar all put a null byte in
         their first few bytes, so listing them adds drift and catches nothing."""
         realistic_headers = (
-            b"PK\x03\x04\x14\x00\x00\x00\x08\x00",          # zip / docx / jar
-            b"\x1f\x8b\x08\x00\x00\x00\x00\x00",             # gzip
-            b"\xfd7zXZ\x00\x00\x04\xe6\xd6\xb4F",             # xz
-            b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8,         # ELF
+            b"PK\x03\x04\x14\x00\x00\x00\x08\x00",  # zip / docx / jar
+            b"\x1f\x8b\x08\x00\x00\x00\x00\x00",  # gzip
+            b"\xfd7zXZ\x00\x00\x04\xe6\xd6\xb4F",  # xz
+            b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8,  # ELF
         )
         for header in realistic_headers:
             assert looks_like_binary(header), "sniff should already catch this"
@@ -400,22 +400,32 @@ class TestLineSplitting:
             assert split_lines(f"a\nb{ch}c\n") == ["a", f"b{ch}c"], repr(ch)
 
     def test_round_trip_is_exact(self):
-        for text in ("", "a", "a\n", "a\nb", "a\r\nb\r\n", "a\rb\r", "a\r\nb\nc\r",
-                     "a\x0cb\n", "\ufeffa\n", "a\nb"):
+        for text in (
+            "",
+            "a",
+            "a\n",
+            "a\nb",
+            "a\r\nb\r\n",
+            "a\rb\r",
+            "a\r\nb\nc\r",
+            "a\x0cb\n",
+            "\ufeffa\n",
+            "a\nb",
+        ):
             contents, endings = split_lines_with_endings(text)
             assert join_lines(contents, endings) == text, repr(text)
 
     def test_endings_are_reported_per_line(self):
         contents, endings = split_lines_with_endings("a\r\nb\nc")
         assert contents == ["a", "b", "c"]
-        assert endings == ["\r\n", "\n", ""]   # "" = ends at EOF without one
+        assert endings == ["\r\n", "\n", ""]  # "" = ends at EOF without one
 
     def test_dominant_newline_picks_the_file_convention(self):
         assert dominant_newline(["\r\n", "\r\n", "\n"]) == "\r\n"
         assert dominant_newline(["\n", "\n", "\r\n"]) == "\n"
         assert dominant_newline(["\r", "\r"]) == "\r"
-        assert dominant_newline([]) == "\n"          # empty file: pick a sane default
-        assert dominant_newline([""]) == "\n"        # single line, no terminator
+        assert dominant_newline([]) == "\n"  # empty file: pick a sane default
+        assert dominant_newline([""]) == "\n"  # single line, no terminator
 
 
 class TestStampCache:

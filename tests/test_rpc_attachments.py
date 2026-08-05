@@ -150,7 +150,12 @@ async def test_prompt_text_only_takes_plain_invoke(captured):
 @pytest.mark.asyncio
 async def test_prompt_invalid_attachment_errors_without_invoking(captured):
     rt = _FakeRuntime()
-    cmd = {"type": "prompt", "id": "4", "message": "x", "attachments": [{"kind": "audio", "url": "https://x"}]}
+    cmd = {
+        "type": "prompt",
+        "id": "4",
+        "message": "x",
+        "attachments": [{"kind": "audio", "url": "https://x"}],
+    }
     await mode._handle_command(cmd, rt, {})
 
     assert rt.invoked == []

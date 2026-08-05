@@ -982,8 +982,6 @@ class TestGlobTool:
         assert result.metadata["match_count"] == 1
 
 
-
-
 class TestReadDoesNotBlockTheEventLoop:
     """read's decode/split/hash tail is CPU-bound and scales with file size.
     It must run on a worker thread like edit and write already do, or a
@@ -1008,9 +1006,7 @@ class TestReadDoesNotBlockTheEventLoop:
             hb = asyncio.create_task(heartbeat())
             await asyncio.sleep(0.05)
             ticks = 0
-            result = await ReadTool().execute(
-                _inv("read", cwd=tmp_path, path=str(big), limit=20)
-            )
+            result = await ReadTool().execute(_inv("read", cwd=tmp_path, path=str(big), limit=20))
             hb.cancel()
             return ticks, result
 
@@ -1044,8 +1040,14 @@ class TestEditPreservesFileShape:
         anchor = self._anchor_at(tmp_path, f, 1)
         result = run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
-                     end_anchor=anchor, new_content="X")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="X",
+                )
             )
         )
         assert not result.is_error
@@ -1057,8 +1059,14 @@ class TestEditPreservesFileShape:
         anchor = self._anchor_at(tmp_path, f, 1)
         run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
-                     end_anchor=anchor, new_content="X")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="X",
+                )
             )
         )
         assert f.read_bytes() == b"l0\rX\rl2\r"
@@ -1072,8 +1080,14 @@ class TestEditPreservesFileShape:
         anchor = self._anchor_at(tmp_path, f, 0)
         run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
-                     end_anchor=anchor, new_content="FIRST")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="FIRST",
+                )
             )
         )
         assert f.read_bytes() == b"FIRST\nmiddle\x0ctail\nlast\n"
@@ -1084,8 +1098,14 @@ class TestEditPreservesFileShape:
         anchor = self._anchor_at(tmp_path, f, 1)
         run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
-                     end_anchor=anchor, new_content="X")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="X",
+                )
             )
         )
         assert f.read_text() == "l0\nX\nl2"
@@ -1096,8 +1116,14 @@ class TestEditPreservesFileShape:
         anchor = self._anchor_at(tmp_path, f, 1)
         run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor=anchor,
-                     end_anchor=anchor, new_content="X")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor=anchor,
+                    end_anchor=anchor,
+                    new_content="X",
+                )
             )
         )
         assert f.read_text() == "l0\nX\n"
@@ -1112,8 +1138,14 @@ class TestEditPreservesFileShape:
         original = f.read_bytes()
         result = run(
             self.tool.execute(
-                _inv("edit", cwd=tmp_path, path=str(f), start_anchor="1:abcd",
-                     end_anchor="1:abcd", new_content="X")
+                _inv(
+                    "edit",
+                    cwd=tmp_path,
+                    path=str(f),
+                    start_anchor="1:abcd",
+                    end_anchor="1:abcd",
+                    new_content="X",
+                )
             )
         )
         assert result.is_error
@@ -1320,8 +1352,15 @@ class TestTwinsAreSeparatedByContext:
 
     SAVE = ["def save(p):", "    if p is None:", "        return None", "    return write(p)"]
     BOTH = [
-        "def load(p):", "    if p is None:", "        return None", "    return read(p)", "",
-        "def save(p):", "    if p is None:", "        return None", "    return write(p)",
+        "def load(p):",
+        "    if p is None:",
+        "        return None",
+        "    return read(p)",
+        "",
+        "def save(p):",
+        "    if p is None:",
+        "        return None",
+        "    return write(p)",
     ]
 
     def test_the_founding_reproduction_now_resolves(self, tmp_path):
@@ -1341,8 +1380,15 @@ class TestTwinsAreSeparatedByContext:
         not separate them and no amount of context will. Refusing costs a
         re-read; choosing would be a coin flip on a file."""
         before = ["a()", "    x = 1", "        return None", "b()"]
-        after = ["a()", "    x = 1", "        return None",
-                 "a()", "    x = 1", "        return None", "b()"]
+        after = [
+            "a()",
+            "    x = 1",
+            "        return None",
+            "a()",
+            "    x = 1",
+            "        return None",
+            "b()",
+        ]
         got, text = self._run(tmp_path, before, after, 3)
         assert got is None
         assert "EDITED" not in text, "a refusal must leave the file untouched"
@@ -1537,9 +1583,7 @@ class TestGrepResultRendering:
     def test_truncation_marker_is_shown(self):
         """The old `if ":" in line` filter dropped it — it names the cap, which
         the summary's "(truncated)" does not."""
-        out = self._plain(
-            "/proj/a.py:1:x\n\n[Results truncated at 500 matches.]", truncated=True
-        )
+        out = self._plain("/proj/a.py:1:x\n\n[Results truncated at 500 matches.]", truncated=True)
         assert "[Results truncated at 500 matches.]" in out
         assert "" not in out, "the blank spacer should not survive as an empty row"
 

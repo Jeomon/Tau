@@ -470,8 +470,7 @@ class TestSetExtensionConfigKeyDedup:
 
         entries = mgr.global_settings.extensions.list
         assert len(entries) == 1, (
-            "expected the case-mismatched path to update the existing entry, "
-            "not append a duplicate"
+            "expected the case-mismatched path to update the existing entry, not append a duplicate"
         )
         assert entries[0].path == str(ext_dir)
         assert entries[0].settings == {"engine": "ddgs", "jina": {"api_key": "test-key"}}
@@ -583,9 +582,7 @@ class TestGetAllExtensionEntriesScopeCollision:
                 "extensions": {"list": [{"path": str(ext_dir), "enabled": False}]},
             },
             project_data={
-                "extensions": {
-                    "list": [{"path": ".tau/extensions/browser_use", "enabled": True}]
-                }
+                "extensions": {"list": [{"path": ".tau/extensions/browser_use", "enabled": True}]}
             },
         )
 

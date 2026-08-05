@@ -248,9 +248,7 @@ def test_register_local_lmstudio_models_strips_v1_suffix_from_provider_base_url(
 
 
 def test_vllm_build_model_uses_max_model_len_for_context_window() -> None:
-    model = _vllm_build_model(
-        {"id": "meta-llama/Llama-3.1-8B-Instruct", "max_model_len": 131072}
-    )
+    model = _vllm_build_model({"id": "meta-llama/Llama-3.1-8B-Instruct", "max_model_len": 131072})
     assert model.provider == "vllm"
     assert model.context_window == 131072
     assert model.input == [Modality.Text]

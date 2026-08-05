@@ -12,7 +12,6 @@ from tau.tui.component import (
     Text,
 )
 from tau.tui.components.box import Box
-from tau.tui.frame import _diff_row_cells
 from tau.tui.geometry import Rect
 from tau.tui.style import Style, apply_style
 from tests.render_helpers import render_cells_to_lines as _render_via_cells
@@ -98,15 +97,3 @@ def test_ansi_bridge_closes_hyperlink_before_plain_cells() -> None:
     out = row_to_ansi(buf, 0)
 
     assert "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\\x1b[0m end" in out
-
-
-def test_cell_diff_closes_hyperlink_before_plain_cells() -> None:
-    previous = Buffer.empty(Rect(0, 0, 8, 1))
-    current = Buffer.empty(Rect(0, 0, 8, 1))
-    current.set_string(0, 0, "link", Style().with_link("https://example.com"))
-    current.set_string(4, 0, " end")
-
-    out = _diff_row_cells(previous, current, 0, 8)
-
-    assert "\x1b]8;;https://example.com\x1b\\link" in out
-    assert "\x1b]8;;\x1b\\\x1b[0mend" in out

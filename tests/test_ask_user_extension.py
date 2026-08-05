@@ -91,8 +91,7 @@ def _component(**kwargs):
 def _rendered_text(buf) -> str:
     """Flatten a rendered Buffer back into plain text for assertions."""
     return "\n".join(
-        "".join(buf.get(x, y).symbol for x in range(buf.area.width))
-        for y in range(buf.area.height)
+        "".join(buf.get(x, y).symbol for x in range(buf.area.width)) for y in range(buf.area.height)
     )
 
 
@@ -694,9 +693,7 @@ class TestPreviewPane:
             c.handle_input(_key("down"))
         buf = Buffer.empty(Rect(0, 0, width, 30))
         rows = c.render_cells(Rect(0, 0, width, 30), buf)
-        return [
-            "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)
-        ]
+        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
 
     def _opts(self):
         return [
@@ -749,9 +746,7 @@ class TestFreeformRowLayout:
             c.handle_input(_key(k, char=k if len(k) == 1 else None))
         buf = Buffer.empty(Rect(0, 0, width, 24))
         rows = c.render_cells(Rect(0, 0, width, 24), buf)
-        return [
-            "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)
-        ]
+        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
 
     def _col_of(self, rows, needle):
         return next(r.index(needle) for r in rows if needle in r)
@@ -872,9 +867,7 @@ class TestDividers:
         c, _ = _component(**kwargs)
         buf = Buffer.empty(Rect(0, 0, width, 26))
         rows = c.render_cells(Rect(0, 0, width, 26), buf)
-        return [
-            "".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)
-        ]
+        return ["".join(buf.get(x, y).symbol for x in range(width)).rstrip() for y in range(rows)]
 
     def _rule_rows(self, rows, width=72):
         return [i for i, r in enumerate(rows) if r == "─" * width]

@@ -49,9 +49,7 @@ def selector():
 def _rows(selector) -> list[str]:
     buf = Buffer.empty(Rect(0, 0, WIDTH, 40))
     written = selector.render_cells(Rect(0, 0, WIDTH, 40), buf)
-    return [
-        "".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)
-    ]
+    return ["".join(buf.get(x, y).symbol for x in range(WIDTH)).rstrip() for y in range(written)]
 
 
 class TestLayout:
