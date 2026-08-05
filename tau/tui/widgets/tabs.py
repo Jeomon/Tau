@@ -98,10 +98,10 @@ class Tabs:
                     col += gap
 
             if self.padding_right:
-                pad = max(0, min(self.padding_right, width - col))
-                if pad:
-                    out.append(apply_style(style, " " * pad))
-                    col += pad
+                pad_cols = max(0, min(self.padding_right, width - col))
+                if pad_cols:
+                    out.append(apply_style(style, " " * pad_cols))
+                    col += pad_cols
 
             if i < len(self.titles) - 1 and col < width:
                 div = truncate_to_width(self.divider, width - col)
