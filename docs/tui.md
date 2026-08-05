@@ -309,27 +309,22 @@ Available in `tau.tui.widgets`:
 | Module | Exports |
 |--------|---------|
 | `block` | `Block`, `Borders`, `Padding`, `Title`, `TitlePosition` |
-| `paragraph` | `Paragraph`, `Wrap` |
 | `list` | `List`, `ListItem`, `ListState`, `ListDirection` |
-| `table` | `Table`, `Row`, `TableState` |
 | `tabs` | `Tabs` |
-| `gauge` | `Gauge`, `LineGauge` |
-| `scrollbar` | `Scrollbar`, `ScrollbarState`, `ScrollbarOrientation` |
-| `sparkline` | `Sparkline`, `RenderDirection` |
-| `barchart` | `BarChart`, `Bar`, `BarGroup` |
-| `chart` | `Chart`, `Dataset`, `Axis`, `GraphType`, `LegendPosition` |
-| `canvas` | `Canvas`, `CanvasLine`, `Points`, `Rectangle`, `Marker`, `Map`, `MapResolution` |
-| `calendar` | `Monthly`, `DateStyler`, `CalendarEventStore` |
-| `clear` | `Clear` |
+
+> **Removed:** `paragraph`, `table`, `gauge`, `scrollbar`, `sparkline`, `barchart`,
+> `chart`, `canvas`, `calendar` and `clear`. Nothing in tau used them, and they
+> were carrying the only remaining reason for several cell-level helpers to
+> exist. The three above are the ones the app actually renders through.
 
 Bridge a widget into the component tree with `WidgetComponent`, or render one to ANSI lines directly:
 
 ```python
 from tau.tui.components.widget_bridge import WidgetComponent, render_widget_lines
-from tau.tui.widgets.gauge import Gauge
+from tau.tui.widgets.block import Block, Borders
 
-component = WidgetComponent(Gauge(...), height=1)      # Into a Component tree
-lines = render_widget_lines(Gauge(...), width=40, height=1)   # Straight to ANSI
+component = WidgetComponent(Block(borders=Borders.ALL), height=3)   # Into a Component tree
+lines = render_widget_lines(Block(borders=Borders.ALL), width=40, height=3)  # Straight to ANSI
 ```
 
 ## Running a Full Application
