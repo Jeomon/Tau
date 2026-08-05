@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from tau.tui.component import StaticComponent
 from tau.tui.input import MouseEvent
-from tau.tui.service import TUI
+from tau.tui.service import TUI, Renderer
 
 
 class FakeTerminal:
@@ -98,7 +98,10 @@ def test_remove_child_forgets_frozen_row_cache_state() -> None:
         frozen = _FrozenChild(["x1", "x2"])
         tui.children.append(frozen)
 
-        tui._renderer.render(tui)
+        # _child_row_cache is cell-path bookkeeping (pre-widened Cell rows).
+        # The string renderer has no such cache — copying string references is
+        # free — so drive Renderer explicitly. This test retires along with it.
+        Renderer(term).render(tui)  # type: ignore[arg-type]
         key = id(frozen)
         assert key in tui._child_row_cache
 
@@ -119,7 +122,8 @@ def test_clear_forgets_all_child_state() -> None:
         tui = TUI(terminal=term)  # type: ignore[arg-type]
         frozen = _FrozenChild(["x1", "x2"])
         tui.children.append(frozen)
-        tui._renderer.render(tui)
+        # See above: cell-path bookkeeping, so drive Renderer explicitly.
+        Renderer(term).render(tui)  # type: ignore[arg-type]
         assert tui._child_row_cache
 
         tui.clear()

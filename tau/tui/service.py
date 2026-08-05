@@ -746,7 +746,7 @@ class TUI(Container):
     ) -> None:
         super().__init__()
         self._terminal = terminal or Terminal()
-        self._renderer = Renderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
+        self._renderer = StringRenderer(self._terminal, show_hardware_cursor=show_hardware_cursor)
         self._parser = _make_parser()
         self._title = title
 
@@ -1375,7 +1375,7 @@ class TUI(Container):
         return self._terminal
 
     @property
-    def renderer(self) -> Renderer:
+    def renderer(self) -> StringRenderer:
         return self._renderer
 
     # -------------------------------------------------------------------------
