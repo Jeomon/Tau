@@ -26,6 +26,148 @@ if sys.platform != "win32":
 # effectively-instant delivery on POSIX.
 _WIN_RESIZE_POLL_INTERVAL = 0.05
 
+
+class _OutputWriter:
+    """Drain terminal output on a dedicated thread so a slow terminal can't stall the loop.
+
+    A full-transcript repaint — what every resize costs — runs to ~160 KiB.
+    Handing that to a terminal that consumes it slowly (over SSH, or a local
+    one already busy reflowing the very resize that triggered the repaint)
+    blocks inside ``write()`` until the far end reads it: measured at ~0.7 ms
+    against a fast local terminal, but ~110 ms at 2 MB/s and ~420 ms at
+    500 KB/s. That stall lands on the event loop, so for its whole duration
+    nothing else runs — no keystrokes, no streaming tokens, a frozen spinner.
+
+    ``write(2)`` releases the GIL, so moving *just the write* onto its own
+    thread genuinely overlaps that stall with rendering. (The render work
+    itself is pure-Python and GIL-bound, so threading that buys nothing —
+    measured at 0.95x.) Ordering is preserved: one thread consuming one FIFO.
+
+    Deliberately a thread rather than ``O_NONBLOCK`` on fd 1. That flag lives
+    on the shared open *file description*, so it would be inherited by every
+    child process (``!shell``, ``$EDITOR`` via ``TUI.suspended``) and would
+    still be set on the shell's stdout after we exit — a well-known way to
+    leave the user's terminal broken.
+
+    Callers that hand the terminal to someone else — restoring termios,
+    suspending for a child process, exiting — must :meth:`drain` first, so
+    queued bytes land before the new owner starts writing.
+    """
+
+    # Bound the queue so a producer outrunning a stalled terminal applies
+    # backpressure instead of growing memory without limit. Generous enough
+    # that a normal repaint burst never touches it.
+    _MAX_PENDING = 8 * 1024 * 1024
+
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+        self._pending: list[str] = []
+        self._pending_len = 0
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._busy = False
+        self._stopping = False
+        self._error: BaseException | None = None
+        self._thread: threading.Thread | None = None
+
+    def _ensure_thread(self) -> None:
+        if self._thread is None or not self._thread.is_alive():
+            self._stopping = False
+            self._thread = threading.Thread(target=self._run, name="tau-tui-output", daemon=True)
+            self._thread.start()
+
+    def write(self, data: str) -> None:
+        """Queue ``data``; returns without waiting for the terminal to accept it."""
+        if not data:
+            return
+        with self._cond:
+            self._reraise_locked()
+            # Backpressure: block the producer only once the terminal is so far
+            # behind that the queue is enormous, and never forever.
+            if self._pending_len >= self._MAX_PENDING:
+                self._cond.wait_for(
+                    lambda: self._pending_len < self._MAX_PENDING or not self._alive_locked(),
+                    timeout=5.0,
+                )
+            self._pending.append(data)
+            self._pending_len += len(data)
+            self._ensure_thread()
+            self._cond.notify_all()
+
+    def drain(self, timeout: float | None = 5.0) -> None:
+        """Block until everything queued so far has been written and flushed."""
+        with self._cond:
+            if self._thread is None:
+                self._reraise_locked()
+                return
+            self._cond.wait_for(
+                lambda: (not self._pending and not self._busy) or not self._alive_locked(),
+                timeout=timeout,
+            )
+            self._reraise_locked()
+
+    def close(self, timeout: float | None = 5.0) -> None:
+        """Drain, then retire the writer thread.
+
+        The thread handle is cleared only *after* the join. Clearing it up
+        front would let a write racing this call see "no thread" and start a
+        second consumer alongside the one still finishing — two threads
+        pulling from one queue, which is exactly the ordering guarantee this
+        class exists to provide.
+        """
+        self.drain(timeout)
+        with self._cond:
+            self._stopping = True
+            thread = self._thread
+            self._cond.notify_all()
+        if thread is not None:
+            thread.join(timeout=timeout)
+        with self._cond:
+            if self._thread is thread:
+                self._thread = None
+
+    # -- internals ---------------------------------------------------------
+
+    def _alive_locked(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def _reraise_locked(self) -> None:
+        """Surface a writer-thread failure on the caller's thread, once.
+
+        Without this a broken pipe (terminal closed underneath us) would be
+        swallowed on a daemon thread and the UI would silently stop painting,
+        where the synchronous path used to raise straight out of write().
+        """
+        err, self._error = self._error, None
+        if err is not None:
+            raise err
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._pending and not self._stopping:
+                    self._cond.wait()
+                if not self._pending and self._stopping:
+                    return
+                # Coalesce everything queued into one write: during a resize
+                # burst this collapses many frames' worth of syscalls into one.
+                chunk = "".join(self._pending)
+                self._pending.clear()
+                self._pending_len = 0
+                self._busy = True
+                self._cond.notify_all()
+            try:
+                self._stream.write(chunk)
+                self._stream.flush()
+            except BaseException as exc:  # noqa: BLE001 - forwarded to the caller
+                with self._cond:
+                    self._error = exc
+            finally:
+                with self._cond:
+                    self._busy = False
+                    self._cond.notify_all()
+
+
 # ── Terminal Capabilities ─────────────────────────────────────────────────────
 
 ImageProtocol = Literal["kitty", "iterm2"] | None
@@ -181,7 +323,7 @@ class Terminal:
     These sequences tell the terminal what to do (move cursor, change colors, clear screen, etc).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, async_output: bool | None = None) -> None:
         """
         Initialize the Terminal object.
 
@@ -190,6 +332,13 @@ class Terminal:
         - _resize_callbacks: List of functions to call when terminal is resized
         - _prev_sigwinch: Saves original resize signal handler
         - width/height: Current terminal dimensions in characters
+
+        ``async_output`` sends output through a background writer thread so a
+        slow terminal can't stall the event loop (see ``_OutputWriter``).
+        Defaults to on for an interactive tty and off otherwise: when stdout is
+        a pipe or file (``--print``, tests, CI) there is no human waiting on
+        latency, the consumer is fast, and a synchronous write keeps output
+        ordering trivially observable.
         """
         self._original_termios: list | None = None
         self._resize_callbacks: list[Callable[[], None]] = []
@@ -205,6 +354,12 @@ class Terminal:
         # straddle a read-chunk boundary, and a per-chunk bytes.decode() would
         # mangle the split character into U+FFFD replacement characters.
         self._stdin_decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        if async_output is None:
+            try:
+                async_output = sys.stdout.isatty()
+            except Exception:  # noqa: BLE001 - a closed/odd stdout just opts out
+                async_output = False
+        self._writer = _OutputWriter(sys.stdout) if async_output else None
         self.width, self.height = self._get_size()
 
     # -------------------------------------------------------------------------
@@ -249,7 +404,14 @@ class Terminal:
         Reverses the changes made by enter_raw_mode():
         - Restores original terminal settings (echo, buffering, signals re-enabled)
         - Restores the original signal handler for terminal resize events
+
+        Drains queued output first. TCSADRAIN below waits only on the
+        *kernel's* output queue, which knows nothing about bytes still sitting
+        in our writer thread; without this the tail of the final frame would
+        be emitted after the terminal is back in cooked mode — or, on the
+        ``TUI.suspended`` path, interleaved into a child process's screen.
         """
+        self.drain()
         if _IS_WINDOWS:
             self._exit_raw_mode_windows()
             return
@@ -422,9 +584,13 @@ class Terminal:
         Shows the cursor and restores raw mode.  The caller is responsible
         for moving the cursor past the last rendered line before calling
         this so the shell prompt appears below the TUI output.
+        Retires the writer thread last, once ``exit_raw_mode`` has drained it,
+        so nothing is left queued against a terminal we no longer own.
         """
         self.show_cursor()
         self.exit_raw_mode()
+        if self._writer is not None:
+            self._writer.close()
 
     # -------------------------------------------------------------------------
     # Output
@@ -436,7 +602,14 @@ class Terminal:
 
         The data is stored in a temporary buffer and waits for a flush() call.
         This allows batching multiple writes before sending to screen.
+
+        With async output enabled the data is handed to the writer thread and
+        this returns immediately — see ``_OutputWriter``. Writes stay strictly
+        ordered either way; only the waiting moves off the event loop.
         """
+        if self._writer is not None:
+            self._writer.write(data)
+            return
         sys.stdout.write(data)
 
     def flush(self) -> None:
@@ -445,8 +618,25 @@ class Terminal:
 
         Forces everything in the buffer to be displayed on screen right away.
         Clears the buffer after sending.
+
+        With async output this only guarantees the data has been *handed off*
+        — the writer thread flushes each batch as it drains it. Use
+        :meth:`drain` when the bytes must have actually landed (handing the
+        terminal to a child process, restoring termios, exiting).
         """
+        if self._writer is not None:
+            return
         sys.stdout.flush()
+
+    def drain(self, timeout: float | None = 5.0) -> None:
+        """Block until queued output has actually reached the terminal.
+
+        Needed at every point where something other than us is about to write
+        to or reconfigure the terminal — otherwise our queued bytes land
+        after theirs. No-op when output is synchronous.
+        """
+        if self._writer is not None:
+            self._writer.drain(timeout)
 
     def write_flush(self, data: str) -> None:
         """
