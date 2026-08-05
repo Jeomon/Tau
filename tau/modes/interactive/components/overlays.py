@@ -5,11 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from tau.tui.buffer import Buffer
-from tau.tui.component import Component
+from tau.tui.component import Component, _child_lines
 from tau.tui.components.select_list import SelectItem, SelectList
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent
+from tau.tui.style import apply_style
 from tau.tui.text import Line, Span
 from tau.tui.utils import visible_width
 
@@ -21,29 +20,24 @@ T = TypeVar("T")
 # ── Box drawing helper ────────────────────────────────────────────────────────
 
 
-def _box_cells(
-    buf: Buffer,
-    area: Rect,
-    inner: Buffer,
-    inner_rows: int,
+def _box_lines(
+    inner_lines: list[str],
+    width: int,
     title: str,
     theme: LayoutTheme | None = None,
-) -> int:
-    """Draw a Unicode border box around ``inner`` directly into ``buf``.
+) -> list[str]:
+    """Wrap ``inner_lines`` in a Unicode border box.
 
-    ``inner`` must already be rendered at width ``area.width - 4`` (the
+    ``inner_lines`` must already be rendered at width ``width - 4`` (the
     content width once the border and one space of padding on each side are
-    subtracted). Returns the number of rows written.
+    subtracted).
     """
-    t = theme or _default_theme()
-    width = area.width
-    row = area.y
+    from tau.tui.compose import line_to_ansi
+    from tau.tui.utils import truncate_to_width
 
-    def write(spans: list[Span]) -> None:
-        nonlocal row
-        buf.grow_to(row + 1)
-        buf.set_line(area.x, row, Line(spans), width)
-        row += 1
+    t = theme or _default_theme()
+    inner_w = max(1, width - 4)
+    out: list[str] = []
 
     if title:
         t_str = f" {title} "
@@ -51,26 +45,27 @@ def _box_cells(
         dashes = max(0, width - 2 - tv)
         left_d = dashes // 2
         right_d = dashes - left_d
-        write(
+        top = Line(
             [
-                Span("┌" + "─" * left_d, t.border),
+                Span("\u250c" + "\u2500" * left_d, t.border),
                 Span(t_str, t.emphasis),
-                Span("─" * right_d + "┐", t.border),
+                Span("\u2500" * right_d + "\u2510", t.border),
             ]
         )
     else:
-        write([Span("┌" + "─" * (width - 2) + "┐", t.border)])
+        top = Line([Span("\u250c" + "\u2500" * (width - 2) + "\u2510", t.border)])
+    out.append(line_to_ansi(top, width))
 
-    inner_w = max(1, width - 4)
-    buf.grow_to(row + inner_rows)
-    for r in range(inner_rows):
-        buf.set(area.x, row + r, "│", t.border)
-        buf.blit(inner, area.x + 2, row + r, Rect(0, r, inner_w, 1))
-        buf.set(area.x + width - 1, row + r, "│", t.border)
-    row += inner_rows
+    side = apply_style(t.border, "\u2502")
+    for line in inner_lines:
+        body = truncate_to_width(line, inner_w)
+        pad = " " * max(0, inner_w - visible_width(body))
+        out.append(side + " " + body + pad + " " + side)
 
-    write([Span("└" + "─" * (width - 2) + "┘", t.border)])
-    return row - area.y
+    out.append(
+        line_to_ansi(Line([Span("\u2514" + "\u2500" * (width - 2) + "\u2518", t.border)]), width)
+    )
+    return out
 
 
 def _default_theme() -> LayoutTheme:
@@ -129,27 +124,25 @@ class PickerOverlay[T](Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         t = self._theme
-        inner_w = max(1, area.width - 4)
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        row = 0
+        inner_w = max(1, width - 4)
+        inner: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            inner.grow_to(row + 1)
-            inner.set_line(0, row, Line(spans), inner_w)
-            row += 1
+            inner.append(line_to_ansi(Line(spans), inner_w))
 
         if self._searchable:
             if self._query:
                 write([Span("  "), Span("⊘", t.muted), Span(f" {self._query}█")])
             else:
                 write([Span("  "), Span("⊘ Search…", t.muted)])
-        row += self._selector.render_cells(Rect(0, row, inner_w, 0), inner)
+        inner.extend(_child_lines(self._selector, inner_w))
         write([Span("  "), Span("↑/↓ to move  ·  Enter to select  ·  Esc to cancel", t.muted)])
 
-        return _box_cells(buf, area, inner, row, self._title, t)
+        return _box_lines(inner, width, self._title, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -230,21 +223,18 @@ class TextOverlay(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi, wrap_to_rows
 
         t = self._theme
-        inner_w = max(1, area.width - 4)
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        row = 0
+        inner_w = max(1, width - 4)
+        inner: list[str] = []
         for line in self._lines:
-            row += parse_ansi_wrapped_into(inner, 0, row, line, inner_w)
+            inner.extend(wrap_to_rows(line, inner_w))
         if self._on_close is not None:
-            inner.grow_to(row + 1)
-            inner.set_line(0, row, Line([Span("  "), Span("Esc to close", t.muted)]), inner_w)
-            row += 1
+            inner.append(line_to_ansi(Line([Span("  "), Span("Esc to close", t.muted)]), inner_w))
 
-        return _box_cells(buf, area, inner, row, self._title, t)
+        return _box_lines(inner, width, self._title, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, KeyEvent) and event.key == "escape":
@@ -302,22 +292,22 @@ class PromptOverlay(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         t = self._theme
         display = "*" * len(self._value) if self._secret else self._value
-        inner_w = max(1, area.width - 4)
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        inner.grow_to(3)
-        inner.set_line(0, 0, Line([Span("  "), Span(self._label, t.emphasis)]), inner_w)
-        inner.set_line(
-            0,
-            1,
-            Line([Span("  "), Span("Enter to confirm  ·  Esc to cancel", t.muted)]),
-            inner_w,
+        inner_w = max(1, width - 4)
+        inner = [line_to_ansi(Line([Span("  "), Span(self._label, t.emphasis)]), inner_w)]
+        inner.append(
+            line_to_ansi(
+                Line([Span("  "), Span("Enter to confirm  ·  Esc to cancel", t.muted)]),
+                inner_w,
+            )
         )
-        inner.set_line(0, 2, Line([Span(f"  {display}█")]), inner_w)
+        inner.append(line_to_ansi(Line([Span(f"  {display}█")]), inner_w))
 
-        return _box_cells(buf, area, inner, 3, "", t)
+        return _box_lines(inner, width, "", t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -391,13 +381,14 @@ class EditorOverlay(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        inner_w = max(1, area.width - 4)
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
+        inner_w = max(1, width - 4)
         t = self._theme
         self._clamp_scroll()
 
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        row = 0
+        inner: list[str] = []
         visible = self._lines[self._scroll_top : self._scroll_top + self.VISIBLE_ROWS]
         for ri, line in enumerate(visible):
             abs_row = self._scroll_top + ri
@@ -407,22 +398,22 @@ class EditorOverlay(Component):
                 content = (before + "█" + after)[:inner_w]
             else:
                 content = line[:inner_w]
-            inner.grow_to(row + 1)
-            inner.set_line(0, row, Line([Span(content)]), inner_w)
-            row += 1
+            inner.append(line_to_ansi(Line([Span(content)]), inner_w))
 
-        # scroll indicator or blank spacer
+        # scroll indicator or blank spacer -- the row is kept either way so the
+        # box does not change height as the document scrolls
         total = len(self._lines)
-        inner.grow_to(row + 2)
         if total > self.VISIBLE_ROWS:
             pct = int(self._scroll_top / max(1, total - self.VISIBLE_ROWS) * 100)
-            inner.set_line(0, row, Line([Span(f"↕ {pct}%", t.muted)]), inner_w)
-        row += 1
+            inner.append(line_to_ansi(Line([Span(f"↕ {pct}%", t.muted)]), inner_w))
+        else:
+            inner.append("")
 
-        inner.set_line(0, row, Line([Span("Ctrl+S to save  ·  Esc to cancel", t.muted)]), inner_w)
-        row += 1
+        inner.append(
+            line_to_ansi(Line([Span("Ctrl+S to save  ·  Esc to cancel", t.muted)]), inner_w)
+        )
 
-        return _box_cells(buf, area, inner, row, self._title, t)
+        return _box_lines(inner, width, self._title, t)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
@@ -572,11 +563,9 @@ class FormOverlay(Component):
 
     # ── Component ─────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        inner_w = max(1, area.width - 4)
-        inner = Buffer.empty(Rect(0, 0, inner_w, 0))
-        rows = self._selector.render_cells(Rect(0, 0, inner_w, 0), inner)
-        return _box_cells(buf, area, inner, rows, self._title, self._theme)
+    def render(self, width: int) -> list[str]:
+        inner_w = max(1, width - 4)
+        return _box_lines(_child_lines(self._selector, inner_w), width, self._title, self._theme)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
