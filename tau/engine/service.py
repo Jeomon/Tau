@@ -1055,6 +1055,8 @@ class Engine:
         self.state.pending_tool_calls.clear()
         self.state.is_streaming = True
         self.state.idle_event.clear()
+        self.system_prompt = ctx.system_prompt
+        self.tools = ctx.tools
         self.state.system_prompt = ctx.system_prompt
         self.state.tools = ctx.tools
         self._tools = {t.name: t for t in ctx.tools}
