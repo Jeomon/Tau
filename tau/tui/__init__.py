@@ -46,7 +46,6 @@ if TYPE_CHECKING:
     from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
     from tau.tui.components.spinner import Spinner
     from tau.tui.components.text_input import TextInput
-    from tau.tui.frame import BufferedTerminal, Fixed, Frame, Fullscreen, Inline
     from tau.tui.geometry import Position, Rect
     from tau.tui.input import (
         BgColorEvent,
@@ -146,11 +145,6 @@ __all__ = [
     "TestBackend",
     "AnsiBackend",
     "assert_buffer_eq",
-    "Frame",
-    "BufferedTerminal",
-    "Fullscreen",
-    "Fixed",
-    "Inline",
     # Layout constraint solver
     "Layout",
     "Constraint",
@@ -202,11 +196,6 @@ _SUBMODULE_OF = {
     "Backend": "tau.tui.backend",
     "TestBackend": "tau.tui.backend",
     "AnsiBackend": "tau.tui.backend",
-    "Frame": "tau.tui.frame",
-    "BufferedTerminal": "tau.tui.frame",
-    "Fullscreen": "tau.tui.frame",
-    "Fixed": "tau.tui.frame",
-    "Inline": "tau.tui.frame",
     "Column": "tau.tui.component",
     "Columns": "tau.tui.component",
     "Component": "tau.tui.component",
