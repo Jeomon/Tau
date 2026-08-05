@@ -13,6 +13,7 @@ from tau.engine.types import (
     FollowupMode,
     FollowupQueue,
     MessageEndEvent,
+    MessageRollbackEvent,
     MessageStartEvent,
     MessageUpdateEvent,
     SteeringMode,
