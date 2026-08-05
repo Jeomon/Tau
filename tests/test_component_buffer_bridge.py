@@ -61,8 +61,23 @@ def test_box_composes_a_buffer_native_child() -> None:
 
 
 def test_core_components_own_native_render_paths() -> None:
+    """Each core component implements one contract itself, never neither.
+
+    Which one it implements moves as components migrate: a converted component
+    owns render(width) and inherits Component's render_cells bridge, and an
+    unconverted one is the mirror image. Asserting "owns render_cells" would
+    now quietly pull components back to the old contract, so assert the real
+    invariant -- that the bridge is never doing *both* halves.
+    """
     for component_type in (StaticComponent, Text, Row, Constrained, Columns, Rows):
-        assert component_type.render_cells is not Component.render_cells
+        owns_lines = component_type.render is not Component.render
+        owns_cells = component_type.render_cells is not Component.render_cells
+        assert owns_lines or owns_cells, component_type.__name__
+
+
+def test_migrated_components_own_the_line_contract() -> None:
+    for component_type in (StaticComponent, Text, Column, Constrained):
+        assert component_type.render is not Component.render, component_type.__name__
 
 
 def test_ansi_bridge_round_trip_preserves_style_and_double_width() -> None:

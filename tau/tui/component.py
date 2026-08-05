@@ -273,13 +273,13 @@ class StaticComponent(Component):
     def __init__(self, lines: list[str]) -> None:
         self._lines = lines
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import wrap_to_rows
 
-        row = 0
+        out: list[str] = []
         for line in self._lines:
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+            out.extend(wrap_to_rows(line, width))
+        return out
 
 
 class Text(Component):
@@ -306,14 +306,14 @@ class Text(Component):
         """Replace the rendered text."""
         self._text = text
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.ansi_bridge import parse_ansi_wrapped_into
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import wrap_to_rows
 
         content = self._style(self._text) if self._style is not None else self._text
-        row = 0
+        out: list[str] = []
         for line in content.split("\n"):
-            row += parse_ansi_wrapped_into(buf, area.x, area.y + row, line, area.width)
-        return row
+            out.extend(wrap_to_rows(line, width))
+        return out
 
 
 class Column(Component):
@@ -331,11 +331,11 @@ class Column(Component):
     def __init__(self, children: list[Component]) -> None:
         self.children = list(children)
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        y = area.y
+    def render(self, width: int) -> list[str]:
+        out: list[str] = []
         for child in self.children:
-            y += child.render_cells(Rect(area.x, y, area.width, 0), buf)
-        return y - area.y
+            out.extend(_child_lines(child, width))
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child in reversed(self.children))
@@ -486,20 +486,17 @@ class Constrained(Component):
         self._width = width
         self._align = align
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.buffer import Buffer
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import composite_lines
 
-        target = max(1, _resolve_width(self._width, area.width))
-        child = Buffer.empty(Rect(0, 0, target, 0))
-        rows = self._child.render_cells(Rect(0, 0, target, 0), child)
+        target = max(1, _resolve_width(self._width, width))
+        lines = _child_lines(self._child, target)
         offset = 0
         if self._align == "center":
-            offset = max(0, (area.width - target) // 2)
+            offset = max(0, (width - target) // 2)
         elif self._align == "right":
-            offset = max(0, area.width - target)
-        buf.grow_to(area.y + rows)
-        buf.blit(child, area.x + offset, area.y)
-        return rows
+            offset = max(0, width - target)
+        return composite_lines([], lines, 0, offset, target, width)
 
     def handle_input(self, event: InputEvent) -> bool:
         return self._child.handle_input(event)
