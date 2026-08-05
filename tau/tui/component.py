@@ -384,50 +384,46 @@ class Row(Component):
         """Append a component with the given alignment (``"left"``, ``"center"``, ``"right"``)."""
         self._slots.append((component, align))
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.buffer import Buffer
-        from tau.tui.style import Style
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import composite_lines
 
-        groups: dict[str, list[tuple[Buffer, int]]] = {
+        groups: dict[str, list[tuple[list[str], int]]] = {
             "left": [],
             "center": [],
             "right": [],
         }
         for component, align in self._slots:
-            child = Buffer.empty(Rect(0, 0, area.width, 0))
-            rows = component.render_cells(Rect(0, 0, area.width, 0), child)
-            content_width = 0
-            if rows:
-                for column in range(area.width):
-                    cell = child.get(column, 0)
-                    if cell.symbol != " " or cell.style != Style() or cell.skip:
-                        content_width = column + 1
-            groups[align if align in groups else "left"].append((child, content_width))
+            lines = _child_lines(component, width)
+            # Only the first row is placed, matching the cell path's
+            # blit of Rect(0, 0, width, 1) -- a Row is one row tall.
+            head = lines[0] if lines else ""
+            content_width = _content_width(head, width)
+            groups[align if align in groups else "left"].append(([head], content_width))
 
-        def group_width(group: list[tuple[Buffer, int]]) -> int:
-            return sum(width for _, width in group) + 2 * max(0, len(group) - 1)
+        def group_width(group: list[tuple[list[str], int]]) -> int:
+            return sum(w for _, w in group) + 2 * max(0, len(group) - 1)
 
         left_width = group_width(groups["left"])
         center_width = group_width(groups["center"])
         right_width = group_width(groups["right"])
         starts = {
             "left": 0,
-            "center": max(left_width + 1, (area.width - center_width) // 2),
-            "right": max(0, area.width - right_width),
+            "center": max(left_width + 1, (width - center_width) // 2),
+            "right": max(0, width - right_width),
         }
         if groups["center"] and starts["center"] + center_width > starts["right"]:
             starts["center"] = max(left_width + 1, starts["right"] - center_width - 1)
 
-        buf.grow_to(area.y + 1)
+        out: list[str] = [""]
         for align in ("left", "center", "right"):
             column = starts[align]
-            for index, (child, width) in enumerate(groups[align]):
+            for index, (lines, w) in enumerate(groups[align]):
                 if index:
                     column += 2
-                if width:
-                    buf.blit(child, area.x + column, area.y, Rect(0, 0, width, 1))
-                column += width
-        return 1
+                if w:
+                    out = composite_lines(out, lines, 0, column, w, width)
+                column += w
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(component.handle_input(event) for component, _ in self._slots)
@@ -435,6 +431,31 @@ class Row(Component):
     def invalidate(self) -> None:
         for component, _ in self._slots:
             component.invalidate()
+
+
+def _content_width(line: str, width: int) -> int:
+    """Columns of ``line`` that carry content, ignoring trailing blanks.
+
+    Matches how the cell path measured a child before placing it in a Row: a
+    trailing *plain* space is not content, but a styled one is (it paints a
+    background), and so is a skip cell. Measuring with visible_width instead
+    counts padding as content and pushes the next alignment group right.
+    """
+    from tau.tui.ansi_bridge import parse_ansi_into
+    from tau.tui.buffer import Buffer
+    from tau.tui.style import Style
+
+    if not line:
+        return 0
+    buf = Buffer.empty(Rect(0, 0, width, 1))
+    parse_ansi_into(buf, 0, 0, line, width)
+    content = 0
+    blank = Style()
+    for column in range(width):
+        cell = buf.get(column, 0)
+        if cell.symbol != " " or cell.style != blank or cell.skip:
+            content = column + 1
+    return content
 
 
 def _resolve_width(spec: int | str, available: int) -> int:
@@ -555,24 +576,21 @@ class Columns(Component):
                 widths[i] = share + (1 if j < rem else 0)
         return widths
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.buffer import Buffer
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import composite_lines
 
-        widths = self._column_widths(area.width)
-        rendered: list[tuple[Buffer, int]] = []
-        height = 0
-        for (child, _), width in zip(self._slots, widths, strict=True):
-            child_buf = Buffer.empty(Rect(0, 0, width, 0))
-            rows = child.render_cells(Rect(0, 0, width, 0), child_buf) if width > 0 else 0
-            rendered.append((child_buf, rows))
-            height = max(height, rows)
-        buf.grow_to(area.y + height)
-        x = area.x
-        for (child_buf, _), width in zip(rendered, widths, strict=True):
-            if width > 0:
-                buf.blit(child_buf, x, area.y)
-                x += width + self._gap
-        return height
+        widths = self._column_widths(width)
+        rendered = [
+            _child_lines(child, w) if w > 0 else []
+            for (child, _), w in zip(self._slots, widths, strict=True)
+        ]
+        out: list[str] = []
+        x = 0
+        for lines, w in zip(rendered, widths, strict=True):
+            if w > 0:
+                out = composite_lines(out, lines, 0, x, w, width)
+                x += w + self._gap
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child, _ in self._slots)
@@ -655,30 +673,20 @@ class Rows(Component):
                 heights[i] = share + (1 if j < rem else 0)
         return heights
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        from tau.tui.buffer import Buffer
-
-        children: list[tuple[Buffer, int]] = []
-        for child, _ in self._slots:
-            child_buf = Buffer.empty(Rect(0, 0, area.width, 0))
-            rows = child.render_cells(Rect(0, 0, area.width, 0), child_buf)
-            children.append((child_buf, rows))
-        heights = self._row_heights([rows for _, rows in children])
-        y = area.y
-        for index, ((child_buf, rows), height) in enumerate(zip(children, heights, strict=True)):
+    def render(self, width: int) -> list[str]:
+        rendered = [_child_lines(child, width) for child, _ in self._slots]
+        heights = self._row_heights([len(lines) for lines in rendered])
+        out: list[str] = []
+        for index, (lines, height) in enumerate(zip(rendered, heights, strict=True)):
             if index and self._gap:
-                y += self._gap
+                out.extend([""] * self._gap)
             if height <= 0:
                 continue
-            buf.blit(
-                child_buf,
-                area.x,
-                y,
-                Rect(0, 0, area.width, min(rows, height)),
-            )
-            y += height
-        buf.grow_to(y)
-        return y - area.y
+            # A child taller than its slot is clipped, shorter is padded, so
+            # the next child always starts where the layout says it does.
+            out.extend(lines[:height])
+            out.extend([""] * max(0, height - len(lines)))
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         return any(child.handle_input(event) for child, _ in self._slots)
