@@ -20,9 +20,38 @@ from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into, row_to
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
-from tau.tui.style import apply_style
+from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
 from tau.tui.utils import strip_ansi, truncate_to_width, visible_width
+
+
+def line_to_ansi_row(line: Line, width: int, row_style: Style | None = None) -> str:
+    """``line_to_ansi`` plus an optional style patched across the whole row.
+
+    Reproduces what ``Buffer.set_style(Rect(x, y, width, 1), style)`` did after
+    a row was written: the style lands on every column including the trailing
+    blanks, which is what makes a selected row read as a solid bar rather than
+    a highlighted word. Patch direction matches ``Cell.set_style`` --
+    ``existing.patch(row_style)`` -- so the row style wins where it sets a
+    field.
+    """
+    if row_style is None:
+        return line_to_ansi(line, width)
+
+    out: list[str] = []
+    col = 0
+    for span in line:
+        if col >= width:
+            break
+        clipped = truncate_to_width(span.content, width - col)
+        if not clipped:
+            continue
+        style = line.style.patch(span.style).patch(row_style)
+        out.append(apply_style(style, clipped))
+        col += visible_width(clipped)
+    if col < width:
+        out.append(apply_style(row_style, " " * (width - col)))
+    return "".join(out)
 
 
 def composite_line(

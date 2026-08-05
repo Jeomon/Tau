@@ -153,9 +153,11 @@ class AutocompletePicker(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi_row
+
         if not self.active:
-            return 0
+            return []
 
         count = len(self._items)
         visible = min(self._max_visible, count)
@@ -168,16 +170,13 @@ class AutocompletePicker(Component):
                 24,
             ),
         )
-        desc_w = max(0, area.width - label_w - 4)
+        desc_w = max(0, width - label_w - 4)
 
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
-        def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+        def write(spans: list[Span], row_style=None) -> None:
+            out.append(line_to_ansi_row(Line(spans), width, row_style))
 
         if start > 0:
             write([Span(f"  ↑ {start} more", t.indicator)])
@@ -201,10 +200,9 @@ class AutocompletePicker(Component):
                         Span(label, t.selected_label),
                         Span("  "),
                         Span(desc, t.selected_desc),
-                    ]
+                    ],
+                    t.selected_bg or None,
                 )
-                if t.selected_bg:
-                    buf.set_style(Rect(area.x, row - 1, area.width, 1), t.selected_bg)
             else:
                 write(
                     [
@@ -219,7 +217,7 @@ class AutocompletePicker(Component):
         if remaining > 0:
             write([Span(f"  ↓ {remaining} more", t.indicator)])
 
-        return row - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):

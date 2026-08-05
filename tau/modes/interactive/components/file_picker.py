@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Rect
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.text import Line, Span
 from tau.tui.utils import fuzzy_filter
@@ -157,18 +155,17 @@ class FilePicker(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         if not self._active:
-            return 0
+            return []
 
         t = self._theme
-        row = area.y
+        out: list[str] = []
 
         def write(content: str, style, prefix: str = "") -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line([Span(prefix), Span(content, style)]), area.width)
-            row += 1
+            out.append(line_to_ansi(Line([Span(prefix), Span(content, style)]), width))
 
         if self._cwd != self._root:
             try:
@@ -179,7 +176,7 @@ class FilePicker(Component):
 
         if not self._entries:
             write("(no matches)", t.empty, "  ")
-            return row - area.y
+            return out
 
         count = len(self._entries)
         visible = min(VISIBLE_ROWS, count)
@@ -214,7 +211,7 @@ class FilePicker(Component):
         if remaining > 0:
             write(f"↓ {remaining} more", t.indicator, "  ")
 
-        return row - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
