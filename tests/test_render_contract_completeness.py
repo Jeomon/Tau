@@ -4,12 +4,17 @@
 subclass can implement either. Classes that are *not* Components inherit no
 bridge and must provide whatever their callers actually call.
 
-SelectorController is exactly that: a plain class, called directly by
+SelectorController was exactly that: a plain class, called directly by
 ``Layout.render_cells``. Migrating it to ``render()`` alone removed the method
 Layout calls, and because ``TUI._do_render`` swallows exceptions to keep the
 app alive, the result was a frozen screen with a healthy process — the failure
-only visible in the session log. These tests make that mismatch fail loudly at
-test time instead.
+only visible in the session log.
+
+The fix is for it to *be* a Component, so the bridge supplies ``render_cells``
+while it implements only ``render`` — not to hand-write a second
+implementation, which would be migrating backwards. These tests pin both: that
+it inherits the bridge, and that anything which renders without inheriting one
+still provides everything its callers use.
 """
 
 from __future__ import annotations
@@ -40,10 +45,16 @@ def _render_capable_non_components() -> list[type]:
     return found
 
 
-def test_selector_controller_is_covered_by_this_test() -> None:
+def test_selector_controller_gets_render_cells_from_the_bridge() -> None:
+    """It must inherit the bridge, not hand-write a second implementation."""
     from tau.modes.interactive.components.selector_controller import SelectorController
 
-    assert SelectorController in _render_capable_non_components()
+    assert issubclass(SelectorController, Component)
+    assert SelectorController.render_cells is Component.render_cells, (
+        "SelectorController hand-writes render_cells; it should implement only "
+        "render() and inherit render_cells from Component's bridge"
+    )
+    assert SelectorController.render is not Component.render
 
 
 @pytest.mark.parametrize("cls", _render_capable_non_components(), ids=lambda c: c.__name__)
