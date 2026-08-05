@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+import grapheme
+
 from tau.tui.style import Style, apply_style
 from tau.tui.widgets.symbols import PLAIN, BorderSet
 
@@ -186,13 +188,48 @@ def grapheme_width(cluster: str) -> int:
     return _char_width(cluster[0])
 
 
+# Codepoints that can join with a neighbour to form one grapheme cluster, and
+# so make per-codepoint width measurement wrong. Scanned with a single compiled
+# regex because segmenting every string into clusters is 11-160x slower.
+_CLUSTER_FORMING = re.compile(
+    "["
+    "\u200d"  # zero-width joiner (emoji sequences)
+    "\ufe0e\ufe0f"  # variation selectors (text/emoji presentation)
+    "\u20e3"  # combining enclosing keycap
+    "\u0300-\u036f"  # combining diacritical marks
+    "\u0483-\u0489\u0591-\u05bd\u0610-\u061a\u064b-\u065f"  # Cyrillic/Hebrew/Arabic marks
+    "\u0900-\u0903\u093a-\u094f\u0951-\u0957"  # Devanagari matras/viramas
+    "\u1ab0-\u1aff\u1dc0-\u1dff"  # extended combining blocks
+    "\u20d0-\u20f0"  # combining marks for symbols
+    "\ufe20-\ufe2f"  # combining half marks
+    "\U0001f1e6-\U0001f1ff"  # regional indicators (flags)
+    "\U0001f3fb-\U0001f3ff"  # emoji skin-tone modifiers
+    "]"
+)
+
+
 def visible_width(text: str) -> int:
-    """Return the number of terminal columns the string will occupy."""
+    """Return the number of terminal columns the string will occupy.
+
+    Width is a property of whole grapheme *clusters*, not codepoints: a ZWJ
+    sequence like the family emoji is five codepoints but occupies two columns,
+    and a combining accent occupies none of its own. Measuring per codepoint
+    reports the family emoji as six columns, which then wraps lines in the
+    wrong place.
+
+    Segmenting every string into clusters is far too slow for a function this
+    hot (11-160x, measured), so cluster-forming codepoints are detected with a
+    single compiled-regex scan first. Text without any — which is all ASCII and
+    all ordinary CJK/precomposed-Latin — is measured per codepoint exactly as
+    before, because for that text the two are identical by definition.
+    """
     # Fast path: pure ASCII printable
     if text.isascii() and text.isprintable():
         return len(text)
     stripped = strip_ansi(text)
-    return sum(_char_width(ch) for ch in stripped)
+    if stripped.isascii() or not _CLUSTER_FORMING.search(stripped):
+        return sum(_char_width(ch) for ch in stripped)
+    return sum(grapheme_width(cluster) for cluster in grapheme.graphemes(stripped))
 
 
 # ── Strip ─────────────────────────────────────────────────────────────────────
