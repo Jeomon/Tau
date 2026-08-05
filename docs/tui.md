@@ -54,8 +54,7 @@ This script defines a custom component and renders it. Copy, paste, and run it:
 ```python
 """Render a custom tau.tui component with no application, event loop, or TTY."""
 
-from tau.tui import Buffer, Component, Rect, Span, Style, TextLine
-from tau.tui.ansi_bridge import row_to_ansi
+from tau.tui import Component, Span, Style, TextLine, line_to_ansi
 
 
 class Gauge(Component):
@@ -65,31 +64,24 @@ class Gauge(Component):
         self.label = label
         self.fraction = max(0.0, min(1.0, fraction))
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        # Buffers start at height 0 — grow before writing, or the write no-ops.
-        buf.grow_to(area.y + 2)
-
-        buf.set_line(
-            area.x,
-            area.y,
-            TextLine([Span.styled(self.label, Style().bold().with_fg("bright_cyan"))]),
-            area.width,
-        )
-
-        bar_width = max(1, area.width - 8)
+    def render(self, width: int) -> list[str]:
+        bar_width = max(1, width - 8)
         filled = round(bar_width * self.fraction)
-        buf.set_line(
-            area.x,
-            area.y + 1,
-            TextLine([
-                Span.raw("["),
-                Span.styled("#" * filled, Style().with_fg("bright_green")),
-                Span.styled("-" * (bar_width - filled), Style().with_fg("bright_black")),
-                Span.raw(f"] {self.fraction:>4.0%}"),
-            ]),
-            area.width,
-        )
-        return 2  # Rows written
+        return [
+            line_to_ansi(
+                TextLine([Span.styled(self.label, Style().bold().with_fg("bright_cyan"))]),
+                width,
+            ),
+            line_to_ansi(
+                TextLine([
+                    Span.raw("["),
+                    Span.styled("#" * filled, Style().with_fg("bright_green")),
+                    Span.styled("-" * (bar_width - filled), Style().with_fg("bright_black")),
+                    Span.raw(f"] {self.fraction:>4.0%}"),
+                ]),
+                width,
+            ),
+        ]
 
 
 def render(component: Component, width: int) -> list[str]:
@@ -179,18 +171,16 @@ class Focusable:
 `TUI.set_focus(component)` sets `focused = True` and routes `handle_input()` exclusively to that component.
 
 ```python
-from tau.tui import Buffer, Component, Focusable, Rect
+from tau.tui import Component, Focusable
 
 
 class MyInput(Component, Focusable):
     def __init__(self) -> None:
         self._text = ""
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         cursor = "█" if self.focused else ""
-        buf.grow_to(area.y + 1)
-        buf.set_string(area.x, area.y, f"> {self._text}{cursor}")
-        return 1
+        return [f"> {self._text}{cursor}"]
 ```
 
 ## Layout Components

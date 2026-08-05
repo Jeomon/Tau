@@ -170,7 +170,24 @@ class _AskUserComponent(Component):
     def _has_preview_capable_options(self) -> bool:
         return not self._allow_multiple and any(o.preview for o in self._options)
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        """Return the prompt's lines.
+
+        The layout itself is two columns plus a bordered ``Block`` widget, so
+        it is still drawn positionally — into a *local* buffer sized to this
+        component, which is then flattened to lines. That is the pattern to
+        copy when a component needs grid placement: keep cells local to the
+        drawing, and expose ``render(width)``.
+        """
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer as _Buffer
+
+        w = max(1, width)
+        buf = _Buffer.empty(Rect(0, 0, w, 0))
+        rows = self._draw(Rect(0, 0, w, 0), buf)
+        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
+
+    def _draw(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
         def _write(lines: list[str], x: int, y: int, width: int) -> int:
@@ -673,7 +690,17 @@ class _AskUserSequence(Component):
 
     # ── Render ────────────────────────────────────────────────────────────
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        """See _AskUserComponent.render — same local-buffer pattern."""
+        from tau.tui.ansi_bridge import row_to_ansi
+        from tau.tui.buffer import Buffer as _Buffer
+
+        w = max(1, width)
+        buf = _Buffer.empty(Rect(0, 0, w, 0))
+        rows = self._draw(Rect(0, 0, w, 0), buf)
+        return [row_to_ansi(buf, y, embed_raw=True) for y in range(rows)]
+
+    def _draw(self, area: Rect, buf: Buffer) -> int:
         from tau.tui.ansi_bridge import parse_ansi_wrapped_into
 
         rows = self._render_tabs(area, buf)
@@ -685,7 +712,7 @@ class _AskUserSequence(Component):
             for line in self._review_lines(area.width):
                 rows += parse_ansi_wrapped_into(buf, area.x, area.y + rows, line, area.width)
             return rows
-        return rows + self._children[self._index].render_cells(body_area, buf)
+        return rows + self._children[self._index]._draw(body_area, buf)
 
     def _render_tabs(self, area: Rect, buf: Buffer) -> int:
         """Draw the tab strip with the shared ``Tabs`` widget.
