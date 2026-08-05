@@ -987,6 +987,24 @@ class MessageList(Component):
     def set_height(self, height: int) -> None:
         self._height = max(1, height)
 
+    def _reset_line_cache(self) -> None:
+        """Drop the string frozen cache.
+
+        The cell cache (``_frozen_buf``) and the string cache
+        (``_frozen_lines``) are two stores of the same content with separate
+        bookkeeping, so every site that invalidates one must invalidate the
+        other. Missing one leaves the renderer serving rows for blocks that no
+        longer exist -- stale history after an undo, the old conversation
+        surviving a clear, duplicated messages after a session resume.
+        """
+        self._frozen_lines = []
+        self._lines_block_count = 0
+        self._lines_unit_ends = []
+        self._lines_unit_rows = []
+        self._lines_width = -1
+        self._lines_seq = -1
+        self._lines_pending_from = None
+
     def _bump_invalidation(self, from_index: int = 0) -> None:
         """Force the frozen-cell cache to rebuild from ``from_index`` on the next render.
 
@@ -1134,11 +1152,18 @@ class MessageList(Component):
         resetting _frozen_buf without it would let that cache keep serving
         now-stale content for a unit that no longer exists.
         """
-        if self._frozen_block_count > len(self._blocks):
+        # Both caches must be checked: they advance their own block counters,
+        # so a pop that reaches past only the string cache's boundary would
+        # otherwise leave it serving rows for a block that no longer exists --
+        # the undone message staying on screen.
+        if self._frozen_block_count > len(self._blocks) or self._lines_block_count > len(
+            self._blocks
+        ):
             self._frozen_buf = None
             self._frozen_block_count = 0
             self._frozen_unit_ends = []
             self._frozen_unit_rows = []
+            self._reset_line_cache()
             self.frozen_generation += 1
 
     def remove_last(self) -> bool:
@@ -1176,6 +1201,7 @@ class MessageList(Component):
         self._frozen_block_count = 0
         self._frozen_unit_ends = []
         self._frozen_unit_rows = []
+        self._reset_line_cache()
         # See _guard_frozen_bounds: any reset of _frozen_buf must bump this so
         # callers caching pre-widened frozen rows keyed on it (TUI.render_cells)
         # drop their now-stale cache instead of continuing to serve rows from
@@ -1238,6 +1264,7 @@ class MessageList(Component):
         self._frozen_block_count = 0
         self._frozen_unit_ends = []
         self._frozen_unit_rows = []
+        self._reset_line_cache()
         self.frozen_generation += 1
 
     def set_focused(self, focused: bool) -> None:
