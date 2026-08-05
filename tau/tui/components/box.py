@@ -104,20 +104,18 @@ class Box(Component):
 class DynamicBorder(Component):
     """Full-width horizontal rule that adapts to the terminal width.
 
-    Renders via the grid-based ``Block`` widget directly (a Buffer with
-    only the top border enabled draws exactly this rule) — Buffer-native,
-    no ANSI round-trip.
+    A Block with only the top border enabled draws exactly this rule, so it
+    is built from ``Block.render_lines`` rather than a hand-assembled string —
+    one definition of what the rule looks like, including its border set.
     """
 
     def __init__(self, style: Style | None = None) -> None:
         # Matches the old default ColorFn: BRIGHT_BLACK + s + RESET.
         self._style = style if style is not None else Style(fg="bright_black")
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        buf.grow_to(area.y + 1)
-        row = Rect(area.x, area.y, max(1, area.width), 1)
-        Block(borders=Borders.TOP, border_style=self._style).render(row, buf)
-        return 1
+    def render(self, width: int) -> list[str]:
+        block = Block(borders=Borders.TOP, border_style=self._style)
+        return block.render_lines(max(1, width), 1)
 
     def invalidate(self) -> None:
         pass

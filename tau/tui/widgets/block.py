@@ -14,9 +14,17 @@ from enum import Enum, Flag, auto
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
-from tau.tui.style import Style
+from tau.tui.style import Style, apply_style
 from tau.tui.text import Line
+from tau.tui.utils import visible_width
 from tau.tui.widgets.symbols import PLAIN, BorderSet
+
+
+def _overlay(base: str, text: str, col: int, span: int, total: int) -> str:
+    """Place ``text`` onto ``base`` at ``col``, keeping the rest of the row."""
+    from tau.tui.compose import composite_line
+
+    return composite_line(base, text, col, span, total)
 
 
 class Borders(Flag):
@@ -114,44 +122,90 @@ class Block:
             max(0, area.height - top - bottom),
         )
 
-    def render(self, area: Rect, buf: Buffer) -> None:
-        if area.is_empty():
-            return
-        if self.style != Style():
-            buf.set_style(area, self.style)
+    def render_lines(self, width: int, height: int) -> list[str]:
+        """Return the frame as ``height`` styled lines of ``width`` columns.
+
+        The interior is blank: a Block draws its own border and the caller
+        places content into ``inner(...)``, which is the same
+        composition-by-rectangle pattern as before — only the frame is lines
+        now, so it can be composited with ``compose.composite_lines`` instead
+        of blitted.
+        """
+        if width <= 0 or height <= 0:
+            return []
 
         b, s = self.border_set, self.border_style
         has_top, has_bottom = Borders.TOP in self.borders, Borders.BOTTOM in self.borders
         has_left, has_right = Borders.LEFT in self.borders, Borders.RIGHT in self.borders
 
-        if has_top:
-            buf.set_string(area.left, area.top, b.horizontal * area.width, s)
-        if has_bottom and area.height > 1:
-            buf.set_string(area.left, area.bottom - 1, b.horizontal * area.width, s)
-        if has_left:
-            for y in range(area.top, area.bottom):
-                buf.set(area.left, y, b.vertical, s)
-        if has_right and area.width > 1:
-            for y in range(area.top, area.bottom):
-                buf.set(area.right - 1, y, b.vertical, s)
+        def styled(text: str) -> str:
+            return apply_style(s, text) if text else ""
 
-        if has_top and has_left:
-            buf.set(area.left, area.top, b.top_left, s)
-        if has_top and has_right and area.width > 1:
-            buf.set(area.right - 1, area.top, b.top_right, s)
-        if has_bottom and has_left and area.height > 1:
-            buf.set(area.left, area.bottom - 1, b.bottom_left, s)
-        if has_bottom and has_right and area.height > 1 and area.width > 1:
-            buf.set(area.right - 1, area.bottom - 1, b.bottom_right, s)
+        rows: list[str] = []
+        for y in range(height):
+            top_row = has_top and y == 0
+            # Matches the reference: a bottom border needs a row of its own, so
+            # at height 1 the top border wins and the bottom is not drawn.
+            bottom_row = has_bottom and height > 1 and y == height - 1
+            if top_row or bottom_row:
+                left = (
+                    b.top_left
+                    if top_row and has_left
+                    else (b.bottom_left if bottom_row and has_left else "")
+                )
+                right = (
+                    b.top_right
+                    if top_row and has_right
+                    else (b.bottom_right if bottom_row and has_right else "")
+                )
+                fill = max(0, width - visible_width(left) - visible_width(right))
+                rows.append(styled(left + b.horizontal * fill + right))
+                continue
+            left = b.vertical if has_left else ""
+            right = b.vertical if has_right and width > 1 else ""
+            gap = max(0, width - visible_width(left) - visible_width(right))
+            rows.append(styled(left) + " " * gap + styled(right))
 
         for title in self.titles:
             on_top = title.position is TitlePosition.TOP
-            row = area.top if on_top else area.bottom - 1
-            if row < area.top or row >= area.bottom:
+            row = 0 if on_top else height - 1
+            if not (0 <= row < height):
                 continue
             left_inset = 2 if has_left else 1
             right_inset = 1 if has_right else 0
-            x = area.left + left_inset
-            width = max(0, (area.right - right_inset) - x)
-            line = Line(list(title.content.spans), title.content.style, title.alignment)
-            buf.set_line(x, row, line, width)
+            avail = max(0, (width - right_inset) - left_inset)
+            if avail <= 0:
+                continue
+            from tau.tui.compose import line_to_ansi
+
+            # set_line writes only the title's own columns and leaves the rest
+            # of the row alone, so the border either side of it survives.
+            # Resolve alignment here rather than letting line_to_ansi pad,
+            # which would overwrite border characters with spaces.
+            line = Line(list(title.content.spans), title.content.style)
+            text = line_to_ansi(line, avail)
+            text_width = visible_width(text)
+            if title.alignment is Alignment.CENTER:
+                offset = max(0, (avail - text_width) // 2)
+            elif title.alignment is Alignment.RIGHT:
+                offset = max(0, avail - text_width)
+            else:
+                offset = 0
+            if text_width:
+                rows[row] = _overlay(rows[row], text, left_inset + offset, text_width, width)
+        return rows
+
+    def render(self, area: Rect, buf: Buffer) -> None:
+        """Buffer-writing form, for callers still holding one.
+
+        Implemented via ``render_lines`` so there is a single implementation
+        rather than two that can drift.
+        """
+        from tau.tui.ansi_bridge import parse_ansi_into
+
+        if area.is_empty():
+            return
+        if self.style != Style():
+            buf.set_style(area, self.style)
+        for i, line in enumerate(self.render_lines(area.width, area.height)):
+            parse_ansi_into(buf, area.left, area.top + i, line, area.width)
