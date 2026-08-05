@@ -7,6 +7,8 @@ from tau.tui.components.select_list import InlineSelector
 from tau.tui.input import InputEvent, KeyEvent, PasteEvent
 
 if TYPE_CHECKING:
+    from tau.tui.buffer import Buffer
+    from tau.tui.geometry import Rect
     from tau.tui.theme import LayoutTheme
 
 
@@ -37,6 +39,21 @@ class SelectorController:
         if self._active is None:
             return []
         return self._active.selector.render(width)
+
+    def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Render the active selector directly into ``buf``.
+
+        This class is not a ``Component``, so it inherits none of the bridging
+        between the two render contracts — it has to satisfy both callers
+        itself. ``Layout.render_cells`` still calls this one directly, and
+        dropping it froze the whole TUI the moment any selector opened
+        (``/theme``, ``/model``, …), because the render raised and
+        ``TUI._do_render`` swallows exceptions to stay alive: the app kept
+        running while the screen stopped updating.
+        """
+        if self._active is None:
+            return 0
+        return self._active.selector.render_cells(area, buf)
 
     def set_theme(self, theme: LayoutTheme) -> None:
         """Apply a theme change to the active selector when supported."""
