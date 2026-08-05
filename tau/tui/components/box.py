@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tau.tui.ansi_bridge import row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.component import Component
 from tau.tui.geometry import Rect
@@ -28,7 +29,7 @@ class Box(Component):
         self._padding_x = max(0, padding_x)
         self._padding_y = max(0, padding_y)
         self._bg_style = bg_style
-        self._cache: Buffer | None = None
+        self._cache_lines: list[str] | None = None
         self._cache_width = 0
 
     # -------------------------------------------------------------------------
@@ -36,30 +37,34 @@ class Box(Component):
     # -------------------------------------------------------------------------
 
     def invalidate(self) -> None:
-        self._cache = None
+        self._cache_lines = None
         self._child.invalidate()
 
     def set_bg_style(self, bg_style: Style | None) -> None:
         self._bg_style = bg_style
-        self._cache = None
+        self._cache_lines = None
 
     # -------------------------------------------------------------------------
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        if self._cache is None or self._cache_width != area.width:
-            self._cache = self._build(area.width)
-            self._cache_width = area.width
-        cached = self._cache
+    def render(self, width: int) -> list[str]:
+        """Return the padded, background-filled child as lines.
 
-        rows = cached.area.height
-        buf.grow_to(area.y + rows)
-        for y in range(rows):
-            for x in range(area.width):
-                cell = cached.get(x, y)
-                buf.set(area.x + x, area.y + y, cell.symbol, cell.style)
-        return rows
+        The composition itself (child + padding + a background patched *behind*
+        the child's own styles) is genuinely grid work, so it is still built in
+        a local Buffer — but only once per width, and it is flattened to lines
+        there rather than copied cell by cell into the frame on every render.
+        That copy was the whole cost here: width x rows Buffer.set calls per
+        frame for content that had not changed.
+        """
+        if self._cache_lines is None or self._cache_width != width:
+            built = self._build(width)
+            self._cache_lines = [
+                row_to_ansi(built, y, embed_raw=True) for y in range(built.area.height)
+            ]
+            self._cache_width = width
+        return list(self._cache_lines)
 
     def handle_input(self, event: InputEvent) -> bool:
         return self._child.handle_input(event)
