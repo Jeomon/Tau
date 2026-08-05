@@ -272,9 +272,8 @@ enum holds the same strings.
 | `ToolExecutionFailureEvent` | `tool_execution_failure` | `tool_name`, `tool_call_id`, `input`, `error` |
 
 The classes live in `tau/hooks/engine.py` and are re-exported by `tau.engine`,
-with two exceptions: `MessageRollbackEvent` and `ToolExecutionFailureEvent` are
-members of the `AgentEvent` union but are **not** in `tau.engine.__all__`. Import
-those two from `tau.hooks.engine`.
+with one exception: `ToolExecutionFailureEvent` is a member of the `AgentEvent`
+union but is **not** in `tau.engine.__all__`. Import it from `tau.hooks.engine`.
 
 `AgentEndReason` is `completed`, `aborted`, or `error`.
 
