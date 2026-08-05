@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tau.tui.component import Component
+from tau.tui.compose import line_to_ansi
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
+    pass
 
 
 class ModelBadge(Component):
@@ -111,13 +111,11 @@ class ModelBadge(Component):
             return f"{left}|{label}"
         return left
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
         text = self._text()
         if not text:
-            return 0
-        buf.grow_to(area.y + 1)
-        buf.set_line(area.x, area.y, Line([Span(text, Style().dim())]), area.width)
-        return 1
+            return []
+        return [line_to_ansi(Line([Span(text, Style().dim())]), width)]
 
     def handle_input(self, event: object) -> bool:  # noqa: ARG002
         return False

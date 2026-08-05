@@ -7,8 +7,6 @@ from tau.tui.components.select_list import InlineSelector
 from tau.tui.input import InputEvent, KeyEvent, PasteEvent
 
 if TYPE_CHECKING:
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
     from tau.tui.theme import LayoutTheme
 
 
@@ -34,11 +32,11 @@ class SelectorController:
     def is_kind(self, kind: str) -> bool:
         return self._active is not None and self._active.kind == kind
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
-        """Render the active selector directly into ``buf``."""
+    def render(self, width: int) -> list[str]:
+        """Render the active selector's lines, if any."""
         if self._active is None:
-            return 0
-        return self._active.selector.render_cells(area, buf)
+            return []
+        return self._active.selector.render(width)
 
     def set_theme(self, theme: LayoutTheme) -> None:
         """Apply a theme change to the active selector when supported."""

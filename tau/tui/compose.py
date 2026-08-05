@@ -19,6 +19,7 @@ from __future__ import annotations
 from tau.tui.ansi_bridge import parse_ansi_into, parse_ansi_wrapped_into, row_to_ansi
 from tau.tui.buffer import Buffer
 from tau.tui.geometry import Rect
+from tau.tui.text import Line
 from tau.tui.utils import strip_ansi
 
 
@@ -81,6 +82,24 @@ def composite_lines(
             continue
         out[target] = composite_line(out[target], ov_line, col, overlay_width, total_width)
     return out
+
+
+def line_to_ansi(line: Line, width: int, x: int = 0) -> str:
+    """Flatten a ``Line`` of styled spans into one ANSI string.
+
+    The string-contract counterpart of ``Buffer.set_line``, for components
+    migrating off ``render_cells`` that build structured ``Line``/``Span``
+    content — most of the selectors, pickers and footer widgets.
+
+    Alignment is resolved exactly as ``set_line`` resolves it, so a centred or
+    right-aligned line lands in the same columns as before. Goes through cells
+    for the same reason ``composite_line`` does: these are single short lines,
+    so the round trip is free, while duplicating span clipping and wide-glyph
+    arithmetic in string form would not be.
+    """
+    buf = Buffer.empty(Rect(0, 0, max(1, x + width), 1))
+    buf.set_line(x, 0, line, width)
+    return row_to_ansi(buf, 0, embed_raw=True, trim_trailing_blanks=True)
 
 
 _PRINTABLE_ASCII = frozenset(chr(c) for c in range(0x20, 0x7F))
