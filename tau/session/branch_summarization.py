@@ -100,31 +100,9 @@ def collect_entries_for_branch_summary(
 
 
 def _get_message_from_entry(entry: Any) -> Any | None:
-    from tau.message.types import BranchSummaryMessage, CompactionSummaryMessage, CustomMessage
-    from tau.session.types import (
-        BranchSummaryEntry,
-        CompactionEntry,
-        CustomMessageEntry,
-        MessageEntry,
-    )
+    from tau.session.utils import entry_message
 
-    if isinstance(entry, MessageEntry):
-        return entry.message
-    if isinstance(entry, CustomMessageEntry):
-        return CustomMessage.from_session(entry=entry)
-    if isinstance(entry, BranchSummaryEntry):
-        return BranchSummaryMessage(
-            summary=entry.summary,
-            from_id=entry.from_id,
-            timestamp=entry.timestamp,
-        )
-    if isinstance(entry, CompactionEntry):
-        return CompactionSummaryMessage(
-            summary=entry.summary,
-            tokens_before=entry.tokens_before,
-            timestamp=entry.timestamp,
-        )
-    return None
+    return entry_message(entry)
 
 
 def _collect_file_ops(entries: list[Any], file_ops: FileOperations) -> None:

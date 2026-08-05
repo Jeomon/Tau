@@ -165,6 +165,24 @@ def _cheap_parse_lines(session_file: Path) -> list[dict[str, Any] | None]:
     return raw
 
 
+def _shed_raw_message(obj: dict[str, Any]) -> bool:
+    """Empty a raw entry's message contents in place; True if anything was shed.
+
+    The pre-validation counterpart of ``SessionManager._shed_entry``: only
+    user/assistant/tool messages carry the heavy body, and an already-empty
+    ``contents`` means this entry was shed on an earlier pass.
+    """
+    if obj.get("type") != SessionType.SESSION_MESSAGE:
+        return False
+    message = obj.get("message")
+    if not isinstance(message, dict) or message.get("role") not in ("user", "assistant", "tool"):
+        return False
+    if not message.get("contents"):
+        return False
+    message["contents"] = []
+    return True
+
+
 def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntry], set[str]]:
     """Load a session file, skipping full validation of message content that
     ``SessionManager`` would immediately shed anyway.
@@ -245,19 +263,8 @@ def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntr
                 entry_id = obj.get("id")
                 if entry_id == first_kept_id:
                     break
-                if obj.get("type") != SessionType.SESSION_MESSAGE:
-                    continue
-                message = obj.get("message")
-                if not isinstance(message, dict) or message.get("role") not in (
-                    "user",
-                    "assistant",
-                    "tool",
-                ):
-                    continue
-                if message.get("contents"):
-                    message["contents"] = []
-                    if isinstance(entry_id, str):
-                        shed_ids.add(entry_id)
+                if _shed_raw_message(obj) and isinstance(entry_id, str):
+                    shed_ids.add(entry_id)
     else:
         # General path: entries may not all sit on the current leaf's branch
         # (tree navigation happened at some point) -- resolve the actual
@@ -289,18 +296,7 @@ def read_session_file_shedding(session_file: Path) -> tuple[list[SessionFileEntr
             for entry_id in branch_ids:
                 if entry_id == first_kept_id:
                     break
-                obj = by_id[entry_id]
-                if obj.get("type") != SessionType.SESSION_MESSAGE:
-                    continue
-                message = obj.get("message")
-                if not isinstance(message, dict) or message.get("role") not in (
-                    "user",
-                    "assistant",
-                    "tool",
-                ):
-                    continue
-                if message.get("contents"):
-                    message["contents"] = []
+                if _shed_raw_message(by_id[entry_id]):
                     shed_ids.add(entry_id)
 
     entries: list[SessionFileEntry] = []
@@ -431,6 +427,42 @@ def is_message_with_contents(message: AgentMessage) -> bool:
     if message.role not in (Role.USER, Role.ASSISTANT):
         return False
     return any(isinstance(c, (TextContent, ImageContent)) for c in message.contents)
+
+
+def entry_message(entry: Any, *, include_compaction: bool = True) -> AgentMessage | None:
+    """The message an entry carries, or None for entries that carry none.
+
+    Compaction entries are optional because the two callers disagree about
+    them: branch summarization wants the summary in the transcript it feeds the
+    model, while compaction itself must skip the boundary marker it is about to
+    replace. Both used to keep private copies of this mapping, which meant a new
+    entry type had to be remembered in two places.
+    """
+    from tau.message.types import BranchSummaryMessage, CompactionSummaryMessage, CustomMessage
+    from tau.session.types import (
+        BranchSummaryEntry,
+        CompactionEntry,
+        CustomMessageEntry,
+        MessageEntry,
+    )
+
+    if isinstance(entry, MessageEntry):
+        return entry.message
+    if isinstance(entry, CustomMessageEntry):
+        return CustomMessage.from_session(entry=entry)
+    if isinstance(entry, BranchSummaryEntry):
+        return BranchSummaryMessage(
+            summary=entry.summary,
+            from_id=entry.from_id,
+            timestamp=entry.timestamp,
+        )
+    if include_compaction and isinstance(entry, CompactionEntry):
+        return CompactionSummaryMessage(
+            summary=entry.summary,
+            tokens_before=entry.tokens_before,
+            timestamp=entry.timestamp,
+        )
+    return None
 
 
 def get_last_activity_time(entries: list[SessionEntry]) -> float | None:

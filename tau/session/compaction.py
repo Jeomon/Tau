@@ -420,27 +420,9 @@ def _is_valid_cut_point(entry: Any) -> bool:
 
 def _entry_message(entry: Any) -> Any | None:
     """Extract AgentMessage from a session entry, skipping compaction entries."""
-    from tau.message.types import BranchSummaryMessage, CustomMessage
-    from tau.session.types import (
-        BranchSummaryEntry,
-        CompactionEntry,
-        CustomMessageEntry,
-        MessageEntry,
-    )
+    from tau.session.utils import entry_message
 
-    if isinstance(entry, CompactionEntry):
-        return None
-    if isinstance(entry, MessageEntry):
-        return entry.message
-    if isinstance(entry, CustomMessageEntry):
-        return CustomMessage.from_session(entry=entry)
-    if isinstance(entry, BranchSummaryEntry):
-        return BranchSummaryMessage(
-            summary=entry.summary,
-            from_id=entry.from_id,
-            timestamp=entry.timestamp,
-        )
-    return None
+    return entry_message(entry, include_compaction=False)
 
 
 def find_cut_point(
@@ -771,17 +753,31 @@ async def generate_summary(
         suffix += f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
     suffix += base_prompt
 
-    input_limit = getattr(getattr(llm, "model", None), "input_limit", 0) or 0
-    prompt_chars = 0
-    if input_limit > 0:
-        prompt_chars = max(1, input_limit - reserve_tokens) * 4
-        conversation_budget = max(1, prompt_chars - len("<conversation>\n") - len(suffix))
-        conversation_text = _truncate_middle(conversation_text, conversation_budget)
-    prompt = f"<conversation>\n{conversation_text}\n{suffix}"
-    if input_limit > 0:
-        prompt = _truncate_middle(prompt, prompt_chars)
+    prompt = _fit_summary_prompt(conversation_text, suffix, llm, reserve_tokens)
 
     return await _call_llm_for_summary(prompt, llm)
+
+
+def _fit_summary_prompt(
+    conversation_text: str,
+    suffix: str,
+    llm: TextLLM,
+    reserve_tokens: int,
+) -> str:
+    """Assemble a summarisation prompt that fits the model's input limit.
+
+    Budgeting is in characters (~4 per token). The conversation is squeezed
+    first so the instructions carried by ``suffix`` always survive; clamping the
+    assembled prompt afterwards is the backstop for a suffix that is itself
+    oversized. A model with no known input limit is left alone.
+    """
+    input_limit = getattr(getattr(llm, "model", None), "input_limit", 0) or 0
+    if input_limit <= 0:
+        return f"<conversation>\n{conversation_text}\n{suffix}"
+    prompt_chars = max(1, input_limit - reserve_tokens) * 4
+    conversation_budget = max(1, prompt_chars - len("<conversation>\n") - len(suffix))
+    conversation_text = _truncate_middle(conversation_text, conversation_budget)
+    return _truncate_middle(f"<conversation>\n{conversation_text}\n{suffix}", prompt_chars)
 
 
 async def _generate_turn_prefix_summary(
@@ -791,15 +787,7 @@ async def _generate_turn_prefix_summary(
 ) -> str:
     conversation_text = serialize_conversation(messages)
     suffix = f"</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
-    input_limit = getattr(getattr(llm, "model", None), "input_limit", 0) or 0
-    prompt_chars = 0
-    if input_limit > 0:
-        prompt_chars = max(1, input_limit - reserve_tokens) * 4
-        conversation_budget = max(1, prompt_chars - len("<conversation>\n") - len(suffix))
-        conversation_text = _truncate_middle(conversation_text, conversation_budget)
-    prompt = f"<conversation>\n{conversation_text}\n{suffix}"
-    if input_limit > 0:
-        prompt = _truncate_middle(prompt, prompt_chars)
+    prompt = _fit_summary_prompt(conversation_text, suffix, llm, reserve_tokens)
     return await _call_llm_for_summary(prompt, llm)
 
 

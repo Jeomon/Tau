@@ -157,6 +157,59 @@ class AuthManager:
             }
         return {"type": AuthType.ApiKey, "key": credential.key}
 
+    def _serialize_all(self, data: dict[str, AuthCredential]) -> dict[str, dict]:
+        """Every credential in storable dict form, keyed by provider."""
+        return {k: self._serialize_credential(v) for k, v in data.items()}
+
+    async def _apply_oauth_refresh(
+        self,
+        provider: str,
+        oauth_provider,
+        credential: OAuthCredential,
+        current_data: dict[str, AuthCredential],
+        *,
+        log_failure: bool,
+        retain_on_transient: bool,
+    ) -> LockResult:
+        """Rotate one OAuth credential and fold the outcome into ``current_data``.
+
+        Shared by both refresh paths (expiry-driven and 401-driven); they differ
+        only in when they decide to call this, whether the failure is logged,
+        and whether a transient failure still publishes ``current_data``.
+        """
+        try:
+            refreshed_credential = await self._refresh_with_backoff(
+                provider, oauth_provider, credential
+            )
+            if credential.extra:
+                merged_extra = dict(credential.extra)
+                merged_extra.update(refreshed_credential.extra)
+                refreshed_credential.extra = merged_extra
+            current_data[provider] = refreshed_credential
+            self.data = current_data
+            self._refresh_errors.pop(provider, None)
+            return LockResult(
+                result=refreshed_credential,
+                next=json.dumps(self._serialize_all(current_data), indent=2),
+            )
+        except Exception as e:
+            if log_failure:
+                _log.error("oauth token refresh failed for %s: %s", provider, e, exc_info=True)
+            self._record_error(e)
+            self._refresh_errors[provider] = e
+            if _is_unrecoverable_refresh_error(e):
+                # Refresh token is dead — drop the credential so the caller
+                # prompts re-login instead of retrying a broken token every turn.
+                current_data.pop(provider, None)
+                self.data = current_data
+                return LockResult(
+                    result=None, next=json.dumps(self._serialize_all(current_data), indent=2)
+                )
+            if retain_on_transient:
+                # Transient failure — keep the credential for a later retry.
+                self.data = current_data
+            return LockResult(result=None)
+
     def _persist_provider_change(self, provider: str, credential: AuthCredential | None) -> None:
         """Persist a credential change to storage."""
         if self._load_error:
@@ -165,7 +218,7 @@ class AuthManager:
         def update_fn(current: str | None) -> LockResult:
             """Update storage data with new credential."""
             current_data = self._parse_storage_data(current)
-            merged = {k: self._serialize_credential(v) for k, v in current_data.items()}
+            merged = self._serialize_all(current_data)
             if credential:
                 merged[provider] = self._serialize_credential(credential)
             else:
@@ -318,34 +371,14 @@ class AuthManager:
             if not oauth_provider.is_expired(credential=credential):
                 return LockResult(result=credential)
 
-            try:
-                refreshed_credential = await self._refresh_with_backoff(
-                    provider, oauth_provider, credential
-                )
-                if credential.extra:
-                    merged_extra = dict(credential.extra)
-                    merged_extra.update(refreshed_credential.extra)
-                    refreshed_credential.extra = merged_extra
-                current_data[provider] = refreshed_credential
-                self.data = current_data
-                self._refresh_errors.pop(provider, None)
-                serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
-                return LockResult(
-                    result=refreshed_credential, next=json.dumps(serialized, indent=2)
-                )
-            except Exception as e:
-                _log.error("oauth token refresh failed for %s: %s", provider, e, exc_info=True)
-                self._record_error(e)
-                self._refresh_errors[provider] = e
-                if _is_unrecoverable_refresh_error(e):
-                    # Refresh token is dead — drop the credential so the caller
-                    # prompts re-login instead of retrying a broken token every
-                    # turn (mirrors force_refresh below).
-                    current_data.pop(provider, None)
-                    self.data = current_data
-                    serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
-                    return LockResult(result=None, next=json.dumps(serialized, indent=2))
-                return LockResult(result=None)
+            return await self._apply_oauth_refresh(
+                provider,
+                oauth_provider,
+                credential,
+                current_data,
+                log_failure=True,
+                retain_on_transient=False,
+            )
 
         result = await self.storage.with_lock_async(refresh_fn)
         return result.result
@@ -386,34 +419,14 @@ class AuthManager:
                 self.data = current_data
                 return LockResult(result=credential)
 
-            try:
-                refreshed_credential = await self._refresh_with_backoff(
-                    provider, oauth_provider, credential
-                )
-                if credential.extra:
-                    merged_extra = dict(credential.extra)
-                    merged_extra.update(refreshed_credential.extra)
-                    refreshed_credential.extra = merged_extra
-                current_data[provider] = refreshed_credential
-                self.data = current_data
-                self._refresh_errors.pop(provider, None)
-                serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
-                return LockResult(
-                    result=refreshed_credential, next=json.dumps(serialized, indent=2)
-                )
-            except Exception as e:
-                self._record_error(e)
-                self._refresh_errors[provider] = e
-                if _is_unrecoverable_refresh_error(e):
-                    # Refresh token is dead — drop the credential so the user is
-                    # prompted to log in again rather than retrying a broken token.
-                    current_data.pop(provider, None)
-                    self.data = current_data
-                    serialized = {k: self._serialize_credential(v) for k, v in current_data.items()}
-                    return LockResult(result=None, next=json.dumps(serialized, indent=2))
-                # Transient failure — keep the credential for a later retry.
-                self.data = current_data
-                return LockResult(result=None)
+            return await self._apply_oauth_refresh(
+                provider,
+                oauth_provider,
+                credential,
+                current_data,
+                log_failure=False,
+                retain_on_transient=True,
+            )
 
         result = await self.storage.with_lock_async(refresh_fn)
         return result.result

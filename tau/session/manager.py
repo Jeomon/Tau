@@ -287,22 +287,28 @@ class SessionManager:
         if first_kept_idx is None:
             return
         for entry in branch[:first_kept_idx]:
-            if (
-                isinstance(entry, MessageEntry)
-                # UserMessage/AssistantMessage/ToolMessage carry the heavy content
-                # (tool results, file bodies, images). Other message kinds are small
-                # and some (TerminalExecutionMessage) have no content list at all.
-                and isinstance(entry.message, (UserMessage, AssistantMessage, ToolMessage))
-                # Non-empty content is the idempotence check: an already-shed entry
-                # (empty list) is skipped, and a fresh full copy reloaded from disk by
-                # a rewrite is re-shed. Keying on the id set would miss the latter,
-                # since the rewrite replaces the entry objects.
-                and entry.message.contents
-            ):
-                # Messages are mutable dataclasses; empty the heavy content list in
-                # place. Disk keeps the full copy, so this only frees RAM.
-                entry.message.contents = []
-                self._shed_ids.add(entry.id)
+            self._shed_entry(entry)
+
+    def _shed_entry(self, entry: SessionFileEntry) -> None:
+        """Free an entry's heavy message content, keeping the entry itself.
+
+        Only UserMessage/AssistantMessage/ToolMessage carry the bulk (tool
+        results, file bodies, images); other message kinds are small and some
+        (TerminalExecutionMessage) have no content list at all. Non-empty
+        content is the idempotence check: an already-shed entry (empty list) is
+        skipped, and a fresh full copy reloaded from disk by a rewrite is
+        re-shed — keying on the id set would miss the latter, since the rewrite
+        replaces the entry objects. Messages are mutable dataclasses, so the
+        list is emptied in place; disk keeps the full copy, so this only frees
+        RAM.
+        """
+        if (
+            isinstance(entry, MessageEntry)
+            and isinstance(entry.message, (UserMessage, AssistantMessage, ToolMessage))
+            and entry.message.contents
+        ):
+            entry.message.contents = []
+            self._shed_ids.add(entry.id)
 
     def _full_branch(self, from_id: str | None) -> list[SessionEntry]:
         """Root→leaf branch with full content, rehydrated from disk when shed."""
@@ -868,13 +874,7 @@ class SessionManager:
         for entry in self.entries:
             if entry.id in window_ids:
                 continue
-            if (
-                isinstance(entry, MessageEntry)
-                and isinstance(entry.message, (UserMessage, AssistantMessage, ToolMessage))
-                and entry.message.contents
-            ):
-                entry.message.contents = []
-                self._shed_ids.add(entry.id)
+            self._shed_entry(entry)
 
     def reset_leaf(self):
         """Clear the leaf pointer."""
