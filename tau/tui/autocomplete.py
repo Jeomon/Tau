@@ -427,11 +427,12 @@ class AutocompleteManager:
         subclassing would be a Liskov violation that mypy correctly rejects.
         That means no inherited bridge, so both contracts are provided here.
 
-        ``Layout.render_cells`` currently calls ``render_cells`` on this; this
-        method is what keeps it working when Layout itself migrates to lines.
+        Layout composes this through ``_child_lines`` now that it renders
+        lines, so this is the live path rather than a forward-looking one.
         """
         from tau.tui.ansi_bridge import row_to_ansi
         from tau.tui.buffer import Buffer as _Buffer
+        from tau.tui.geometry import Rect
 
         w = max(1, width)
         buf = _Buffer.empty(Rect(0, 0, w, 0))

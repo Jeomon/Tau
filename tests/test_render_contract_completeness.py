@@ -102,11 +102,18 @@ def test_selector_controller_delegates_both_contracts_to_the_active_selector() -
 
 
 def test_layout_can_render_with_a_selector_open() -> None:
-    """The path that froze: Layout.render_cells reaching SelectorController."""
+    """The path that froze: Layout reaching SelectorController while open.
+
+    Layout renders lines now, so it composes the selector through
+    _child_lines rather than calling render_cells on it. _child_lines accepts
+    either contract, which is what keeps this path alive while components
+    migrate one at a time.
+    """
     from tau.modes.interactive.components import layout as layout_mod
 
-    src = inspect.getsource(layout_mod.Layout.render_cells)
-    assert "_selectors.render_cells" in src, (
-        "Layout no longer calls _selectors.render_cells — update this test, and "
-        "check SelectorController still satisfies whatever replaced it"
+    src = inspect.getsource(layout_mod.Layout.render)
+    assert "_child_lines(self._selectors, width)" in src, (
+        "Layout no longer composes _selectors through _child_lines — update "
+        "this test, and check SelectorController still satisfies whatever "
+        "replaced it"
     )
