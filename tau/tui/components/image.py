@@ -198,6 +198,16 @@ class Image(Component):
         return ("fallback", 0, 1, self._fallback_text())
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
+        """Stays on cells deliberately, and is the only component that does.
+
+        An image is not text. The terminal owns those pixels once it draws
+        them, so the block has to be marked skip=True cell by cell to stop any
+        later SGR write or diff from touching it. A list[str] has nowhere to
+        carry "these columns are not mine to repaint" -- expressing it would
+        mean inventing a parallel skip channel alongside the strings, i.e.
+        rebuilding the grid for one component. Component's bridge renders this
+        into whatever the parent is composing.
+        """
         if self._cache is None or self._cache_width != area.width:
             self._cache = self._compute(area.width)
             self._cache_width = area.width

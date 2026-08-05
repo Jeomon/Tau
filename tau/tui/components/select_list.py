@@ -33,6 +33,13 @@ class SelectorComponent(Protocol):
     missing ``render_cells`` mid-render.
     """
 
+    # Deliberately render_cells and not render, even though every selector in
+    # the tree now implements render. A runtime_checkable Protocol turns every
+    # listed method into an isinstance requirement, and Component supplies
+    # render_cells to all its subclasses via the bridge -- so requiring
+    # render_cells accepts strictly more than requiring render would, including
+    # a duck-typed selector from an extension that only writes cells. This
+    # flips when the bridge goes and there is one contract again.
     def render_cells(self, area: Rect, buf: Buffer) -> int: ...
 
 
