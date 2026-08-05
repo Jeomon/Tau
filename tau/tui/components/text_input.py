@@ -10,12 +10,10 @@ from typing import TYPE_CHECKING
 
 import grapheme
 
-from tau.tui.ansi_bridge import parse_ansi_into
-from tau.tui.buffer import Buffer
 from tau.tui.component import Component
-from tau.tui.geometry import Position, Rect
+from tau.tui.geometry import Position
 from tau.tui.input import InputEvent, Key, KeyEvent, PasteEvent, get_keybindings
-from tau.tui.style import Style
+from tau.tui.style import Style, apply_style
 from tau.tui.utils import (
     CURSOR_MARKER,
     DIM,
@@ -364,13 +362,23 @@ class TextInput(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        """Return the input's styled lines, recording where the cursor belongs.
+
+        Migrated off ``render_cells``: the wrapped segments were already ANSI
+        strings carrying a ``CURSOR_MARKER``, so building cells only to
+        serialise them straight back was pure overhead — and this runs on every
+        keystroke, which makes it the most latency-sensitive component there is.
+
+        ``cursor_position`` is published in this component's own coordinates
+        (row 0 == its first line); the containers above offset it.
+        """
         self._ensure_blink_task()
         cursor_cell = self._effective_cursor_cell()
 
         prefix_w = visible_width(self._prefix)
         padding = " " * self._padding_x
-        available = max(1, area.width - prefix_w - self._padding_x * 2)
+        available = max(1, width - prefix_w - self._padding_x * 2)
         self._last_available = available
         indent = " " * prefix_w
 
@@ -380,20 +388,20 @@ class TextInput(Component):
         bold = Style().bold()
         dim = Style().dim()
 
+        self.cursor_position = None
+
         if not display_text:
-            buf.grow_to(area.y + 1)
-            col = buf.set_string(area.x, area.y, self._prefix + padding, bold)
-            buf.cursor_position = Position(col, area.y)
-            parse_ansi_into(buf, col, area.y, cursor_cell(" "), 1)
-            col += 1
+            head = self._prefix + padding
             effective_placeholder = (
                 self._placeholder_override
                 if self._placeholder_override is not None
                 else self._placeholder
             )
             placeholder = effective_placeholder[:available] if effective_placeholder else ""
-            buf.set_string(col, area.y, placeholder + padding, dim)
-            return 1
+            self.cursor_position = Position(visible_width(head), 0)
+            return [
+                apply_style(bold, head) + cursor_cell(" ") + apply_style(dim, placeholder + padding)
+            ]
 
         text_lines = display_text.split("\n")
         cursor_line_idx, cursor_col = self._cursor_line_col()
@@ -401,7 +409,7 @@ class TextInput(Component):
         if self._visual_strip and cursor_line_idx == 0:
             cursor_col = max(0, cursor_col - self._visual_strip)
 
-        y = area.y
+        out: list[str] = []
         last_line_idx = len(text_lines) - 1
         for i, line_text in enumerate(text_lines):
             line_prefix = self._prefix if i == 0 else indent
@@ -417,20 +425,17 @@ class TextInput(Component):
                     and j == len(segments) - 1
                 ):
                     seg += DIM + self._arg_hint + RESET
-                buf.grow_to(y + 1)
-                col = buf.set_string(area.x, y, seg_prefix + padding, bold)
+                head = seg_prefix + padding
                 if CURSOR_MARKER in seg:
                     marker_i = seg.index(CURSOR_MARKER)
                     before, after = seg[:marker_i], seg[marker_i + len(CURSOR_MARKER) :]
-                    col = parse_ansi_into(buf, col, y, before, area.width)
-                    buf.cursor_position = Position(col, y)
-                    col = parse_ansi_into(buf, col, y, after, area.width)
-                else:
-                    col = parse_ansi_into(buf, col, y, seg, area.width)
-                buf.set_string(col, y, padding)
-                y += 1
+                    self.cursor_position = Position(
+                        visible_width(head) + visible_width(before), len(out)
+                    )
+                    seg = before + after
+                out.append(apply_style(bold, head) + seg + padding)
 
-        return y - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if isinstance(event, PasteEvent):

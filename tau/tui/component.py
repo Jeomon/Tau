@@ -96,6 +96,15 @@ class Component(ABC):  # noqa: B024 - see the either/or render contract below
         y = area.y
         for line in self.render(area.width):
             y += parse_ansi_wrapped_into(buf, area.x, y, line, area.width)
+        # Mirror of the other bridge: a migrated component publishes its cursor
+        # on itself, but a cell-based caller reads buf.cursor_position. Without
+        # this the cursor silently vanishes for any component that has moved to
+        # render() while its caller has not — which is every frame of typing
+        # during the migration.
+        if self.cursor_position is not None:
+            buf.cursor_position = Position(
+                area.x + self.cursor_position.x, area.y + self.cursor_position.y
+            )
         return y - area.y
 
     def handle_input(self, event: InputEvent) -> bool:  # noqa: ARG002
