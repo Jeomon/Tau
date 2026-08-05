@@ -1344,10 +1344,11 @@ class CounterComponent(Component):
         self._count = 0
         self._done = done
 
-    def render_cells(self, area, buf):
-        buf.grow_to(area.y + 1)
-        buf.set_string(area.x, area.y, f"  Count: {self._count}  (Enter to confirm)")
-        return 1
+    # Return styled ANSI lines. `render_cells(area, buf)` also still works and
+    # is bridged automatically -- see docs/tui.md, "The Component Contract" --
+    # but `render` is what the renderer consumes natively.
+    def render(self, width):
+        return [f"  Count: {self._count}  (Enter to confirm)"]
 
     def handle_input(self, event):
         if event.matches("enter"):

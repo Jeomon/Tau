@@ -12,6 +12,41 @@ if TYPE_CHECKING:
     from tau.tui.input import InputEvent
 
 
+def lines_from_cells(component: object, width: int) -> list[str]:
+    """Render a cell-only object to lines, for things that are not Components.
+
+    ``add_child`` type-hints ``Component``, but Python does not enforce it, and
+    before the string renderer a duck-typed object implementing only
+    ``render_cells`` worked — containers only ever called that. Such an object
+    now has no ``render``, and the resulting AttributeError is swallowed by
+    ``TUI._do_render`` into a frozen screen.
+
+    Third-party extensions are the realistic source, so containers fall back to
+    this rather than breaking them. Components proper never reach it: they
+    inherit the bridge.
+    """
+    from tau.tui.ansi_bridge import row_to_ansi
+    from tau.tui.buffer import Buffer
+
+    w = max(1, width)
+    buf = Buffer.empty(Rect(0, 0, w, 0))
+    rows = component.render_cells(Rect(0, 0, w, 0), buf)  # type: ignore[attr-defined]
+    return [row_to_ansi(buf, buf.area.y + y, embed_raw=True) for y in range(rows)]
+
+
+def _child_lines(child: object, width: int) -> list[str]:
+    """Ask a child for lines, tolerating a cell-only duck-typed object."""
+    render = getattr(child, "render", None)
+    if callable(render):
+        return render(width)
+    if callable(getattr(child, "render_cells", None)):
+        return lines_from_cells(child, width)
+    raise TypeError(
+        f"{type(child).__name__} is not renderable: it implements neither "
+        "render(width) nor render_cells(area, buf)"
+    )
+
+
 class Component(ABC):  # noqa: B024 - see the either/or render contract below
     """
     Base class for all TUI components.
@@ -205,11 +240,10 @@ class Container(Component):
         self.cursor_position = None
         for child in self.children:
             start = len(lines)
-            lines.extend(child.render(width))
-            if child.cursor_position is not None:
-                self.cursor_position = Position(
-                    child.cursor_position.x, start + child.cursor_position.y
-                )
+            lines.extend(_child_lines(child, width))
+            child_cursor = getattr(child, "cursor_position", None)
+            if child_cursor is not None:
+                self.cursor_position = Position(child_cursor.x, start + child_cursor.y)
         return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:

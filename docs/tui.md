@@ -124,13 +124,24 @@ Standalone rendering gives you layout, styling, and composition. It does **not**
 
 ## The Component Contract
 
-`Component` is an ABC with exactly one abstract method. A subclass that does not override `render_cells` fails at construction.
+`Component` has **two** render contracts, and a subclass implements exactly one. Whichever you leave out, the base class supplies by bridging to the one you wrote.
 
 ```python
 class Component(ABC):
-    @abstractmethod
+    def render(self, width: int) -> list[str]:
+        """Return this component's styled ANSI lines. Preferred."""
+
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Render into buf starting at row area.y; return the number of rows written."""
+```
+
+`render(width)` is the contract the renderer uses natively — it consumes lines directly, with no per-character cell grid in between. `render_cells` still works and is not deprecated; it is bridged, which costs a string → cell → string round trip per frame. For a component that redraws often (anything animated, or tied to keystrokes) prefer `render`.
+
+A subclass implementing **neither** raises `TypeError` naming the class on first render, rather than failing at construction as it used to — "implement exactly one of these" cannot be expressed with `@abstractmethod`.
+
+If you write a component that does *not* subclass `Component` (duck-typing works, since `add_child` does not enforce its type hint), implement `render_cells` and it will still be rendered — containers fall back for you. You get no bridging, though, so implement both if anything calls the other.
+
+> **Changed:** `tau.tui.Renderer` has been removed. It was the internal cell-grid renderer; nothing in an extension should have referenced it.
 
     def handle_input(self, event: InputEvent) -> bool:
         """Return True if the event was consumed, stopping propagation."""

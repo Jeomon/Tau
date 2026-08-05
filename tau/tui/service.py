@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from tau.tui.component import Component, Container, Focusable
+from tau.tui.component import Component, Container, Focusable, _child_lines
 from tau.tui.input import BgColorEvent, FocusEvent, InputEvent, KeyEvent, MouseEvent
 from tau.tui.terminal import Terminal
 from tau.tui.utils import set_window_focused
@@ -692,12 +692,11 @@ class TUI(Container):
                 for line in live:
                     lines.extend(wrap_to_rows(line, width))
             else:
-                child_lines = child.render(width)
+                child_lines = _child_lines(child, width)
                 lines.extend(child_lines)
-            if child.cursor_position is not None:
-                self.cursor_position = Position(
-                    child.cursor_position.x, start + child.cursor_position.y
-                )
+            child_cursor = getattr(child, "cursor_position", None)
+            if child_cursor is not None:
+                self.cursor_position = Position(child_cursor.x, start + child_cursor.y)
 
         # A rebuilt cache (theme swap, ctrl+O, width change) can keep the same
         # row count while every row's content differs, which the count-based
