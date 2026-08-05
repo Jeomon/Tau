@@ -45,9 +45,10 @@ def _window_focused() -> bool:
 class ScrollbackRenderer:
     """Differentially paints a list of ANSI lines into the terminal's scrollback.
 
-    Mirrors ``frame.ScrollbackTerminal``'s contract and terminal behaviour so it
-    can be swapped in, but its frame representation is ``list[str]`` rather than
-    a ``Buffer`` of ``Cell``.
+    Its frame representation is ``list[str]``. It replaced a ``Cell``-grid
+    renderer, and deliberately kept that one's terminal behaviour: relative
+    cursor moves only, viewport tracking, synchronized output, and
+    novelty-tracked raw writes.
     """
 
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
@@ -201,7 +202,7 @@ class ScrollbackRenderer:
                     self._hw_cursor_row += delta
                     self._viewport_top = shifted_vt
                     self._max_lines = max(0, self._max_lines + delta)
-                    self._commit(lines, width, height, keep_viewport=True)
+                    self._commit(lines, width, height)
                     self._position_hw_cursor(cursor_pos, new_rows)
                     return
                 self._full_render(lines, cursor_pos, width, height, clear=True)
@@ -271,9 +272,7 @@ class ScrollbackRenderer:
         out += self._terminal.end_sync()
         self._terminal.write(out)
 
-    def _commit(
-        self, lines: list[str], width: int, height: int, *, keep_viewport: bool = False
-    ) -> None:
+    def _commit(self, lines: list[str], width: int, height: int) -> None:
         self._prev = lines
         self._prev_width = width
         self._prev_height = height

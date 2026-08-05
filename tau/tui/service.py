@@ -395,20 +395,16 @@ _RIGHT_PAD = 1
 
 
 class StringRenderer:
-    """Scrollback renderer that consumes lines instead of cells.
+    """Builds a frame from the component tree and hands it to the diff engine.
 
-    Counterpart of ``Renderer`` above, driving ``ScrollbackRenderer`` instead
-    of ``ScrollbackTerminal``. The component tree is asked for ANSI lines via
-    ``Component.render(width)``, overlays are composited as lines, and the
-    result goes straight to the diff engine — no ``Buffer`` of ``Cell`` is
-    built for the frame at any point.
+    The tree is asked for ANSI lines via ``Component.render(width)``, overlays
+    are composited as lines, and the result goes to ``ScrollbackRenderer``. No
+    ``Buffer`` of ``Cell`` is built for a frame at any point.
 
-    Much of ``Renderer``'s machinery has no counterpart here and is simply
-    gone: the pre-widened child row cache and the stable-prefix elision both
-    existed because copying ``Cell`` rows into the frame buffer was expensive.
-    Copying string references is free, so the frozen prefix is just handed
-    over, and ``stable_through`` reduces to "how many leading rows the caller
-    guarantees are unchanged".
+    ``stable_through`` is the whole of the incremental machinery here: how many
+    leading rows the caller guarantees are unchanged, so the diff can skip
+    them. The frozen prefix is handed over as-is, since copying string
+    references costs nothing.
     """
 
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
@@ -600,20 +596,9 @@ class TUI(Container):
         # coordinates relative to their own rendered content.
         self._child_rows: dict[int, int] = {}
         # See render_cells: rows confirmed identical to last frame's buffer,
-        # safe for ScrollbackTerminal to skip re-diffing.
+        # safe for the renderer to skip re-diffing.
         self._stable_rows: int = 0
         self._prev_stable_rows: int = 0
-        # Absolute [start, end) row span left as untouched blank sentinels this
-        # frame because it was elided (see can_elide below) — the *only* rows
-        # within [0, _stable_rows) that ScrollbackTerminal must copy back from
-        # its previous buffer before diffing. Everything else in that prefix
-        # (e.g. header/spacer rows, re-rendered fresh every frame) already
-        # holds real content and must not be overwritten. Tracking the exact
-        # span lets ScrollbackTerminal reinstate it with one slice copy
-        # instead of scanning every cell of every stable row to guess which
-        # ones are blank placeholders — see frame.py's ``elided_range``.
-        self._elided_start: int = 0
-        self._elided_end: int = 0
         # Last-seen child.frozen_generation, keyed by id(child) — lets
         # render_cells notice a child rebuilt its frozen cache (content changed
         # without necessarily changing row count) even between frames where
@@ -650,11 +635,10 @@ class TUI(Container):
         above it (header, spacer). ``StringRenderer`` passes it to the engine
         as ``stable_through``.
 
-        Everything ``render_cells`` needs for elision — ``_elided_start/_end``,
-        the pre-widened row cache, the frozen-generation bookkeeping — has no
-        counterpart here. Those exist purely because copying ``Cell`` rows was
-        expensive; copying string references is not, so the frozen rows are
-        simply spliced in and the complexity disappears.
+        There is no elision or row-widening machinery here: those existed only
+        because copying ``Cell`` rows into the frame buffer was expensive.
+        Copying string references is not, so the frozen rows are spliced in
+        directly.
         """
         lines: list[str] = []
         self._child_rows = {}
@@ -742,7 +726,7 @@ class TUI(Container):
     def _forget_child_state(self, component: Component) -> None:
         """Drop id()-keyed render-cache state for a component leaving the tree.
 
-        Without this, ``_child_frozen_gen``/``_child_row_cache`` (see
+        Without this, ``_child_frozen_gen`` (see
         render_cells) only ever grow — a long session that dynamically swaps
         widgets (e.g. ``Layout.set_footer``) leaks one entry per removal.
         Worse than the leak itself: once the removed component is garbage
@@ -1389,7 +1373,7 @@ class TUI(Container):
         emits them far faster than that — coalesce into a single trailing
         paint instead of each forcing its own. A resize repaint is the most
         expensive frame the renderer produces (full clear, full rewrap from
-        block 0, full transcript replay: see ScrollbackTerminal._full_render
+        block 0, full transcript replay: see ScrollbackRenderer._full_render
         and MessageList's frozen-prefix discard), so running one per signal
         makes a drag progressively less responsive on a long session. Nothing
         is dropped by coalescing: the renderer's state is armed per signal, and

@@ -13,7 +13,6 @@ top of via ``AnsiBackend`` — see ``backend.py``).
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -25,12 +24,6 @@ from tau.tui.widget import Widget
 
 if TYPE_CHECKING:
     pass
-
-
-# Termux (Android) reports a height change whenever the software keyboard is
-# shown or hidden. Set by the Termux app itself, so it is present for any shell
-# started under it. See ScrollbackTerminal._keep_diff_on_height_change.
-_IS_TERMUX = bool(os.environ.get("TERMUX_VERSION"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +42,12 @@ class Fixed:
 class Inline:
     """Renders ``height`` rows into the normal scrollback at the current cursor row.
 
-    Everything above the viewport
-    stays real terminal scrollback, matching what ``service.py``'s existing
-    ``Renderer`` already does by hand for Tau's actual chat UI. Simplified
-    The cursor row is fixed at construction rather than
-    dynamically tracked, so it doesn't auto-scroll the terminal to keep the
-    viewport visible as content grows — the caller is responsible for that.
+    Everything above the viewport stays real terminal scrollback, the same
+    property ``StringRenderer`` relies on for the chat UI.
+
+    The cursor row is fixed at construction rather than dynamically tracked, so
+    it doesn't auto-scroll the terminal to keep the viewport visible as content
+    grows — the caller is responsible for that.
     """
 
     height: int
@@ -135,21 +128,3 @@ class BufferedTerminal:
 
         self._current = 1 - self._current
         return current
-
-
-# ── ScrollbackTerminal ───────────────────────────────────────────────────────
-#
-# BufferedTerminal/Inline uses a fixed-size
-# viewport, addressed with absolute cursor moves via Backend.draw(). That
-# model cannot represent Tau's actual live UI — chat content grows without
-# bound and old rows scroll into the terminal's real scrollback history,
-# where they can never be addressed again (CSI ...H addresses the visible
-# screen, not scrollback). So repainting here uses only relative moves
-# (cursor up/down, \r\n to scroll) and talks to Terminal directly rather
-# than through the absolute-addressing Backend protocol.
-#
-# The diff/paint algorithm below is a mechanical, behavior-preserving port of
-# service.py's original string-based Renderer onto real Buffer/Cell rows — same
-# viewport tracking, same relative-move + row-redraw strategy, same IME
-# cursor handling — just sourced from Cell objects instead of re-parsing
-# ANSI strings for every frame.

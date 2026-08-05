@@ -345,10 +345,11 @@ def row_to_ansi(
     Any ``buf.raw_writes`` anchored to this row (e.g. an inline image's
     escape sequence — see ``Image``) are spliced in at their column
     verbatim by default, since the cells underneath are ``skip=True`` and
-    carry no symbol. ``ScrollbackTerminal`` passes ``embed_raw=False``
-    since it has its own novelty-tracked flush for raw writes (resending a
-    multi-MB image payload every time an unrelated cell nearby changes
-    would be wasteful, unlike plain text which is cheap to resend as-is).
+    carry no symbol. ``embed_raw=False`` suppresses that, for a caller with its
+    own novelty-tracked flush for raw writes — resending a multi-MB image
+    payload because an unrelated cell nearby changed would be wasteful, unlike
+    plain text which is cheap to resend as-is. ``ScrollbackRenderer`` does
+    exactly that, but it works on lines and so does not call this.
 
     ``trim_trailing_blanks`` drops the row's trailing run of untouched blank
     cells instead of emitting it as spaces. Only safe when the caller has

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 # re-parsed only on each flush, not on every token — kept well below 60fps
 # on purpose: every flush prints to the live terminal scrollback, and since
 # Tau renders into the terminal's native scrollback (no alt-screen, see
-# ScrollbackTerminal in tui/frame.py) rather than an app-owned viewport, any
+# ScrollbackRenderer in tui/scrollback.py) rather than an app-owned viewport, any
 # such write makes the terminal auto-snap the view back to the live cursor
 # row if the user had scrolled up to read earlier history. 60fps flushing
 # fought a mid-stream manual scroll dozens of times a second; ~12fps is
@@ -605,7 +605,7 @@ class AgentHookHandler:
             # block with its ToolMessage into one paired render (tool-call
             # header + truncated/expandable result) when the assistant block
             # is still live at the time the ToolMessage is appended (see
-            # render_split_cells). The ToolMessage doesn't exist yet here —
+            # render_split_lines). The ToolMessage doesn't exist yet here —
             # finalizing now would freeze the assistant block standalone and
             # permanently lose that pairing, dropping the result's truncation
             # and "(ctrl+o to expand)" hint. This does not make ctrl+o/theme/

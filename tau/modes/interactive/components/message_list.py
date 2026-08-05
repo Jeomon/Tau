@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.buffer import Buffer
@@ -878,30 +877,6 @@ def _render_extra_blocks(
 # ── MessageList ───────────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class MessageUnitRowInfo:
-    """Rendered row span for one MessageList render unit.
-
-    This is groundwork for viewport rendering: a unit is either one message
-    block, or an assistant+tool-result pair rendered together.
-    """
-
-    start_block: int
-    end_block: int
-    row_start: int
-    row_count: int
-    frozen: bool
-
-
-@dataclass(frozen=True)
-class MessageListViewportRender:
-    """A rendered row slice of MessageList plus the full logical height."""
-
-    total_rows: int
-    row_offset: int
-    buf: Buffer
-
-
 class MessageList(Component):
     """
     Scrollable list of MessageBlock objects rendered inside a fixed-height
@@ -924,19 +899,11 @@ class MessageList(Component):
         self._user_prefix = user_prefix
         self._tool_lookup: Callable[[str], Tool | None] | None = None
         self._tool_result_preview_lines = max(1, tool_result_preview_lines)
-        # Cell-level cache of render units old enough to be considered
-        # finalized (see render_split_cells) — never rebuilt once written, so
-        # a frame only pays for the still-changing tail, not the whole
+        # Cache of render units old enough to be considered finalized, kept as
+        # already-wrapped ANSI rows — never rebuilt once written, so a frame
+        # only pays for the still-changing tail rather than the whole
         # transcript. Reset whenever something could have altered already-
         # frozen content (see _bump_invalidation) or the width changes.
-        self._frozen_buf: Buffer | None = None
-        # String form of the frozen prefix — the replacement for _frozen_buf.
-        # Deliberately paired with its *own* bookkeeping rather than sharing
-        # the cell path's: the two caches store different things, so sharing
-        # _frozen_width/_frozen_block_count made whichever path ran second see
-        # "already up to date" and emit nothing. Only one path runs in
-        # production, but silent empty output is far too sharp an edge to
-        # leave lying around while both exist.
         self._frozen_lines: list[str] = []
         self._lines_width = -1
         self._lines_block_count = 0
@@ -944,36 +911,26 @@ class MessageList(Component):
         self._lines_unit_rows: list[int] = []
         self._lines_seq = -1
         self._lines_pending_from: int | None = None
-        self._frozen_block_count = 0
-        self._frozen_width = -1
         self._invalidation_seq = 0
-        self._frozen_seq = -1
-        # Parallel lists: for each unit ever spliced into _frozen_buf, the
-        # block index it ends at and the frozen_buf row count immediately
-        # after it was appended. Lets _bump_invalidation's rebuild truncate
-        # back to the last unit boundary before the earliest actually-changed
-        # block instead of discarding the whole frozen buffer — see
-        # render_split_cells.
-        self._frozen_unit_ends: list[int] = []
-        self._frozen_unit_rows: list[int] = []
-        # Earliest block index touched by invalidations since the frozen
-        # cache last caught up (None until the first bump). Consumed by
-        # render_split_cells and reset to None; theme/prefix-wide bumps pass
-        # the default 0, forcing a full rebuild as before.
-        self._pending_invalidation_from: int | None = None
-        # Bumped every time _frozen_buf is rebuilt from scratch (width change or
-        # _bump_invalidation) — lets the Container (service.py) notice that already-frozen
-        # rows may have changed content even though their row count didn't, so it
-        # knows not to trust ScrollbackTerminal's stable_through for that row span
-        # until it has re-diffed it at least once post-rebuild.
+        # _lines_unit_ends / _lines_unit_rows are parallel: for each unit ever
+        # appended to _frozen_lines, the block index it ends at and the row
+        # count immediately after. Lets a rebuild truncate back to the last
+        # unit boundary before the earliest actually-changed block instead of
+        # discarding the whole prefix. _lines_pending_from is that earliest
+        # index (None until the first bump); theme-wide bumps pass 0, forcing a
+        # full rebuild.
+        #
+        # Bumped every time _frozen_lines is rebuilt from scratch (width change
+        # or _bump_invalidation) — lets TUI.render notice that already-frozen
+        # rows may have changed content even though their row count did not, so
+        # it knows not to report them as stable_through until they have been
+        # re-diffed at least once post-rebuild.
         self.frozen_generation = 0
         # Phase-2 viewport groundwork: row spans for the latest render at
         # ``_row_metadata_width``.  Production rendering does not consume this
         # yet; tests and the future virtualized renderer can use it to map a
         # viewport row range back to MessageList units.
         self._row_metadata_width = -1
-        self._row_metadata: list[MessageUnitRowInfo] = []
-        self._row_metadata_total_rows = 0
 
     # -------------------------------------------------------------------------
     # Public API
@@ -988,14 +945,15 @@ class MessageList(Component):
         self._height = max(1, height)
 
     def _reset_line_cache(self) -> None:
-        """Drop the string frozen cache.
+        """Drop the frozen row cache and all of its bookkeeping.
 
-        The cell cache (``_frozen_buf``) and the string cache
-        (``_frozen_lines``) are two stores of the same content with separate
-        bookkeeping, so every site that invalidates one must invalidate the
-        other. Missing one leaves the renderer serving rows for blocks that no
-        longer exist -- stale history after an undo, the old conversation
-        surviving a clear, duplicated messages after a session resume.
+        Every field must go together: a partially reset cache is worse than
+        none, because the surviving offsets describe rows that are no longer
+        there. Called from every site that changes the block list structurally
+        (clear, prepend, a pop past the frozen boundary), which is what stops
+        the renderer serving rows for blocks that no longer exist — stale
+        history after an undo, the old conversation surviving a clear,
+        duplicated messages after a session resume.
         """
         self._frozen_lines = []
         self._lines_block_count = 0
@@ -1006,23 +964,19 @@ class MessageList(Component):
         self._lines_pending_from = None
 
     def _bump_invalidation(self, from_index: int = 0) -> None:
-        """Force the frozen-cell cache to rebuild from ``from_index`` on the next render.
+        """Force the frozen row cache to rebuild from ``from_index`` on the next render.
 
         Called by anything that can retroactively change already-frozen
         content (theme/prefix/tool-lookup swaps, expand/collapse-all) so a
         stale cache is never handed to the renderer. ``from_index`` is the
         earliest block index known to have changed — passing it lets
-        ``render_split_cells`` keep everything before that point (a real cost
+        ``render_split_lines`` keep everything before that point (a real cost
         saving for a long session with a targeted toggle); callers that touch
         every block (theme/prefix swaps) use the default 0, which still forces
         a full rebuild. If multiple bumps land before the next render, the
         smallest ``from_index`` wins.
         """
         self._invalidation_seq += 1
-        if self._pending_invalidation_from is None:
-            self._pending_invalidation_from = from_index
-        else:
-            self._pending_invalidation_from = min(self._pending_invalidation_from, from_index)
         if self._lines_pending_from is None:
             self._lines_pending_from = from_index
         else:
@@ -1046,14 +1000,10 @@ class MessageList(Component):
         # Invalidate the frozen rendering buffers so that all rows are
         # regenerated with the new theme, even if the scroll offset
         # stays the same.
-        self._frozen_buf = None  # discard rendered frozen rows
         self._frozen_lines = []
         self._lines_block_count = 0
         self._lines_unit_ends.clear()
         self._lines_unit_rows.clear()
-        self._frozen_block_count = 0
-        self._frozen_unit_ends.clear()
-        self._frozen_unit_rows.clear()
         # ----------------
 
         self._bump_invalidation()
@@ -1085,7 +1035,7 @@ class MessageList(Component):
         fully visible), so restricting this to the live tail broke the
         feature for the common case. The frozen-cache rebuild this triggers
         is scoped to the earliest touched block onward (see
-        ``_bump_invalidation``/``render_split_cells``) — everything before the
+        ``_bump_invalidation``/``render_split_lines``) — everything before the
         first matching block stays untouched, so cost tracks how far back the
         first thinking/tool block is, not total session length.
         """
@@ -1147,22 +1097,12 @@ class MessageList(Component):
         forces one full rebuild rather than leaving the cache pointing past
         the end of self._blocks. Must bump frozen_generation too — its
         contract (see the field's docstring) is "bumped every time
-        _frozen_buf is rebuilt from scratch", and callers like
-        TUI.render_cells cache pre-widened frozen rows keyed on this counter;
-        resetting _frozen_buf without it would let that cache keep serving
-        now-stale content for a unit that no longer exists.
+        the frozen cache is rebuilt from scratch", and TUI.render uses it to
+        decide whether the frozen prefix may still be reported as stable;
+        resetting the cache without bumping it would let the renderer keep
+        skipping rows for a unit that no longer exists.
         """
-        # Both caches must be checked: they advance their own block counters,
-        # so a pop that reaches past only the string cache's boundary would
-        # otherwise leave it serving rows for a block that no longer exists --
-        # the undone message staying on screen.
-        if self._frozen_block_count > len(self._blocks) or self._lines_block_count > len(
-            self._blocks
-        ):
-            self._frozen_buf = None
-            self._frozen_block_count = 0
-            self._frozen_unit_ends = []
-            self._frozen_unit_rows = []
+        if self._lines_block_count > len(self._blocks):
             self._reset_line_cache()
             self.frozen_generation += 1
 
@@ -1197,15 +1137,11 @@ class MessageList(Component):
         self._blocks.clear()
         self._scroll = 0
         self._auto_scroll = True
-        self._frozen_buf = None
-        self._frozen_block_count = 0
-        self._frozen_unit_ends = []
-        self._frozen_unit_rows = []
         self._reset_line_cache()
-        # See _guard_frozen_bounds: any reset of _frozen_buf must bump this so
-        # callers caching pre-widened frozen rows keyed on it (TUI.render_cells)
-        # drop their now-stale cache instead of continuing to serve rows from
-        # the conversation that was just cleared.
+        # See _guard_frozen_bounds: any reset of the frozen cache must bump
+        # this, so TUI.render stops reporting those rows as stable instead of
+        # letting the renderer skip repainting rows from the conversation that
+        # was just cleared.
         self.frozen_generation += 1
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
@@ -1260,10 +1196,6 @@ class MessageList(Component):
         if not blocks:
             return
         self._blocks[0:0] = blocks
-        self._frozen_buf = None
-        self._frozen_block_count = 0
-        self._frozen_unit_ends = []
-        self._frozen_unit_rows = []
         self._reset_line_cache()
         self.frozen_generation += 1
 
@@ -1300,11 +1232,11 @@ class MessageList(Component):
 
         A unit is either one block, or an assistant+tool pair merged for a
         joint tool-result render — shared by ``_render_blocks`` and
-        ``render_split_cells`` so both agree on exactly the same grouping.
+        ``render_split_lines`` so both agree on exactly the same grouping.
 
         ``start_index`` lets a caller resume after a already-frozen prefix
         instead of re-rendering (and immediately discarding) every historical
-        block on every call — see ``render_split_cells``, where this is what
+        block on every call — see ``render_split_lines``, where this is what
         keeps a per-tick cost proportional to the live tail instead of total
         session length. Only ever a value previously yielded as an
         ``end_index`` (a unit boundary), so resuming there can't split a unit.
@@ -1331,47 +1263,6 @@ class MessageList(Component):
             yield index, index + 1, block.render(width)
             index += 1
 
-    @property
-    def row_metadata(self) -> list[MessageUnitRowInfo]:
-        """Return latest render-unit row spans.
-
-        Metadata is refreshed by ``render_split_cells(..., collect_metadata=True)``
-        for the active width.  It is intentionally read-only groundwork for the
-        future virtualized renderer; production rendering does not consume it.
-        """
-        return list(self._row_metadata)
-
-    def _refresh_row_metadata(
-        self,
-        width: int,
-        live_metadata: list[MessageUnitRowInfo],
-    ) -> None:
-        frozen_metadata: list[MessageUnitRowInfo] = []
-        prev_end = 0
-        prev_rows = 0
-        for end_idx, rows in zip(self._frozen_unit_ends, self._frozen_unit_rows, strict=False):
-            frozen_metadata.append(
-                MessageUnitRowInfo(
-                    start_block=prev_end,
-                    end_block=end_idx,
-                    row_start=prev_rows,
-                    row_count=rows - prev_rows,
-                    frozen=True,
-                )
-            )
-            prev_end = end_idx
-            prev_rows = rows
-        self._row_metadata_width = width
-        self._row_metadata = [*frozen_metadata, *live_metadata]
-        self._row_metadata_total_rows = sum(unit.row_count for unit in self._row_metadata)
-
-    def _render_blocks(self, width: int) -> list[str]:
-        lines: list[str] = []
-        for _start_idx, _end_idx, unit_lines in self._iter_units(width):
-            for line in unit_lines:
-                lines.extend(wrap(line, width) if visible_width(line) > width else [line])
-        return lines
-
     # -------------------------------------------------------------------------
     # String rendering (replaces the cell path)
     # -------------------------------------------------------------------------
@@ -1387,9 +1278,8 @@ class MessageList(Component):
     def render_split_lines(self, width: int) -> tuple[list[str], list[str]]:
         """Frozen rows (already wrapped) plus the still-live tail (unwrapped).
 
-        String analogue of ``render_split_cells``, with identical freezing and
-        truncation rules — the split exists so the renderer can be told how far
-        the frozen prefix reaches and skip diffing it.
+        The split exists so the renderer can be told how far the frozen prefix
+        reaches (``stable_through``) and skip diffing it.
 
         Keeping frozen content as rows rather than a ``Buffer`` of ``Cell`` is
         the whole point: a ctrl+O expand rebuilt ~3.2M Cell objects only to
