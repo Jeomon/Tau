@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from tau.tui.components.select_list import InlineSelector, SelectItem, SelectList
     from tau.tui.components.spinner import Spinner
     from tau.tui.components.text_input import TextInput
+    from tau.tui.compose import composite_lines, line_to_ansi, wrap_to_rows
     from tau.tui.geometry import Position, Rect
     from tau.tui.input import (
         BgColorEvent,
