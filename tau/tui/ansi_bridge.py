@@ -27,7 +27,7 @@ import re
 
 import grapheme
 
-from tau.tui.buffer import Buffer, RawWrite
+from tau.tui.buffer import _BLANK_CELL, Buffer, RawWrite
 from tau.tui.style import OSC8_CLOSE, Color, Modifier, Style, style_transition
 from tau.tui.utils import _ANSI_RE, grapheme_width
 
@@ -322,24 +322,80 @@ def row_to_ansi(buf: Buffer, y: int, *, embed_raw: bool = True) -> str:
     """
     raw_at = {rw.x: rw.data for rw in buf.raw_writes if rw.y == y} if embed_raw else {}
 
+    # Hot path: one iteration per rendered cell, and _full_render calls this
+    # for *every* row of the whole transcript on a resize — hundreds of
+    # thousands of cells per frame. Index into buf.content directly rather
+    # than via buf.get(), which costs ~10 Python-level calls per cell
+    # (index_of -> Rect.contains -> four Rect edge properties) and, worse,
+    # is copy-on-write: it swaps the shared _BLANK_CELL sentinel for a fresh
+    # Cell on read, so merely *emitting* a buffer used to allocate one Cell
+    # per blank position and break the `c is _BLANK_CELL` identity check
+    # frame.py's blank-row elision relies on. Reading the list directly keeps
+    # this genuinely read-only. Same bounds semantics: rows outside the area
+    # yield "".
+    area = buf.area
+    row_index = y - area.y
+    if row_index < 0 or row_index >= area.height:
+        return ""
+    width = area.width
+    start = row_index * width
+    cells = buf.content[start : start + width]
+
+    # Most transcript rows are a little text followed by a long tail of
+    # untouched blanks, and every one of those tail cells is the *same*
+    # _BLANK_CELL object (default style, " ", not skipped). Emit that run as a
+    # single string multiply instead of looping per cell. Output is unchanged:
+    # the run contributes one style transition to the default style (only when
+    # the active style isn't already default) followed by N spaces. The row is
+    # still emitted full-width — callers rely on trailing blanks overwriting
+    # whatever the terminal previously showed there.
+    tail = 0
+    if not raw_at:
+        j = width - 1
+        while j >= 0 and cells[j] is _BLANK_CELL:
+            j -= 1
+            tail += 1
+        if tail:
+            cells = cells[: width - tail]
+
     out: list[str] = []
     active: Style | None = None
     skip_cols = 0
-    for x in range(buf.area.left, buf.area.right):
-        if x in raw_at:
-            out.append(raw_at[x])
-        cell = buf.get(x, y)
+    left = area.left
+    for i, cell in enumerate(cells):
+        if raw_at:
+            data = raw_at.get(left + i)
+            if data is not None:
+                out.append(data)
         if cell.skip:
             continue
         if skip_cols > 0:
             skip_cols -= 1
             continue
-        if cell.style != active:
-            out.append(style_transition(active, cell.style))
-            active = cell.style
+        style = cell.style
+        if style != active:
+            out.append(style_transition(active, style))
+            active = style
         symbol = cell.symbol or " "
         out.append(symbol)
-        skip_cols = max(grapheme_width(symbol) - 1, 0)
+        # Fast path: a plain single-codepoint ASCII glyph is always 1 column,
+        # so skip the width lookup for the overwhelming majority of cells.
+        if not (symbol.isascii() and len(symbol) == 1):
+            skip_cols = max(grapheme_width(symbol) - 1, 0)
+
+    if tail:
+        blank_style = _BLANK_CELL.style
+        # A pending double-width continuation eats into the blank run exactly
+        # as it would have per-cell.
+        if skip_cols > 0:
+            eaten = min(skip_cols, tail)
+            tail -= eaten
+        if tail:
+            if blank_style != active:
+                out.append(style_transition(active, blank_style))
+                active = blank_style
+            out.append(" " * tail)
+
     if active is not None:
         if active.link:
             out.append(OSC8_CLOSE)
