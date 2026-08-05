@@ -6,7 +6,6 @@ from tau.inference.model.types import Modality
 from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import rule
 from tau.tui.widgets.list import List, ListItem, ListState
 from tau.tui.widgets.tabs import Tabs
 from tau.utils.format import format_number
@@ -233,18 +232,11 @@ class ModelSelector(Component):
     # ── Render ────────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
-        from tau.tui.compose import line_to_ansi
+        from tau.tui.compose import line_emitters
 
         out: list[str] = []
 
-        def write(spans: list[Span]) -> None:
-            out.append(line_to_ansi(Line(spans), width))
-
-        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
-            write([Span(prefix), Span(content, style or Style())])
-
-        def divider() -> None:
-            text(rule(width), self._border)
+        write, text, divider = line_emitters(out, width, self._border)
 
         sec = self._section
         if sec is None:

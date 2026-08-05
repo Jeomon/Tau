@@ -3,11 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.component import Component
+from tau.modes.interactive.components.selector_base import KeyboundSelector
 from tau.tui.components.simple_picker import PickerRow, render_picker_lines
-from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import apply_style
-from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -15,7 +13,7 @@ if TYPE_CHECKING:
 _VISIBLE_ROWS = 10
 
 
-class ExtensionSelector(Component):
+class ExtensionSelector(KeyboundSelector):
     """
     Generic option picker for extensions.
 
@@ -23,6 +21,8 @@ class ExtensionSelector(Component):
     ``ctx.confirm(title, message)``.  Simple up/down/enter/escape — no search,
     matching ExtensionSelectorComponent behaviour.
     """
+
+    vim_keys = True
 
     def __init__(
         self,
@@ -32,15 +32,15 @@ class ExtensionSelector(Component):
         on_cancel: Callable[[], None],
         theme: LayoutTheme | None = None,
     ) -> None:
-        from tau.tui.theme import LayoutTheme as LT
-
+        super().__init__(on_select, on_cancel, theme)
         self._title = title
         self._options = options
-        self._selected = 0
-        self._on_select = on_select
-        self._on_cancel = on_cancel
-        self._theme = theme or LT()
-        self._list_state = ListState()
+
+    def _items(self) -> list:
+        return self._options
+
+    def _confirm_value(self) -> str:
+        return self._options[self._selected]
 
     # -------------------------------------------------------------------------
     # Component
@@ -60,36 +60,3 @@ class ExtensionSelector(Component):
             theme=t,
             empty_text="No options available",
         )
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-
-        kb = get_keybindings()
-
-        if kb.matches(event, "tui.select.up") or event.key == "k":
-            if self._options:
-                self._selected = max(0, self._selected - 1)
-            return True
-
-        if kb.matches(event, "tui.select.down") or event.key == "j":
-            if self._options:
-                self._selected = min(len(self._options) - 1, self._selected + 1)
-            return True
-
-        if kb.matches(event, "tui.select.confirm"):
-            if self._options:
-                self._on_select(self._options[self._selected])
-            return True
-
-        if kb.matches(event, "tui.select.dismiss"):
-            self._on_cancel()
-            return True
-
-        return False
-
-    def invalidate(self) -> None:
-        pass
-
-    def set_theme(self, theme: LayoutTheme) -> None:
-        self._theme = theme

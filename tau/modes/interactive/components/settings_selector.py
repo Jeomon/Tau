@@ -337,7 +337,7 @@ class SettingsSelector(Component):
     # ── Render ────────────────────────────────────────────────────────────────
 
     def render(self, width: int) -> list[str]:
-        from tau.tui.compose import line_to_ansi
+        from tau.tui.compose import line_emitters
 
         if self._submenu is not None:
             if isinstance(self._submenu, (SettingsSelector, ListSelector)):
@@ -347,14 +347,7 @@ class SettingsSelector(Component):
         t = self._theme
         out: list[str] = []
 
-        def write(spans: list[Span]) -> None:
-            out.append(line_to_ansi(Line(spans), width))
-
-        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
-            write([Span(prefix), Span(content, style or Style())])
-
-        def divider() -> None:
-            text(rule(width), t.border)
+        write, text, divider = line_emitters(out, width, t.border)
 
         # ── Tab bar ────────────────────────────────────────────────────────────
         if self._tabs:

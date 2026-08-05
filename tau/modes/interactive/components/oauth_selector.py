@@ -4,12 +4,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from tau.tui.component import Component
+from tau.modes.interactive.components.selector_base import KeyboundSelector
 from tau.tui.components.simple_picker import PickerRow, render_picker_lines
-from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Span
-from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -26,7 +24,7 @@ class OAuthProviderItem:
     status: str | None = None  # e.g. "configured", "env: ANTHROPIC_API_KEY"
 
 
-class OAuthSelector(Component):
+class OAuthSelector(KeyboundSelector):
     """Provider picker for /login and /logout."""
 
     def __init__(
@@ -37,15 +35,15 @@ class OAuthSelector(Component):
         on_cancel: Callable[[], None],
         theme: LayoutTheme | None = None,
     ) -> None:
-        from tau.tui.theme import LayoutTheme as LT
-
+        super().__init__(on_select, on_cancel, theme)
         self._mode = mode
         self._providers = providers
-        self._selected = 0
-        self._on_select = on_select
-        self._on_cancel = on_cancel
-        self._theme = theme or LT()
-        self._list_state = ListState()
+
+    def _items(self) -> list:
+        return self._providers
+
+    def _confirm_value(self) -> str:
+        return self._providers[self._selected].id
 
     # -------------------------------------------------------------------------
     # Component
@@ -87,36 +85,3 @@ class OAuthSelector(Component):
             theme=t,
             empty_text=empty_text,
         )
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-
-        kb = get_keybindings()
-
-        if kb.matches(event, "tui.select.up"):
-            if self._providers:
-                self._selected = max(0, self._selected - 1)
-            return True
-
-        if kb.matches(event, "tui.select.down"):
-            if self._providers:
-                self._selected = min(len(self._providers) - 1, self._selected + 1)
-            return True
-
-        if kb.matches(event, "tui.select.confirm"):
-            if self._providers:
-                self._on_select(self._providers[self._selected].id)
-            return True
-
-        if kb.matches(event, "tui.select.dismiss"):
-            self._on_cancel()
-            return True
-
-        return False
-
-    def invalidate(self) -> None:
-        pass
-
-    def set_theme(self, theme: LayoutTheme) -> None:
-        self._theme = theme

@@ -3,12 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.component import Component
+from tau.modes.interactive.components.selector_base import ArrowSelector
 from tau.tui.components.simple_picker import PickerRow, render_picker_lines
-from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Span
-from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.inference.types import ThinkingLevel
@@ -26,7 +24,7 @@ _DESCRIPTIONS: dict[str, str] = {
 }
 
 
-class ThinkingSelector(Component):
+class ThinkingSelector(ArrowSelector):
     """Overlay that lets the user pick a ThinkingLevel from a flat bordered list."""
 
     def __init__(
@@ -37,15 +35,13 @@ class ThinkingSelector(Component):
         on_cancel: Callable[[], None],
         theme: LayoutTheme | None = None,
     ) -> None:
-        from tau.tui.theme import LayoutTheme as LT
-
+        super().__init__(on_select, on_cancel, theme)
         self._current = current
         self._levels = available
         self._selected = next((i for i, lv in enumerate(available) if lv == current), 0)
-        self._on_select = on_select
-        self._on_cancel = on_cancel
-        self._theme = theme or LT()
-        self._list_state = ListState()
+
+    def _items(self) -> list:
+        return self._levels
 
     # ── Component ─────────────────────────────────────────────────────────────
 
@@ -68,28 +64,3 @@ class ThinkingSelector(Component):
             max_visible=len(self._levels) or 1,
             theme=t,
         )
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-        match event.key:
-            case "up":
-                if self._selected > 0:
-                    self._selected -= 1
-            case "down":
-                if self._selected < len(self._levels) - 1:
-                    self._selected += 1
-            case "enter" | "tab":
-                if self._levels:
-                    self._on_select(self._levels[self._selected])
-            case "escape":
-                self._on_cancel()
-            case _:
-                return False
-        return True
-
-    def invalidate(self) -> None:
-        pass
-
-    def set_theme(self, theme: LayoutTheme) -> None:
-        self._theme = theme

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from tau.tui.component import Component
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
-from tau.tui.utils import rule, visible_width
+from tau.tui.utils import visible_width
 from tau.tui.widgets.tabs import Tabs
 from tau.utils.format import human_size
 
@@ -287,19 +287,12 @@ class ResumeSelector(Component):
         return self._meta_cache[sid]
 
     def render(self, width: int) -> list[str]:
-        from tau.tui.compose import composite_line, line_to_ansi
+        from tau.tui.compose import composite_line, line_emitters, line_to_ansi
 
         t = self._theme
         out: list[str] = []
 
-        def write(spans: list[Span]) -> None:
-            out.append(line_to_ansi(Line(spans), width))
-
-        def text(content: str, style: Style | None = None, prefix: str = "") -> None:
-            write([Span(prefix), Span(content, style or Style())])
-
-        def divider() -> None:
-            text(rule(width), t.border)
+        write, text, divider = line_emitters(out, width, t.border)
 
         # ── Scope tab bar ──────────────────────────────────────────────────────
         # The scope switcher is a two-tab strip, so it uses the shared Tabs

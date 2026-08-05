@@ -115,11 +115,21 @@ class SelectorController(Component):
                 self._commit(active, selector.selected_value())
             case "escape":
                 self._cancel(active)
-            case "backspace":
-                selector.backspace_search()
-            case ch if len(ch) == 1 and ch.isprintable():
-                selector.append_search(event.char or ch)
+            case _:
+                self._feed_search(selector, event)
         return self._rendered()
+
+    @staticmethod
+    def _feed_search(selector: Any, event: KeyEvent) -> None:
+        """Route a key the kind-specific arms didn't claim into incremental search.
+
+        Backspace deletes, any single printable character extends the query,
+        and anything else is ignored — the shared tail of every handler below.
+        """
+        if event.key == "backspace":
+            selector.backspace_search()
+        elif len(event.key) == 1 and event.key.isprintable():
+            selector.append_search(event.char or event.key)
 
     def _handle_settings(self, active: InlineSelector, event: KeyEvent) -> bool:
         selector = active.selector
@@ -142,10 +152,8 @@ class SelectorController(Component):
                     selector.cancel_submenu()
                 else:
                     self._cancel(active)
-            case "backspace":
-                selector.backspace_search()
-            case ch if len(ch) == 1 and ch.isprintable():
-                selector.append_search(event.char or ch)
+            case _:
+                self._feed_search(selector, event)
         return self._rendered()
 
     def _handle_resume(self, active: InlineSelector, event: KeyEvent) -> bool:
@@ -171,10 +179,8 @@ class SelectorController(Component):
                     selector.cancel_delete()
                 else:
                     self._cancel(active)
-            case "backspace":
-                selector.backspace_search()
-            case ch if len(ch) == 1 and ch.isprintable():
-                selector.append_search(event.char or ch)
+            case _:
+                self._feed_search(selector, event)
         return self._rendered()
 
     def _handle_generic(

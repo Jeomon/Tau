@@ -10,10 +10,12 @@ line containing a ZWJ emoji.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from tau.tui.ansi_text import splice_ansi, wrap_ansi
 from tau.tui.layout import Alignment
 from tau.tui.style import Style, apply_style
-from tau.tui.text import Line
+from tau.tui.text import Line, Span
 from tau.tui.utils import strip_ansi, truncate_to_width, visible_width
 
 
@@ -158,3 +160,33 @@ def wrap_to_rows(line: str, width: int) -> list[str]:
             return [line]
 
     return wrap_ansi(line, width)
+
+
+def line_emitters(
+    out: list[str], width: int, border_style: Style | None = None
+) -> tuple[
+    Callable[[list[Span]], None],
+    Callable[..., None],
+    Callable[[], None],
+]:
+    """The ``write``/``text``/``divider`` trio the full-screen selectors use.
+
+    Every one of them accumulates rendered rows into a plain list and needs the
+    same three shorthands over it, so they share one definition instead of
+    re-declaring the closures in each ``render``. ``out`` stays an ordinary
+    list, which callers still append to directly for rows they compose
+    themselves (tab strips, pre-rendered widgets).
+    """
+    from tau.tui.text import Span
+    from tau.tui.utils import rule
+
+    def write(spans: list[Span]) -> None:
+        out.append(line_to_ansi(Line(spans), width))
+
+    def text(content: str, style: Style | None = None, prefix: str = "") -> None:
+        write([Span(prefix), Span(content, style or Style())])
+
+    def divider() -> None:
+        text(rule(width), border_style)
+
+    return write, text, divider

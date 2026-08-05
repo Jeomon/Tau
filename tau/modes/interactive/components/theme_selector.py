@@ -3,12 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.component import Component
+from tau.modes.interactive.components.selector_base import ArrowSelector
 from tau.tui.components.simple_picker import PickerRow, render_picker_lines
-from tau.tui.input import InputEvent, KeyEvent
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Span
-from tau.tui.widgets.list import ListState
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -16,7 +14,7 @@ if TYPE_CHECKING:
 _VISIBLE_ROWS = 10
 
 
-class ThemeSelector(Component):
+class ThemeSelector(ArrowSelector):
     """Overlay for picking a color theme with live preview on navigation."""
 
     def __init__(
@@ -28,16 +26,17 @@ class ThemeSelector(Component):
         on_preview: Callable[[str], None] | None = None,
         theme: LayoutTheme | None = None,
     ) -> None:
-        from tau.tui.theme import LayoutTheme as LT
-
+        super().__init__(on_select, on_cancel, theme)
         self._names = list(names)
         self._current = current
-        self._on_select = on_select
-        self._on_cancel = on_cancel
         self._on_preview = on_preview
-        self._theme = theme or LT()
         self._selected = next((i for i, n in enumerate(self._names) if n == current), 0)
-        self._list_state = ListState()
+
+    def _items(self) -> list:
+        return self._names
+
+    def _on_move(self) -> None:
+        self._fire_preview()
 
     # ── Component ─────────────────────────────────────────────────────────────
 
@@ -59,33 +58,6 @@ class ThemeSelector(Component):
             max_visible=_VISIBLE_ROWS,
             theme=t,
         )
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-        match event.key:
-            case "up":
-                if self._selected > 0:
-                    self._selected -= 1
-                    self._fire_preview()
-            case "down":
-                if self._selected < len(self._names) - 1:
-                    self._selected += 1
-                    self._fire_preview()
-            case "enter" | "tab":
-                if self._names:
-                    self._on_select(self._names[self._selected])
-            case "escape":
-                self._on_cancel()
-            case _:
-                return False
-        return True
-
-    def invalidate(self) -> None:
-        pass
-
-    def set_theme(self, theme: LayoutTheme) -> None:
-        self._theme = theme
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

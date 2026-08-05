@@ -733,98 +733,76 @@ class InputHandler:
             _log.exception("Failed to store clipboard file")
             self._notify(f"Could not store file: {exc}", type="error")
 
-    def _extract_clipboard_audio(self, text: str) -> list[bytes]:
-        audio: list[bytes] = []
+    def _read_indexed_media(
+        self, text: str, kind: str, registry: dict[int, tuple[str, str]]
+    ) -> list[bytes]:
+        """Blobs behind the ``[kind #n]`` markers in ``text``, first use wins.
+
+        A marker whose index is unknown, or whose file has since gone, is
+        skipped rather than failing the whole submission.
+        """
+        out: list[bytes] = []
         seen: set[int] = set()
-        for m in re.finditer(r"\[audio #(\d+)\]", text):
+        for m in re.finditer(rf"\[{kind} #(\d+)\]", text):
             idx = int(m.group(1))
             if idx in seen:
                 continue
             seen.add(idx)
-            entry = self._clipboard_audio.get(idx)
+            entry = registry.get(idx)
             if entry is None:
                 continue
             _, path = entry
             try:
                 with open(path, "rb") as f:
-                    audio.append(f.read())
+                    out.append(f.read())
             except OSError:
-                _log.warning("failed to read clipboard audio %s", path, exc_info=True)
-        # Also resolve persistent [audio:{uuid}] markers from history
-        seen_uuids: set[str] = set()
-        for m in re.finditer(r"\[audio:([^\]]+)\]", text):
+                _log.warning("failed to read clipboard %s %s", kind, path, exc_info=True)
+        return out
+
+    def _uuid_media_paths(self, text: str, kind: str) -> list[Path]:
+        """Paths behind the persistent ``[kind:{uuid}]`` markers carried in history.
+
+        Unlike the ``#n`` markers these survive a restart, so a resumed session
+        can still attach media the user referenced in an earlier turn.
+        """
+        paths: list[Path] = []
+        seen: set[str] = set()
+        for m in re.finditer(rf"\[{kind}:([^\]]+)\]", text):
             uid = m.group(1)
-            if uid in seen_uuids:
+            if uid in seen:
                 continue
-            seen_uuids.add(uid)
+            seen.add(uid)
             p = self._find_media_by_uuid(uid)
             if p is not None:
-                with contextlib.suppress(OSError):
-                    audio.append(p.read_bytes())
+                paths.append(p)
+        return paths
+
+    def _extract_clipboard_audio(self, text: str) -> list[bytes]:
+        audio = self._read_indexed_media(text, "audio", self._clipboard_audio)
+        # Also resolve persistent [audio:{uuid}] markers from history
+        for p in self._uuid_media_paths(text, "audio"):
+            with contextlib.suppress(OSError):
+                audio.append(p.read_bytes())
         self._clipboard_audio.clear()
         self._clipboard_audio_counter = 0
         return audio
 
     def _extract_clipboard_video(self, text: str) -> list[bytes]:
-        video: list[bytes] = []
-        seen: set[int] = set()
-        for m in re.finditer(r"\[video #(\d+)\]", text):
-            idx = int(m.group(1))
-            if idx in seen:
-                continue
-            seen.add(idx)
-            entry = self._clipboard_video.get(idx)
-            if entry is None:
-                continue
-            _, path = entry
-            try:
-                with open(path, "rb") as f:
-                    video.append(f.read())
-            except OSError:
-                _log.warning("failed to read clipboard video %s", path, exc_info=True)
+        video = self._read_indexed_media(text, "video", self._clipboard_video)
         # Also resolve persistent [video:{uuid}] markers from history
-        seen_uuids: set[str] = set()
-        for m in re.finditer(r"\[video:([^\]]+)\]", text):
-            uid = m.group(1)
-            if uid in seen_uuids:
-                continue
-            seen_uuids.add(uid)
-            p = self._find_media_by_uuid(uid)
-            if p is not None:
-                with contextlib.suppress(OSError):
-                    video.append(p.read_bytes())
+        for p in self._uuid_media_paths(text, "video"):
+            with contextlib.suppress(OSError):
+                video.append(p.read_bytes())
         self._clipboard_video.clear()
         self._clipboard_video_counter = 0
         return video
 
     def _extract_clipboard_file(self, text: str) -> list[bytes]:
-        file: list[bytes] = []
-        seen: set[int] = set()
-        for m in re.finditer(r"\[file #(\d+)\]", text):
-            idx = int(m.group(1))
-            if idx in seen:
-                continue
-            seen.add(idx)
-            entry = self._clipboard_files.get(idx)
-            if entry is None:
-                continue
-            _, path = entry
-            try:
-                with open(path, "rb") as f:
-                    file.append(f.read())
-            except OSError:
-                _log.warning("failed to read clipboard file %s", path, exc_info=True)
+        file = self._read_indexed_media(text, "file", self._clipboard_files)
         # Also resolve persistent [file:{uuid}] markers from history
-        seen_uuids: set[str] = set()
-        for m in re.finditer(r"\[file:([^\]]+)\]", text):
-            uid = m.group(1)
-            if uid in seen_uuids:
-                continue
-            seen_uuids.add(uid)
-            p = self._find_media_by_uuid(uid)
-            if p is not None:
-                with contextlib.suppress(OSError):
-                    file.append(p.read_bytes())
+        for p in self._uuid_media_paths(text, "file"):
+            with contextlib.suppress(OSError):
+                file.append(p.read_bytes())
         self._clipboard_files.clear()
         self._clipboard_file_counter = 0
         return file
@@ -1065,16 +1043,9 @@ class InputHandler:
             except OSError:
                 _log.warning("failed to read clipboard image content %s", path, exc_info=True)
         # Also resolve persistent [image:{uuid}] markers from history
-        seen_uuids: set[str] = set()
-        for m in re.finditer(r"\[image:([^\]]+)\]", text):
-            uid = m.group(1)
-            if uid in seen_uuids:
-                continue
-            seen_uuids.add(uid)
-            p = self._find_media_by_uuid(uid)
-            if p is not None:
-                with contextlib.suppress(OSError):
-                    contents.append(_IC(images=[p.read_bytes()]))
+        for p in self._uuid_media_paths(text, "image"):
+            with contextlib.suppress(OSError):
+                contents.append(_IC(images=[p.read_bytes()]))
         self._clipboard_images.clear()
         self._clipboard_image_notes.clear()
         self._clipboard_image_counter = 0
