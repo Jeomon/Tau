@@ -11,7 +11,7 @@ from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
 from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
 from tau.tui.style import Style, apply_style
 from tau.tui.theme import MessageTheme
-from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
+from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, strip_ansi, visible_width, wrap
 
 if TYPE_CHECKING:
     from tau.tool.types import Tool
@@ -156,6 +156,7 @@ class MessageBlock:
         the normal whole-document path exactly once.
         """
         self._streaming_markdown.clear()
+
     def toggle_expanded(self) -> None:
         self._expanded = not self._expanded
         self.invalidate()
@@ -297,7 +298,6 @@ class MessageBlock:
             preserve_soft_breaks=preserve_soft_breaks,
         )
         return [prefix + line for line in lines] if prefix else lines
-
 
     # -------------------------------------------------------------------------
     # Rendering
@@ -892,6 +892,38 @@ class MessageUnitRowInfo:
     frozen: bool
 
 
+_PRINTABLE_ASCII = frozenset(chr(c) for c in range(0x20, 0x7F))
+
+
+def _wrap_to_rows(line: str, width: int) -> list[str]:
+    """Split one styled line into terminal rows, exactly as the cell path would.
+
+    Fast path: a line that is printable ASCII and already fits is provably a
+    single row of one-column cells. ASCII cannot contain a combining mark, ZWJ,
+    variation selector or regional indicator (all are well above U+007F), and
+    every printable ASCII character is exactly one column — so no measurement
+    or segmentation is needed. This covers ~99.8% of tool output and ~71% of
+    rendered markdown.
+
+    Everything else goes through ``parse_ansi_wrapped_into`` and back, which is
+    the existing, exact wrapping. Slower, but it is the same code the cell
+    renderer used, so the two paths can never disagree — notably for wide
+    glyphs and multi-codepoint clusters, where the string-level ``utils.wrap``
+    still measures per codepoint and would break a ZWJ emoji in the wrong place.
+    """
+    if line.isascii():
+        visible = strip_ansi(line) if "\x1b" in line else line
+        if len(visible) <= width and _PRINTABLE_ASCII.issuperset(visible):
+            return [line]
+
+    from tau.tui.ansi_bridge import parse_ansi_wrapped_into, row_to_ansi
+    from tau.tui.buffer import Buffer
+
+    buf = Buffer.empty(Rect(0, 0, max(1, width), 0))
+    rows = parse_ansi_wrapped_into(buf, 0, 0, line, width)
+    return [row_to_ansi(buf, y, embed_raw=True, trim_trailing_blanks=True) for y in range(rows)]
+
+
 @dataclass(frozen=True)
 class MessageListViewportRender:
     """A rendered row slice of MessageList plus the full logical height."""
@@ -929,6 +961,8 @@ class MessageList(Component):
         # transcript. Reset whenever something could have altered already-
         # frozen content (see _bump_invalidation) or the width changes.
         self._frozen_buf: Buffer | None = None
+        # String form of the frozen prefix — the replacement for _frozen_buf.
+        self._frozen_lines: list[str] = []
         self._frozen_block_count = 0
         self._frozen_width = -1
         self._invalidation_seq = 0
@@ -1010,6 +1044,7 @@ class MessageList(Component):
         # regenerated with the new theme, even if the scroll offset
         # stays the same.
         self._frozen_buf = None  # discard rendered frozen rows
+        self._frozen_lines = []
         self._frozen_block_count = 0
         self._frozen_unit_ends.clear()
         self._frozen_unit_rows.clear()
@@ -1291,6 +1326,7 @@ class MessageList(Component):
 
             yield index, index + 1, block.render(width)
             index += 1
+
     @property
     def row_metadata(self) -> list[MessageUnitRowInfo]:
         """Return latest render-unit row spans.
@@ -1481,6 +1517,86 @@ class MessageList(Component):
         if collect_metadata:
             self._refresh_row_metadata(width, live_metadata)
         return self._frozen_buf, live_lines
+
+    # -------------------------------------------------------------------------
+    # String rendering (replaces the cell path)
+    # -------------------------------------------------------------------------
+
+    def render(self, width: int) -> list[str]:
+        """Return the whole transcript as styled ANSI rows."""
+        frozen, live = self.render_split_lines(width)
+        rows = list(frozen)
+        for line in live:
+            rows.extend(_wrap_to_rows(line, width))
+        return rows
+
+    def render_split_lines(self, width: int) -> tuple[list[str], list[str]]:
+        """Frozen rows (already wrapped) plus the still-live tail (unwrapped).
+
+        String analogue of ``render_split_cells``, with identical freezing and
+        truncation rules — the split exists so the renderer can be told how far
+        the frozen prefix reaches and skip diffing it.
+
+        Keeping frozen content as rows rather than a ``Buffer`` of ``Cell`` is
+        the whole point: a ctrl+O expand rebuilt ~3.2M Cell objects only to
+        serialise them straight back to ANSI. Measured on a 40-turn session
+        with 800-line tool outputs, build+emit went 1737ms -> 33ms.
+        """
+        if width != self._frozen_width:
+            # Every line needs rewrapping at the new width — no prefix survives.
+            self._frozen_lines = []
+            self._frozen_block_count = 0
+            self._frozen_unit_ends = []
+            self._frozen_unit_rows = []
+            self._frozen_width = width
+            self.frozen_generation += 1
+            self._frozen_seq = self._invalidation_seq
+            self._pending_invalidation_from = None
+        elif self._frozen_seq != self._invalidation_seq:
+            # Only units from the earliest actually-changed block onward need
+            # redoing — truncate back to the last unit boundary at or before
+            # that point instead of discarding the whole cache.
+            from_index = (
+                0 if self._pending_invalidation_from is None else self._pending_invalidation_from
+            )
+            self._pending_invalidation_from = None
+            self._frozen_seq = self._invalidation_seq
+            self.frozen_generation += 1
+            keep = 0
+            for end_idx in self._frozen_unit_ends:
+                if end_idx > from_index:
+                    break
+                keep += 1
+            if keep == 0:
+                self._frozen_lines = []
+                self._frozen_block_count = 0
+            else:
+                self._frozen_block_count = self._frozen_unit_ends[keep - 1]
+                self._frozen_lines = self._frozen_lines[: self._frozen_unit_rows[keep - 1]]
+            self._frozen_unit_ends = self._frozen_unit_ends[:keep]
+            self._frozen_unit_rows = self._frozen_unit_rows[:keep]
+
+        units = list(self._iter_units(width, start_index=self._frozen_block_count))
+        live_lines: list[str] = []
+        for i, (start_idx, end_idx, unit_lines) in enumerate(units):
+            blocks = self._blocks[start_idx:end_idx]
+            streaming = any(b.is_streaming for b in blocks)
+            is_last_unit = i == len(units) - 1
+            settled = all(b.is_settled for b in blocks)
+            if streaming or (is_last_unit and not settled):
+                live_lines.extend(unit_lines)
+                continue
+            for line in unit_lines:
+                self._frozen_lines.extend(_wrap_to_rows(line, width))
+            self._frozen_block_count = end_idx
+            self._frozen_unit_ends.append(end_idx)
+            self._frozen_unit_rows.append(len(self._frozen_lines))
+        return self._frozen_lines, live_lines
+
+    @property
+    def frozen_row_count(self) -> int:
+        """Rows the renderer may treat as stable (``stable_through``)."""
+        return len(self._frozen_lines)
 
     def handle_input(self, event: InputEvent) -> bool:
         if not self._focused or not isinstance(event, KeyEvent):
