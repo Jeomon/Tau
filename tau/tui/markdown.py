@@ -259,13 +259,23 @@ def render_markdown(
     theme: MarkdownTheme,
     *,
     preserve_soft_breaks: bool = False,
+    cache: bool = True,
 ) -> list[str]:
-    """Render a markdown string to a list of ANSI-coloured terminal lines."""
-    return _render_markdown(text, width, theme, preserve_soft_breaks=preserve_soft_breaks)
+    """Render a markdown string to a list of ANSI-coloured terminal lines.
+
+    ``cache=False`` for text that is still changing — a streaming reply. The
+    parse cache exists so a *width* change does not re-parse settled history,
+    but streaming text differs on every token, so it never hits while still
+    paying to hash an ever-growing key, build a tree, retain it, and evict
+    something real to make room. Measured at ~10 ms per token on a long reply,
+    which is a visible spinner stutter.
+    """
+    return _render_markdown(
+        text, width, theme, preserve_soft_breaks=preserve_soft_breaks, cache=cache
+    )
 
 
-@lru_cache(maxsize=512)
-def _parse_markdown(text: str, preserve_soft_breaks: bool):
+def _parse_markdown_uncached(text: str, preserve_soft_breaks: bool):
     """Parse ``text`` into a mistletoe token tree, cached across widths.
 
     Parsing does not depend on width — only layout does — but a width change
@@ -289,6 +299,9 @@ def _parse_markdown(text: str, preserve_soft_breaks: bool):
     return doc, math_replacements
 
 
+_parse_markdown = lru_cache(maxsize=512)(_parse_markdown_uncached)
+
+
 def _render_markdown(
     text: str,
     width: int,
@@ -296,8 +309,10 @@ def _render_markdown(
     *,
     preserve_soft_breaks: bool = False,
     trim_trailing_blank_lines: bool = True,
+    cache: bool = True,
 ) -> list[str]:
-    doc, math_replacements = _parse_markdown(text, preserve_soft_breaks)
+    parse = _parse_markdown if cache else _parse_markdown_uncached
+    doc, math_replacements = parse(text, preserve_soft_breaks)
     _document, html_block, html_span, md_context = _mistletoe()
     with md_context(html_span, html_block):
         renderer = _Renderer(width, theme, preserve_soft_breaks, math_replacements)
@@ -472,6 +487,12 @@ class StreamingMarkdownRenderer:
             width,
             theme,
             preserve_soft_breaks=preserve_soft_breaks,
+            # The tail is the open block: different on every token, so caching
+            # its parse never hits, while still hashing an ever-growing key,
+            # retaining a tree per token and evicting settled history to make
+            # room. The newly_stable render above *is* cached -- that text is
+            # final, which is exactly what the cache is for.
+            cache=False,
         )
         frozen = self._frozen_lines
         # ``frozen`` only ever grows by appending (see above) and callers only
