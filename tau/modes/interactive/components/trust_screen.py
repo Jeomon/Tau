@@ -9,8 +9,6 @@ from tau.tui.text import Line, Span
 
 if TYPE_CHECKING:
     from tau.trust.manager import TrustOption
-    from tau.tui.buffer import Buffer
-    from tau.tui.geometry import Rect
     from tau.tui.theme import LayoutTheme
 
 
@@ -43,16 +41,15 @@ class TrustScreen(Component):
     # Component
     # -------------------------------------------------------------------------
 
-    def render_cells(self, area: Rect, buf: Buffer) -> int:
+    def render(self, width: int) -> list[str]:
+        from tau.tui.compose import line_to_ansi
+
         t = self._theme
         indent = "  "
-        row = area.y
+        out: list[str] = []
 
         def write(spans: list[Span]) -> None:
-            nonlocal row
-            buf.grow_to(row + 1)
-            buf.set_line(area.x, row, Line(spans), area.width)
-            row += 1
+            out.append(line_to_ansi(Line(spans), width))
 
         def blank() -> None:
             write([])
@@ -64,8 +61,8 @@ class TrustScreen(Component):
         blank()
 
         cwd_display = self._cwd
-        if len(cwd_display) > area.width - len(indent) - 2:
-            cwd_display = "…" + cwd_display[-(area.width - len(indent) - 3) :]
+        if len(cwd_display) > width - len(indent) - 2:
+            cwd_display = "…" + cwd_display[-(width - len(indent) - 3) :]
         write([Span(indent), Span(cwd_display, t.accent)])
         blank()
 
@@ -89,7 +86,7 @@ class TrustScreen(Component):
 
         write([Span(indent), Span("↑↓ navigate  ·  Enter select  ·  Esc cancel", t.muted)])
 
-        return row - area.y
+        return out
 
     def handle_input(self, event: InputEvent) -> bool:
         if not isinstance(event, KeyEvent):
