@@ -51,12 +51,12 @@ def expand(content: str, args_str: str) -> str:
 
         return match.group(0)
 
+    def _positional(match: re.Match) -> str:
+        idx = int(match.group(1)) - 1
+        return args[idx] if idx < len(args) else ""
+
     result = re.sub(r"\$\{([^}]+)\}", _brace, content)
     result = re.sub(r"\$(?:@|ARGUMENTS)\b", all_args, result)
-    result = re.sub(
-        r"\$([1-9])\b",
-        lambda m: args[int(m.group(1)) - 1] if int(m.group(1)) - 1 < len(args) else "",
-        result,
-    )
+    result = re.sub(r"\$([1-9])\b", _positional, result)
 
     return result

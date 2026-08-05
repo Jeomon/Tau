@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from tau.tui.style import apply_style
+from tau.tui.style import OSC8_CLOSE, apply_style
 from tau.tui.utils import RESET, visible_width, wrap
 
 if TYPE_CHECKING:
@@ -82,6 +82,15 @@ def _latex_node_cls():
     from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped]
 
     return LatexNodes2Text
+
+
+def _hyperlink(target: str, label: str) -> str:
+    """Wrap ``label`` in an OSC 8 hyperlink, or return it bare when there is no target.
+
+    An empty target would emit the close sequence as the open one, which
+    renders as plain text anyway — so it is skipped outright.
+    """
+    return f"\x1b]8;;{target}\x1b\\{label}{OSC8_CLOSE}" if target else label
 
 
 def _convert_script(marker: str, value: str) -> str:
@@ -877,26 +886,20 @@ class _Renderer:
                 inner_text = self._render_inline(node.children or [])
                 parts.append(apply_style(self.theme.strikethrough, inner_text))
             elif name == "Link":
-                inner = self._render_inline(node.children or []) or getattr(node, "target", "")
-                target = self._safe_link_target(getattr(node, "target", ""))
-                label = apply_style(self.theme.link_text, inner)
-                parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
+                raw_target = getattr(node, "target", "")
+                inner = self._render_inline(node.children or []) or raw_target
+                target = self._safe_link_target(raw_target)
+                parts.append(_hyperlink(target, apply_style(self.theme.link_text, inner)))
             elif name == "AutoLink":
                 target = self._safe_link_target(getattr(node, "target", ""))
                 inner = self._render_inline(node.children or []) or target
-                label = apply_style(self.theme.link_url, inner)
-                parts.append(f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\" if target else label)
+                parts.append(_hyperlink(target, apply_style(self.theme.link_url, inner)))
             elif name == "Image":
                 alt = self._render_inline(node.children or [])
                 url = getattr(node, "src", "") or getattr(node, "target", "")
                 label = f"[image: {alt}]" if alt else "[image]"
                 styled_label = apply_style(self.theme.italic, label)
-                target = self._image_link_target(url)
-                parts.append(
-                    f"\x1b]8;;{target}\x1b\\{styled_label}\x1b]8;;\x1b\\"
-                    if target
-                    else styled_label
-                )
+                parts.append(_hyperlink(self._image_link_target(url), styled_label))
             elif name in ("HTMLSpan", "HtmlSpan"):
                 content = getattr(node, "content", "")
                 if re.fullmatch(r"<br\s*/?>", content, re.IGNORECASE):
@@ -940,7 +943,7 @@ class _Renderer:
                 return match.group(0)
             target = self._safe_link_target(url)
             label = apply_style(self.theme.link_url, url)
-            return f"\x1b]8;;{target}\x1b\\{label}\x1b]8;;\x1b\\{trailing}"
+            return _hyperlink(target, label) + trailing
 
         return _BARE_URL_RE.sub(replace, text)
 

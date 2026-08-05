@@ -99,37 +99,52 @@ class ExtensionRuntime:
 
             runtime = self.runtime_ref.runtime
             ctx = ExtensionContext.from_runtime(runtime) if runtime is not None else None
-            begin = getattr(runtime, "_begin_extension_callback", None)
-            end = getattr(runtime, "_end_extension_callback", None)
-            if callable(begin):
-                begin()
-            try:
-                result = handler(event, ctx)
-                if inspect.isawaitable(result):
-                    result = await result
-                return result
-            except Exception:
-                tb = traceback.format_exc()
-                _log.warning(
-                    "extension %s handler for %r raised: %s",
-                    ext.path,
-                    getattr(event, "type", "unknown"),
-                    tb.strip().splitlines()[-1],
-                )
-                self._record_error(
-                    ExtensionError(
-                        extension_path=ext.path,
-                        event=getattr(event, "type", "unknown"),
-                        error=tb.strip().splitlines()[-1],
-                        stack=tb,
-                    )
-                )
-                return None
-            finally:
-                if callable(end):
-                    end()
+            return await self._invoke_handler(
+                ext, handler, event, ctx, getattr(event, "type", "unknown")
+            )
 
         return wrapped
+
+    async def _invoke_handler(
+        self, ext: Any, handler: Any, event: Any, ctx: Any, event_type: str
+    ) -> Any:
+        """Run one extension handler, bracketed by the callback-depth counters.
+
+        A raising handler is recorded and swallowed: one bad extension must not
+        abort delivery to the others, nor let its traceback escape into the
+        runtime that emitted the event. The depth counters must be balanced
+        even then, hence the ``finally``.
+        """
+        runtime = self.runtime_ref.runtime
+        begin = getattr(runtime, "_begin_extension_callback", None)
+        end = getattr(runtime, "_end_extension_callback", None)
+        if callable(begin):
+            begin()
+        try:
+            result = handler(event, ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except Exception:
+            tb = traceback.format_exc()
+            _log.warning(
+                "extension %s handler for %r raised: %s",
+                ext.path,
+                event_type,
+                tb.strip().splitlines()[-1],
+            )
+            self._record_error(
+                ExtensionError(
+                    extension_path=ext.path,
+                    event=event_type,
+                    error=tb.strip().splitlines()[-1],
+                    stack=tb,
+                )
+            )
+            return None
+        finally:
+            if callable(end):
+                end()
 
     async def _dispatch(self, event: Any) -> None:
         """Catch-all hooks subscriber — re-dispatches every event to extension handlers.
@@ -150,33 +165,7 @@ class ExtensionRuntime:
 
         for ext in self._extensions:
             for handler in ext.handlers.get(event_type, []):
-                begin = getattr(runtime, "_begin_extension_callback", None)
-                end = getattr(runtime, "_end_extension_callback", None)
-                if callable(begin):
-                    begin()
-                try:
-                    result = handler(event, ctx)
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception:
-                    tb = traceback.format_exc()
-                    _log.warning(
-                        "extension %s handler for %r raised: %s",
-                        ext.path,
-                        event_type,
-                        tb.strip().splitlines()[-1],
-                    )
-                    self._record_error(
-                        ExtensionError(
-                            extension_path=ext.path,
-                            event=event_type,
-                            error=tb.strip().splitlines()[-1],
-                            stack=tb,
-                        )
-                    )
-                finally:
-                    if callable(end):
-                        end()
+                await self._invoke_handler(ext, handler, event, ctx, event_type)
 
     def unsubscribe(self) -> None:
         """Detach from the hooks bus (called before hot-reload replaces this runtime)."""

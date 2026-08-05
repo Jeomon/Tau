@@ -1047,14 +1047,23 @@ class Engine:
         _log.debug("agent loop ended: reason=%s", end_reason.value)
         await emit(AgentEndEvent(messages=messages, reason=end_reason))
 
-    async def run(self, ctx: EngineContext, signal: AbortSignal | None = None) -> None:
-        """Apply context and start a fresh loop. Uses the provided signal or creates one."""
+    def _begin_turn(self, signal: AbortSignal | None) -> None:
+        """Adopt the caller's abort signal and clear per-turn state.
+
+        Shared by ``run`` (fresh context) and ``_loop_continue`` (resume from
+        ``state.messages``); both must start from the same clean slate or a
+        stale error/streaming message leaks into the next turn.
+        """
         self._signal = signal or asyncio.Event()
         self.state.error_message = None
         self.state.streaming_message = None
         self.state.pending_tool_calls.clear()
         self.state.is_streaming = True
         self.state.idle_event.clear()
+
+    async def run(self, ctx: EngineContext, signal: AbortSignal | None = None) -> None:
+        """Apply context and start a fresh loop. Uses the provided signal or creates one."""
+        self._begin_turn(signal)
         self.system_prompt = ctx.system_prompt
         self.tools = ctx.tools
         self.state.system_prompt = ctx.system_prompt
@@ -1104,49 +1113,18 @@ class Engine:
 
         if not self.state.messages:
             # Edge case: session was reset but follow-up messages were enqueued before any LLM turn.
-            if self.state.follow_up_queue and not self.state.follow_up_queue.is_empty():
-                follow_up_messages = await self.state.follow_up_queue.dequeue()
-                # Surface the dequeued messages as real conversation entries
-                # (start/end events) so hooks persist them like any user message.
-                await self._inject_queued("followup", follow_up_messages)
-                await self.run(
-                    EngineContext(
-                        system_prompt=self.state.system_prompt or "",
-                        messages=list(self.state.messages),
-                        tools=self.tools,
-                    ),
-                    signal=signal,
-                )
+            if await self._drain_queue_into_turn("followup", signal):
                 return
             raise RuntimeError("No messages to continue from")
 
         last_message = self.state.messages[-1]
         match last_message.role:
             case Role.ASSISTANT:
-                if self.state.steering_queue and not self.state.steering_queue.is_empty():
-                    steering_messages = await self.state.steering_queue.dequeue()
-                    await self._inject_queued("steering", steering_messages)
-                    await self.run(
-                        EngineContext(
-                            system_prompt=self.state.system_prompt or "",
-                            messages=list(self.state.messages),
-                            tools=self.tools,
-                        ),
-                        signal=signal,
-                    )
+                # Steering first: it is a mid-turn interjection, so it belongs
+                # ahead of anything queued to follow the turn.
+                if await self._drain_queue_into_turn("steering", signal):
                     return
-
-                if self.state.follow_up_queue and not self.state.follow_up_queue.is_empty():
-                    follow_up_messages = await self.state.follow_up_queue.dequeue()
-                    await self._inject_queued("followup", follow_up_messages)
-                    await self.run(
-                        EngineContext(
-                            system_prompt=self.state.system_prompt or "",
-                            messages=list(self.state.messages),
-                            tools=self.tools,
-                        ),
-                        signal=signal,
-                    )
+                if await self._drain_queue_into_turn("followup", signal):
                     return
 
                 raise RuntimeError("Cannot continue from message role: assistant")
@@ -1155,18 +1133,39 @@ class Engine:
 
         await self._loop_continue(signal)
 
+    async def _drain_queue_into_turn(
+        self, queue_name: Literal["steering", "followup"], signal: AbortSignal | None
+    ) -> bool:
+        """Start a turn from one queue's pending messages; False if it was empty.
+
+        The dequeued messages are surfaced as real conversation entries
+        (start/end events) before the run, so hooks persist them like any user
+        message and the context snapshot below already contains them.
+        """
+        queue = (
+            self.state.steering_queue if queue_name == "steering" else self.state.follow_up_queue
+        )
+        if not queue or queue.is_empty():
+            return False
+        messages = await queue.dequeue()
+        await self._inject_queued(queue_name, messages)
+        await self.run(
+            EngineContext(
+                system_prompt=self.state.system_prompt or "",
+                messages=list(self.state.messages),
+                tools=self.tools,
+            ),
+            signal=signal,
+        )
+        return True
+
     async def _loop_continue(self, signal: AbortSignal | None = None) -> None:
         """Re-enter the loop with existing state.messages.
 
         Used when the last message is a tool result. Preserve the caller's
         abort signal instead of silently replacing it during continuation.
         """
-        self._signal = signal or asyncio.Event()
-        self.state.error_message = None
-        self.state.streaming_message = None
-        self.state.pending_tool_calls.clear()
-        self.state.is_streaming = True
-        self.state.idle_event.clear()
+        self._begin_turn(signal)
         try:
             await self._loop(self.state.messages, self.process_events, self._signal)
         finally:

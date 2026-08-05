@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -532,20 +533,15 @@ class Agent:
         # must not run on the event loop thread — same reasoning as
         # _on_message_rollback's to_thread use below, and this fires far more
         # often (every assistant/tool/user message, not just on abort).
-        match message:
-            case AssistantMessage():
-                from tau.session.compaction import effective_usage_tokens
+        if not isinstance(message, AssistantMessage | ToolMessage | UserMessage):
+            return
+        if isinstance(message, AssistantMessage):
+            from tau.session.compaction import effective_usage_tokens
 
-                total = effective_usage_tokens(message.usage)
-                if total:
-                    self._context_tokens = total
-                await asyncio.to_thread(self._session_manager.append_message, message)
-            case ToolMessage():
-                await asyncio.to_thread(self._session_manager.append_message, message)
-            case UserMessage():
-                await asyncio.to_thread(self._session_manager.append_message, message)
-            case _:
-                pass
+            total = effective_usage_tokens(message.usage)
+            if total:
+                self._context_tokens = total
+        await asyncio.to_thread(self._session_manager.append_message, message)
 
     async def _on_message_rollback(self, event: MessageRollbackEvent) -> None:
         """Retract the last ``event.count`` persisted messages from the session.
@@ -1011,7 +1007,14 @@ class Agent:
             tools=self._engine.tools,
         )
 
-    async def _run(self, ctx: EngineContext) -> None:
+    @contextlib.contextmanager
+    def _session_sync(self):
+        """Persist and render engine messages for the duration of a turn.
+
+        Both turn entry points need the same wiring, and both must unsubscribe
+        even when the turn raises — otherwise a failed turn leaves handlers
+        attached and the next one double-persists every message.
+        """
         unsubscribe = self.hooks.register(
             "message_end",
             lambda event: self._on_message_end(event),
@@ -1021,14 +1024,21 @@ class Agent:
             lambda event: self._on_message_rollback(event),
         )
         try:
-            await self._engine.run(ctx, signal=self._signal)
+            yield
         finally:
             unsubscribe()
             unsubscribe_rollback()
 
+    def _raise_if_engine_failed(self) -> None:
+        """Surface an engine-recorded error as an exception to the caller."""
         error = self._engine.state.error_message
         if error is not None:
             raise RuntimeError(f"Agent failed: {error}.")
+
+    async def _run(self, ctx: EngineContext) -> None:
+        with self._session_sync():
+            await self._engine.run(ctx, signal=self._signal)
+        self._raise_if_engine_failed()
 
     async def _run_continue(self) -> None:
         """Run a continuation turn that drains queued steering/follow-up messages.
@@ -1045,20 +1055,6 @@ class Agent:
         session_ctx = self._session_manager.build_session_context()
         self._engine.state.messages = _to_llm_messages(session_ctx.messages)
 
-        unsubscribe = self.hooks.register(
-            "message_end",
-            lambda event: self._on_message_end(event),
-        )
-        unsubscribe_rollback = self.hooks.register(
-            "message_rollback",
-            lambda event: self._on_message_rollback(event),
-        )
-        try:
+        with self._session_sync():
             await self._engine.run_continue(signal=self._signal)
-        finally:
-            unsubscribe()
-            unsubscribe_rollback()
-
-        error = self._engine.state.error_message
-        if error is not None:
-            raise RuntimeError(f"Agent failed: {error}.")
+        self._raise_if_engine_failed()

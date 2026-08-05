@@ -246,13 +246,17 @@ def detect_capabilities() -> TerminalCapabilities:
     if term.startswith("screen"):
         return TerminalCapabilities(images=None, truecolor=truecolor, hyperlinks=False)
 
-    if os.environ.get("KITTY_WINDOW_ID") or term_program == "kitty":
-        return TerminalCapabilities(images="kitty", truecolor=True, hyperlinks=True)
-
-    if term_program == "ghostty" or "ghostty" in term or os.environ.get("GHOSTTY_RESOURCES_DIR"):
-        return TerminalCapabilities(images="kitty", truecolor=True, hyperlinks=True)
-
-    if os.environ.get("WEZTERM_PANE") or term_program == "wezterm":
+    # kitty, ghostty and wezterm all speak the kitty graphics protocol and are
+    # truecolor + hyperlink capable, so they share one answer.
+    if (
+        os.environ.get("KITTY_WINDOW_ID")
+        or term_program == "kitty"
+        or term_program == "ghostty"
+        or "ghostty" in term
+        or os.environ.get("GHOSTTY_RESOURCES_DIR")
+        or os.environ.get("WEZTERM_PANE")
+        or term_program == "wezterm"
+    ):
         return TerminalCapabilities(images="kitty", truecolor=True, hyperlinks=True)
 
     if os.environ.get("ITERM_SESSION_ID") or term_program == "iterm.app":

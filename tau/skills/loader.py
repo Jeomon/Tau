@@ -3,24 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tau.skills.types import LoadSkillsResult, Skill, SkillLoadError
-
-
-def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
-    """Parse YAML frontmatter from skill markdown text."""
-    text = text.lstrip("\n")
-    if not text.startswith("---"):
-        return {}, text
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}, text
-    fm_text = text[3:end].strip()
-    body = text[end + 4 :].lstrip("\n")
-    meta: dict[str, str] = {}
-    for line in fm_text.splitlines():
-        if ":" in line:
-            key, _, val = line.partition(":")
-            meta[key.strip().lower()] = val.strip()
-    return meta, body
+from tau.utils.frontmatter import parse_frontmatter
 
 
 def load_skill_from_file(
@@ -32,7 +15,7 @@ def load_skill_from_file(
     except Exception as exc:
         return None, f"read error: {exc}"
 
-    meta, body = _parse_frontmatter(text)
+    meta, body = parse_frontmatter(text)
     body = body.strip()
     if not body:
         return None, "skill body is empty"

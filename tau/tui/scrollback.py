@@ -188,15 +188,13 @@ class ScrollbackRenderer:
                 last_changed = y
 
         if first_changed == -1:
-            self._commit(lines, width, height)
-            self._position_hw_cursor(cursor_pos, new_rows)
+            self._commit_frame(lines, width, height, cursor_pos, new_rows)
             return
 
         if first_changed < self._viewport_top:
             if new_rows == prev_rows:
                 if last_changed < self._viewport_top:
-                    self._commit(lines, width, height)
-                    self._position_hw_cursor(cursor_pos, new_rows)
+                    self._commit_frame(lines, width, height, cursor_pos, new_rows)
                     return
                 first_changed = self._viewport_top
             else:
@@ -222,8 +220,7 @@ class ScrollbackRenderer:
                     self._hw_cursor_row += delta
                     self._viewport_top = shifted_vt
                     self._max_lines = max(0, self._max_lines + delta)
-                    self._commit(lines, width, height)
-                    self._position_hw_cursor(cursor_pos, new_rows)
+                    self._commit_frame(lines, width, height, cursor_pos, new_rows)
                     return
                 self._full_render(lines, cursor_pos, width, height, clear=True)
                 return
@@ -296,6 +293,23 @@ class ScrollbackRenderer:
         self._prev = lines
         self._prev_width = width
         self._prev_height = height
+
+    def _commit_frame(
+        self,
+        lines: list[str],
+        width: int,
+        height: int,
+        cursor_pos: Position | None,
+        new_rows: int,
+    ) -> None:
+        """Record the frame as the new committed state and park the cursor.
+
+        Every early return from ``_render`` that decides no rows need rewriting
+        still has to do both: recording without repositioning would leave the
+        hardware cursor wherever the previous write ended.
+        """
+        self._commit(lines, width, height)
+        self._position_hw_cursor(cursor_pos, new_rows)
 
     def _full_render(
         self,

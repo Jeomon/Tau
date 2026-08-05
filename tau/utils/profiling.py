@@ -69,15 +69,14 @@ def span(name: str) -> Generator[None]:
 
 @asynccontextmanager
 async def aspan(name: str):
-    """Time an async block under ``name``. No-op unless TAU_PROFILE=1."""
-    if not _enabled:
+    """Time an async block under ``name``. No-op unless TAU_PROFILE=1.
+
+    Delegates to :func:`span`: the timing is pure ``perf_counter`` arithmetic
+    with nothing to await, so the async wrapper only exists to be usable with
+    ``async with``.
+    """
+    with span(name):
         yield
-        return
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        _record(name, time.perf_counter() - start)
 
 
 def record_phases(prefix: str, marks: list[tuple[str, float]]) -> None:

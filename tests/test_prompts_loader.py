@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from tau.prompts.loader import _parse_frontmatter, load_template_from_file, load_templates_from_dir
+from tau.prompts.loader import load_template_from_file, load_templates_from_dir
+from tau.utils.frontmatter import parse_frontmatter as _parse_frontmatter
 
 
 class TestParseFrontmatter:

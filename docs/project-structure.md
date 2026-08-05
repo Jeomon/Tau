@@ -169,6 +169,7 @@ tau/
 │   └── utils.py
 └── utils/                  # Cross-cutting helpers
     ├── format.py           # human_size and friends
+    ├── frontmatter.py      # Shared `---` header parser for skills and prompts
     ├── fs.py               # Filesystem helpers
     ├── http_proxy.py       # Proxy resolution from settings or env
     ├── image_processing.py
@@ -299,6 +300,7 @@ Tau-specific UI composition lives in `modes/interactive/`, never in `tui/`. See
 | `utils/timing.py` | Startup timing report |
 | `utils/version_check.py` | PyPI update check for the installed distribution |
 | `utils/logging.py` | Per-session log files under `~/.tau/logs/` |
+| `utils/frontmatter.py` | `---` header parser shared by skill and prompt loading |
 
 ## Key Types
 

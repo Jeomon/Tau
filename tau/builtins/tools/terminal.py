@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import OutputAccumulator, OutputSnapshot
+from tau.builtins.tools.utils import OutputAccumulator, OutputSnapshot, read_or_abort
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -135,28 +135,23 @@ class TerminalTool(Tool):
             spawn_options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             spawn_options["start_new_session"] = True
+        # stderr is folded into stdout so the tool returns one interleaved
+        # stream; stdin is closed so a command that prompts fails fast instead
+        # of blocking on a terminal that isn't there.
+        spawn_options.update(
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=cwd,
+        )
 
         try:
             if shell_path:
                 proc = await asyncio.create_subprocess_exec(
-                    shell_path,
-                    "-c",
-                    command,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    cwd=cwd,
-                    **spawn_options,
+                    shell_path, "-c", command, **spawn_options
                 )
             else:
-                proc = await asyncio.create_subprocess_shell(
-                    command,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    cwd=cwd,
-                    **spawn_options,
-                )
+                proc = await asyncio.create_subprocess_shell(command, **spawn_options)
         except OSError as e:
             return ToolResult.error(invocation.id, f"Failed to start command: {e}")
 
@@ -230,29 +225,15 @@ class TerminalTool(Tool):
         async def _read_loop() -> None:
             nonlocal cancelled
             assert proc.stdout is not None
+            stdout = proc.stdout
             while True:
                 if signal is not None and signal.is_set():
                     cancelled = True
                     break
-                read_task = asyncio.create_task(proc.stdout.read(8192))
-                signal_task = asyncio.create_task(signal.wait()) if signal is not None else None
-                waiters: set[asyncio.Task[Any]] = {read_task}
-                if signal_task is not None:
-                    waiters.add(signal_task)
-                try:
-                    done, _ = await asyncio.wait(
-                        waiters,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    if signal_task is not None and signal_task in done:
-                        cancelled = True
-                        break
-                    data = read_task.result()
-                finally:
-                    for task in waiters:
-                        if not task.done():
-                            task.cancel()
-                    await asyncio.gather(*waiters, return_exceptions=True)
+                data = await read_or_abort(lambda: stdout.read(8192), signal)
+                if data is None:
+                    cancelled = True
+                    break
                 if not data:
                     break
                 await asyncio.to_thread(output.append, data)

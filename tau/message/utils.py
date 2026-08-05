@@ -32,6 +32,17 @@ def detect_image_mime(data: bytes) -> str:
     Returns:
         The MIME type string (e.g., 'image/jpeg', 'image/png').
     """
+    return sniff_image_mime(data) or "image/png"
+
+
+def sniff_image_mime(data: bytes) -> str | None:
+    """The MIME type of ``data``, or None if it is not a recognized image.
+
+    The strict counterpart of :func:`detect_image_mime`: it never guesses, so
+    callers that need to tell "this is an image" apart from "this is some other
+    binary format" (a zip, a compiled object) can, instead of mislabeling every
+    non-text file as a PNG.
+    """
     if data[:3] == b"\xff\xd8\xff":
         return "image/jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -40,7 +51,7 @@ def detect_image_mime(data: bytes) -> str:
         return "image/gif"
     if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
         return "image/webp"
-    return "image/png"
+    return None
 
 
 def detect_audio_mime(data: bytes) -> str:

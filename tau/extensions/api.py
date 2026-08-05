@@ -756,11 +756,32 @@ class ExtensionAPI:
                 return raw
         return reg.default
 
+    # ── Live runtime access ───────────────────────────────────────────────────
+
+    def _live_runtime(self):
+        """The Runtime this extension is attached to, or None if there isn't one.
+
+        Extension code can run before the runtime is wired up (module import,
+        early hooks) and after it is torn down, so every accessor below has to
+        tolerate its absence rather than assume it.
+        """
+        return self._runtime_ref.runtime if self._runtime_ref is not None else None
+
+    def _live_engine(self):
+        """The live engine behind the runtime's agent, or None at any missing link."""
+        runtime = self._live_runtime()
+        if runtime is None:
+            return None
+        agent = getattr(runtime, "agent", None)
+        if agent is None:
+            return None
+        return getattr(agent, "_engine", None)
+
     # ── Session metadata ──────────────────────────────────────────────────────
 
     def set_session_name(self, name: str) -> None:
         """Set the display name for the current session (shown in the session picker)."""
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return
         sm = getattr(runtime, "session_manager", None)
@@ -769,7 +790,7 @@ class ExtensionAPI:
 
     def get_session_name(self) -> str | None:
         """Return the current session display name, or None if not set."""
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return None
         sm = getattr(runtime, "session_manager", None)
@@ -781,7 +802,7 @@ class ExtensionAPI:
         Labels are user-visible markers useful for bookmarking important
         branch points.  Pass ``None`` or an empty string to clear the label.
         """
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return
         sm = getattr(runtime, "session_manager", None)
@@ -809,7 +830,7 @@ class ExtensionAPI:
                     if entry.type == "custom" and entry.custom_type == "my-ext:checkpoint":
                         resume_from(entry.data["step"])
         """
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return None
         sm = getattr(runtime, "session_manager", None)
@@ -824,7 +845,7 @@ class ExtensionAPI:
 
         Each dict contains ``name`` and ``description`` keys.
         """
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return []
         cmds = getattr(getattr(runtime, "commands", None), "_registry", {})
@@ -834,13 +855,7 @@ class ExtensionAPI:
 
     def get_active_tools(self) -> list[str]:
         """Return the names of all tools currently enabled for the agent."""
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
-        if runtime is None:
-            return []
-        agent = getattr(runtime, "agent", None)
-        if agent is None:
-            return []
-        engine = getattr(agent, "_engine", None)
+        engine = self._live_engine()
         if engine is None:
             return []
         return [t.name for t in getattr(engine, "tools", [])]
@@ -859,7 +874,7 @@ class ExtensionAPI:
         Use this to introspect another extension's (or a built-in's) tool
         contract — e.g. to wrap it, validate against it, or surface it in a UI.
         """
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return []
         ctx = getattr(runtime, "_context", None)
@@ -891,16 +906,10 @@ class ExtensionAPI:
 
     def set_active_tools(self, tool_names: list[str]) -> None:
         """Restrict the agent to only the named tools (or re-enable all if the list is empty)."""
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
-        if runtime is None:
-            return
-        agent = getattr(runtime, "agent", None)
-        if agent is None:
-            return
-        engine = getattr(agent, "_engine", None)
+        engine = self._live_engine()
         if engine is None:
             return
-        ctx = getattr(runtime, "_context", None)
+        ctx = getattr(self._live_runtime(), "_context", None)
         registry = getattr(ctx, "tool_registry", None)
         if registry is None:
             return
@@ -915,13 +924,7 @@ class ExtensionAPI:
 
     def get_thinking_level(self) -> str:
         """Return the current thinking level identifier (e.g. ``'low'``, ``'high'``)."""
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
-        if runtime is None:
-            return "none"
-        agent = getattr(runtime, "agent", None)
-        if agent is None:
-            return "none"
-        engine = getattr(agent, "_engine", None)
+        engine = self._live_engine()
         if engine is None:
             return "none"
         # The live knob is the LLM request options; ``None`` there means "off"
@@ -935,13 +938,7 @@ class ExtensionAPI:
         """Set the thinking level.  Accepts any ThinkingLevel string value."""
         import asyncio
 
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
-        if runtime is None:
-            return
-        agent = getattr(runtime, "agent", None)
-        if agent is None:
-            return
-        engine = getattr(agent, "_engine", None)
+        engine = self._live_engine()
         if engine is None:
             return
         from tau.inference.types import ThinkingLevel
@@ -955,7 +952,7 @@ class ExtensionAPI:
         engine.llm.api.options.thinking_level = None if tl == ThinkingLevel.Off else tl
         from tau.hooks.types import ThinkingLevelSelectEvent
 
-        hooks = getattr(runtime, "hooks", None)
+        hooks = getattr(self._live_runtime(), "hooks", None)
         if hooks is not None:
             asyncio.ensure_future(hooks.emit(ThinkingLevelSelectEvent(level=tl)))
 
@@ -972,7 +969,7 @@ class ExtensionAPI:
         """
         import asyncio
 
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return
         set_fn = getattr(runtime, "set_model", None)
@@ -1002,7 +999,7 @@ class ExtensionAPI:
         """
         import asyncio
 
-        runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+        runtime = self._live_runtime()
         if runtime is None:
             return
         reload_fn = getattr(runtime, "reload_extensions", None)

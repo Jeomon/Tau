@@ -15,7 +15,7 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -826,21 +826,13 @@ def looks_like_binary(data: bytes) -> bool:
 def detect_image_mime(data: bytes) -> str | None:
     """Return the MIME type if ``data`` starts with a recognized image magic number.
 
-    Unlike ``tau.message.utils.detect_image_mime``, this never guesses — it
-    returns ``None`` for anything that isn't unambiguously PNG/JPEG/GIF/WEBP,
-    so callers can tell "this is an image" apart from "this is some other
-    binary format" (e.g. a zip, a compiled object) instead of mislabeling
-    every non-text file as a PNG.
+    Thin re-export of ``tau.message.utils.sniff_image_mime`` under the name the
+    tools already import; unlike ``detect_image_mime`` there, it never guesses,
+    so a non-image binary comes back as ``None`` rather than "image/png".
     """
-    if data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
+    from tau.message.utils import sniff_image_mime
+
+    return sniff_image_mime(data)
 
 
 def resolve_tool_path(raw_path: str, cwd: Path | None) -> Path:
@@ -874,6 +866,38 @@ async def serialize_file_mutation(path: Path) -> AsyncIterator[None]:
                 _locks.pop(key)
             else:
                 _locks[key] = (current_lock, users - 1)
+
+
+async def read_or_abort(
+    read: Callable[[], Coroutine[Any, Any, bytes]],
+    signal: AbortSignal | None,
+) -> bytes | None:
+    """Await one read, racing it against ``signal``. ``None`` means aborted.
+
+    Every waiter is cancelled *and awaited* on the way out, including the ones
+    ``asyncio.wait`` already reported as done: cancelling a task without
+    awaiting it leaves it dangling until the GC reaps it (with a "Task was
+    destroyed but it is pending" warning) instead of unwinding now.
+
+    Shared by the two streaming readers — the terminal tool's chunked
+    ``read(8192)`` and ``run_bounded_lines``' ``readline()`` — which drifted
+    apart once already when this cleanup was fixed in only one of them.
+    """
+    read_task = asyncio.create_task(read())
+    signal_task = asyncio.create_task(signal.wait()) if signal is not None else None
+    waiters: set[asyncio.Task[Any]] = {read_task}
+    if signal_task is not None:
+        waiters.add(signal_task)
+    try:
+        done, _pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        if signal_task is not None and signal_task in done:
+            return None
+        return read_task.result()
+    finally:
+        for task in waiters:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
 
 
 async def run_bounded_lines(
@@ -915,35 +939,15 @@ async def run_bounded_lines(
     async def _read_loop() -> None:
         nonlocal cancelled
         assert process.stdout is not None
+        stdout = process.stdout
         while True:
             if signal is not None and signal.is_set():
                 cancelled = True
                 break
-            read_task = asyncio.create_task(process.stdout.readline())
-            signal_task = asyncio.create_task(signal.wait()) if signal is not None else None
-            waiters: set[asyncio.Task[Any]] = {read_task}
-            if signal_task is not None:
-                waiters.add(signal_task)
-            try:
-                done, _pending = await asyncio.wait(
-                    waiters,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if signal_task is not None and signal_task in done:
-                    cancelled = True
-                    break
-                data = read_task.result()
-            finally:
-                # Cancel and await every waiter, not just the ones asyncio.wait()
-                # reported as still pending — cancelling a task without awaiting
-                # it leaves it dangling until the GC reaps it (with a "Task was
-                # destroyed but it is pending" warning) instead of actually
-                # unwinding it now. Mirrors the read loop in
-                # builtins/tools/terminal.py, which this was missing relative to.
-                for task in waiters:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*waiters, return_exceptions=True)
+            data = await read_or_abort(stdout.readline, signal)
+            if data is None:
+                cancelled = True
+                break
             if not data:
                 break
             lines.append(data.decode("utf-8", errors="replace").rstrip("\r\n"))

@@ -624,15 +624,27 @@ class Runtime:
         """Reload now when safe, otherwise queue one reload for the next safe boundary."""
         from tau.extensions.api import LoadExtensionsResult
 
-        if self._stopped:
+        if self._defer_reload_if_busy():
             return LoadExtensionsResult()
+        async with self._reload_lock:
+            return await self._reload_extensions_now()
+
+    def _defer_reload_if_busy(self) -> bool:
+        """True when a reload must be queued rather than run now.
+
+        Swapping tools and prompts while an extension callback is on the stack
+        or the agent is mid-turn pulls them out from under code still using
+        them, so the request is coalesced into one deferred pass instead. A
+        stopped runtime never reloads at all.
+        """
+        if self._stopped:
+            return True
         agent = self._context.agent
         if self._extension_callback_depth > 0 or (agent is not None and not agent.is_idle()):
             self._reload_pending = True
             self._ensure_deferred_reload()
-            return LoadExtensionsResult()
-        async with self._reload_lock:
-            return await self._reload_extensions_now()
+            return True
+        return False
 
     def _ensure_deferred_reload(self) -> None:
         """Start the single task that drains queued reload requests."""
@@ -666,12 +678,9 @@ class Runtime:
         Applies all changes to the live engine and rebuilds the system prompt
         immediately — no new session required.
         """
-        from tau.agent.prompt.builder import build_prompt
-        from tau.agent.prompt.types import PromptOptions
         from tau.extensions.api import LoadExtensionsResult, _RuntimeRef
         from tau.extensions.runtime import ExtensionRuntime
         from tau.resources.types import ResourceContext
-        from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
         if sm is None:
@@ -738,34 +747,13 @@ class Runtime:
         self.commands.replace_source("extension", new_ext.get_commands())
 
         # ── Sync tools via registry then push to engine ───────────────────────
-        engine = self._context.engine
-        agent = self._context.agent
-        if engine is not None:
-            registry = self._context.tool_registry
-            registry.replace_source(
-                "extension",
-                [tool for tool in new_ext.get_tools() if self._tool_enabled(tool.name)],
-            )
-            registry.sync_to_engine(engine, layout=getattr(self, "_layout", None))
-
-            if agent is not None:
-                extra_appends = new_ext.get_prompt_appends()
-                skills = skill_registry.list()
-                agent._system_prompt = (
-                    self._config.system_prompt
-                    or resources.system_prompt
-                    or build_prompt(
-                        PromptOptions(
-                            cwd=cwd,
-                            tools=registry.list(),
-                            extra_appends=extra_appends,
-                            skills=skills,
-                            disable_context_files=self._config.disable_context_files,
-                            project_trusted=self._context.project_trusted,
-                            context_files=resources.context_files,
-                        )
-                    )
-                )
+        self._resync_extension_tools_and_prompt(
+            new_ext.get_tools(),
+            cwd=cwd,
+            extra_appends=new_ext.get_prompt_appends(),
+            system_prompt=resources.system_prompt,
+            context_files=resources.context_files,
+        )
 
         for ext in new_ext.get_extensions():
             await self._emit_to_extension(ext, "extension_reloaded")
@@ -774,16 +762,60 @@ class Runtime:
 
         return load_result
 
+    def _resync_extension_tools_and_prompt(
+        self,
+        tools: list,
+        *,
+        cwd,
+        extra_appends,
+        system_prompt: str | None,
+        context_files,
+    ) -> None:
+        """Swap extension-sourced tools into the engine and rebuild the prompt.
+
+        Both reload paths (all extensions, and one extension in place) end here;
+        they differ only in where the replacement tools and the prompt sources
+        come from. An explicitly configured ``system_prompt`` always wins, then
+        the resource-provided one, and only then is a prompt built.
+        """
+        from tau.agent.prompt.builder import build_prompt
+        from tau.agent.prompt.types import PromptOptions
+        from tau.skills.registry import skill_registry
+
+        engine = self._context.engine
+        if engine is None:
+            return
+        registry = self._context.tool_registry
+        registry.replace_source(
+            "extension",
+            [tool for tool in tools if self._tool_enabled(tool.name)],
+        )
+        registry.sync_to_engine(engine, layout=getattr(self, "_layout", None))
+
+        agent = self._context.agent
+        if agent is None:
+            return
+        agent._system_prompt = (
+            self._config.system_prompt
+            or system_prompt
+            or build_prompt(
+                PromptOptions(
+                    cwd=cwd,
+                    tools=registry.list(),
+                    extra_appends=extra_appends,
+                    skills=skill_registry.list(),
+                    disable_context_files=self._config.disable_context_files,
+                    project_trusted=self._context.project_trusted,
+                    context_files=context_files,
+                )
+            )
+        )
+
     async def reload_extension(self, ext_path: str):
         """Reload one extension now when safe, otherwise queue a full reload."""
         from tau.extensions.api import LoadExtensionsResult
 
-        if self._stopped:
-            return LoadExtensionsResult()
-        agent = self._context.agent
-        if self._extension_callback_depth > 0 or (agent is not None and not agent.is_idle()):
-            self._reload_pending = True
-            self._ensure_deferred_reload()
+        if self._defer_reload_if_busy():
             return LoadExtensionsResult()
         async with self._reload_lock:
             return await self._reload_extension_now(ext_path)
@@ -799,13 +831,10 @@ class Runtime:
         """
         from pathlib import Path
 
-        from tau.agent.prompt.builder import build_prompt
-        from tau.agent.prompt.types import PromptOptions
         from tau.extensions.api import LoadExtensionsResult
         from tau.extensions.loader import ExtensionLoader
         from tau.extensions.runtime import ExtensionRuntime
         from tau.settings.paths import get_extensions_dir
-        from tau.skills.registry import skill_registry
 
         sm = self._context.settings_manager
         if sm is None:
@@ -873,35 +902,14 @@ class Runtime:
         self.commands.replace_source("extension", new_runtime.get_commands())
 
         # ── Tools + prompt ────────────────────────────────────────────────────
-        engine = self._context.engine
-        agent = self._context.agent
-        if engine is not None:
-            registry = self._context.tool_registry
-            registry.replace_source(
-                "extension",
-                [tool for tool in new_runtime.get_tools() if self._tool_enabled(tool.name)],
-            )
-            registry.sync_to_engine(engine, layout=getattr(self, "_layout", None))
-
-            if agent is not None:
-                snapshot = self._context.resource_snapshot
-                agent._system_prompt = (
-                    self._config.system_prompt
-                    or (snapshot.system_prompt if snapshot is not None else None)
-                    or build_prompt(
-                        PromptOptions(
-                            cwd=cwd,
-                            tools=registry.list(),
-                            extra_appends=new_runtime.get_prompt_appends(),
-                            skills=skill_registry.list(),
-                            disable_context_files=self._config.disable_context_files,
-                            project_trusted=self._context.project_trusted,
-                            context_files=(
-                                snapshot.context_files if snapshot is not None else None
-                            ),
-                        )
-                    )
-                )
+        snapshot = self._context.resource_snapshot
+        self._resync_extension_tools_and_prompt(
+            new_runtime.get_tools(),
+            cwd=cwd,
+            extra_appends=new_runtime.get_prompt_appends(),
+            system_prompt=snapshot.system_prompt if snapshot is not None else None,
+            context_files=snapshot.context_files if snapshot is not None else None,
+        )
 
         # Give the freshly-loaded extension a chance to re-establish runtime state
         # (e.g. warm up language servers) now that the runtime is already wired —
@@ -979,13 +987,7 @@ class Runtime:
         # Leaving it enabled makes /new call continue_recent() and reopen the
         # previous conversation instead of creating an empty session.
         self._config = self._config.model_copy(update={"session_file": None, "resume": False})
-        self._context = await RuntimeContext.create(
-            self._config,
-            settings_manager=self.settings_manager,
-            hooks=self.hooks,
-            ext_runtime=self.extension_runtime,
-        )
-        self._reinit_after_context_create()
+        await self._recreate_context()
         if parent_session is not None:
             # The context created its own header already; re-issue it with the
             # lineage link while the session is still empty.
@@ -1013,13 +1015,7 @@ class Runtime:
         await self._emit_session_shutdown(SessionShutdownReason.Resume)
         self._extension_generation += 1
         self._config = self._config.model_copy(update={"session_file": session_file})
-        self._context = await RuntimeContext.create(
-            self._config,
-            settings_manager=self.settings_manager,
-            hooks=self.hooks,
-            ext_runtime=self.extension_runtime,
-        )
-        self._reinit_after_context_create()
+        await self._recreate_context()
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.Resume)
 
@@ -1231,6 +1227,20 @@ class Runtime:
         await asyncio.to_thread(sm.create_branched_session, leaf_id)
         self._reinit_after_context_create()
         await self._emit_session_start(SessionStartReason.Clone)
+
+    async def _recreate_context(self) -> None:
+        """Rebuild the runtime context from the current config and re-wire it.
+
+        Every session switch (new, resume, ...) mutates ``self._config`` first
+        and then lands here, so the construction arguments live in one place.
+        """
+        self._context = await RuntimeContext.create(
+            self._config,
+            settings_manager=self.settings_manager,
+            hooks=self.hooks,
+            ext_runtime=self.extension_runtime,
+        )
+        self._reinit_after_context_create()
 
     def _reinit_after_context_create(self) -> None:
         if self._context.agent is not None:

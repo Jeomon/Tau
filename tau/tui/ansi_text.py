@@ -244,6 +244,16 @@ def emit(tokens: list[Token], max_width: int | None = None) -> str:
             active = style
         out.append(cluster or " ")
         column += width
+    return _finish_run(out, active)
+
+
+def _finish_run(out: list[str], active: Style | None) -> str:
+    """Join an emitted run, terminating whatever style it left open.
+
+    An open hyperlink is closed first — OSC 8 wraps around SGR — and the reset
+    is skipped when the trailing style is already the default, so plain text
+    stays free of stray escape bytes.
+    """
     if active is not None:
         if active.link:
             out.append(OSC8_CLOSE)
@@ -415,9 +425,4 @@ def splice_ansi(
         # Fast path: a plain single-codepoint ASCII glyph is always one column.
         if not (symbol.isascii() and len(symbol) == 1):
             skip_columns = max(grapheme_width(symbol) - 1, 0)
-    if active is not None:
-        if active.link:
-            out.append(OSC8_CLOSE)
-        if active != Style():
-            out.append(_RESET)
-    return "".join(out)
+    return _finish_run(out, active)

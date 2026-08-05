@@ -842,29 +842,35 @@ class TextInput(Component):
     # Submit / history
     # -------------------------------------------------------------------------
 
-    def _submit(self) -> None:
+    def _take_submission(self) -> str | None:
+        """Consume the buffer for submission, or None when there is nothing to send.
+
+        Records the (optionally transformed) text in history, skipping an exact
+        repeat of the previous entry, then resets history navigation and clears
+        the editor — everything both submit paths do before dispatching.
+        """
         text = self._text.strip()
         if not text:
-            return
+            return None
         history_text = self.on_history_transform(text) if self.on_history_transform else text
         if history_text and (not self._history or self._history[-1] != history_text):
             self._history.append(history_text)
         self._history_idx = -1
         self._history_draft = ""
         self.clear()
+        return text
+
+    def _submit(self) -> None:
+        text = self._take_submission()
+        if text is None:
+            return
         if self._on_submit:
             self._on_submit(text)
 
     def _submit_followup(self) -> None:
-        text = self._text.strip()
-        if not text:
+        text = self._take_submission()
+        if text is None:
             return
-        history_text = self.on_history_transform(text) if self.on_history_transform else text
-        if history_text and (not self._history or self._history[-1] != history_text):
-            self._history.append(history_text)
-        self._history_idx = -1
-        self._history_draft = ""
-        self.clear()
         if self._on_followup:
             self._on_followup(text)
         elif self._on_submit:
