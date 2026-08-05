@@ -386,8 +386,10 @@ class CustomOptions:
 
 from tau.tui.ansi_bridge import row_to_ansi  # noqa: E402
 from tau.tui.buffer import _BLANK_CELL, Buffer, Cell, RawWrite  # noqa: E402
+from tau.tui.compose import composite_lines, wrap_to_rows  # noqa: E402
 from tau.tui.frame import ScrollbackTerminal  # noqa: E402
-from tau.tui.geometry import Rect  # noqa: E402
+from tau.tui.geometry import Position, Rect  # noqa: E402
+from tau.tui.scrollback import ScrollbackRenderer  # noqa: E402
 
 # Blank columns reserved on the left/right edges of the terminal so content
 # never touches the window border.
@@ -547,6 +549,115 @@ class Renderer:
                         # ``ov_buf`` is private to this composite, so sharing
                         # its cells (or blank sentinels) into ``buf`` is safe.
                         buf.content[dst_base + target_x] = ov_buf.content[src_base + x]
+
+
+class StringRenderer:
+    """Scrollback renderer that consumes lines instead of cells.
+
+    Counterpart of ``Renderer`` above, driving ``ScrollbackRenderer`` instead
+    of ``ScrollbackTerminal``. The component tree is asked for ANSI lines via
+    ``Component.render(width)``, overlays are composited as lines, and the
+    result goes straight to the diff engine — no ``Buffer`` of ``Cell`` is
+    built for the frame at any point.
+
+    Much of ``Renderer``'s machinery has no counterpart here and is simply
+    gone: the pre-widened child row cache and the stable-prefix elision both
+    existed because copying ``Cell`` rows into the frame buffer was expensive.
+    Copying string references is free, so the frozen prefix is just handed
+    over, and ``stable_through`` reduces to "how many leading rows the caller
+    guarantees are unchanged".
+    """
+
+    def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:
+        self._terminal = terminal
+        self._engine = ScrollbackRenderer(terminal, show_hardware_cursor=show_hardware_cursor)
+        # See Renderer._had_overlays: overlay pixels land after stable_through
+        # is computed, so they can fall inside the "frozen" span. Force a full
+        # diff while an overlay is up and on the frame it closes.
+        self._had_overlays = False
+
+    # -- public API (mirrors Renderer) ---------------------------------------
+
+    def render(self, component: Component, overlays: list | None = None) -> None:
+        width = max(1, self._terminal.width - _LEFT_PAD - _RIGHT_PAD)
+        height = self._terminal.height
+        has_overlays = bool(overlays)
+
+        with _span("tui.render_cells"), _span("tui.base_component_render"):
+            content = component.render(width)
+
+        pad = " " * _LEFT_PAD
+        lines = [pad + line for line in content]
+
+        cursor = component.cursor_position
+        if cursor is not None:
+            cursor = Position(cursor.x + _LEFT_PAD, cursor.y)
+
+        if has_overlays or self._had_overlays:
+            stable_through = 0
+        else:
+            stable_through = getattr(component, "_stable_rows", 0)
+        self._had_overlays = has_overlays
+
+        if overlays:
+            with _span("tui.overlay_composite"):
+                lines = self._composite_overlays(lines, overlays, width, height)
+
+        with _span("tui.engine_render"):
+            self._engine.render(lines, cursor_pos=cursor, stable_through=stable_through)
+
+    def clear(self) -> None:
+        self._engine.clear()
+
+    def reset(self) -> None:
+        self._engine.reset()
+
+    def reset_with_clear(self) -> None:
+        self._engine.reset_with_clear()
+
+    def dispose(self) -> None:
+        self._engine.dispose()
+
+    @property
+    def _viewport_top(self) -> int:
+        return self._engine._viewport_top
+
+    @property
+    def _hw_cursor_row(self) -> int:
+        return self._engine._hw_cursor_row
+
+    @property
+    def _prev_lines(self) -> list[str]:
+        return list(self._engine._prev or [])
+
+    # -- internals -----------------------------------------------------------
+
+    def _composite_overlays(
+        self, lines: list[str], overlays: list, width: int, height: int
+    ) -> list[str]:
+        """Paint every visible overlay onto ``lines``, returning a new list."""
+        viewport_start = max(0, len(lines) - height)
+        total_width = self._terminal.width
+
+        for entry in overlays:
+            if not entry.is_visible(width, height):
+                continue
+            ov_w = max(1, entry.resolve_width(width))
+            with _span("tui.overlay_render"):
+                ov_lines = entry.component.render(ov_w)
+            natural_h = len(ov_lines)
+            _ov_w2, ov_h, ov_row, ov_col = entry.resolve(width, height, natural_h)
+            ov_h = min(ov_h, natural_h)
+            with _span("tui.overlay_blit"):
+                lines = composite_lines(
+                    lines,
+                    ov_lines[:ov_h],
+                    viewport_start + ov_row,
+                    _LEFT_PAD + ov_col,
+                    ov_w,
+                    total_width,
+                )
+        return lines
 
 
 # ── TUI ───────────────────────────────────────────────────────────────────────
@@ -723,6 +834,52 @@ class TUI(Container):
     # -------------------------------------------------------------------------
     # Container overrides — request render after structural changes
     # -------------------------------------------------------------------------
+
+    def render(self, width: int) -> list[str]:
+        """Render children to lines, recording their starting rows.
+
+        String counterpart of ``render_cells`` below. A child exposing
+        ``render_split_lines`` (currently just MessageList) hands over its
+        already-wrapped frozen rows directly; everything after that prefix is
+        the still-live tail, which is what the renderer needs to re-diff.
+
+        ``_stable_rows`` is the absolute row through which the frame is known
+        identical to last frame — the frozen prefix plus any children rendered
+        above it (header, spacer). ``StringRenderer`` passes it to the engine
+        as ``stable_through``.
+
+        Everything ``render_cells`` needs for elision — ``_elided_start/_end``,
+        the pre-widened row cache, the frozen-generation bookkeeping — has no
+        counterpart here. Those exist purely because copying ``Cell`` rows was
+        expensive; copying string references is not, so the frozen rows are
+        simply spliced in and the complexity disappears.
+        """
+        lines: list[str] = []
+        self._child_rows = {}
+        self.cursor_position = None
+        stable_rows_abs = 0
+
+        for child in self.children:
+            start = len(lines)
+            self._child_rows[id(child)] = start
+            split = getattr(child, "render_split_lines", None)
+            if split is not None:
+                frozen, live = split(width)
+                lines.extend(frozen)
+                # Everything above plus this child's frozen prefix is stable.
+                stable_rows_abs = len(lines)
+                for line in live:
+                    lines.extend(wrap_to_rows(line, width))
+            else:
+                child_lines = child.render(width)
+                lines.extend(child_lines)
+            if child.cursor_position is not None:
+                self.cursor_position = Position(
+                    child.cursor_position.x, start + child.cursor_position.y
+                )
+
+        self._stable_rows = stable_rows_abs
+        return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         """Render children into buf, recording their logical starting rows.
@@ -914,7 +1071,6 @@ class TUI(Container):
                 for rw in frozen_buf.raw_writes
                 if source_start_row <= rw.y < source_rows
             )
-
 
     def mouse_position_for(self, component: Component, event: MouseEvent) -> tuple[int, int] | None:
         """Return a mouse event as zero-based coordinates relative to a direct child."""

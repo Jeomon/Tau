@@ -5,7 +5,7 @@ from abc import ABC
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from tau.tui.geometry import Rect
+from tau.tui.geometry import Position, Rect
 
 if TYPE_CHECKING:
     from tau.tui.buffer import Buffer
@@ -38,6 +38,14 @@ class Component(ABC):  # noqa: B024 - see the either/or render contract below
     move incrementally, and it disappears as each component is converted.
     """
 
+    #: Where this component wants the text cursor after its last render, in
+    #: its own coordinate space (row 0 == its first line). Only meaningful for
+    #: focused, cursor-bearing components (currently TextInput). A cell-based
+    #: component sets ``buf.cursor_position`` instead; the bridge below lifts
+    #: that out, because the scratch Buffer it renders into is discarded and
+    #: the position would otherwise be lost on the way to a string renderer.
+    cursor_position: Position | None = None
+
     def render(self, width: int) -> list[str]:
         """Return this component's styled ANSI lines at ``width`` columns.
 
@@ -59,6 +67,10 @@ class Component(ABC):  # noqa: B024 - see the either/or render contract below
         w = max(1, width)
         buf = Buffer.empty(Rect(0, 0, w, 0))
         rows = self.render_cells(Rect(0, 0, w, 0), buf)
+        # The scratch buffer is discarded, so lift any cursor request out of it
+        # before it goes. area.y is 0 here, which makes the recorded row already
+        # relative to this component — exactly what a parent needs to offset.
+        self.cursor_position = buf.cursor_position
         return [row_to_ansi(buf, buf.area.y + y, embed_raw=True) for y in range(rows)]
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
@@ -174,10 +186,21 @@ class Container(Component):
         Defined explicitly so a container never forces its children back
         through the cell bridge: a migrated child stays on strings end to end
         even while its siblings have not moved yet.
+
+        A child's cursor request is reported in its own coordinates, so it is
+        offset by where that child starts here and re-published on the
+        container — that is how a focused TextInput's cursor reaches the
+        renderer through however many nested containers sit above it.
         """
         lines: list[str] = []
+        self.cursor_position = None
         for child in self.children:
+            start = len(lines)
             lines.extend(child.render(width))
+            if child.cursor_position is not None:
+                self.cursor_position = Position(
+                    child.cursor_position.x, start + child.cursor_position.y
+                )
         return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
