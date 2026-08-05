@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from tau.tui.component import Component
-from tau.tui.components.simple_picker import DEFAULT_HINT, PickerRow, render_picker_lines
+from tau.tui.components.simple_picker import PickerRow, render_picker_lines
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Span
@@ -84,12 +84,7 @@ class OAuthSelector(Component):
             selected=self._selected,
             state=self._list_state,
             max_visible=_VISIBLE_ROWS,
-            border_style=t.border,
-            muted_style=t.muted,
-            accent_style=t.accent,
-            arrow=t.selector_arrow,
-            emphasis_style=t.emphasis,
-            hint=DEFAULT_HINT,
+            theme=t,
             empty_text=empty_text,
         )
 

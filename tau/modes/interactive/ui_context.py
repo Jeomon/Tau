@@ -76,6 +76,29 @@ class _InterceptComponent:
         self._inner.invalidate()
 
 
+def selector_future() -> tuple[
+    asyncio.Future[str | None], Callable[[str], None], Callable[[], None]
+]:
+    """A future plus the commit/cancel callbacks the layout selectors expect.
+
+    Selectors report their outcome through a callback pair instead of
+    returning it, so awaiting one means bridging callbacks to a future. Both
+    callbacks guard on ``done()``: a selector that commits and then closes
+    would otherwise resolve the future twice.
+    """
+    fut: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+
+    def commit(value: str) -> None:
+        if not fut.done():
+            fut.set_result(value)
+
+    def cancel() -> None:
+        if not fut.done():
+            fut.set_result(None)
+
+    return fut, commit, cancel
+
+
 class UIContext:
     """
     Runtime TUI customization API — available as ``ctx.ui`` inside extension handlers.
@@ -257,17 +280,7 @@ class UIContext:
             SelectItem(label=o, description=title if i == 0 else "", value=o)
             for i, o in enumerate(options)
         ]
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[str | None] = loop.create_future()
-
-        def _commit(value: str) -> None:
-            if not fut.done():
-                fut.set_result(value)
-
-        def _cancel() -> None:
-            if not fut.done():
-                fut.set_result(None)
-
+        fut, _commit, _cancel = selector_future()
         layout.open_tree_selector(items, _commit, _cancel)
         return await fut
 
@@ -333,17 +346,7 @@ class UIContext:
         layout = self._layout()
         if layout is None:
             return None
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[str | None] = loop.create_future()
-
-        def _commit(value: str) -> None:
-            if not fut.done():
-                fut.set_result(value)
-
-        def _cancel() -> None:
-            if not fut.done():
-                fut.set_result(None)
-
+        fut, _commit, _cancel = selector_future()
         layout.open_prompt(label, _commit, _cancel, secret=secret)
         return await fut
 
@@ -363,17 +366,7 @@ class UIContext:
         layout = self._layout()
         if layout is None:
             return None
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[str | None] = loop.create_future()
-
-        def _commit(value: str) -> None:
-            if not fut.done():
-                fut.set_result(value)
-
-        def _cancel() -> None:
-            if not fut.done():
-                fut.set_result(None)
-
+        fut, _commit, _cancel = selector_future()
         layout.open_editor(title, prefill, _commit, _cancel)
         return await fut
 

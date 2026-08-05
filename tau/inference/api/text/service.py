@@ -466,7 +466,7 @@ class TextLLM:
                     _log.warning(
                         "empty response from %s/%s, retrying (attempt %d/%d)",
                         self.provider_id,
-                        getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                        model_name,
                         attempt + 1,
                         max_retries,
                     )
@@ -489,7 +489,7 @@ class TextLLM:
                     _log.error(
                         "empty response from %s/%s after %d attempts",
                         self.provider_id,
-                        getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                        model_name,
                         attempt + 1,
                     )
                     yield ErrorEvent(
@@ -541,7 +541,7 @@ class TextLLM:
                     _log.error(
                         "inference error from %s/%s: %s",
                         self.provider_id,
-                        getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                        model_name,
                         e,
                     )
                     yield ErrorEvent(
@@ -553,7 +553,7 @@ class TextLLM:
                 _log.warning(
                     "transient error from %s/%s: %s, retrying (attempt %d/%d)",
                     self.provider_id,
-                    getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                    model_name,
                     e,
                     attempt + 1,
                     max_retries,
@@ -637,7 +637,7 @@ class TextLLM:
                         _log.warning(
                             "empty response from %s/%s, retrying (attempt %d/%d)",
                             self.provider_id,
-                            getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                            model_name,
                             attempt + 1,
                             max_retries,
                         )
@@ -661,7 +661,7 @@ class TextLLM:
                         _log.error(
                             "empty response from %s/%s after %d attempts",
                             self.provider_id,
-                            getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                            model_name,
                             attempt + 1,
                         )
                         events = [
@@ -709,7 +709,7 @@ class TextLLM:
                         _log.error(
                             "inference error from %s/%s: %s",
                             self.provider_id,
-                            getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                            model_name,
                             e,
                         )
                         return [
@@ -723,7 +723,7 @@ class TextLLM:
                     _log.warning(
                         "transient error from %s/%s: %s, retrying (attempt %d/%d)",
                         self.provider_id,
-                        getattr(self.model, "name", getattr(self.model, "id", "unknown")),
+                        model_name,
                         e,
                         attempt + 1,
                         max_retries,

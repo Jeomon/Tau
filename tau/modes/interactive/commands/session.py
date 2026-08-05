@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from tau.modes.interactive.commands.context import CommandContext
+from tau.modes.interactive.ui_context import selector_future
 from tau.tui.utils import strip_control_chars
 from tau.utils.format import format_number
 
@@ -377,17 +378,7 @@ async def _apply_tree_branch(ctx: CommandContext, entry_id: str) -> None:
                 value="yes",
             ),
         ]
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[str | None] = loop.create_future()
-
-        def _commit(value: str) -> None:
-            if not fut.done():
-                fut.set_result(value)
-
-        def _cancel() -> None:
-            if not fut.done():
-                fut.set_result(None)
-
+        fut, _commit, _cancel = selector_future()
         ctx.layout.open_tree_selector(summary_items, _commit, _cancel)
         choice = await fut
 

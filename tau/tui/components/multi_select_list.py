@@ -131,12 +131,8 @@ class MultiSelectList(Component):
             selected=self._cursor,
             state=self._state,
             max_visible=self.max_visible,
-            border_style=t.border,
-            muted_style=t.muted,
-            accent_style=t.accent,
-            emphasis_style=t.emphasis,
+            theme=t,
             hint=hint,
-            arrow=t.selector_arrow,
         )
 
     # ── Input ─────────────────────────────────────────────────────────────

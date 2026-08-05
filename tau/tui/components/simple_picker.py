@@ -38,10 +38,18 @@ of being truncated; ``MultiSelectList`` wraps its descriptions that way.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
 from tau.tui.widgets.list import List, ListItem, ListState
+
+if TYPE_CHECKING:
+    from tau.tui.theme import LayoutTheme
+
+# Every current caller uses this exact hint text; it is the default so call
+# sites don't each re-type the literal.
+DEFAULT_HINT = "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"
 
 
 @dataclass
@@ -72,20 +80,25 @@ def render_picker_lines(
     selected: int,
     state: ListState,
     max_visible: int,
-    border_style: Style,
-    muted_style: Style,
-    accent_style: Style,
-    emphasis_style: Style,
-    hint: str,
+    theme: LayoutTheme,
+    hint: str = DEFAULT_HINT,
     empty_text: str = "No options available",
-    arrow: str = "\u276f",
 ) -> list[str]:
     """Return the shared picker layout as styled lines.
 
     ``state`` is owned by the caller and persisted across renders (same
     ``ListState`` instance each call) so scroll position carries over.
+
+    Every caller drew these five from the same ``LayoutTheme``, so the theme
+    itself is the parameter rather than each style separately.
     """
     from tau.tui.utils import rule, visible_width, wrap
+
+    border_style = theme.border
+    muted_style = theme.muted
+    accent_style = theme.accent
+    emphasis_style = theme.emphasis
+    arrow = theme.selector_arrow
 
     out: list[str] = []
 
@@ -143,8 +156,3 @@ def render_picker_lines(
     write("  " + apply_style(muted_style, hint))
 
     return out
-
-
-# Every current caller uses this exact hint text; exported so call sites
-# don't each re-type the literal.
-DEFAULT_HINT = "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"
