@@ -6,6 +6,7 @@ from datetime import UTC
 from typing import Literal, TypeVar
 
 from tau.tui.buffer import Buffer
+from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
@@ -51,7 +52,7 @@ class TreeRow[T]:
             self.search_text = f"{self.role} {self.text}"
 
 
-class TreeSelectList[T]:
+class TreeSelectList[T](Component):
     """
     Picker that renders full pre-built rows (tree connectors + role-colored
     content) on one line each.  Supports fuzzy search, filter modes, folding,

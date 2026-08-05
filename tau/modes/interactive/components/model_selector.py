@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from tau.inference.model.types import Modality
 from tau.tui.buffer import Buffer
+from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
@@ -132,7 +133,7 @@ class _Section:
             self.selected = min(self.selected, len(self.filtered) - 1)
 
 
-class ModelSelector:
+class ModelSelector(Component):
     """Tabbed model selector — one tab per modality.
 
     Owns the modality tabs (Text / Voice / Speak / Image / Video), and per-tab

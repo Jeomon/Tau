@@ -77,7 +77,7 @@ def _validate_editor(editor: object) -> None:
 # ── TextPrompt ────────────────────────────────────────────────────────────────
 
 
-class TextPrompt:
+class TextPrompt(Component):
     """
     Inline single-line text prompt shown below the editor.
 

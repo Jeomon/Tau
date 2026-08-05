@@ -166,9 +166,7 @@ class OllamaChatAPI(BaseAPI):
 
         async with raw_client.stream("POST", "/api/chat", json=payload) as response:
             if self.options.on_response:
-                self.options.on_response(
-                    APIResponse(response.status_code, dict(response.headers))
-                )
+                self.options.on_response(APIResponse(response.status_code, dict(response.headers)))
             if response.is_error:
                 chunks: list[bytes] = []
                 remaining = 65_536

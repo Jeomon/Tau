@@ -184,9 +184,11 @@ class AgentHookHandler:
                         task = asyncio.ensure_future(self._layout.backfill_older(older))
                         self._replay_task = task
                         task.add_done_callback(
-                            lambda t: setattr(self, "_replay_task", None)
-                            if self._replay_task is t
-                            else None
+                            lambda t: (
+                                setattr(self, "_replay_task", None)
+                                if self._replay_task is t
+                                else None
+                            )
                         )
         sm = self._runtime.session_manager
         if sm is not None:

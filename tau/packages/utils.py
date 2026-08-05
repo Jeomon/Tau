@@ -122,7 +122,6 @@ def parse_source(source: str) -> ParsedSource:
     raise ValueError(f"Cannot parse package source: {source!r}")
 
 
-
 def _distribution_name_and_version(
     filename: str, *, fallback: str | None = None
 ) -> tuple[str, str | None]:
@@ -150,9 +149,7 @@ def extensions_from_pyproject(pyproject: Path, base: Path) -> list[Path]:
             import tomli as tomllib  # type: ignore[no-redef]
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         section = (
-            data.get("tool", {}).get(get_app_name().lower(), {})
-            if isinstance(data, dict)
-            else {}
+            data.get("tool", {}).get(get_app_name().lower(), {}) if isinstance(data, dict) else {}
         )
         declared = section.get("extensions", []) if isinstance(section, dict) else []
         root = base.resolve()

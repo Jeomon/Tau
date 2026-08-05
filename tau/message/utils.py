@@ -298,8 +298,7 @@ def close_dangling_tool_calls(
                 patched.append(tool_msg)
         else:
             synthetic = [
-                ToolResultContent(id=c.id, content=placeholder, tool_name=c.name)
-                for c in pending
+                ToolResultContent(id=c.id, content=placeholder, tool_name=c.name) for c in pending
             ]
             patched.append(ToolMessage.from_results(results + synthetic))
     return patched

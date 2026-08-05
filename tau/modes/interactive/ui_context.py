@@ -46,7 +46,15 @@ class _InterceptComponent:
     """Wraps a Component and runs an on_handle interceptor before its handle_input.
 
     Intentionally does not subclass Component to avoid the ABC machinery —
-    duck-typing is sufficient since TUI only calls render_cells/handle_input/invalidate.
+    duck-typing is sufficient since TUI only calls
+    render/render_cells/handle_input/invalidate.
+
+    Being a transparent proxy, it forwards *both* render contracts to the
+    wrapped component rather than picking one: whichever the caller uses must
+    reach the inner component unchanged. Forwarding only render_cells was
+    enough until the renderer started asking for lines, at which point every
+    frame with an interceptor installed raised — and TUI._do_render swallows
+    that into a frozen screen.
     """
 
     def __init__(
@@ -56,6 +64,12 @@ class _InterceptComponent:
     ) -> None:
         self._inner = inner
         self._on_handle = on_handle
+        self.cursor_position = None
+
+    def render(self, width: int) -> list[str]:
+        lines = self._inner.render(width)
+        self.cursor_position = self._inner.cursor_position
+        return lines
 
     def render_cells(self, area: Rect, buf: Buffer) -> int:
         return self._inner.render_cells(area, buf)

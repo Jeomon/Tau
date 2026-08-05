@@ -253,7 +253,7 @@ class AutocompletePicker(Component):
 # ── AutocompleteManager ───────────────────────────────────────────────────────
 
 
-class AutocompleteManager:
+class AutocompleteManager(Component):
     """
     Owns both inline autocomplete pickers and all their async fetch state.
 

@@ -189,8 +189,7 @@ def _credential_from_token_data(data: dict) -> OAuthCredential:
     account_id = _get_account_id(access)
     if not account_id:
         raise ValueError(
-            "missing chatgpt_account_id in token."
-            " Ensure you have a valid ChatGPT subscription."
+            "missing chatgpt_account_id in token. Ensure you have a valid ChatGPT subscription."
         )
     return OAuthCredential(
         access=access, refresh=refresh, expires=expires_ms, extra={"account_id": account_id}
@@ -330,9 +329,7 @@ async def _poll_for_codex_device_code(
         remaining = deadline - time.time()
         await asyncio.sleep(min(interval_ms / 1000, remaining))
 
-        status, data = await asyncio.to_thread(
-            _poll_codex_device_once, device_auth_id, user_code
-        )
+        status, data = await asyncio.to_thread(_poll_codex_device_once, device_auth_id, user_code)
 
         if status == 200:
             code = data.get("authorization_code")

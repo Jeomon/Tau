@@ -214,7 +214,8 @@ class InputHandler:
                     (Modality.File, "File", bool(file)),
                 ]
                 unsupported = [
-                    label for modality, label, present in attempted
+                    label
+                    for modality, label, present in attempted
                     if present and modality not in model.input
                 ]
                 if unsupported:

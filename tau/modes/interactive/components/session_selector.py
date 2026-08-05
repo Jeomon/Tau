@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tau.tui.buffer import Buffer
+from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.layout import Alignment
 from tau.tui.style import Style
@@ -89,7 +90,7 @@ def _shorten(path: Path) -> str:
         return str(path)
 
 
-class ResumeSelector:
+class ResumeSelector(Component):
     """Session resume selector.
 
     - Up/Down    navigate
@@ -398,9 +399,7 @@ class ResumeSelector:
                     name_style = t.muted
                     indicator_spans = [Span("  ", Style())]
 
-                name_line = Line(
-                    [Span("  ", Style()), *indicator_spans, Span(display, name_style)]
-                )
+                name_line = Line([Span("  ", Style()), *indicator_spans, Span(display, name_style)])
 
                 # ── Line 2: age · project · size · ⚙ N ───────────────────────
                 meta_parts: list[str] = [_humanize_age(session.modified)]

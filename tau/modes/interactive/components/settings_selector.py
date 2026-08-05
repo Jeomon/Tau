@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from tau.tui.buffer import Buffer
+from tau.tui.component import Component
 from tau.tui.geometry import Rect
 from tau.tui.style import Style
 from tau.tui.text import Line, Span
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 # ── ListSelector ──────────────────────────────────────────────────────────────
 
 
-class ListSelector:
+class ListSelector(Component):
     """Submenu list picker used by SettingsSelector for submenu_items rows."""
 
     def __init__(
@@ -133,7 +134,7 @@ class SettingItem:
     submenu_on_change: Callable[[str, str], None] | None = None
 
 
-class SettingsSelector:
+class SettingsSelector(Component):
     """Interactive settings list with tab bar, search box, and two-column layout.
 
     - Tab            cycle through tabs (when tabs provided)

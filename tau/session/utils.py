@@ -345,9 +345,7 @@ def read_entries_by_id(session_file: Path, ids: set[str]) -> dict[str, SessionFi
         try:
             found[obj["id"]] = _SESSION_FILE_ENTRY_ADAPTER.validate_python(obj)
         except Exception:
-            _log.warning(
-                "skipping unparseable line %d in session file %s", lineno, session_file
-            )
+            _log.warning("skipping unparseable line %d in session file %s", lineno, session_file)
         if len(found) == len(ids):
             break
     return found
