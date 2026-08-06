@@ -717,7 +717,17 @@ class SessionManager:
                 full = read_entries_by_id(self.session_file, needed)
             else:  # mirrors _full_entries' guards; without a durable file there
                 full = {}  # is nothing to rehydrate from — resident copy stands.
-            kept_entries = [full.get(entry.id, entry) for entry in kept_entries]
+            # read_entries_by_id returns file records, so the session header is
+            # in its result type. Only branch entry ids are ever requested here,
+            # so anything that isn't a branch entry keeps the resident copy.
+            rehydrated: list[SessionEntry] = []
+            for entry in kept_entries:
+                fresh = full.get(entry.id)
+                if fresh is None or isinstance(fresh, SessionHeader):
+                    rehydrated.append(entry)
+                else:
+                    rehydrated.append(fresh)
+            kept_entries = rehydrated
 
         for entry in kept_entries:
             match entry:
@@ -871,10 +881,12 @@ class SessionManager:
                     resident.message.contents = fresh.message.contents
                     self._shed_ids.discard(entry_id)
 
-        for entry in self.entries:
-            if entry.id in window_ids:
+        # Distinct name from the `entry` bound by the branch loop above: that one
+        # is a branch entry, these are raw file records (the header included).
+        for record in self.entries:
+            if record.id in window_ids:
                 continue
-            self._shed_entry(entry)
+            self._shed_entry(record)
 
     def reset_leaf(self):
         """Clear the leaf pointer."""

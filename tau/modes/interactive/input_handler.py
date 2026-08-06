@@ -462,11 +462,19 @@ class InputHandler:
             from tau.agent.types import PromptOptions
 
             if images or audio or video or file:
+                # PromptOptions also accepts the JSON-friendly str forms these
+                # fields carry for non-bytes callers (the RPC layer), and list is
+                # invariant, so a list[bytes] is not a list[bytes | str]. Widen
+                # here rather than narrowing a field other callers rely on.
+                opt_images: list[bytes | str] = list(images or [])
+                opt_audio: list[bytes | str] = list(audio or [])
+                opt_video: list[bytes | str] = list(video or [])
+                opt_file: list[bytes | str] = list(file or [])
                 options = PromptOptions(
-                    images=images or [],
-                    audio=audio or [],
-                    video=video or [],
-                    file=file or [],
+                    images=opt_images,
+                    audio=opt_audio,
+                    video=opt_video,
+                    file=opt_file,
                 )
             else:
                 options = None
