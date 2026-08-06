@@ -155,6 +155,18 @@ class PickerOverlay[T](Component):
             case "down":
                 self._selector.move_down()
                 self._fire_preview()
+            case "page_up":
+                self._selector.page_up()
+                self._fire_preview()
+            case "page_down":
+                self._selector.page_down()
+                self._fire_preview()
+            case "home":
+                self._selector.move_top()
+                self._fire_preview()
+            case "end":
+                self._selector.move_bottom()
+                self._fire_preview()
             case "enter" | "tab":
                 item = self._selector.selected_item
                 if self._on_commit is not None:

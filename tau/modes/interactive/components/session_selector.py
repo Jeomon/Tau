@@ -201,6 +201,28 @@ class ResumeSelector(Component):
             self._status_msg = ""
             self._maybe_load_more()
 
+    def page_up(self) -> None:
+        if self._confirming_delete is None and self._filtered:
+            self._selected = max(0, self._selected - self._max_visible)
+            self._status_msg = ""
+
+    def page_down(self) -> None:
+        if self._confirming_delete is None and self._filtered:
+            self._selected = min(len(self._filtered) - 1, self._selected + self._max_visible)
+            self._status_msg = ""
+            self._maybe_load_more()
+
+    def move_top(self) -> None:
+        if self._confirming_delete is None and self._filtered:
+            self._selected = 0
+            self._status_msg = ""
+
+    def move_bottom(self) -> None:
+        if self._confirming_delete is None and self._filtered:
+            self._selected = len(self._filtered) - 1
+            self._status_msg = ""
+            self._maybe_load_more()
+
     def toggle_scope(self) -> None:
         if self._confirming_delete is not None:
             return

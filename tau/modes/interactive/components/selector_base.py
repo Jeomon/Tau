@@ -51,9 +51,31 @@ class SelectorBase(Component):
         self._theme = theme or LT()
         self._list_state = ListState()
 
+    #: Rows the picker shows at once — the distance one page jump travels.
+    #: Subclasses whose render window differs from the common 10 override it.
+    page_size: int = 10
+
     def _items(self) -> list[Any]:
         """The selectable rows; an empty list disables movement and confirmation."""
         raise NotImplementedError
+
+    def page_up(self) -> None:
+        """Jump one visible page towards the top, stopping at the first row."""
+        if self._items():
+            self._selected = max(0, self._selected - self.page_size)
+
+    def page_down(self) -> None:
+        """Jump one visible page towards the bottom, stopping at the last row."""
+        if count := len(self._items()):
+            self._selected = min(count - 1, self._selected + self.page_size)
+
+    def move_top(self) -> None:
+        if self._items():
+            self._selected = 0
+
+    def move_bottom(self) -> None:
+        if count := len(self._items()):
+            self._selected = count - 1
 
     def invalidate(self) -> None:
         pass
@@ -89,6 +111,22 @@ class KeyboundSelector(SelectorBase):
                 self._selected = min(count - 1, self._selected + 1)
             return True
 
+        if kb.matches(event, "tui.select.page_up"):
+            self.page_up()
+            return True
+
+        if kb.matches(event, "tui.select.page_down"):
+            self.page_down()
+            return True
+
+        if kb.matches(event, "tui.select.top"):
+            self.move_top()
+            return True
+
+        if kb.matches(event, "tui.select.bottom"):
+            self.move_bottom()
+            return True
+
         if kb.matches(event, "tui.select.confirm"):
             if count:
                 self._on_select(self._confirm_value())
@@ -111,6 +149,8 @@ class ArrowSelector(SelectorBase):
         if not isinstance(event, KeyEvent):
             return False
         items = self._items()
+        # Raw keys, not the tui.select.* registry — see the module docstring.
+        before = self._selected
         match event.key:
             case "up":
                 if self._selected > 0:
@@ -119,6 +159,18 @@ class ArrowSelector(SelectorBase):
             case "down":
                 if self._selected < len(items) - 1:
                     self._selected += 1
+                    self._on_move()
+            case "page_up" | "page_down" | "home" | "end":
+                match event.key:
+                    case "page_up":
+                        self.page_up()
+                    case "page_down":
+                        self.page_down()
+                    case "home":
+                        self.move_top()
+                    case _:
+                        self.move_bottom()
+                if self._selected != before:
                     self._on_move()
             case "enter" | "tab":
                 if items:

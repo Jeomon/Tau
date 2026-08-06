@@ -20,6 +20,10 @@ if TYPE_CHECKING:
 
 # ── ListSelector ──────────────────────────────────────────────────────────────
 
+#: Rows a page jump travels in the submenu list. ListSelector renders every item
+#: it is given rather than a fixed window, so there is no render size to borrow.
+_LIST_PAGE = 10
+
 
 class ListSelector(Component):
     """Submenu list picker used by SettingsSelector for submenu_items rows."""
@@ -60,6 +64,25 @@ class ListSelector(Component):
     def move_down(self) -> None:
         if self._items:
             self._selected = (self._selected + 1) % len(self._items)
+            if self._preview:
+                self._preview(self._items[self._selected])
+
+    # Up/down wrap, but a page jump clamps — see MultiSelectList.handle_input.
+    def page_up(self) -> None:
+        self._jump(max(0, self._selected - _LIST_PAGE))
+
+    def page_down(self) -> None:
+        self._jump(min(len(self._items) - 1, self._selected + _LIST_PAGE))
+
+    def move_top(self) -> None:
+        self._jump(0)
+
+    def move_bottom(self) -> None:
+        self._jump(len(self._items) - 1)
+
+    def _jump(self, index: int) -> None:
+        if self._items:
+            self._selected = index
             if self._preview:
                 self._preview(self._items[self._selected])
 
@@ -238,6 +261,43 @@ class SettingsSelector(Component):
             self._submenu.move_down()  # type: ignore[attr-defined]
         elif self._filtered:
             self._selected = (self._selected + 1) % len(self._filtered)
+
+    def _page(self, delta: int) -> None:
+        """Move the cursor ``delta`` rows, clamped; forwards into an open submenu."""
+        if self._editing:
+            return
+        if self._submenu is not None:
+            mover = getattr(self._submenu, "page_down" if delta > 0 else "page_up", None)
+            if mover is not None:
+                mover()
+        elif self._filtered:
+            self._selected = max(0, min(len(self._filtered) - 1, self._selected + delta))
+
+    def page_up(self) -> None:
+        self._page(-self._max_visible)
+
+    def page_down(self) -> None:
+        self._page(self._max_visible)
+
+    def move_top(self) -> None:
+        if self._editing:
+            return
+        if self._submenu is not None:
+            mover = getattr(self._submenu, "move_top", None)
+            if mover is not None:
+                mover()
+        elif self._filtered:
+            self._selected = 0
+
+    def move_bottom(self) -> None:
+        if self._editing:
+            return
+        if self._submenu is not None:
+            mover = getattr(self._submenu, "move_bottom", None)
+            if mover is not None:
+                mover()
+        elif self._filtered:
+            self._selected = len(self._filtered) - 1
 
     def activate(self) -> None:
         """Enter/Space: confirm edit, activate submenu item, cycle value, or open sub-panel."""

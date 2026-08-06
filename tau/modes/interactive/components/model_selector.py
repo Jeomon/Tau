@@ -77,6 +77,23 @@ class _Section:
         if self.filtered:
             self.selected = (self.selected + 1) % len(self.filtered)
 
+    # Up/down wrap, but a page jump clamps — see MultiSelectList.handle_input.
+    def page_up(self) -> None:
+        if self.filtered:
+            self.selected = max(0, self.selected - VISIBLE_ROWS)
+
+    def page_down(self) -> None:
+        if self.filtered:
+            self.selected = min(len(self.filtered) - 1, self.selected + VISIBLE_ROWS)
+
+    def move_top(self) -> None:
+        if self.filtered:
+            self.selected = 0
+
+    def move_bottom(self) -> None:
+        if self.filtered:
+            self.selected = len(self.filtered) - 1
+
     def toggle_scope(self) -> None:
         if not self.can_scope:
             return
@@ -198,6 +215,22 @@ class ModelSelector(Component):
     def move_down(self) -> None:
         if self._section:
             self._section.move_down()
+
+    def page_up(self) -> None:
+        if self._section:
+            self._section.page_up()
+
+    def page_down(self) -> None:
+        if self._section:
+            self._section.page_down()
+
+    def move_top(self) -> None:
+        if self._section:
+            self._section.move_top()
+
+    def move_bottom(self) -> None:
+        if self._section:
+            self._section.move_bottom()
 
     def next_section(self) -> None:
         if self._sections:

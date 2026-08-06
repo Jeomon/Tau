@@ -295,6 +295,8 @@ See [Project Trust](settings.md#project-trust).
 
 These are the only bindings routed through the keymap, and therefore the only ones an embedder can rebind. Everything else listed above is a hardcoded literal.
 
+One exception inside this table: the theme, thinking-effort and voice pickers, and `ctx.ui.multi_select()`, read the arrow, page and Home/End keys as literals rather than through the keymap, so remapping the `tui.select.*` actions does not reach them. They predate the keymap, and moving them over would change user-visible key handling. Every other picker honours the remapping.
+
 | Action | Default keys | Description |
 |--------|--------------|-------------|
 | `tui.select.up` | `up`, `ctrl+p` | Move selection up |

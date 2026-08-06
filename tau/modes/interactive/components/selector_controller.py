@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from tau.tui.component import Component
 from tau.tui.components.select_list import InlineSelector
-from tau.tui.input import InputEvent, KeyEvent, PasteEvent
+from tau.tui.input import InputEvent, KeyEvent, PasteEvent, get_keybindings
 
 if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
@@ -116,15 +116,47 @@ class SelectorController(Component):
 
     @staticmethod
     def _feed_search(selector: Any, event: KeyEvent) -> None:
-        """Route a key the kind-specific arms didn't claim into incremental search.
+        """Route a key the kind-specific arms didn't claim into paging, then search.
 
-        Backspace deletes, any single printable character extends the query,
-        and anything else is ignored — the shared tail of every handler below.
+        Page/Home/End are tried first, through the ``tui.select.*`` registry so a
+        remapping applies. Of what is left, backspace deletes and any single
+        printable character extends the query; anything else is ignored — the
+        shared tail of every handler below.
+
+        Paging lives here rather than in each handler's ``match`` because the
+        arms above claim keys by their picker-specific meaning (Tab cycles
+        sections in the model picker, scopes in resume), and a shared arm placed
+        before them would have to re-litigate those. Nothing above binds
+        Page/Home/End, so by the time a key reaches here it is unclaimed.
         """
+        if SelectorController._feed_paging(selector, event):
+            return
         if event.key == "backspace":
             selector.backspace_search()
         elif len(event.key) == 1 and event.key.isprintable():
             selector.append_search(event.char or event.key)
+
+    @staticmethod
+    def _feed_paging(selector: Any, event: KeyEvent) -> bool:
+        """Apply a page/top/bottom keybinding to ``selector``. True if consumed.
+
+        Selectors that predate these bindings simply don't define the methods,
+        so the key falls through to search rather than raising.
+        """
+        keybindings = get_keybindings()
+        for binding, method in (
+            ("tui.select.page_up", "page_up"),
+            ("tui.select.page_down", "page_down"),
+            ("tui.select.top", "move_top"),
+            ("tui.select.bottom", "move_bottom"),
+        ):
+            if keybindings.matches(event, binding):
+                mover = getattr(selector, method, None)
+                if mover is None:
+                    return False
+                mover()
+                return True
+        return False
 
     def _handle_settings(self, active: InlineSelector, event: KeyEvent) -> bool:
         selector = active.selector
@@ -225,6 +257,11 @@ class SelectorController(Component):
                 tree.backspace_search()
             case ch if tree is not None and len(ch) == 1 and ch.isprintable():
                 tree.append_search(event.char or ch)
+            case _ if tree is None:
+                # Non-tree inline pickers wrap a SelectList, which already
+                # implements paging; the tree arms above claim these keys first
+                # for their own fold/scroll meaning.
+                self._feed_paging(active.selector, event)
         return self._rendered()
 
     def _commit(self, active: InlineSelector, value: Any) -> None:

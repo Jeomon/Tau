@@ -27,6 +27,8 @@ class OAuthProviderItem:
 class OAuthSelector(KeyboundSelector):
     """Provider picker for /login and /logout."""
 
+    page_size = _VISIBLE_ROWS
+
     def __init__(
         self,
         mode: Literal["login", "logout"],

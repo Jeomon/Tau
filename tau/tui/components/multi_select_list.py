@@ -146,6 +146,17 @@ class MultiSelectList(Component):
                 self._cursor = (self._cursor - 1) % len(self.items)
             case "down":
                 self._cursor = (self._cursor + 1) % len(self.items)
+            # Up/down wrap, but a page jump clamps: paging is for covering
+            # distance in a long list, and wrapping there would silently skip
+            # past the end the user was heading for.
+            case "page_up":
+                self._cursor = max(0, self._cursor - self.max_visible)
+            case "page_down":
+                self._cursor = min(len(self.items) - 1, self._cursor + self.max_visible)
+            case "home":
+                self._cursor = 0
+            case "end":
+                self._cursor = len(self.items) - 1
             case " " | "space":
                 self.toggle(self._cursor)
             case "enter":
