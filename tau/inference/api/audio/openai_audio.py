@@ -82,15 +82,7 @@ class OpenAIAudioAPI(BaseAPI):
                 timestamp=time.time(),
             )
         except Exception as exc:
-            return SynthesizedAudio(
-                model_id=model.id,
-                provider=model.provider,
-                audio=b"",
-                format=context.response_format,
-                stop_reason=AudioStopReason.Error,
-                error=str(exc),
-                timestamp=time.time(),
-            )
+            return self.synthesis_error(model, exc, context.response_format)
 
     async def transcribe(self, model: Model, context: STTContext) -> TranscribedAudio:
         """Transcribe audio to text using OpenAI API."""
@@ -152,11 +144,4 @@ class OpenAIAudioAPI(BaseAPI):
                 timestamp=time.time(),
             )
         except Exception as exc:
-            return TranscribedAudio(
-                model_id=model.id,
-                provider=model.provider,
-                text="",
-                stop_reason=AudioStopReason.Error,
-                error=str(exc),
-                timestamp=time.time(),
-            )
+            return self.transcription_error(model, exc)

@@ -3,13 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-import httpx
-
-from tau.inference.api.audio.base import BaseAudioAPI as BaseAPI
+from tau.inference.api.audio.base import RestAudioAPI
 from tau.inference.model.types import Model
 from tau.inference.types import (
     AudioFormat,
-    AudioOptions,
     AudioStopReason,
     STTContext,
     SynthesizedAudio,
@@ -34,7 +31,7 @@ _FORMAT_MAP: dict[AudioFormat, str] = {
 _PCM_FORMATS = {"pcm_16000", "pcm_22050", "pcm_24000", "pcm_44100"}
 
 
-class ElevenLabsAudioAPI(BaseAPI):
+class ElevenLabsAudioAPI(RestAudioAPI):
     """
     ElevenLabs audio API — proprietary REST endpoints.
     TTS: POST /v1/text-to-speech/{voice_id} — voice_id in URL path,
@@ -43,27 +40,8 @@ class ElevenLabsAudioAPI(BaseAPI):
     Auth via xi-api-key header.
     """
 
-    def __init__(self, options: AudioOptions) -> None:
-        super().__init__(options)
-
-    def _new_client(self) -> httpx.AsyncClient:
-        # Per-call client (used inside `async with`) so its connection pool is
-        # always closed — no persistent client left unclosed for the GC.
-        from tau.utils.ssl_context import get_shared_ssl_context
-
-        return httpx.AsyncClient(
-            base_url=self.options.base_url or _BASE_URL,
-            timeout=self.options.timeout.total_seconds(),
-            verify=get_shared_ssl_context(),
-        )
-
-    def _auth_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {}
-        if self.options.api_key:
-            headers["xi-api-key"] = self.options.api_key
-        if self.options.headers:
-            headers.update(self.options.headers)
-        return headers
+    base_url = _BASE_URL
+    api_key_header = "xi-api-key"
 
     async def synthesize(self, model: Model, context: TTSContext) -> SynthesizedAudio:
         el_format = _FORMAT_MAP.get(context.response_format, "mp3_44100_128")
@@ -110,15 +88,7 @@ class ElevenLabsAudioAPI(BaseAPI):
                 timestamp=time.time(),
             )
         except Exception as exc:
-            return SynthesizedAudio(
-                model_id=model.id,
-                provider=model.provider,
-                audio=b"",
-                format=context.response_format,
-                stop_reason=AudioStopReason.Error,
-                error=str(exc),
-                timestamp=time.time(),
-            )
+            return self.synthesis_error(model, exc, context.response_format)
 
     async def transcribe(self, model: Model, context: STTContext) -> TranscribedAudio:
         filename = f"audio.{context.format.value}"
@@ -173,11 +143,4 @@ class ElevenLabsAudioAPI(BaseAPI):
                 timestamp=time.time(),
             )
         except Exception as exc:
-            return TranscribedAudio(
-                model_id=model.id,
-                provider=model.provider,
-                text="",
-                stop_reason=AudioStopReason.Error,
-                error=str(exc),
-                timestamp=time.time(),
-            )
+            return self.transcription_error(model, exc)

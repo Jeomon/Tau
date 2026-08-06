@@ -79,15 +79,7 @@ class GeminiAudioAPI(BaseAPI):
                 timestamp=time.time(),
             )
         except Exception as exc:
-            return SynthesizedAudio(
-                model_id=model.id,
-                provider=model.provider,
-                audio=b"",
-                format=AudioFormat.PCM,
-                stop_reason=AudioStopReason.Error,
-                error=str(exc),
-                timestamp=time.time(),
-            )
+            return self.synthesis_error(model, exc, AudioFormat.PCM)
 
     async def transcribe(self, model: Model, context: STTContext) -> TranscribedAudio:
         """Transcribe audio to text (not supported by Gemini API)."""
