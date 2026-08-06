@@ -25,6 +25,7 @@ command = importlib.import_module(f"{_PKG}.command")
 config = importlib.import_module(f"{_PKG}.config")
 log_mod = importlib.import_module(f"{_PKG}.log")
 paths = importlib.import_module(f"{_PKG}.paths")
+preview = importlib.import_module(f"{_PKG}.preview")
 resolver_mod = importlib.import_module(f"{_PKG}.resolver")
 rules = importlib.import_module(f"{_PKG}.rules")
 session_mod = importlib.import_module(f"{_PKG}.session")
@@ -582,6 +583,263 @@ def test_denial_message_tells_the_model_not_to_retry() -> None:
     )
     assert "**/.env" in message
     assert "not retry" in message.lower()
+
+
+# ── Prompt presentation ──────────────────────────────────────────────────────
+
+
+class TestPromptPresentation:
+    """The prompt has to say what is actually being approved.
+
+    `UIContext.select` renders its title in the *first option's* column, so a
+    long or multi-line title reads as a property of "Allow once" and gets
+    truncated. The specifics therefore go in a `notify` block and the title
+    stays short.
+    """
+
+    prompt = importlib.import_module(f"{_PKG}.prompt")
+
+    def test_the_headline_is_a_single_short_line(self) -> None:
+        for surface in ("command", "path", "external_directory", "tool"):
+            head = self.prompt.headline(rules.Decision(state="ask", surface=surface))
+            assert "\n" not in head
+            assert len(head) < 60
+
+    def test_the_whole_command_is_shown_not_just_the_gated_segment(self) -> None:
+        # Approving releases the entire string, so showing only `uname -a`
+        # would understate what is being agreed to.
+        full = 'uname -a; echo "---"; cat /etc/os-release'
+        decision = rules.Decision(state="ask", surface="command", target="uname -a")
+
+        block = "\n".join(self.prompt.detail_lines(decision, {"cmd": full}))
+
+        assert full in block
+        assert "triggered by" in block
+        assert "runs the command in full" in block
+
+    def test_a_tool_decision_names_the_file_it_acts_on(self) -> None:
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = "\n".join(
+            self.prompt.detail_lines(decision, {"path": "src/app.py", "content": "x"})
+        )
+
+        assert "src/app.py" in block, "'approve write?' without naming the file"
+
+    def test_catch_all_and_echoing_rules_are_not_shown(self) -> None:
+        # "rule *" and "rule write" say nothing, and teach people to skim.
+        catch_all = rules.Decision(
+            state="ask", surface="command", target="npm i", matched_pattern="*"
+        )
+        echoing = rules.Decision(
+            state="ask", surface="tool", target="write", matched_pattern="write"
+        )
+
+        assert "rule" not in "\n".join(self.prompt.detail_lines(catch_all, {"cmd": "npm i"}))
+        assert "rule" not in "\n".join(self.prompt.detail_lines(echoing, {}))
+
+    def test_a_meaningful_rule_is_shown(self) -> None:
+        decision = rules.Decision(
+            state="ask", surface="path", target=".env", matched_pattern="**/.env"
+        )
+        assert "**/.env" in "\n".join(self.prompt.detail_lines(decision, {}))
+
+    def test_substitution_context_is_surfaced(self) -> None:
+        decision = rules.Decision(
+            state="ask",
+            surface="command",
+            target="cat /etc/passwd",
+            command_context="command_substitution",
+        )
+        block = "\n".join(self.prompt.detail_lines(decision, {"cmd": "echo $(cat /etc/passwd)"}))
+        assert "command substitution" in block
+
+    def test_a_very_long_command_is_clipped_but_still_flagged_as_whole(self) -> None:
+        long_cmd = "echo " + "a" * 4000
+        decision = rules.Decision(state="ask", surface="command", target="echo")
+
+        lines = self.prompt.detail_lines(decision, {"cmd": long_cmd})
+
+        assert all(len(line) < 300 for line in lines), "the block must stay readable"
+        assert "runs the command in full" in "\n".join(lines)
+
+    def test_rows_are_column_aligned(self) -> None:
+        decision = rules.Decision(
+            state="ask", surface="path", target="/etc/hosts", reason="Outside the project."
+        )
+        rows = [ln for ln in self.prompt.detail_lines(decision, {}) if ln.startswith("  ")]
+        starts = {len(ln) - len(ln.lstrip()) for ln in rows}
+        assert len(starts) == 1, "detail rows should share one indent"
+
+    def test_a_failing_notify_does_not_block_the_prompt(self) -> None:
+        # The block is decoration; losing it must not cost the user the picker.
+        class _BrokenNotify:
+            supports_components = True
+
+            def notify(self, *_a: Any, **_k: Any) -> None:
+                raise RuntimeError("no renderer")
+
+            async def select(self, _title: str, options: list[str]) -> str:
+                return options[0]
+
+        outcome, _ = asyncio.run(
+            self.prompt.ask(
+                _BrokenNotify(),
+                rules.Decision(state="ask", surface="command", target="ls"),
+                timeout_seconds=5,
+            )
+        )
+        assert outcome == "allow_once"
+
+
+# ── Diff preview ─────────────────────────────────────────────────────────────
+
+
+class TestPreview:
+    """Approving a write/edit without seeing the change is approval in name only.
+
+    Every path here is best-effort: a preview that raises, stalls on a huge
+    file, or floods the prompt would make the gate worse than having none, so
+    each failure has to degrade to "no diff" rather than propagate.
+    """
+
+    def test_edit_shows_the_replaced_range_as_a_diff(self, tmp_path: Path) -> None:
+        target = tmp_path / "app.py"
+        target.write_text("def add(a, b):\n    return a + b\n\nx = 1\n")
+
+        label, diff = preview.build(
+            "edit",
+            "app.py",
+            tmp_path,
+            {
+                "path": "app.py",
+                "start_anchor": "1:aaaa",
+                "end_anchor": "2:bbbb",
+                "new_content": "def add(a, b, c=0):\n    return a + b + c",
+            },
+        )
+
+        body = "\n".join(diff)
+        assert label == "changes"
+        assert "-    return a + b" in body
+        assert "+    return a + b + c" in body
+        # Line 4 is outside the anchored range and must not appear.
+        assert "x = 1" not in body
+
+    def test_edit_anchors_are_resolved_by_line_number(self, tmp_path: Path) -> None:
+        target = tmp_path / "f.txt"
+        target.write_text("one\ntwo\nthree\nfour\n")
+
+        _, diff = preview.build(
+            "edit",
+            "f.txt",
+            tmp_path,
+            {"start_anchor": "2:zz", "end_anchor": "3:yy", "new_content": "TWO\nTHREE"},
+        )
+
+        body = "\n".join(diff)
+        assert "-two" in body and "-three" in body
+        assert "one" not in body and "four" not in body
+
+    def test_reversed_anchors_still_produce_a_diff(self, tmp_path: Path) -> None:
+        (tmp_path / "f.txt").write_text("a\nb\nc\n")
+        _, diff = preview.build(
+            "edit",
+            "f.txt",
+            tmp_path,
+            {"start_anchor": "3:x", "end_anchor": "1:y", "new_content": "z"},
+        )
+        assert diff
+
+    def test_write_to_a_new_file_previews_the_content(self, tmp_path: Path) -> None:
+        label, diff = preview.build(
+            "write", "new.py", tmp_path, {"content": "import os\nprint(1)\n"}
+        )
+        assert label == "content"
+        assert "+ import os" in diff
+
+    def test_overwriting_an_existing_file_is_labelled_a_change(self, tmp_path: Path) -> None:
+        # "content" would misdescribe replacing a file that already exists.
+        (tmp_path / "app.py").write_text("value = 1\n")
+
+        label, diff = preview.build("write", "app.py", tmp_path, {"content": "value = 2\n"})
+
+        assert label == "changes"
+        body = "\n".join(diff)
+        assert "-value = 1" in body and "+value = 2" in body
+
+    def test_a_missing_file_yields_no_diff_rather_than_raising(self, tmp_path: Path) -> None:
+        _, diff = preview.build(
+            "edit",
+            "gone.py",
+            tmp_path,
+            {"start_anchor": "1:a", "end_anchor": "2:b", "new_content": "x"},
+        )
+        assert diff == []
+
+    def test_a_binary_file_yields_no_diff(self, tmp_path: Path) -> None:
+        (tmp_path / "blob.bin").write_bytes(b"\x00\x01\x02\xff")
+        _, diff = preview.build("write", "blob.bin", tmp_path, {"content": "text"})
+        # Unreadable as text, so it falls back to previewing what would be written.
+        assert all("\x00" not in line for line in diff)
+
+    def test_a_huge_file_is_not_read(self, tmp_path: Path) -> None:
+        big = tmp_path / "big.txt"
+        big.write_text("x\n" * (preview.MAX_FILE_BYTES // 2 + 10))
+        assert big.stat().st_size > preview.MAX_FILE_BYTES
+
+        label, diff = preview.build("write", "big.txt", tmp_path, {"content": "small\n"})
+
+        # Falls back to a content preview instead of stalling on a large read.
+        assert label == "content"
+        assert diff == ["+ small"]
+
+    def test_a_long_diff_is_truncated_with_a_count(self, tmp_path: Path) -> None:
+        (tmp_path / "f.txt").write_text("".join(f"line {i}\n" for i in range(200)))
+
+        _, diff = preview.build(
+            "write",
+            "f.txt",
+            tmp_path,
+            {"content": "".join(f"changed {i}\n" for i in range(200))},
+        )
+
+        assert len(diff) <= preview.MAX_DIFF_LINES + 1
+        assert "more diff line" in diff[-1]
+
+    def test_very_long_lines_are_trimmed(self, tmp_path: Path) -> None:
+        _, diff = preview.build("write", "n.txt", tmp_path, {"content": "y" * 5000})
+        assert all(len(line) <= preview.MAX_LINE + 2 for line in diff)
+
+    def test_absolute_paths_are_handled(self, tmp_path: Path) -> None:
+        target = tmp_path / "abs.txt"
+        target.write_text("old\n")
+        _, diff = preview.build("write", str(target), tmp_path, {"content": "new\n"})
+        assert "+new" in "\n".join(diff)
+
+    def test_a_non_content_tool_has_no_preview(self, tmp_path: Path) -> None:
+        _, diff = preview.build("read", "f.txt", tmp_path, {"path": "f.txt"})
+        assert diff == []
+
+    def test_the_prompt_block_embeds_the_diff(self, tmp_path: Path) -> None:
+        prompt = importlib.import_module(f"{_PKG}.prompt")
+        (tmp_path / "app.py").write_text("value = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = "\n".join(
+            prompt.detail_lines(decision, {"path": "app.py", "content": "value = 2\n"}, tmp_path)
+        )
+
+        assert "changes:" in block
+        assert "+value = 2" in block
+        assert "writes" in block  # the size summary row
+
+    def test_the_headline_names_the_operation(self) -> None:
+        prompt = importlib.import_module(f"{_PKG}.prompt")
+        decision = rules.Decision(state="ask", surface="tool", target="edit")
+        assert prompt.headline(decision, {"new_content": "x"}) == "Approve this edit?"
+        write = rules.Decision(state="ask", surface="tool", target="write")
+        assert "writing" in prompt.headline(write, {"content": "x"})
 
 
 # ── Reload wiring ────────────────────────────────────────────────────────────

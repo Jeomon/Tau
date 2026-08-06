@@ -530,22 +530,29 @@ class Terminal:
         self._loop = None
 
     def _win_resize_poll_loop(self, stop: threading.Event) -> None:
-        """Poll the terminal size and fire callbacks on change until ``stop`` is set."""
+        """Poll the terminal size and fire callbacks on change until ``stop`` is set.
+
+        The size is published on the loop thread for the same reason SIGWINCH
+        defers it (see :meth:`_on_resize`) — more so here, since this thread
+        runs genuinely concurrently with a render rather than merely between
+        its bytecodes. ``last`` is tracked locally because ``self.width`` no
+        longer updates until the loop adopts the change, and comparing against
+        it would re-post the same size every tick.
+        """
+        last = (self.width, self.height)
         while not stop.wait(_WIN_RESIZE_POLL_INTERVAL):
             new_size = self._get_size()
-            if new_size == (self.width, self.height):
+            if new_size == last:
                 continue
-            self.width, self.height = new_size
+            last = new_size
             loop = self._loop
             if loop is None:
-                for cb in list(self._resize_callbacks):
-                    cb()
+                self._publish_size(new_size)
                 continue
-            for cb in list(self._resize_callbacks):
-                try:
-                    loop.call_soon_threadsafe(cb)
-                except RuntimeError:
-                    return  # event loop already closed
+            try:
+                loop.call_soon_threadsafe(self._publish_size, new_size)
+            except RuntimeError:
+                return  # event loop already closed
 
     def enter_alt_screen(self) -> None:
         """
@@ -992,19 +999,41 @@ class Terminal:
         """
         Internal handler called when terminal is resized (SIGWINCH signal).
 
-        Updates width and height, then safely calls all registered callbacks.
-        Uses event loop to prevent issues with concurrent screen updates.
+        The new size is *staged*, not published. A signal handler runs between
+        any two bytecodes of the main thread, so assigning width/height here
+        can land in the middle of a frame — and one frame reads the size
+        several times over (component layout, overlay compositing, then the
+        diff engine). A torn read lays the frame out at the old width and
+        paints it at the new one: every row then overruns the terminal, the
+        terminal soft-wraps each onto an extra physical row, and every
+        relative cursor move below it addresses the wrong row for the rest of
+        the session. Publishing from a loop callback instead keeps a frame —
+        which runs start to finish inside one callback — on a single
+        consistent size.
         """
-        self.width, self.height = self._get_size()
-        # Defer callbacks to the event loop — calling them inline from a signal
-        # handler causes reentrant stdout writes if a render is already in flight.
+        self._defer_size(self._get_size())
+
+    def _publish_size(self, size: tuple[int, int]) -> None:
+        """Adopt a staged size and notify subscribers, as one atomic step.
+
+        Applying and notifying together is what guarantees the first frame
+        painted at the new size is the renderer's full clear+redraw, rather
+        than some unrelated frame that happened to be scheduled in between.
+        """
+        self.width, self.height = size
+        for cb in list(self._resize_callbacks):
+            cb()
+
+    def _defer_size(self, size: tuple[int, int]) -> None:
+        """Publish ``size`` on the event loop, or inline if there isn't one."""
         try:
             loop = asyncio.get_running_loop()
-            for cb in self._resize_callbacks:
-                loop.call_soon_threadsafe(cb)
         except RuntimeError:
-            for cb in self._resize_callbacks:
-                cb()
+            # No loop yet (startup): nothing can be mid-frame, and deferring
+            # would drop the update entirely.
+            self._publish_size(size)
+            return
+        loop.call_soon_threadsafe(self._publish_size, size)
 
     @staticmethod
     def _get_size() -> tuple[int, int]:
