@@ -390,12 +390,12 @@ class App:
             ),
             CommandInfo(
                 name="login",
-                description="Save an API key for a provider.",
+                description="Add provider credentials.",
                 call=lambda _r, _a: cmd_auth.open_login_selector(self._ctx()),
             ),
             CommandInfo(
                 name="logout",
-                description="Remove stored credentials for a provider.",
+                description="Remove provider credentials.",
                 call=lambda _r, _a: cmd_auth.open_logout_selector(self._ctx()),
             ),
             CommandInfo(
@@ -988,12 +988,9 @@ class App:
         return entries
 
     def _palette_dynamic_descriptions(self) -> dict[str, str]:
-        from tau.modes.interactive.commands import auth as cmd_auth
         from tau.modes.interactive.commands import model as cmd_model
 
-        overrides = cmd_model.get_palette_overrides(self._runtime.agent)
-        overrides.update(cmd_auth.get_palette_overrides())
-        return overrides
+        return cmd_model.get_palette_overrides(self._runtime.agent)
 
     def refresh_palette(self) -> None:
         self._layout.set_commands(self._build_palette_entries())
@@ -1018,20 +1015,22 @@ class App:
         latest = await task
         if latest is None:
             return
+        from tau.settings.paths import get_app_name
         from tau.tui.component import Column, StaticComponent
         from tau.tui.components.box import DynamicBorder
         from tau.tui.style import apply_style
         from tau.tui.utils import BOLD, RESET
 
         theme = self._layout.theme
+        app = get_app_name()
         banner = Column(
             [
                 DynamicBorder(theme.warning),
                 StaticComponent(
                     [
-                        f"  {apply_style(theme.warning, '⚡')} Update available: "
-                        f"{BOLD}v{latest}{RESET}"
-                        f"{apply_style(theme.muted, '  ·  run: tau update')}",
+                        f"  {apply_style(theme.warning, '⚡')} {BOLD}Update Available{RESET}",
+                        f"  New version {BOLD}{latest}{RESET} is available. "
+                        f"Run {apply_style(theme.muted, f'{app.lower()} update')}",
                     ]
                 ),
                 DynamicBorder(theme.warning),

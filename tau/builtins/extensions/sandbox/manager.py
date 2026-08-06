@@ -87,17 +87,27 @@ class SandboxManager:
         except ImportError as e:
             raise SandboxUnavailableError(f"microsandbox package not installed: {e}") from e
 
-        if not microsandbox.is_installed():
-            await microsandbox.install()  # type: ignore[await]
-
-        network = (
-            microsandbox.Network.none()
-            if self._config.network == "none"
-            else microsandbox.Network.public_only()
-        )
-        volumes = {WORKDIR: microsandbox.Volume.bind(str(self._cwd))}
-
+        # Everything that touches the microsandbox API lives inside the try: the
+        # promise of this extension is that an unusable runtime degrades to the
+        # host terminal, and an API mismatch is exactly that. Building the
+        # network/volume config outside it let an AttributeError escape as a
+        # hard tool failure, so `terminal` broke instead of falling back.
         try:
+            if not microsandbox.is_installed():
+                # install() is sync (`def install() -> None`), so awaiting it
+                # raises TypeError — and it downloads a runtime, so it must not
+                # block the event loop either.
+                await asyncio.to_thread(microsandbox.install)
+
+            network = (
+                microsandbox.Network.none()
+                if self._config.network == "none"
+                # Public egress only — no private ranges, no host. There is no
+                # `public_only()`; profiles compose the same policy.
+                else microsandbox.Network.from_profiles(microsandbox.NetworkProfile.PUBLIC)
+            )
+            volumes = {WORKDIR: microsandbox.Volume.bind(str(self._cwd))}
+
             return await microsandbox.Sandbox.create(
                 self._name,
                 image=self._config.image,
@@ -110,7 +120,9 @@ class SandboxManager:
                 ephemeral=True,
                 replace=True,
             )
-        except Exception as e:  # microsandbox raises its own typed errors
+        except SandboxUnavailableError:
+            raise
+        except Exception as e:  # typed microsandbox errors, and API drift
             raise SandboxUnavailableError(f"failed to boot sandbox: {e}") from e
 
     async def reset(self) -> None:

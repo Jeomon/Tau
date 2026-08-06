@@ -195,7 +195,9 @@ def get_palette_overrides(agent: object) -> dict[str, str]:
     if model is not None:
         provider = getattr(model, "provider", "") or ""
         model_id = getattr(model, "id", "") or ""
-        overrides["model"] = f"{provider}/{model_id}" if provider else model_id
+        name = getattr(model, "name", "") or ""
+        active = name if name else f"{provider}/{model_id}" if provider else model_id
+        overrides["model"] = f"Currently using {active}"
     else:
         overrides["model"] = "Switch the active model"
 

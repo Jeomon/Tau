@@ -302,27 +302,6 @@ def _save_api_key(ctx: CommandContext, provider_id: str, provider_name: str, key
         ctx.on_palette_refresh()
 
 
-def get_palette_overrides() -> dict[str, str]:
-    """Return dynamic palette description overrides for /login and /logout."""
-    overrides: dict[str, str] = {}
-    try:
-        from tau.inference.api.text.service import TextLLM
-
-        auth = TextLLM._auth_manager  # type: ignore[union-attr]
-        auth.reload()  # type: ignore[union-attr]
-        logged_in = auth.list()  # type: ignore[union-attr]
-        if logged_in:
-            providers_str = ", ".join(logged_in)
-            overrides["login"] = f"Add credentials  ·  active: {providers_str}"
-            overrides["logout"] = f"Remove credentials  ·  active: {providers_str}"
-        else:
-            overrides["login"] = "Add credentials  ·  none active"
-            overrides["logout"] = "Remove credentials  ·  none active"
-    except Exception:
-        _log.debug("failed to load auth state for login menu", exc_info=True)
-    return overrides
-
-
 def open_logout_selector(ctx: CommandContext) -> None:
     from tau.inference.api.text.service import TextLLM
     from tau.modes.interactive.components.oauth_selector import OAuthProviderItem

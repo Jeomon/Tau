@@ -82,8 +82,8 @@ Most commands wait until the active turn finishes. UI-only and read-only command
 
 | Command | Description |
 |---------|-------------|
-| `/login` | Save an API key for a provider |
-| `/logout` | Remove stored credentials for a provider |
+| `/login` | Add provider credentials |
+| `/logout` | Remove provider credentials |
 
 ### Other
 
