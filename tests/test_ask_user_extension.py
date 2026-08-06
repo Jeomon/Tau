@@ -18,7 +18,7 @@ from tests.ext_loader import load_extension
 
 # Loaded as a package, exactly as tau's loader does — its modules use relative
 # imports and never occupy a bare name like `schema` or `tool`.
-_PKG = load_extension("ask_user").__name__
+_PKG = load_extension("ask_user", builtin=True).__name__
 _component = importlib.import_module(f"{_PKG}.component")
 _schema = importlib.import_module(f"{_PKG}.schema")
 _tool = importlib.import_module(f"{_PKG}.tool")
