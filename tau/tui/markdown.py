@@ -351,6 +351,119 @@ class StreamingMarkdownRender:
         return [*self.frozen_lines, *self.live_lines]
 
 
+# Inline delimiters whose meaning is only decided by their closing half. While
+# streaming, the text between an opening delimiter and the end of the live tail
+# is ambiguous — "**very" is literal until the closing "**" lands — so the
+# parser correctly renders the raw syntax, and the reader watches "[docs](http…"
+# sit on screen until the ")" arrives and it snaps to a link. Holding the open
+# run back until it resolves trades that flicker for the phrase appearing in one
+# go, already styled. See _open_inline_cutoff.
+_EMPHASIS_RUNS = ("***", "___", "**", "__", "~~", "*", "_")
+
+
+def _open_inline_cutoff(line: str, start: int = 0) -> int:
+    """Index in ``line`` where an unresolved inline construct begins.
+
+    Scans ``line[start:]`` but returns an index into ``line``, so the caller can
+    pass the whole tail with the offset of its last line instead of slicing a
+    copy out of it on every streamed frame.
+
+    Returns ``len(line)`` when everything from ``start`` on is closed. Only the
+    final line of the live tail is ever scanned, so a construct left open by a
+    model that never closes it stalls at most one line: as soon as the newline
+    arrives that line is no longer the tail's last line and renders in full.
+    """
+    n = len(line)
+    i = start
+    # Earliest still-open construct. Emphasis is tracked separately from
+    # brackets because "[a *b](c)" closes the bracket while the emphasis is
+    # still open, and the earlier of the two is what has to be held.
+    open_bracket = -1
+    open_emphasis: dict[str, int] = {}
+
+    while i < n:
+        ch = line[i]
+
+        if ch == "\\":  # escaped delimiter — consumes the next character
+            i += 2
+            continue
+
+        if ch == "`":
+            # Code spans bind tighter than everything else: a run of N backticks
+            # closes only on another run of exactly N.
+            run = 1
+            while i + run < n and line[i + run] == "`":
+                run += 1
+            marker = "`" * run
+            close = line.find(marker, i + run)
+            while close != -1 and close + run < n and line[close + run] == "`":
+                # A longer run is not a match — keep looking past it.
+                nxt = close + run
+                while nxt < n and line[nxt] == "`":
+                    nxt += 1
+                close = line.find(marker, nxt)
+            if close == -1:
+                return i
+            i = close + run
+            continue
+
+        if ch == "[" or (ch == "!" and line[i : i + 2] == "!["):
+            if open_bracket == -1:
+                open_bracket = i
+            i += 2 if ch == "!" else 1
+            continue
+
+        if ch == "]" and open_bracket != -1:
+            # "[1]" in prose is literal text, not a half-written link, so a
+            # bracket not followed by "(" resolves here instead of holding the
+            # rest of the line. A "]" that is *last* stays open: the "(" may
+            # simply not have streamed in yet, and that costs one frame.
+            if i + 1 < n and line[i + 1] != "(":
+                open_bracket = -1
+            i += 1
+            continue
+
+        if ch == ")" and open_bracket != -1:
+            open_bracket = -1
+            i += 1
+            continue
+
+        for marker in _EMPHASIS_RUNS:
+            if line.startswith(marker, i):
+                # Same delimiter seen twice on the line closes it.
+                if marker in open_emphasis:
+                    del open_emphasis[marker]
+                else:
+                    open_emphasis[marker] = i
+                i += len(marker)
+                break
+        else:
+            i += 1
+
+    candidates = [pos for pos in (open_bracket, *open_emphasis.values()) if pos != -1]
+    # A lone trailing "~" may be the first half of a "~~" still streaming in.
+    # Anywhere else a single tilde is literal in CommonMark and renders without
+    # flicker ("~100ms" must keep streaming), so only the last one is held.
+    if n > start and line[-1] == "~" and not line.endswith("~~"):
+        candidates.append(n - 1)
+    return min(candidates) if candidates else n
+
+
+def _hold_open_inline(tail: str, in_fence: bool) -> str:
+    """Trim ``tail`` at the first unresolved inline construct on its last line.
+
+    ``in_fence`` suppresses the trim: inside a fenced code block every delimiter
+    is literal, so there is nothing ambiguous to wait for.
+
+    Runs on every streamed frame, so the common case — nothing open — returns
+    ``tail`` itself with no copying. Only an actual hold slices, and only once.
+    """
+    if in_fence or not tail:
+        return tail
+    cutoff = _open_inline_cutoff(tail, tail.rfind("\n") + 1)
+    return tail if cutoff >= len(tail) else tail[:cutoff]
+
+
 class StreamingMarkdownRenderer:
     """Incremental renderer for append-only streamed markdown.
 
@@ -490,7 +603,9 @@ class StreamingMarkdownRenderer:
                 self._frozen_generation += 1
             self._frozen_until = freeze_until
 
-        tail = text[self._frozen_until :]
+        # _advance_freeze_scan already tracked whether the tail sits inside a
+        # fenced code block, so the hold-back gets that for free.
+        tail = _hold_open_inline(text[self._frozen_until :], self._scan_in_fence)
         tail_lines = _render_markdown(
             tail,
             width,

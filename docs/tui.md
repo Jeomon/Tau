@@ -374,6 +374,8 @@ asyncio.run(main())
 
 `render_markdown()` renders Markdown with syntax-highlighted code blocks. It also converts inline (`$…$`) and display (`$$…$$`) LaTeX math to readable Unicode via `pylatexenc`; display math goes on its own lines, and code spans and fenced blocks keep their original LaTeX source. This is a plain-text approximation, not typeset layout.
 
+While a reply is streaming, `StreamingMarkdownRenderer` is used instead: it freezes completed top-level blocks and reparses only the open tail, so cost stays proportional to the current block rather than the whole reply. It also holds back an inline construct whose closing delimiter has not arrived yet — `**bold`, `` `code ``, `[text](url` — because those are literal text until they close, and rendering them verbatim would show the raw syntax on screen until it snapped into place. The held run is bounded to the last line: once a newline arrives the line renders in full, so a delimiter the model never closes stalls nothing. A finished message is re-rendered once through `render_markdown()` for exact whole-document semantics, which is what resolves constructs the incremental path cannot see, such as a reference link whose `[ref]:` definition arrives in a later block.
+
 ## Focus and Input
 
 Input is parsed into typed events by `InputParser`:

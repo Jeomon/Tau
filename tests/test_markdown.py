@@ -362,3 +362,122 @@ class TestStreamingMarkdownRenderer:
         assert [strip_ansi(line) for line in split.frozen_lines] == ["Intro.", ""]
         assert any("Current paragraph" in strip_ansi(line) for line in split.live_lines)
         assert split.frozen_generation > 0
+
+
+class TestStreamingHoldsBackOpenInlineConstructs:
+    """A half-written construct must not show its raw syntax while streaming.
+
+    "**very" is literal text until the closing "**" lands, so the parser used to
+    render the delimiters and the reader watched "[docs](http…" sit on screen
+    until the ")" arrived and it snapped to a link.
+    """
+
+    def _frames(self, text: str, width: int = 80) -> list[str]:
+        """Every distinct thing the reader sees as ``text`` streams in."""
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        frames: list[str] = []
+        seen: str | None = None
+        for i in range(1, len(text) + 1):
+            rendered = "".join(strip_ansi(line) for line in renderer.render(text[:i], width, theme))
+            if rendered != seen:
+                frames.append(rendered)
+                seen = rendered
+        return frames
+
+    def test_link_syntax_is_never_shown(self):
+        frames = self._frames("See the [Tau docs](https://example.com) now.")
+
+        assert not any("](" in f or "[Tau" in f for f in frames)
+        assert frames[-1] == "See the Tau docs now."
+
+    def test_bold_markers_are_never_shown(self):
+        frames = self._frames("This is **very important** stuff.")
+
+        assert not any("**" in f for f in frames)
+        assert frames[-1] == "This is very important stuff."
+
+    def test_inline_code_backticks_are_never_shown(self):
+        frames = self._frames("Run `pip install tau` first.")
+
+        assert not any("`" in f for f in frames)
+        assert frames[-1] == "Run pip install tau first."
+
+    def test_strikethrough_markers_are_never_shown(self):
+        frames = self._frames("That was ~~wrong~~ right.")
+
+        assert not any("~" in f for f in frames)
+        assert frames[-1] == "That was wrong right."
+
+    def test_image_syntax_is_never_shown(self):
+        frames = self._frames("Look ![a diagram](https://x.com/d.png) here.")
+
+        assert not any("](" in f for f in frames)
+        assert frames[-1] == "Look [image: a diagram] here."
+
+    def test_the_held_phrase_appears_in_one_go(self):
+        """The point of holding back: it arrives complete, not character by character."""
+        frames = self._frames("See the [Tau docs](https://example.com) now.")
+
+        assert "See the" in frames
+        assert "See the Tau docs" in frames
+        # Nothing partial in between — no "See the Tau" or "See the Tau do".
+        between = frames[frames.index("See the") + 1 : frames.index("See the Tau docs")]
+        assert between == []
+
+
+class TestStreamingHoldBackDoesNotOverreach:
+    """Delimiters that are literal text must still stream, and always resolve."""
+
+    def _final(self, text: str, width: int = 80) -> list[str]:
+        theme = _theme()
+        renderer = StreamingMarkdownRenderer()
+        rendered: list[str] = []
+        for i in range(1, len(text) + 1):
+            rendered = renderer.render(text[:i], width, theme)
+        return [strip_ansi(line) for line in rendered]
+
+    def test_a_line_ending_flushes_an_unclosed_construct(self):
+        """A model that never closes a delimiter must not stall forever."""
+        assert self._final("Rated 4 * 5 = 20 overall.\n") == plain("Rated 4 * 5 = 20 overall.\n")
+
+    def test_prose_brackets_do_not_hold_the_line(self):
+        from tau.tui.markdown import _open_inline_cutoff
+
+        line = "See [1] and [2] refs"
+        assert _open_inline_cutoff(line) == len(line)
+
+    def test_a_bracket_awaiting_its_paren_still_holds(self):
+        from tau.tui.markdown import _open_inline_cutoff
+
+        line = "See the [docs]"
+        assert _open_inline_cutoff(line) == line.index("[")
+
+    def test_escaped_delimiters_are_not_treated_as_open(self):
+        from tau.tui.markdown import _open_inline_cutoff
+
+        line = r"A literal \*star\* here"
+        assert _open_inline_cutoff(line) == len(line)
+
+    def test_fenced_code_content_is_not_held_back(self):
+        md = "```python\nx = a ** b  # [not](a link)\n```\n"
+
+        assert self._final(md) == plain(md)
+
+    def test_closed_constructs_hold_nothing(self):
+        from tau.tui.markdown import _open_inline_cutoff
+
+        for line in ("Use `code` and more", "A **bold** word", "plain prose here"):
+            assert _open_inline_cutoff(line) == len(line), line
+
+    def test_streamed_output_matches_a_batch_render(self):
+        for md in (
+            "See [1] and [2] for detail.\n",
+            "See [docs](http://x.com) now.\n",
+            "An array[0] index.\n",
+            "A [link **bold**](http://x.com) end.\n",
+            "- one **bold** item\n- two\n",
+            "| a | b |\n|---|---|\n| 1 | 2 |\n",
+            "# Title **here**\n\nbody\n",
+        ):
+            assert self._final(md) == plain(md), md
