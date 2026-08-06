@@ -1316,7 +1316,7 @@ wheels = [
 
 [[package]]
 name = "tau-coding-agent"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -1345,6 +1345,7 @@ dependencies = [
     { name = "pyxclip" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
+    { name = "termaid" },
     { name = "tiktoken" },
     { name = "uuid7" },
     { name = "websockets" },
@@ -1393,6 +1394,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "rapidfuzz", specifier = "==3.14.3" },
     { name = "ripgrep", marker = "extra == 'tools'", specifier = ">=14.0.0" },
+    { name = "termaid", specifier = "==0.8.0" },
     { name = "tiktoken", specifier = "==0.13.0" },
     { name = "uuid7", specifier = "==0.1.0" },
     { name = "websockets", specifier = "==16.0" },
@@ -1415,6 +1417,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
+]
+
+[[package]]
+name = "termaid"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/74/951acc74226adf541b876257787fbf1f8a68d81f2d6a59749165b51dba44/termaid-0.8.0.tar.gz", hash = "sha256:58c4b8960bd4382b1b13c79f1beb9a53ebcbc58531fc8ecea8c64a307112f377", size = 401844, upload-time = "2026-07-29T08:52:05.975Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/e6/2f1cdca71adb5864a97ad06c0f0b509e9ab9592b3da83f2dd5708a61ec68/termaid-0.8.0-py3-none-any.whl", hash = "sha256:3b572ed705bbca77eeffcbc1906a73f1c8119613a0552bb2ff7463a2672b1cb3", size = 159955, upload-time = "2026-07-29T08:52:04.707Z" },
 ]
 
 [[package]]
