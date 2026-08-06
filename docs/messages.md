@@ -263,6 +263,14 @@ engine appends completed messages to `EngineState.messages` on `MessageEndEvent`
 and drops the last `count` on `MessageRollbackEvent` when an interrupted turn is
 discarded. See [Engine](engine.md#events).
 
+Note the ordering in that diagram: the assistant's tool-call message reaches the
+session *before* the tools run, and `ToolMessage` only after they finish. A crash
+in between leaves a call nothing answers, which every provider rejects with a
+non-retryable 400 — so the session could never be resumed. `to_llm_messages()`
+therefore invents an error result for any unanswered call. Only the projection is
+repaired; the JSONL keeps the real record, so the file still shows that no result
+was ever produced.
+
 ## Serialization
 
 Messages persist inside session entries in `tau/session/types.py`:

@@ -430,7 +430,11 @@ class TestToLlmMessages:
     def test_assistant_with_tool_call_passes_through(self):
         msg = AssistantMessage(contents=[ToolCallContent(id="x", name="fn", args={})])
         result = to_llm_messages([msg])
-        assert result == [msg]
+        # The assistant turn is kept as-is. It also picks up a synthetic result
+        # for the unanswered call — see TestOrphanedToolCalls — because sending
+        # a bare tool call back is a provider 400.
+        assert result[0] is msg
+        assert isinstance(result[1], ToolMessage)
 
     def test_assistant_with_thinking_passes_through(self):
         msg = AssistantMessage(contents=[ThinkingContent(content="thoughts")])
@@ -447,3 +451,106 @@ class TestToLlmMessages:
         assert result[0] is user
         assert isinstance(result[1], UserMessage)
         assert result[2] is asst
+
+
+class TestOrphanedToolCalls:
+    """A tool call with no result wedges the session permanently.
+
+    The assistant's tool-call message is persisted before the tools run and the
+    results after, so a crash anywhere in between (the window is as long as the
+    tools take) leaves a call nothing ever answered. Every provider 400s on
+    that, the error classifies as FORMAT_ERROR — not retryable — and each
+    resume resends the same malformed history.
+    """
+
+    @staticmethod
+    def _call(id_: str = "call_1", name: str = "ls") -> ToolCallContent:
+        return ToolCallContent(id=id_, name=name, args={})
+
+    @staticmethod
+    def _assistant(*contents) -> AssistantMessage:
+        msg = AssistantMessage()
+        msg.contents = list(contents)
+        return msg
+
+    @staticmethod
+    def _pairs(messages) -> tuple[set[str], set[str]]:
+        calls, results = set(), set()
+        for msg in messages:
+            for content in msg.contents or []:
+                if isinstance(content, ToolCallContent):
+                    calls.add(content.id)
+                elif isinstance(content, ToolResultContent):
+                    results.add(content.id)
+        return calls, results
+
+    def test_an_unanswered_call_gets_a_result(self):
+        asst = self._assistant(TextContent(content="Checking."), self._call())
+
+        result = to_llm_messages([UserMessage.from_text("go"), asst])
+
+        calls, results = self._pairs(result)
+        assert calls == results == {"call_1"}
+        assert isinstance(result[-1], ToolMessage)
+
+    def test_the_synthetic_result_is_marked_as_an_error(self):
+        result = to_llm_messages([self._assistant(self._call())])
+
+        answer = result[-1].contents[0]
+        assert isinstance(answer, ToolResultContent)
+        assert answer.is_error
+        assert answer.metadata.get("orphaned") is True
+        assert answer.tool_name == "ls"
+
+    def test_the_assistant_text_is_kept(self):
+        """Repairing must not cost the model's reasoning from that turn."""
+        asst = self._assistant(TextContent(content="Let me look."), self._call())
+
+        result = to_llm_messages([asst])
+
+        assert result[0] is asst
+        assert any(isinstance(c, TextContent) for c in result[0].contents)
+
+    def test_a_partly_answered_batch_is_completed(self):
+        asst = self._assistant(self._call("call_1"), self._call("call_2", "cat"))
+        answered = ToolMessage.from_results([ToolResultContent(id="call_1", content="ok")])
+
+        result = to_llm_messages([asst, answered])
+
+        calls, results = self._pairs(result)
+        assert calls == results == {"call_1", "call_2"}
+
+    def test_a_partly_answered_batch_does_not_mutate_the_session_message(self):
+        """The list handed in holds the objects the session persists."""
+        asst = self._assistant(self._call("call_1"), self._call("call_2", "cat"))
+        answered = ToolMessage.from_results([ToolResultContent(id="call_1", content="ok")])
+
+        to_llm_messages([asst, answered])
+
+        assert len(answered.contents) == 1
+        assert answered.contents[0].id == "call_1"
+
+    def test_a_fully_answered_batch_is_left_alone(self):
+        asst = self._assistant(self._call())
+        answered = ToolMessage.from_results([ToolResultContent(id="call_1", content="ok")])
+
+        result = to_llm_messages([asst, answered])
+
+        assert result == [asst, answered]
+        assert result[1] is answered
+
+    def test_an_assistant_message_without_tool_calls_is_untouched(self):
+        asst = self._assistant(TextContent(content="just text"))
+
+        assert to_llm_messages([asst]) == [asst]
+
+    def test_repair_survives_a_round_trip_through_the_wire_format(self):
+        from tau.inference.api.text.utils import anthropic_messages_to_list
+
+        asst = self._assistant(self._call())
+
+        _, payload = anthropic_messages_to_list(to_llm_messages([asst]))
+
+        assert payload[-1]["role"] == "user"
+        assert payload[-1]["content"][0]["type"] == "tool_result"
+        assert payload[-1]["content"][0]["tool_use_id"] == "call_1"

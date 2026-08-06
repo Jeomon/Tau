@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+from tau.tui.latex import extract_math, restore_math
 from tau.tui.style import OSC8_CLOSE, apply_style
 from tau.tui.utils import RESET, visible_width, wrap
 
@@ -15,73 +16,13 @@ if TYPE_CHECKING:
     from tau.tui.theme import MarkdownTheme
 
 
-# ── LaTeX math ────────────────────────────────────────────────────────────────
-#
-# Math is extracted from the raw text *before* mistletoe tokenizes it, for two
-# reasons that both trace back to mistletoe being a real CommonMark parser:
-#
-#  1. \(\)/\[\] delimiters use a literal backslash, which collides with
-#     CommonMark's own backslash-escaping -- "(", ")", "[", "]" are escapable
-#     punctuation, so by the time any post-tokenization code sees this text,
-#     mistletoe has already silently stripped \( down to a bare "(" (letters
-#     like \lambda survive, since they're not escapable). A regex applied
-#     after tokenization can never see the delimiter.
-#  2. A literal "|" inside math (e.g. absolute-value bars, $|\sin\theta|$)
-#     is otherwise indistinguishable from a table-row column separator to
-#     mistletoe's tokenizer, which has no notion of math syntax and will
-#     shred the row into extra cells.
-#
-# Extracting everything up front sidesteps both: each matched span is
-# converted immediately and swapped for an inert placeholder that mistletoe
-# can only ever see as ordinary text, then spliced back in once rendering
-# reaches that placeholder's RawText node (see _render_inline).
-_DISPLAY_MATH_RE = re.compile(r"\$\$(?!\s)(.+?)(?<!\s)\$\$", re.DOTALL)
-_INLINE_MATH_RE = re.compile(r"(?<![\\$])\$(?![\s$])(.+?)(?<![\s\\])\$(?![\d$])", re.DOTALL)
-_DISPLAY_MATH_BRACKET_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
-_INLINE_MATH_PAREN_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
-# Ordered display-before-inline within each delimiter family, so the inline
-# pattern can't partially match into a display block's own delimiters.
-_MATH_RES = (
-    (_DISPLAY_MATH_RE, True),
-    (_DISPLAY_MATH_BRACKET_RE, True),
-    (_INLINE_MATH_RE, False),
-    (_INLINE_MATH_PAREN_RE, False),
-)
-
-_MATH_PLACEHOLDER = ""  # private-use codepoint, never appears in real text
-_MATH_PLACEHOLDER_RE = re.compile(
-    re.escape(_MATH_PLACEHOLDER) + r"(\d+)" + re.escape(_MATH_PLACEHOLDER)
-)
-
-# Fenced/inline code is left untouched by extraction below: a LaTeX example
-# shown inside a ```tex block or `$...$` code span is text to display
-# verbatim, not math to render, and mistletoe's own code-span/fence
-# recognition isn't available yet at this pre-tokenization stage to lean on.
-# Approximates CommonMark fence/span matching (same-length open/close
-# backtick or tilde run) rather than implementing it in full.
-_CODE_REGION_RE = re.compile(
-    r"(?P<fence>`{3,}|~{3,})[^\n]*\n.*?\n?(?P=fence)|`+[^`\n]+?`+",
-    re.DOTALL,
-)
-
-_SCRIPT_RE = re.compile(r"([_^])\{([^{}]+)\}|([_^])([A-Za-z0-9])")
+# LaTeX math lives in tau.tui.latex: it is extracted and converted before
+# mistletoe ever sees the text (that module's docstring explains why it has to
+# happen there rather than after tokenization), and spliced back in when
+# rendering reaches the placeholder it left behind.
 _TASK_CHECKBOX_RE = re.compile(r"^\[([ xX])\]\s+")
 _BARE_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 _BARE_URL_TRAILING_PUNCT = ".,;:!?'\")]}*_~"
-_SUPERSCRIPTS = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
-_SUBSCRIPTS = str.maketrans(
-    "0123456789+-=()aehijklmnoprstuvx",
-    "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ",
-)
-
-
-@lru_cache(maxsize=1)
-def _latex_node_cls():
-    # Deferred: pylatexenc is only needed once a message actually contains
-    # LaTeX math, not at import time (which is on the app-startup path).
-    from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped]
-
-    return LatexNodes2Text
 
 
 def _hyperlink(target: str, label: str) -> str:
@@ -91,85 +32,6 @@ def _hyperlink(target: str, label: str) -> str:
     renders as plain text anyway — so it is skipped outright.
     """
     return f"\x1b]8;;{target}\x1b\\{label}{OSC8_CLOSE}" if target else label
-
-
-def _convert_script(marker: str, value: str) -> str:
-    """Convert a LaTeX script body to Unicode where suitable glyphs exist."""
-    plain = _latex_node_cls()(math_mode="text").latex_to_text(f"${value}$").strip()
-    table = _SUPERSCRIPTS if marker == "^" else _SUBSCRIPTS
-    converted = plain.translate(table)
-    supported = all(ord(char) in table for char in plain)
-    if supported:
-        return converted
-    # Unicode has no general superscript alphabet and no superscript infinity.
-    # Keep explicit notation and separate it from a following expression.
-    return f"{marker}{plain}{' ' if marker == '^' else ''}"
-
-
-def _unicode_scripts(expression: str) -> str:
-    """Replace braced and single-character LaTeX scripts with readable Unicode."""
-
-    def replace(match: re.Match[str]) -> str:
-        marker = match.group(1) or match.group(3)
-        value = match.group(2) or match.group(4)
-        return _convert_script(marker, value)
-
-    # Keep a converted Unicode script from becoming part of the preceding
-    # control-word name (for example ``\sumₙ``). An empty group terminates the
-    # LaTeX macro without changing its rendered output.
-    expression = re.sub(r"(\\[A-Za-z]+)(?=[_^])", r"\1{}", expression)
-    return _SCRIPT_RE.sub(replace, expression)
-
-
-def _normalize_math_spacing(text: str) -> str:
-    """Add terminal-friendly spacing around binary relation operators."""
-    text = re.sub(r"\s*(≤|≥|≈|≠|=)\s*", r" \1 ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-@lru_cache(maxsize=512)
-def _latex_math_to_text(expression: str) -> str:
-    """Convert one LaTeX math expression to terminal-readable Unicode text."""
-    try:
-        expression = _unicode_scripts(expression)
-        converted = _latex_node_cls()(math_mode="text").latex_to_text(f"${expression}$")
-    except Exception:
-        return expression
-    converted = " ".join(line.strip() for line in converted.splitlines() if line.strip())
-    return _normalize_math_spacing(converted) or expression
-
-
-def _extract_math(text: str) -> tuple[str, list[str]]:
-    """Pull every recognised math span out of the raw text before mistletoe
-    tokenizes it (see the module comment above for why). Returns the
-    placeholder-substituted text plus the list of already-converted Unicode
-    replacements, indexed by the placeholder. Fenced/inline code regions are
-    passed through untouched (see _CODE_REGION_RE).
-    """
-    replacements: list[str] = []
-
-    def _repl(is_display: bool):
-        def repl(match: re.Match[str]) -> str:
-            converted = _latex_math_to_text(match.group(1))
-            replacements.append(f"\n{converted}\n" if is_display else converted)
-            return f"{_MATH_PLACEHOLDER}{len(replacements) - 1}{_MATH_PLACEHOLDER}"
-
-        return repl
-
-    def _extract_in_segment(segment: str) -> str:
-        for pattern, is_display in _MATH_RES:
-            segment = pattern.sub(_repl(is_display), segment)
-        return segment
-
-    parts: list[str] = []
-    pos = 0
-    for m in _CODE_REGION_RE.finditer(text):
-        parts.append(_extract_in_segment(text[pos : m.start()]))
-        parts.append(m.group(0))
-        pos = m.end()
-    parts.append(_extract_in_segment(text[pos:]))
-    text = "".join(parts)
-    return text, replacements
 
 
 # ── Syntax highlighting (pygments) ──────────────────────────────────────────────
@@ -302,7 +164,7 @@ def _parse_markdown_uncached(text: str, preserve_soft_breaks: bool):
     blockquotes, headings and links.
     """
     document, html_block, html_span, md_context = _mistletoe()
-    stripped, math_replacements = _extract_math(text)
+    stripped, math_replacements = extract_math(text)
     with md_context(html_span, html_block):
         doc = document(stripped.splitlines(keepends=True))
     return doc, math_replacements
@@ -319,12 +181,19 @@ def _render_markdown(
     preserve_soft_breaks: bool = False,
     trim_trailing_blank_lines: bool = True,
     cache: bool = True,
+    allow_diagrams: bool = True,
 ) -> list[str]:
     parse = _parse_markdown if cache else _parse_markdown_uncached
     doc, math_replacements = parse(text, preserve_soft_breaks)
     _document, html_block, html_span, md_context = _mistletoe()
     with md_context(html_span, html_block):
-        renderer = _Renderer(width, theme, preserve_soft_breaks, math_replacements)
+        renderer = _Renderer(
+            width,
+            theme,
+            preserve_soft_breaks,
+            math_replacements,
+            allow_diagrams=allow_diagrams,
+        )
         lines = renderer.render_blocks(doc.children or [])
     if trim_trailing_blank_lines:
         while lines and lines[-1] == "":
@@ -617,6 +486,12 @@ class StreamingMarkdownRenderer:
             # room. The newly_stable render above *is* cached -- that text is
             # final, which is exactly what the cache is for.
             cache=False,
+            # The tail may hold a fence that has not closed yet, and a
+            # half-written diagram relayouts on every token. Frozen blocks
+            # never contain an open fence (_advance_freeze_scan refuses to
+            # freeze inside one), and the final non-streaming render goes
+            # through render_markdown, so both of those still draw diagrams.
+            allow_diagrams=False,
         )
         frozen = self._frozen_lines
         # ``frozen`` only ever grows by appending (see above) and callers only
@@ -697,10 +572,16 @@ class _Renderer:
         theme: MarkdownTheme,
         preserve_soft_breaks: bool = False,
         math_replacements: list[str] | None = None,
+        *,
+        allow_diagrams: bool = True,
     ) -> None:
         self.width = width
         self.theme = theme
         self.preserve_soft_breaks = preserve_soft_breaks
+        # False while a fence is still streaming in: a half-written diagram
+        # relayouts on every token, so boxes grow, shrink and vanish frame to
+        # frame. Source text until the fence closes, diagram after.
+        self.allow_diagrams = allow_diagrams
         # Already-converted math spans, indexed by the placeholder tokens
         # _extract_math() left in RawText nodes' content — see the module
         # comment near the top of this file for why.
@@ -742,6 +623,11 @@ class _Renderer:
 
             elif name in ("CodeFence", "BlockCode"):
                 lang = (getattr(node, "language", "") or "").strip()
+                diagram = self._render_mermaid(node, lang)
+                if diagram is not None:
+                    lines.extend(diagram)
+                    lines.append("")
+                    continue
                 if lang:
                     lines.append(apply_style(self.theme.code_block_border, lang))
                 code = self._code_content(node).rstrip("\n")
@@ -801,6 +687,25 @@ class _Renderer:
             return content
         children = getattr(node, "children", None) or []
         return "".join(getattr(c, "content", "") for c in children)
+
+    def _render_mermaid(self, node: Any, lang: str) -> list[str] | None:
+        """Box art for a ```mermaid fence, or None to fall back to source text.
+
+        Falls back whenever the diagram cannot be laid out — an unsupported or
+        malformed diagram, or one wider than the terminal — so the reader still
+        gets the source rather than nothing. The two-space indent matches the
+        fenced-code rendering it replaces.
+        """
+        if not self.allow_diagrams:
+            return None
+        from tau.tui.mermaid import is_mermaid_language, render_diagram
+
+        if not is_mermaid_language(lang):
+            return None
+        art = render_diagram(self._code_content(node).rstrip("\n"), self.width - 2)
+        if art is None:
+            return None
+        return ["  " + apply_style(self.theme.code_block, line) for line in art]
 
     # ── List rendering ────────────────────────────────────────────────────────
 
@@ -979,11 +884,7 @@ class _Renderer:
             name = type(node).__name__
 
             if name == "RawText":
-                content = node.content
-                if self.math_replacements:
-                    content = _MATH_PLACEHOLDER_RE.sub(
-                        lambda m: self.math_replacements[int(m.group(1))], content
-                    )
+                content = restore_math(node.content, self.math_replacements)
                 content = self._autolink_bare_urls(content)
                 parts.append(apply_style(self.theme.body, content))
             elif name == "LineBreak":

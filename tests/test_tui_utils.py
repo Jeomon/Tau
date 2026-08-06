@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
-from tau.tui.utils import clip_to_width, grapheme_width, project_name
+import re
+
+from tau.tui.style import OSC8_CLOSE
+from tau.tui.utils import (
+    clip_to_width,
+    grapheme_width,
+    project_name,
+    slice_columns,
+    truncate,
+    truncate_to_width,
+)
+
+# Deliberately a separate pattern from the one in tau.tui.utils: a probe that
+# shares the implementation's regex would hide a bug in that regex.
+_OSC8_PROBE = re.compile(r"\x1b\]8;[^;]*;([^\x07\x1b]*)")
 
 
 class TestProjectName:
@@ -77,3 +91,67 @@ class TestClipToWidth:
 
     def test_zero_width_returns_empty(self):
         assert clip_to_width("abc", 0) == ""
+
+
+class TestTruncationClosesHyperlinks:
+    """Cutting through an OSC 8 label must not leave the hyperlink open.
+
+    The terminal keeps applying an open hyperlink to everything printed after
+    it — the ellipsis, the rest of the row, the next line — so a truncated link
+    turns the remainder of the screen into one clickable region. An SGR reset
+    does not end a hyperlink; only the OSC 8 terminator does, which is why
+    ``truncate``'s trailing RESET was not already enough.
+    """
+
+    LINK = "\x1b]8;;https://example.com/docs\x1b\\Tau documentation\x1b]8;;\x1b\\"
+    TEXT = f"See {LINK} for details"
+
+    @staticmethod
+    def _link_open(text: str) -> bool:
+        """True when the last OSC 8 sequence in ``text`` opens rather than closes."""
+        targets = _OSC8_PROBE.findall(text)
+        return bool(targets and targets[-1])
+
+    def test_the_probe_catches_an_unclosed_link(self):
+        """Guard the guard: the helper must actually detect the bug condition."""
+        assert self._link_open("\x1b]8;;https://x.com\x1b\\label")
+        assert not self._link_open(self.TEXT)
+        assert not self._link_open("no links here")
+
+    def test_truncate_to_width_closes_a_cut_link(self):
+        assert not self._link_open(truncate_to_width(self.TEXT, 12))
+
+    def test_truncate_closes_a_cut_link_before_the_ellipsis(self):
+        out = truncate(self.TEXT, 12)
+        assert not self._link_open(out)
+        # The ellipsis must fall outside the link, not inside it.
+        assert out.index(OSC8_CLOSE) < out.index("…")
+
+    def test_clip_to_width_closes_a_cut_link(self):
+        assert not self._link_open(clip_to_width(self.TEXT, 12))
+
+    def test_slice_columns_closes_a_window_opened_inside_a_link(self):
+        """The window re-emits the opening sequence, so it owns the close."""
+        out = slice_columns(self.TEXT, 6, 14)
+        assert "\x1b]8;;https://example.com/docs" in out
+        assert not self._link_open(out)
+
+    def test_text_that_is_not_truncated_is_unchanged(self):
+        assert truncate_to_width(self.TEXT, 100) == self.TEXT
+        assert truncate(self.TEXT, 100) == self.TEXT
+        assert clip_to_width(self.TEXT, 100) == self.TEXT
+
+    def test_no_close_is_added_when_the_cut_falls_after_the_link(self):
+        for out in (truncate_to_width(self.TEXT, 24), clip_to_width(self.TEXT, 24)):
+            assert not self._link_open(out)
+            assert not out.endswith(OSC8_CLOSE)
+
+    def test_plain_text_is_unaffected(self):
+        assert truncate_to_width("just some ordinary text", 9) == "just some"
+        assert OSC8_CLOSE not in truncate("just some ordinary text", 9)
+
+    def test_a_link_with_params_is_handled(self):
+        """OSC 8 allows params before the target; Tau emits none but tools may."""
+        text = "\x1b]8;id=1;https://example.com\x1b\\Some label\x1b]8;;\x1b\\ tail"
+
+        assert not self._link_open(truncate_to_width(text, 6))

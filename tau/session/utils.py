@@ -657,6 +657,8 @@ def to_llm_messages(messages: list[AgentMessage]) -> list[LLMMessage]:
     Empty AssistantMessages are visual-only markers (aborts, persisted API/credit
     errors) and are skipped — an assistant turn with neither content nor tool
     calls is invalid to send back and triggers provider 400s.
+    A tool call left unanswered gets a synthetic error result — see
+    :func:`_answer_orphan_tool_calls`.
     """
     from tau.message.types import CompactionSummaryMessage, ThinkingContent, ToolCallContent
 
@@ -676,4 +678,70 @@ def to_llm_messages(messages: list[AgentMessage]) -> list[LLMMessage]:
                 result.append(msg)
         elif isinstance(msg, (UserMessage, ToolMessage)):
             result.append(msg)
-    return result
+    return _answer_orphan_tool_calls(result)
+
+
+def _answer_orphan_tool_calls(messages: list[LLMMessage]) -> list[LLMMessage]:
+    """Give every tool call an answer, inventing error results for the unanswered.
+
+    A tool call whose result never arrived is a 400 from every provider —
+    Anthropic's "tool_use ids were found without tool_result blocks", OpenAI's
+    "must be followed by tool messages". Those classify as FORMAT_ERROR, which
+    is not retryable, so the session cannot be resumed at all: every attempt
+    resends the same malformed history. ``drop_orphan_function_call_outputs``
+    already guards the mirror case (a result whose call was folded away by
+    compaction); this is the one a crash produces, because the assistant's
+    tool-call message is persisted before the tools run and the results are
+    persisted after, leaving a window as long as the tools take.
+
+    The synthetic result is truthful — the tool genuinely did not finish — and
+    matches what the engine writes when a tool is interrupted. Only the outgoing
+    copy is repaired, and a partly-answered batch is replaced by a new
+    ``ToolMessage`` rather than having its contents extended: the list handed in
+    holds the very objects the session persists, so mutating one would rewrite
+    history to claim a result that was never produced.
+    """
+    from tau.message.types import ToolCallContent, ToolResultContent
+
+    def _synthesize(calls: list[ToolCallContent]) -> list[ToolResultContent]:
+        return [
+            ToolResultContent(
+                id=call.id,
+                is_error=True,
+                content=(
+                    "Tool execution did not complete — the session ended "
+                    "before a result was recorded."
+                ),
+                metadata={"orphaned": True},
+                tool_name=call.name,
+            )
+            for call in calls
+        ]
+
+    repaired: list[LLMMessage] = []
+    index = 0
+    total = len(messages)
+    while index < total:
+        msg = messages[index]
+        repaired.append(msg)
+        index += 1
+        if not isinstance(msg, AssistantMessage):
+            continue
+        calls = [c for c in msg.contents if isinstance(c, ToolCallContent)]
+        if not calls:
+            continue
+
+        nxt = messages[index] if index < total else None
+        if not isinstance(nxt, ToolMessage):
+            # Nothing answered the batch at all — the crash case.
+            repaired.append(ToolMessage.from_results(_synthesize(calls)))
+            continue
+
+        answered = {c.id for c in nxt.contents if isinstance(c, ToolResultContent)}
+        missing = [call for call in calls if call.id not in answered]
+        if missing:
+            repaired.append(ToolMessage.from_results([*nxt.contents, *_synthesize(missing)]))  # type: ignore[list-item]
+        else:
+            repaired.append(nxt)
+        index += 1
+    return repaired

@@ -38,6 +38,7 @@ dependencies = [
     "rapidfuzz==3.14.3",
     "pyxclip==0.2.3",
     "ddgs>=9.14.4",
+    "termaid==0.8.0",
 ]
 
 [project.scripts]

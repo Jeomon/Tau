@@ -164,6 +164,8 @@ tau/
 │   ├── input.py            # Input events, terminal parser, keybinding registry
 │   ├── autocomplete.py     # Generic autocomplete management
 │   ├── markdown.py         # Markdown → ANSI
+│   ├── latex.py            # LaTeX math → Unicode text
+│   ├── mermaid.py          # Mermaid fences → Unicode box art
 │   ├── keybinding_hints.py # Keybinding hint formatting
 │   ├── theme.py            # TUI theme types
 │   └── utils.py

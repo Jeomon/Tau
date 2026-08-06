@@ -268,6 +268,8 @@ line = TextLine([
 
 Colors accept a hex string (`"#a78bfa"`), a named ANSI color (`"bright_cyan"`), an `(r, g, b)` tuple, a palette index, or `RESET_COLOR` to force the terminal default. `parse_color()` converts a string spec. The `tailwind` and `material` palettes provide ready-made triples: `tailwind.SLATE.c500`.
 
+An OSC 8 hyperlink is not ended by an SGR reset — only by the OSC 8 terminator — so a link left open keeps claiming everything printed after it, including subsequent lines. The width helpers in `tau.tui.utils` (`truncate_to_width`, `truncate`, `clip_to_width`, `slice_columns`) close an open link at the cut for you; code that slices pre-styled ANSI by hand has to do the same.
+
 There are two ways to emit styled output, in decreasing order of preference:
 
 1. **Structured**: build a `TextLine([...])` of styled `Span`s and flatten it with `line_to_ansi(line, width)`. Style stays data until the last moment, and alignment and clipping are resolved for you.
@@ -374,7 +376,11 @@ asyncio.run(main())
 
 `render_markdown()` renders Markdown with syntax-highlighted code blocks. It also converts inline (`$…$`) and display (`$$…$$`) LaTeX math to readable Unicode via `pylatexenc`; display math goes on its own lines, and code spans and fenced blocks keep their original LaTeX source. This is a plain-text approximation, not typeset layout.
 
+The math conversion itself lives in `tau/tui/latex.py`, not in the Markdown renderer. It has to run *before* mistletoe tokenizes the text — `\(`/`\[` delimiters collide with CommonMark's own backslash escaping, and a `|` inside math is indistinguishable from a table column separator — so `extract_math()` converts each span up front and leaves an inert placeholder, and `restore_math()` splices the results back when rendering reaches that text node. The placeholder's shape stays private to that module: `markdown.py` just carries the returned replacement list and hands it back.
+
 While a reply is streaming, `StreamingMarkdownRenderer` is used instead: it freezes completed top-level blocks and reparses only the open tail, so cost stays proportional to the current block rather than the whole reply. It also holds back an inline construct whose closing delimiter has not arrived yet — `**bold`, `` `code ``, `[text](url` — because those are literal text until they close, and rendering them verbatim would show the raw syntax on screen until it snapped into place. The held run is bounded to the last line: once a newline arrives the line renders in full, so a delimiter the model never closes stalls nothing. A finished message is re-rendered once through `render_markdown()` for exact whole-document semantics, which is what resolves constructs the incremental path cannot see, such as a reference link whose `[ref]:` definition arrives in a later block.
+
+A ` ```mermaid ` (or ` ```mmd `) fence is laid out as Unicode box art by `termaid`, so diagrams render in every terminal rather than only those speaking an image protocol — flowcharts, state, sequence, class, ER, pie, gantt and mindmap. Rendering takes single-digit milliseconds and runs inline, and results are cached by source since a scrollback repaint re-renders the same diagram every frame. Three cases fall back to the ordinary fenced-code rendering, so the reader always sees at least the source: a diagram `termaid` cannot parse, one wider than the terminal (it lays out to whatever width the diagram needs, with no way to constrain it), and a fence still streaming in — a half-written diagram relayouts on every token, so it only renders once the fence has closed.
 
 ## Focus and Input
 

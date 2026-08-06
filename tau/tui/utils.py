@@ -10,7 +10,7 @@ from pathlib import Path
 
 import grapheme
 
-from tau.tui.style import Style, apply_style
+from tau.tui.style import OSC8_CLOSE, Style, apply_style
 from tau.tui.widgets.symbols import PLAIN, BorderSet
 
 # ── Regex to strip all ANSI escape sequences ─────────────────────────────────
@@ -208,6 +208,26 @@ _CLUSTER_FORMING = re.compile(
 )
 
 
+# An OSC 8 hyperlink: ESC ] 8 ; params ; target ST, where an empty target closes
+# the currently open link. Tau only ever emits empty params (see style.py), but
+# matching them keeps this correct for text arriving from a tool or a provider.
+_OSC8_RE = re.compile(r"\x1b\]8;[^;]*;(.*?)(?:\x07|\x1b\\)")
+
+
+def _hyperlink_close_for(text: str) -> str:
+    """``OSC8_CLOSE`` when ``text`` leaves a hyperlink open, otherwise "".
+
+    Cutting a string mid-label keeps the opening sequence and drops the closing
+    one, so the terminal goes on treating everything printed afterwards as part
+    of that link — the ellipsis, the rest of the row, and whatever the next line
+    paints. Note that an SGR reset does not end a hyperlink: only the OSC 8
+    terminator does, which is why ``truncate``'s trailing ``RESET`` was not
+    already enough.
+    """
+    targets = _OSC8_RE.findall(text)
+    return OSC8_CLOSE if targets and targets[-1] else ""
+
+
 def truncate_to_width(text: str, max_cols: int) -> str:
     """Longest prefix of ``text`` fitting ``max_cols`` columns, ANSI preserved.
 
@@ -241,7 +261,8 @@ def truncate_to_width(text: str, max_cols: int) -> str:
         out.append(cluster)
         col += w
         i += len(cluster)
-    return "".join(out)
+    kept = "".join(out)
+    return kept + _hyperlink_close_for(kept)
 
 
 def slice_columns(text: str, start: int, end: int) -> str:
@@ -299,9 +320,14 @@ def slice_columns(text: str, start: int, end: int) -> str:
         out.append(cluster)
         col = nxt
         i += len(cluster)
+    window = "".join(out)
+    # A window opening inside a link re-emits its opening sequence with the
+    # rest of the active SGR, so it has to be closed here even though the
+    # source string closed it somewhere past ``end``.
+    window += _hyperlink_close_for(window)
     if active and started:
-        out.append(RESET)
-    return "".join(out)
+        window += RESET
+    return window
 
 
 def visible_width(text: str) -> int:
@@ -365,7 +391,9 @@ def truncate(text: str, max_width: int, ellipsis: str = "…") -> str:
     ellipsis_w = visible_width(ellipsis)
     target = max_width - ellipsis_w
     result, _ = _take_columns(text, target)
-    return result + RESET + ellipsis + RESET
+    # The close goes before the ellipsis so the ellipsis is not part of the
+    # link. RESET alone would leave the hyperlink open.
+    return result + _hyperlink_close_for(result) + RESET + ellipsis + RESET
 
 
 def clip_to_width(text: str, max_width: int) -> str:
@@ -379,7 +407,7 @@ def clip_to_width(text: str, max_width: int) -> str:
     if visible_width(text) <= max_width:
         return text
     result, _ = _take_columns(text, max_width)
-    return result
+    return result + _hyperlink_close_for(result)
 
 
 def pad(text: str, width: int, char: str = " ", align: str = "left") -> str:

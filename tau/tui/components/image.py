@@ -101,8 +101,27 @@ def _encode_kitty(b64: str, cols: int, rows: int, image_id: int | None) -> str:
     return "".join(chunks)
 
 
+def _b64_decoded_size(b64: str) -> int:
+    """Decoded byte count of canonical base64, without decoding it.
+
+    The payload can be megabytes, and only its length is wanted.
+    """
+    return (len(b64) // 4) * 3 - b64.count("=", -2)
+
+
 def _encode_iterm2(b64: str, cols: int, filename: str | None) -> str:
-    parts = ["inline=1", f"width={cols}", "height=auto", "preserveAspectRatio=1"]
+    # iTerm2 itself treats size= as optional (it drives the progress indicator),
+    # but the xterm.js image addon requires it and rejects the sequence outright
+    # without one — which is what web terminals and anything embedding xterm.js
+    # use. Derived from the payload actually being sent rather than the original
+    # bytes, since a non-PNG image may have been re-encoded before this point.
+    parts = [
+        "inline=1",
+        f"size={_b64_decoded_size(b64)}",
+        f"width={cols}",
+        "height=auto",
+        "preserveAspectRatio=1",
+    ]
     if filename:
         name_b64 = base64.b64encode(filename.encode()).decode()
         parts.append(f"name={name_b64}")
