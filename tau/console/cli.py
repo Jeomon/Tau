@@ -427,7 +427,17 @@ async def _run_print(runtime: Runtime, message: str | None, quiet: bool = False)
     unsub_settled = hooks.register("settled", on_settled)
 
     try:
-        await runtime.invoke(message)
+        try:
+            await runtime.invoke(message)
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            # A mid-stream provider error lands in result.error below and gets
+            # the same clean treatment. A failure before the stream starts
+            # (bad model/provider config, etc.) has no AssistantMessage to
+            # carry it, so without this it would propagate past main() as a
+            # raw traceback instead of a one-line CLI error.
+            raise click.ClickException(str(exc)) from exc
         await settled.wait()
     finally:
         unsub_msg()
@@ -513,7 +523,17 @@ async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) 
     unsubs = [hooks.register(name, on_event) for name in hook_names]
 
     try:
-        await runtime.invoke(message)
+        try:
+            await runtime.invoke(message)
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            # A mid-stream provider error still streams through on_event as a
+            # message_end/agent_end payload with the error attached. A failure
+            # before the stream starts never gets there, so without this it
+            # would propagate past main() as a raw traceback instead of a
+            # clean CLI error.
+            raise click.ClickException(str(exc)) from exc
         await settled.wait()
     finally:
         for unsub in unsubs:
