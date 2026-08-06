@@ -213,6 +213,9 @@ class MistralChatAPI(BaseAPI):
         _input_tokens = 0
         _output_tokens = 0
         _cache_read_tokens = 0
+        # Default when the provider ends the stream without a finish_reason:
+        # Stop is the honest answer when it never said why.
+        stop_reason = StopReason.Stop
 
         yield StartEvent()
 
@@ -372,13 +375,20 @@ class MistralChatAPI(BaseAPI):
                             tool_meta.clear()
 
                         stop_reason = _STOP_REASON.get(str(finish), StopReason.Stop)
-                        yield EndEvent(
-                            reason=stop_reason,
-                            input_tokens=_input_tokens,
-                            output_tokens=_output_tokens,
-                            cache_read_tokens=_cache_read_tokens,
-                            input_tokens_include_cache_read=True,
-                        )
+
+            # The usage-bearing chunk can arrive as a separate final chunk,
+            # *after* the finish_reason chunk — yielding EndEvent inside the
+            # finish_reason branch above captured 0 tokens whenever that chunk
+            # hadn't landed yet. Yield only once the stream is fully drained so
+            # the counts reflect whatever arrived (same ordering as the
+            # OpenAI-family adapters in stream_openai_chat_events).
+            yield EndEvent(
+                reason=stop_reason,
+                input_tokens=_input_tokens,
+                output_tokens=_output_tokens,
+                cache_read_tokens=_cache_read_tokens,
+                input_tokens_include_cache_read=True,
+            )
 
         except Exception:
             # Propagate so TextLLM.stream can classify the error and drive its
