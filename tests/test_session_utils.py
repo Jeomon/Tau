@@ -20,7 +20,12 @@ from tau.message.types import (
     ToolResultContent,
     UserMessage,
 )
-from tau.session.types import MessageEntry, SessionHeader
+from tau.session.types import (
+    CustomInfoEntry,
+    MessageEntry,
+    SessionHeader,
+    SessionInfoEntry,
+)
 from tau.session.utils import (
     build_session_info,
     find_most_recent_session,
@@ -344,6 +349,95 @@ class TestBuildSessionInfo:
         f = tmp_path / "empty.jsonl"
         f.write_text("", encoding="utf-8")
         assert build_session_info(f) is None
+
+    def test_picks_up_the_session_name(self, tmp_path):
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=[SessionInfoEntry(name="Refactor auth").model_dump_json()],
+        )
+        info = build_session_info(f)
+        assert info is not None
+        assert info.name == "Refactor auth"
+
+    def test_the_first_name_wins(self, tmp_path):
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=[
+                SessionInfoEntry(name="first").model_dump_json(),
+                SessionInfoEntry(name="second").model_dump_json(),
+            ],
+        )
+        info = build_session_info(f)
+        assert info is not None
+        assert info.name == "first"
+
+    def test_a_session_without_a_name_reports_none(self, tmp_path):
+        info = build_session_info(self._make_session_file(tmp_path / "s.jsonl"))
+        assert info is not None
+        assert info.name is None
+
+    def test_blank_lines_are_ignored(self, tmp_path):
+        entry = MessageEntry(message=UserMessage.from_text("q"))
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=["", entry.model_dump_json(), "   ", entry.model_dump_json()],
+        )
+        info = build_session_info(f)
+        assert info is not None
+        assert info.message_count == 2
+
+    def test_an_unparseable_line_is_skipped_and_the_rest_still_count(self, tmp_path):
+        """A torn or hand-edited line must not lose the whole session."""
+        entry = MessageEntry(message=UserMessage.from_text("q"))
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=[entry.model_dump_json(), "{ not json", entry.model_dump_json()],
+        )
+        info = build_session_info(f)
+        assert info is not None
+        assert info.message_count == 2
+
+    def test_a_json_line_that_is_not_an_object_is_skipped(self, tmp_path):
+        """Parsers differ on these; the result must not depend on which is used."""
+        entry = MessageEntry(message=UserMessage.from_text("q"))
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=["123", '"a string"', "null", "[1, 2]", entry.model_dump_json()],
+        )
+        info = build_session_info(f)
+        assert info is not None
+        assert info.message_count == 1
+
+    def test_a_nested_type_field_is_not_counted_as_a_message(self, tmp_path):
+        """Counting must parse, not pattern-match.
+
+        An extension's custom data is embedded as real nested JSON, not as an
+        escaped string, so the bytes `"type":"message"` appear on the line of
+        an entry that is not a message. Any substring shortcut miscounts here.
+        """
+        decoy = CustomInfoEntry(custom_type="x", data={"type": "message"})
+        assert '"type":"message"' in decoy.model_dump_json()
+        entry = MessageEntry(message=UserMessage.from_text("q"))
+        f = self._make_session_file(
+            tmp_path / "s.jsonl",
+            extra_lines=[decoy.model_dump_json(), entry.model_dump_json()],
+        )
+
+        info = build_session_info(f)
+
+        assert info is not None
+        assert info.message_count == 1
+
+    def test_escaped_message_text_is_not_counted_twice(self, tmp_path):
+        """User text containing a whole entry is escaped, and stays one message."""
+        decoy = '{"id":"x","timestamp":1.0,"type":"message"}'
+        entry = MessageEntry(message=UserMessage.from_text(f"look at this line: {decoy}"))
+        f = self._make_session_file(tmp_path / "s.jsonl", extra_lines=[entry.model_dump_json()])
+
+        info = build_session_info(f)
+
+        assert info is not None
+        assert info.message_count == 1
 
 
 class TestListSessionsFromDir:
