@@ -118,6 +118,7 @@ tau/
 │   └── types.py            # RuntimeConfig, RuntimeStartupResult
 ├── session/                # Persistence, branching, compaction
 │   ├── manager.py          # SessionManager
+│   ├── storage.py          # SessionStorage backends: file, memory, SQLite
 │   ├── types.py            # Entry types, SessionInfo, SessionOptions
 │   ├── compaction.py       # CompactionSettings and summarization
 │   ├── branch_summarization.py

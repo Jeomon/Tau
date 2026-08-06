@@ -5,6 +5,7 @@ Tau saves every conversation as a session so you can resume work, branch from an
 ## Table of Contents
 
 - [Session Storage](#session-storage)
+  - [Storage backends](#storage-backends)
 - [Session Commands](#session-commands)
 - [CLI Flags](#cli-flags)
 - [The Session Tree](#the-session-tree)
@@ -58,6 +59,41 @@ Legacy directories written before the hash was introduced have no suffix (`--Use
 | `tau --session-dir PATH` | This run |
 | `session_dir` in `settings.json` | All runs (supports `~`) |
 | `RuntimeConfig(session_dir=...)` | Programmatic |
+
+### Storage backends
+
+How a session's entries are encoded is isolated behind `SessionStorage` in `tau/session/storage.py`. A backend owns persistence only — branching, compaction, shedding policy and merge rules stay in `SessionManager`, which decides *what* to write.
+
+| Backend | Encoding | Used for |
+|---------|----------|----------|
+| `FileSessionStorage` | JSONL, one line per entry, one file per session | The default; the format described above |
+| `InMemorySessionStorage` | Process memory, nothing on disk | Untrusted projects (before trust is granted) and tests |
+| `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Listing without parsing history; indexed lookups |
+
+All three are substitutable, and one conformance suite (`tests/test_session_storage.py`) runs against every backend. Two guarantees are load-bearing:
+
+- **Order.** `read()` returns entries in append order, header first. `SessionManager._build_index` resolves the current leaf by taking the last entry it sees, so a backend that reorders would silently relocate the conversation.
+- **Reentrant locks.** `append()` and `rewrite()` lock internally, and the manager wraps read-merge-rewrite in an outer `lock()`, so nesting must not deadlock.
+
+`SQLiteSessionStorage` takes the project directory tau already keeps and collapses it into one file:
+
+```text
+~/.tau/sessions/
+└── --Users-alice-projects-myapp-3f2a91c7--/
+    └── sessions.db          # every session for this project
+```
+
+Projects stay independent, with no cross-project write contention. SQLite runs in WAL mode, so while a session is open the directory also holds `sessions.db-wal` and `sessions.db-shm`; both are removed on close, leaving one file at rest. Entry ids are unique *per session* rather than globally, because a fork legitimately copies an entry id into a second session.
+
+The reason for project scope is listing. `build_session_info` derives a session's name and message count by reading its history, so `/resume` parses every line of every session file. `list_sqlite_sessions()` gets the same information from an indexed `GROUP BY`, deserializing only header and name rows:
+
+| Session history | `list_sessions_from_dir` | `list_sqlite_sessions` |
+|---|---|---|
+| 60 sessions x 300 entries (8.7 MiB) | 47 ms | 7 ms |
+| 60 sessions x 1200 entries (34.9 MiB) | 182 ms | 29 ms |
+| 240 sessions x 300 entries (34.9 MiB) | 193 ms | 32 ms |
+
+Both report identical message counts. The JSONL cost scales with total bytes on disk; the SQLite cost does not.
 
 ### Related paths
 
