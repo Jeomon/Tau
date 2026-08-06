@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from tau.modes.interactive.components.selector_base import KeyNavMixin
 from tau.tui.component import Component
-from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
 from tau.tui.utils import fuzzy_filter, visible_width
@@ -17,7 +17,7 @@ if True:  # avoid circular at runtime
 VISIBLE_ROWS = 5
 
 
-class CommandPalette(Component):
+class CommandPalette(KeyNavMixin, Component):
     """
     Fuzzy-filtered dropdown shown above the input when the user types '/'.
     Up/down arrows (and ctrl+p / ctrl+n) scroll selection.
@@ -146,18 +146,6 @@ class CommandPalette(Component):
             write(apply_style(t.indicator, f"  ↓ {remaining} more"))
 
         return out
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-        keybindings = get_keybindings()
-        if keybindings.matches(event, "tui.select.up"):
-            self.move_up()
-            return True
-        if keybindings.matches(event, "tui.select.down"):
-            self.move_down()
-            return True
-        return False
 
     # -------------------------------------------------------------------------
     # Internal

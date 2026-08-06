@@ -307,15 +307,7 @@ class Layout(Component):
         # Register zones with TUI in render order.  widgets_above, widgets_below,
         # and _status_map are rendered by Layout itself (they sit between the
         # dividers and pickers); the remaining zones become TUI children.
-        tui.add_child(self.header)
-        tui.add_child(StaticComponent([""]))
-        tui.add_child(self.messages)
-        tui.add_child(self.spinner)
-        tui.add_child(self._pending_lines)
-        tui.add_child(self.status)
-        tui.add_child(
-            self
-        )  # Layout = EditorZone (status_map + dividers + input + pickers + footer)
+        self.attach(tui)
 
     @property
     def _active_selector(self) -> InlineSelector | None:
@@ -331,13 +323,19 @@ class Layout(Component):
     # -------------------------------------------------------------------------
 
     def attach(self, tui: TUI) -> None:
-        """Re-add all zones to ``tui`` in the correct render order."""
+        """Add every zone to ``tui`` in render order.
+
+        Also the initial wiring, called from ``__init__``. ``widgets_above``,
+        ``widgets_below`` and ``_status_map`` are absent because Layout renders
+        those itself, between the dividers and the pickers.
+        """
         tui.add_child(self.header)
         tui.add_child(StaticComponent([""]))
         tui.add_child(self.messages)
         tui.add_child(self.spinner)
         tui.add_child(self._pending_lines)
         tui.add_child(self.status)
+        # Layout = EditorZone (status_map + dividers + input + pickers + footer)
         tui.add_child(self)
 
     def detach(self, tui: TUI) -> None:

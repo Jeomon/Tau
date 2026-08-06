@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tau.modes.interactive.components.selector_base import KeyNavMixin
 from tau.tui.component import Component
-from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.text import Line, Span
 from tau.tui.utils import fuzzy_filter
 
@@ -22,7 +22,7 @@ class FileEntry:
     path: Path
 
 
-class FilePicker(Component):
+class FilePicker(KeyNavMixin, Component):
     """
     Fuzzy-filtered file browser shown above the input when the user types '@'.
     Navigates the filesystem level by level.
@@ -212,18 +212,6 @@ class FilePicker(Component):
             write(f"↓ {remaining} more", t.indicator, "  ")
 
         return out
-
-    def handle_input(self, event: InputEvent) -> bool:
-        if not isinstance(event, KeyEvent):
-            return False
-        keybindings = get_keybindings()
-        if keybindings.matches(event, "tui.select.up"):
-            self.move_up()
-            return True
-        if keybindings.matches(event, "tui.select.down"):
-            self.move_down()
-            return True
-        return False
 
     # -------------------------------------------------------------------------
     # Internal

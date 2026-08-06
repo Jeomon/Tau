@@ -14,6 +14,11 @@ read keys, which is the only reason there are two bases here:
     thinking, voice). These are opened from slash-commands that predate the
     keybinding registry, and moving them over would change user-visible key
     handling — a behaviour decision, not a refactor.
+
+``KeyNavMixin``
+    Just the up/down routing, for the two dropdowns (command palette, file
+    picker) that own their own cursor and are dismissed by the input handler
+    rather than by a callback of their own.
 """
 
 from __future__ import annotations
@@ -123,3 +128,30 @@ class ArrowSelector(SelectorBase):
             case _:
                 return False
         return True
+
+
+class KeyNavMixin:
+    """Maps the ``tui.select.up``/``down`` keybindings onto ``move_up``/``move_down``.
+
+    Unlike the selectors above, the dropdowns that use this keep their own
+    cursor state and are opened/dismissed by the input handler, so navigation
+    is all they need to share.
+    """
+
+    def move_up(self) -> None:
+        raise NotImplementedError
+
+    def move_down(self) -> None:
+        raise NotImplementedError
+
+    def handle_input(self, event: InputEvent) -> bool:
+        if not isinstance(event, KeyEvent):
+            return False
+        keybindings = get_keybindings()
+        if keybindings.matches(event, "tui.select.up"):
+            self.move_up()
+            return True
+        if keybindings.matches(event, "tui.select.down"):
+            self.move_down()
+            return True
+        return False
