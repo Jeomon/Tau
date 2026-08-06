@@ -244,6 +244,12 @@ Run `/login` inside a session. Tau first asks for the authentication type:
 
 Either way the credential is written to `~/.tau/auth.json`.
 
+Escape steps back one screen rather than leaving `/login`, so a mis-picked
+authentication method costs one keystroke, not the whole flow. It only cancels
+from the first screen. When just one authentication style is available the
+method step is skipped, which makes the provider list the first screen — Escape
+there cancels.
+
 ### `/logout` (interactive)
 
 Run `/logout` to pick from the providers that have credentials stored in
@@ -261,11 +267,11 @@ write it makes re-chmods the file to `0600`.
 
 | Provider id | Display name | Flow |
 |-------------|--------------|------|
-| `openai-codex` | ChatGPT Plus/Pro (Codex Subscription) | Local callback server |
-| `anthropic-claude-code` | Anthropic (Claude Pro/Max) | Local callback server |
-| `github-copilot` | GitHub Copilot | Device code |
-| `google-antigravity` | Google Antigravity | Local callback server |
-| `xai-grok` | xAI Grok CLI (SuperGrok Subscription) | Local callback server |
+| `openai-codex` | OpenAI Codex (Subscription) | Local callback server |
+| `anthropic-claude-code` | Anthropic Claude (Subscription) | Local callback server |
+| `github-copilot` | GitHub Copilot (Subscription) | Device code |
+| `google-antigravity` | Google Antigravity (Subscription) | Local callback server |
+| `xai-supergrok` | xAI SuperGrok (Subscription) | Local callback server |
 
 These ids are the `auth.json` keys and the arguments to
 `tau auth login` / `tau auth logout`.
@@ -281,7 +287,7 @@ the `localhost` *name*, which resolves to `::1` on IPv6-first systems and
 other. The port is never exposed to your local network.
 
 If the port cannot be bound — already in use, or a sandbox that forbids
-listening — the login does not fail. `openai-codex` and `xai-grok` fall back
+listening — the login does not fail. `openai-codex` and `xai-supergrok` fall back
 to their device-code flow; `anthropic-claude-code` and `google-antigravity`
 fall back to pasting the final redirect URL by hand.
 

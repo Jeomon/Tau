@@ -60,7 +60,7 @@ enumerated here.
 | Anthropic (Claude Pro/Max) | `anthropic-claude-code` | OAuth | `anthropic_claude_code` | Provider-managed |
 | GitHub Copilot | `github-copilot` | OAuth | `github_copilot_chat` | Provider-managed |
 | Google Antigravity | `google-antigravity` | OAuth | `google_antigravity` | Provider-managed |
-| xAI Grok CLI | `xai-grok` | OAuth | `xai_responses` | Provider-managed |
+| xAI SuperGrok | `xai-supergrok` | OAuth | `xai_responses` | Provider-managed |
 
 "SDK default" means Tau sets no `base_url` and the vendor SDK uses its own.
 A model may override its provider's adapter and base URL through
@@ -218,7 +218,7 @@ Subscription providers authenticate with `/login` in a session or
 | Anthropic (Claude Pro/Max) | `anthropic-claude-code` | Claude Pro or Max | Local callback server |
 | GitHub Copilot | `github-copilot` | Copilot subscription | Device code |
 | Google Antigravity | `google-antigravity` | Google account | Local callback server |
-| xAI Grok CLI | `xai-grok` | SuperGrok subscription | Local callback server |
+| xAI SuperGrok | `xai-supergrok` | SuperGrok subscription | Local callback server |
 
 ```bash
 tau auth login anthropic-claude-code

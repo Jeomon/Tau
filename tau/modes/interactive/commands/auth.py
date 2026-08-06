@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 from tau.modes.interactive.commands.context import CommandContext
 
@@ -34,10 +35,16 @@ def open_login_selector(ctx: CommandContext) -> None:
         ]
 
         def on_type(auth_type: str) -> None:
+            # Escape on the provider step returns here rather than abandoning
+            # the whole flow — the same shape as /settings, where Escape leaves
+            # a submenu and only closes the panel from the top level.
+            def back() -> None:
+                open_login_selector(ctx)
+
             if auth_type == "oauth":
-                open_oauth_provider_selector(ctx)
+                open_oauth_provider_selector(ctx, on_back=back)
             else:
-                open_api_key_provider_selector(ctx)
+                open_api_key_provider_selector(ctx, on_back=back)
 
         ctx.layout.open_oauth_selector(
             "login",
@@ -46,6 +53,9 @@ def open_login_selector(ctx: CommandContext) -> None:
             lambda: ctx.notify("Login cancelled."),
             title="Select authentication method:",
         )
+    # Only one auth style is available, so the method step never showed and the
+    # provider list is the top level: Escape there cancels, with nothing to go
+    # back to.
     elif has_oauth:
         open_oauth_provider_selector(ctx)
     else:
@@ -99,8 +109,14 @@ def _all_providers() -> list:
     return out
 
 
-def open_oauth_provider_selector(ctx: CommandContext) -> None:
-    """Step 2 (OAuth path) — pick which OAuth provider to log in to."""
+def open_oauth_provider_selector(
+    ctx: CommandContext, on_back: Callable[[], None] | None = None
+) -> None:
+    """Step 2 (OAuth path) — pick which OAuth provider to log in to.
+
+    ``on_back`` is what Escape does when this step was reached from the auth
+    method picker; without one it is the first screen, so Escape cancels.
+    """
     from tau.inference.api.text.service import TextLLM
     from tau.inference.provider.types import OAuthProvider
 
@@ -119,7 +135,7 @@ def open_oauth_provider_selector(ctx: CommandContext) -> None:
         "login",
         items,
         on_pick,
-        lambda: ctx.notify("Login cancelled."),
+        on_back or (lambda: ctx.notify("Login cancelled.")),
         title="Select an account to sign in with:",
     )
 
@@ -222,10 +238,14 @@ async def run_oauth_login(ctx: CommandContext, provider_id: str) -> None:
             ctx.notify(f"Login failed: {msg}")
 
 
-def open_api_key_provider_selector(ctx: CommandContext) -> None:
+def open_api_key_provider_selector(
+    ctx: CommandContext, on_back: Callable[[], None] | None = None
+) -> None:
     """Step 2 (API key path) — pick which provider to save a key for.
 
     Lists API-key providers across all modalities (text/audio/image/video).
+    ``on_back`` is what Escape does when this step was reached from the auth
+    method picker; without one it is the first screen, so Escape cancels.
     """
     from tau.inference.api.text.service import TextLLM
     from tau.modes.interactive.components.oauth_selector import OAuthProviderItem
@@ -251,7 +271,9 @@ def open_api_key_provider_selector(ctx: CommandContext) -> None:
         ctx.layout.open_prompt(
             label=f"API key for {name}  (literal, $ENV_VAR, or !command):",
             on_commit=lambda key: _save_api_key(ctx, provider_id, name, key),
-            on_cancel=lambda: ctx.notify("Login cancelled."),
+            # Escape at the key prompt steps back to this provider list, one
+            # level up, rather than dropping out of /login entirely.
+            on_cancel=lambda: open_api_key_provider_selector(ctx, on_back=on_back),
             secret=False,
         )
 
@@ -259,7 +281,7 @@ def open_api_key_provider_selector(ctx: CommandContext) -> None:
         "login",
         items,
         on_pick,
-        lambda: ctx.notify("Login cancelled."),
+        on_back or (lambda: ctx.notify("Login cancelled.")),
         title="Select a provider for the API key:",
     )
 

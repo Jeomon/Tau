@@ -325,7 +325,7 @@ class GitHubCopilotOAuthProvider(OAuthProvider):
     """OAuthProvider implementation for GitHub Copilot accounts."""
 
     id: str = "github-copilot"
-    name: str = "GitHub Copilot"
+    name: str = "GitHub Copilot (Subscription)"
     uses_callback_server: bool = False
 
     async def login(self, callbacks: OAuthLoginCallbacks) -> OAuthCredential:

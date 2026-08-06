@@ -262,7 +262,7 @@ class GoogleAntigravityOAuthProvider(OAuthProvider):
     """OAuthProvider implementation for Google Antigravity accounts."""
 
     id: str = "google-antigravity"
-    name: str = "Google Antigravity"
+    name: str = "Google Antigravity (Subscription)"
     uses_callback_server: bool = True
 
     async def login(self, callbacks: OAuthLoginCallbacks) -> OAuthCredential:

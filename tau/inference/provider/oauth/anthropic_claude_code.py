@@ -320,7 +320,7 @@ class AnthropicClaudeCodeOAuthProvider(OAuthProvider):
     """OAuthProvider implementation for Anthropic Claude Pro/Max accounts."""
 
     id: str = "anthropic-claude-code"
-    name: str = "Anthropic (Claude Pro/Max)"
+    name: str = "Anthropic Claude (Subscription)"
     uses_callback_server: bool = True
 
     async def login(self, callbacks: OAuthLoginCallbacks) -> OAuthCredential:

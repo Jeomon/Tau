@@ -4,6 +4,10 @@ All notable changes to `tau-coding-agent` are documented here.
 
 ## Unreleased
 
+### Breaking
+
+-   The xAI OAuth provider id is now `xai-supergrok`, was `xai-grok`. The id is the `auth.json` key, the `--provider` value and the `tau auth login` / `tau auth logout` argument, so an existing SuperGrok credential stored under `xai-grok` is no longer found and the provider reads as logged out. Run `/login` again, or rename the key in `~/.tau/auth.json`. `/logout` still lists the stale entry (under its raw id) if you want to clear it. Settings, scripts and session files naming `xai-grok` as the provider need updating too. The `grok-4.5`, `grok-4.3` and `grok-build` model ids are unchanged
+
 ### Fixed
 
 -   A project extension configured through `/settings` no longer reappears in the `/extensions` panel as a second, separate entry under "Global". Every manifest-driven setting was persisted to global settings regardless of where its extension came from, so the first value set on a project extension minted a stray global record — keyed by the project-relative path the loader had computed for it, which names nothing at all from any other working directory. The panel reads an extension's scope from the list it was found in, so that record rendered as an independent copy of the extension with its own enable switch, free to contradict the real one. `set_extension_config_key` now takes the scope it is writing for, and the loader passes the extension's actual source; project config lands in the project's `settings.json`, everything else stays global with an absolute path
@@ -17,6 +21,9 @@ All notable changes to `tau-coding-agent` are documented here.
 ### Changed
 
 -   The `/login` and `/logout` pickers say what each step is asking for. `OAuthSelector` built its heading from `mode` alone, so all three `/login` screens read "Configure provider:" — including the first, which asks for an authentication method, not a provider. It now takes an optional `title`, falling back to the old mode-derived wording, and each step supplies its own: "Select authentication method:" (rows "Sign in with an account" and "Sign in with an API key", replacing "Subscription" and "API key"), "Select an account to sign in with:", "Select a provider for the API key:", and "Select an account to sign out of:"
+-   Escape inside `/login` steps back one screen instead of abandoning the flow. Every screen passed the same "Login cancelled." handler, so picking the wrong authentication method — or reaching the key prompt and wanting a different provider — meant restarting from `/login`. The provider steps now return to the method picker and the key prompt returns to the provider list, matching `/settings`, where Escape leaves a submenu and only closes the panel from the top level. Escape still cancels from the first screen, including the case where only one authentication style is available and the method step is skipped, which makes the provider list the first screen
+-   Every OAuth provider display name now reads `<Vendor> <Product> (Subscription)`, so the `/login` account list is uniform: `OpenAI Codex (Subscription)`, `Anthropic Claude (Subscription)`, `GitHub Copilot (Subscription)`, `Google Antigravity (Subscription)`, `xAI SuperGrok (Subscription)`. They previously mixed four shapes — a plain name, a parenthetical tier, and the word "Subscription" buried inside a parenthetical. The tier details these names dropped ("Claude Pro/Max", "ChatGPT Plus/Pro") remain in the Requires column of the OAuth table in `docs/inference-providers.md`. These names are display-only — the provider registry keys on `provider.id` — so ids, `auth.json` keys and `tau auth login <id>` arguments are all unaffected
+
 ## 0.9.1 — 2026-08-03
 
 ### Breaking

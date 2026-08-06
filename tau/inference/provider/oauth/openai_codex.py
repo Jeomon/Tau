@@ -485,7 +485,7 @@ class OpenAICodexOAuthProvider(OAuthProvider):
     """OAuthProvider implementation for ChatGPT Plus/Pro (Codex) accounts."""
 
     id: str = "openai-codex"
-    name: str = "ChatGPT Plus/Pro (Codex Subscription)"
+    name: str = "OpenAI Codex (Subscription)"
     uses_callback_server: bool = True
 
     async def login(self, callbacks: OAuthLoginCallbacks) -> OAuthCredential:

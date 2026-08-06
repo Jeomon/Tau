@@ -2025,7 +2025,7 @@ models = [
     Model(
         id="grok-4.5",
         name="Grok 4.5",
-        provider="xai-grok",
+        provider="xai-supergrok",
         cost=Cost(),
         thinking=True,
         # Same underlying model and OpenAIResponsesAPI-derived reasoning
@@ -2038,7 +2038,7 @@ models = [
     Model(
         id="grok-4.3",
         name="Grok 4.3",
-        provider="xai-grok",
+        provider="xai-supergrok",
         cost=Cost(),
         thinking=True,
         # Same underlying model as provider="xai" grok-4.3 above.
@@ -2055,7 +2055,7 @@ models = [
     Model(
         id="grok-build",
         name="Grok Build",
-        provider="xai-grok",
+        provider="xai-supergrok",
         cost=Cost(),
         thinking=True,
         # Same underlying grok-4.5-powered model as provider="xai"

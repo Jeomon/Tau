@@ -422,8 +422,8 @@ async def refresh_xai_grok_token(
 class XAIGrokOAuthProvider(OAuthProvider):
     """OAuthProvider implementation for xAI Grok CLI (SuperGrok / X Premium+) accounts."""
 
-    id: str = "xai-grok"
-    name: str = "xAI Grok CLI (SuperGrok Subscription)"
+    id: str = "xai-supergrok"
+    name: str = "xAI SuperGrok (Subscription)"
     uses_callback_server: bool = True
 
     async def login(self, callbacks: OAuthLoginCallbacks) -> OAuthCredential:

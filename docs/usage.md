@@ -149,7 +149,7 @@ If both OAuth and API-key providers are available, first asks which authenticati
 - **Sign in with an account**: OAuth flow. Opens the browser and prompts for any required input inside the TUI.
 - **Sign in with an API key**: lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
 
-Either way, credentials are saved to `~/.tau/auth.json`.
+Either way, credentials are saved to `~/.tau/auth.json`. Escape goes back one screen instead of leaving `/login`, and only cancels from the first screen.
 
 ### `/logout`
 
