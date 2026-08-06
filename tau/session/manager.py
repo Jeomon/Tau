@@ -7,8 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
-
 from tau.inference.types import ThinkingLevel
 from tau.message.types import (
     AgentMessage,
@@ -16,6 +14,12 @@ from tau.message.types import (
     CustomMessage,
     ToolMessage,
     UserMessage,
+)
+from tau.session.storage import (
+    FileSessionStorage,
+    InMemorySessionStorage,
+    SessionLock,
+    SessionStorage,
 )
 from tau.session.types import (
     SESSION_VERSION,
@@ -40,16 +44,13 @@ from tau.session.types import (
 )
 from tau.session.utils import (
     SessionPager,
-    count_session_data_lines,
     create_session_id,
     find_most_recent_session,
     generate_id,
     generate_timestamp,
     get_default_project_session_dir,
     list_sessions_from_dir,
-    read_entries_by_id,
     read_session_file,
-    read_session_file_shedding,
 )
 from tau.settings.paths import get_sessions_dir
 from tau.utils import profiling
@@ -74,6 +75,7 @@ class SessionManager:
             if session_dir
             else get_default_project_session_dir(self.cwd)
         )
+        self._storage: SessionStorage = InMemorySessionStorage()
         self.session_file = session_file
         self.by_id: dict[str, SessionEntry] = {}
         self.labels_by_id: dict[str, str] = {}
@@ -96,6 +98,23 @@ class SessionManager:
             self.set_session(self.session_file)
         else:
             self.new_session()
+
+    @property
+    def session_file(self) -> Path | None:
+        """Path of the durable session file, or None when memory-only."""
+        return self._session_file
+
+    @session_file.setter
+    def session_file(self, path: Path | None) -> None:
+        """Point the manager at a session file, rebinding its storage backend.
+
+        A property rather than a plain attribute because the storage object
+        caches the path (and, for the file backend, its lock). Assigning the
+        path without rebinding would leave the manager reading one file and
+        writing another. Callers keep assigning ``session_file`` as before.
+        """
+        self._session_file = path
+        self._storage = FileSessionStorage(path) if path else InMemorySessionStorage()
 
     def enable_persist(self) -> None:
         """Switch from a non-persisting session to a persisting one.
@@ -121,8 +140,12 @@ class SessionManager:
         """Load or initialize a session from a file."""
         self.session_file = session_file
         pre_shed_ids: set[str] = set()
+        # Presence of the file, not of entries: an empty file is corruption and
+        # must raise below, while a missing one is simply a session to create.
+        # storage.exists() cannot express that difference (it reports content),
+        # and which sessions exist is a repository question, not a storage one.
         if session_file.exists():
-            self.entries, pre_shed_ids = read_session_file_shedding(session_file)
+            self.entries, pre_shed_ids = self._storage.read_shedding()
             if not self.entries:
                 raise ValueError(f"Invalid or empty session file: {session_file}")
 
@@ -199,11 +222,9 @@ class SessionManager:
 
         return self.session_file
 
-    def _session_lock(self) -> FileLock:
+    def _session_lock(self) -> SessionLock:
         """Return the lock protecting this session's durable history."""
-        assert self.session_file is not None
-        self.session_file.parent.mkdir(parents=True, exist_ok=True)
-        return FileLock(str(self.session_file) + ".lock")
+        return self._storage.lock()
 
     def _merged_durable_entries(self) -> list[SessionFileEntry]:
         """Merge the latest durable history with this manager's local changes.
@@ -214,8 +235,7 @@ class SessionManager:
         not already present. This preserves independent branches while making
         an undo authoritative only for the entry it actually removed.
         """
-        assert self.session_file is not None
-        durable = read_session_file(self.session_file) if self.session_file.exists() else []
+        durable = self._storage.read()
         seen: set[str] = set()
         merged: list[SessionFileEntry] = []
         for entry in [*durable, *self.entries]:
@@ -235,7 +255,7 @@ class SessionManager:
         ``_merged_durable_entries`` lists durable (full) entries first, so it wins
         over any shed local copy of the same id.
         """
-        if self._shed_ids and self.persist and self.session_file and self.session_file.exists():
+        if self._shed_ids and self.persist and self._storage.exists():
             return self._merged_durable_entries()
         return self.entries
 
@@ -268,7 +288,7 @@ class SessionManager:
         # Shedding is only safe when the full copy provably exists on disk —
         # an unflushed session (no assistant message yet, see _persist) holds
         # the ONLY copy in RAM. Same guard as _reshed_for_view.
-        if not (self.persist and self.session_file and self.session_file.exists()):
+        if not (self.persist and self._storage.exists()):
             return
         try:
             branch = self.get_branch()
@@ -325,34 +345,6 @@ class SessionManager:
             cursor = by_id[cursor].parent_id
         return list(reversed(path))
 
-    def _preserve_unparseable_lines(self) -> None:
-        """Back up the durable file once if it contains lines that don't parse.
-
-        ``_rewrite_file()`` replaces the file with only the entries that parsed,
-        which would otherwise permanently destroy any corrupt/unknown lines
-        ``read_session_file()`` skipped. Keeping a one-time ``.bak`` copy of the
-        original alongside it makes the raw data recoverable.
-        """
-        assert self.session_file is not None
-        if not self.session_file.exists():
-            return
-        parsed_count = len(read_session_file(self.session_file))
-        raw_count = count_session_data_lines(self.session_file)
-        if raw_count <= parsed_count:
-            return
-        backup = self.session_file.with_name(self.session_file.name + ".bak")
-        if not backup.exists():
-            import shutil
-
-            shutil.copy2(self.session_file, backup)
-        _log.warning(
-            "session file %s has %d unparseable line(s); rewriting keeps only parsed "
-            "entries, original preserved at %s",
-            self.session_file,
-            raw_count - parsed_count,
-            backup,
-        )
-
     def _rewrite_file(self):
         """Transactionally merge and atomically rewrite the session history.
 
@@ -363,12 +355,10 @@ class SessionManager:
         if not self.persist or not self.session_file:
             return None
         with profiling.span("session.rewrite_file"), self._session_lock():
-            self._preserve_unparseable_lines()
+            self._storage.preserve_unparseable()
             self.entries = self._merged_durable_entries()
             self._build_index()
-            lines = [entry.model_dump_json(exclude_none=True) for entry in self.entries]
-            content = "\n".join(lines)
-            atomic_write_text(self.session_file, f"{content}\n" if content else "")
+            self._storage.rewrite(self.entries)
         # _merged_durable_entries reloads full content from disk; the file above was
         # written with that full content, so re-shed the resident copy afterwards to
         # keep RAM bounded without ever persisting the emptied bodies.
@@ -420,13 +410,8 @@ class SessionManager:
         another manager's _rewrite_file()) is picked up correctly instead of
         appending through a stale/unlinked inode.
         """
-        assert self.session_file is not None
-        with (
-            profiling.span("session.append_entry"),
-            self._session_lock(),
-            self.session_file.open("a", encoding="utf-8") as f,
-        ):
-            f.write(entry.model_dump_json(exclude_none=True) + "\n")
+        with profiling.span("session.append_entry"):
+            self._storage.append(entry)
 
     def _persist(self, entry: SessionEntry):
         """Commit an entry, appending when possible and merging when not.
@@ -713,8 +698,8 @@ class SessionManager:
         # own nearest compaction stays shed (the summary covers it).
         needed = {entry.id for entry in kept_entries if entry.id in self._shed_ids}
         if needed:
-            if self.persist and self.session_file and self.session_file.exists():
-                full = read_entries_by_id(self.session_file, needed)
+            if self.persist and self._storage.exists():
+                full = self._storage.read_entries_by_id(needed)
             else:  # mirrors _full_entries' guards; without a durable file there
                 full = {}  # is nothing to rehydrate from — resident copy stands.
             # read_entries_by_id returns file records, so the session header is
@@ -847,7 +832,7 @@ class SessionManager:
         No-op without a durable file — shedding is only safe when the full
         copy provably exists on disk.
         """
-        if not (self.persist and self.session_file and self.session_file.exists()):
+        if not (self.persist and self._storage.exists()):
             return
         try:
             branch = self.get_branch()
@@ -867,7 +852,7 @@ class SessionManager:
 
         needed = {entry_id for entry_id in window_ids if entry_id in self._shed_ids}
         if needed:
-            full = read_entries_by_id(self.session_file, needed)
+            full = self._storage.read_entries_by_id(needed)
             for entry_id, fresh in full.items():
                 resident = self.by_id.get(entry_id)
                 if (

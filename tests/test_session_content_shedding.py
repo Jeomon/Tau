@@ -145,17 +145,19 @@ def test_rewrite_does_not_persist_shed_stubs(tmp_path):
 
 def _shed_sets_both_ways(session_file, tmp_path, monkeypatch):
     """(loader_ids, manager_ids) for one file, derived independently."""
-    import tau.session.manager as manager_mod
+    from tau.session.storage import FileSessionStorage
     from tau.session.utils import read_session_file_shedding
 
     _, loader_ids = read_session_file_shedding(session_file)
 
     # Force the legacy full-read path so _shed_folded_message_content()
-    # re-derives the set from scratch instead of trusting the loader.
+    # re-derives the set from scratch instead of trusting the loader. The
+    # manager reaches the loader through its storage backend, so that is
+    # where the shedding read has to be neutralised.
     monkeypatch.setattr(
-        manager_mod,
-        "read_session_file_shedding",
-        lambda f: (read_session_file(f), set()),
+        FileSessionStorage,
+        "read_shedding",
+        lambda self: (read_session_file(self.session_file), set()),
     )
     m = SessionManager(cwd=tmp_path, session_dir=tmp_path / "drift", persist=True)
     m.set_session(session_file)

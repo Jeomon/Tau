@@ -676,3 +676,43 @@ class TestSQLiteConcurrency:
         storage.close()
 
         assert sorted(p.name for p in tmp_path.iterdir()) == ["sessions.db"]
+
+
+class TestNoSideEffectsOnConstruction:
+    """Binding storage to a path is not the same as deciding to write there."""
+
+    def test_file_backend_creates_nothing(self, tmp_path):
+        target = tmp_path / "never" / "existed" / "s.jsonl"
+
+        FileSessionStorage(target)
+
+        assert not target.parent.exists()
+        assert not target.exists()
+
+    def test_sqlite_backend_creates_nothing(self, tmp_path):
+        target = tmp_path / "never" / "existed" / "sessions.db"
+
+        SQLiteSessionStorage(target, "s").close()
+
+        assert not target.parent.exists()
+        assert not target.exists()
+
+    def test_a_read_only_manager_does_not_materialise_its_directory(self, tmp_path):
+        """persist=False binds a real file the manager must never write to."""
+        from tau.session.manager import SessionManager
+
+        target = tmp_path / "never" / "existed" / "s.jsonl"
+
+        SessionManager(tmp_path, session_dir=tmp_path / "sd", session_file=target, persist=False)
+
+        assert not target.parent.exists()
+
+    def test_locking_does_create_the_directory(self, tmp_path):
+        """Taking the lock is the first act of writing, so it may create it."""
+        target = tmp_path / "fresh" / "s.jsonl"
+        storage = FileSessionStorage(target)
+
+        with storage.lock():
+            pass
+
+        assert target.parent.exists()

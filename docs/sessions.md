@@ -70,10 +70,13 @@ How a session's entries are encoded is isolated behind `SessionStorage` in `tau/
 | `InMemorySessionStorage` | Process memory, nothing on disk | Untrusted projects (before trust is granted) and tests |
 | `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Listing without parsing history; indexed lookups |
 
-All three are substitutable, and one conformance suite (`tests/test_session_storage.py`) runs against every backend. Two guarantees are load-bearing:
+`SessionManager` uses this seam for all of its own I/O: locking, reading, appending, rewriting and selective rehydration go through the backend, and `session_file` is a property whose setter rebinds it. `FileSessionStorage` is what a normal session runs on. The `open()`, `fork_from()` and listing entry points still address files directly — those are repository concerns (finding, naming and copying sessions) rather than encoding, and they have no seam yet.
+
+All three backends are substitutable, and one conformance suite (`tests/test_session_storage.py`) runs against every backend. Three guarantees are load-bearing:
 
 - **Order.** `read()` returns entries in append order, header first. `SessionManager._build_index` resolves the current leaf by taking the last entry it sees, so a backend that reorders would silently relocate the conversation.
 - **Reentrant locks.** `append()` and `rewrite()` lock internally, and the manager wraps read-merge-rewrite in an outer `lock()`, so nesting must not deadlock.
+- **No side effects on construction.** Binding a backend to a path creates nothing. A read-only manager (`persist=False`) points a backend at a real file it must never write to, so materialising that file's directory would be a side effect of merely looking. Directories appear when the lock is taken, which is the first act of writing.
 
 `SQLiteSessionStorage` takes the project directory tau already keeps and collapses it into one file:
 

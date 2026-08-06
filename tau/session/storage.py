@@ -32,6 +32,7 @@ nested acquisition must not deadlock.
 from __future__ import annotations
 
 import logging
+import shutil
 import sqlite3
 import threading
 import time
@@ -61,6 +62,7 @@ from tau.session.utils import (
     _SESSION_FILE_ENTRY_ADAPTER as _ENTRY_ADAPTER,
 )
 from tau.session.utils import (
+    count_session_data_lines,
     read_entries_by_id,
     read_session_file,
     read_session_file_shedding,
@@ -155,6 +157,17 @@ class SessionStorage(ABC):
             return {}
         return {entry.id: entry for entry in self.read() if entry.id in ids}
 
+    def preserve_unparseable(self) -> None:
+        """Back up durable data that a :meth:`rewrite` would silently discard.
+
+        A rewrite writes back only what :meth:`read` could parse, so anything
+        the backend skipped is destroyed by it. Backends that can hold
+        unreadable data override this to make it recoverable first. The
+        default is a no-op: a backend that cannot lose anything this way has
+        nothing to preserve.
+        """
+        return
+
 
 class _ReentrantFileLock:
     """A cross-process file lock that is also reentrant within a thread.
@@ -209,10 +222,15 @@ class FileSessionStorage(SessionStorage):
     """
 
     def __init__(self, session_file: Path):
-        """Initialize storage backed by the given ``.jsonl`` path."""
+        """Initialize storage backed by the given ``.jsonl`` path.
+
+        Creates nothing. Constructing storage for a session is not the same as
+        deciding to persist it: a read-only manager (``persist=False``) binds a
+        backend to a real file it must never write to, and materializing that
+        file's directory would be a side effect of merely *looking*.
+        """
         self.session_file = Path(session_file)
         self.lock_path = Path(str(self.session_file) + ".lock")
-        self.session_file.parent.mkdir(parents=True, exist_ok=True)
         self._lock = _ReentrantFileLock(self.lock_path)
 
     @property
@@ -230,7 +248,13 @@ class FileSessionStorage(SessionStorage):
         return self.session_file.exists() and self.session_file.stat().st_size > 0
 
     def lock(self) -> SessionLock:
-        """Acquire the per-session file lock, reentrantly."""
+        """Acquire the per-session file lock, reentrantly.
+
+        The directory is created here rather than in ``__init__`` because the
+        lock file lives in it: taking the lock is the first act of *writing*,
+        so this is the point where materializing the directory is intended.
+        """
+        self.session_file.parent.mkdir(parents=True, exist_ok=True)
         return self._lock
 
     def read(self) -> list[SessionFileEntry]:
@@ -269,6 +293,31 @@ class FileSessionStorage(SessionStorage):
         content = "\n".join(serialize_entry(entry) for entry in entries)
         with self.lock():
             atomic_write_text(self.session_file, f"{content}\n" if content else "")
+
+    def preserve_unparseable(self) -> None:
+        """Copy the file aside once if it holds lines that do not parse.
+
+        :meth:`rewrite` replaces the file with only the entries :meth:`read`
+        could parse, which would otherwise permanently destroy any corrupt or
+        unknown lines it skipped. A one-time ``.bak`` beside the original
+        keeps the raw data recoverable.
+        """
+        if not self.session_file.exists():
+            return
+        parsed_count = len(read_session_file(self.session_file))
+        raw_count = count_session_data_lines(self.session_file)
+        if raw_count <= parsed_count:
+            return
+        backup = self.session_file.with_name(self.session_file.name + ".bak")
+        if not backup.exists():
+            shutil.copy2(self.session_file, backup)
+        _log.warning(
+            "session file %s has %d unparseable line(s); rewriting keeps only parsed "
+            "entries, original preserved at %s",
+            self.session_file,
+            raw_count - parsed_count,
+            backup,
+        )
 
 
 class InMemorySessionStorage(SessionStorage):
