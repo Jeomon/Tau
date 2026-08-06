@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
@@ -505,17 +506,56 @@ class SQLiteSessionStorage(SessionStorage):
                 self._connection = None
 
 
+#: How long a blocked writer waits for the lock before giving up. Matters in a
+#: way it did not when each session had its own file: several sessions of one
+#: project now write to the same database and must queue, not fail.
+_SQLITE_TIMEOUT_SECONDS = 30.0
+
+#: Attempts to win the brief exclusive lock that switching journal mode needs.
+_WAL_ATTEMPTS = 20
+_WAL_RETRY_DELAY_SECONDS = 0.01
+
+
+def _enable_wal(connection: sqlite3.Connection) -> None:
+    """Put the database in WAL mode, tolerating a concurrent enabler.
+
+    Switching journal mode needs a brief exclusive lock, and SQLite does *not*
+    run the busy handler for it — so a connect storm on a fresh database
+    raises "database is locked" immediately, however long the busy timeout is.
+    Losing that race is harmless: the journal mode is a persistent property of
+    the file, so whoever won has already set it for everyone. Correctness never
+    depends on WAL; only read/write concurrency does, which is why failing all
+    the attempts falls through to the file's existing mode instead of raising.
+    """
+    if str(connection.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal":
+        return
+    for attempt in range(_WAL_ATTEMPTS):
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError:
+            if attempt == _WAL_ATTEMPTS - 1:
+                _log.debug("could not switch %s to WAL; using its current journal mode", connection)
+                return
+            time.sleep(_WAL_RETRY_DELAY_SECONDS)
+
+
 def connect_sqlite(database: Path) -> sqlite3.Connection:
     """Open a project session database, creating it and its schema if needed."""
     Path(database).parent.mkdir(parents=True, exist_ok=True)
     # isolation_level=None: transactions are driven explicitly by lock(), so
-    # sqlite3's implicit BEGIN must stay out of the way. The default 5s busy
-    # timeout matters here in a way it did not per-session: several sessions
-    # of one project now write to the same file and must wait, not fail.
-    connection = sqlite3.connect(database, isolation_level=None, check_same_thread=False)
+    # sqlite3's implicit BEGIN must stay out of the way.
+    connection = sqlite3.connect(
+        database,
+        isolation_level=None,
+        check_same_thread=False,
+        timeout=_SQLITE_TIMEOUT_SECONDS,
+    )
+    # Set before any other statement so the schema DDL below is covered too.
+    connection.execute(f"PRAGMA busy_timeout = {int(_SQLITE_TIMEOUT_SECONDS * 1000)}")
     # WAL lets a reader proceed while a writer holds the write lock, which
     # matches the file backend's behaviour of never blocking reads.
-    connection.execute("PRAGMA journal_mode=WAL")
+    _enable_wal(connection)
     connection.executescript(SQLiteSessionStorage._SCHEMA)
     return connection
 
