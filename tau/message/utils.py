@@ -141,14 +141,50 @@ _OOXML_MIME: dict[str, str] = {
 }
 
 
+_TEXT_SNIFF_BYTES = 8192
+
+
+def _looks_like_text(data: bytes) -> bool:
+    """Heuristically decide whether ``data`` is UTF-8 text.
+
+    Mirrors ``tau.builtins.tools.utils.looks_like_binary`` — a null byte in the
+    sampled prefix is the cheap, reliable signal every text editor uses — but is
+    duplicated rather than imported so the message layer keeps no dependency on
+    ``tau.builtins``.
+
+    Only a prefix is decoded, because these files can be megabytes and the check
+    runs on every request. A decode error in the last few bytes is ignored: that
+    is a multi-byte character straddling the cut, not evidence of binary.
+    """
+    if not data:
+        return False
+    prefix = data[:_TEXT_SNIFF_BYTES]
+    if b"\x00" in prefix:
+        return False
+    try:
+        prefix.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return exc.start >= len(prefix) - 4
+    return True
+
+
 def detect_file_mime(data: bytes) -> str:
-    """Detect a document's MIME type from magic bytes; defaults to PDF if unknown.
+    """Detect a document's MIME type from magic bytes and a text sniff.
 
     PDF is detected directly. Office Open XML formats (docx/xlsx/pptx) share
     the same ZIP magic bytes, so disambiguating them means peeking at the
     archive's top-level entry names (word/, xl/, ppt/) instead of a fixed
     byte offset — this only works with the complete file, not a truncated
     prefix, since ZIP's central directory lives at the end of the archive.
+
+    Anything else is reported honestly: ``text/plain`` when the bytes decode as
+    UTF-8, ``application/octet-stream`` otherwise. This used to fall back to
+    ``application/pdf``, which meant attaching any text file (a ``.jsonl``, a
+    ``.csv``, a log) sent the provider base64 that did not begin with ``%PDF``.
+    Anthropic answered with ``messages.N.content.M.pdf.source.base64.data: The
+    PDF specified was not valid`` — an error naming a format the user never
+    chose, on a message that stays in the session and so fails again on every
+    subsequent turn.
     """
     if data[:4] == b"%PDF":
         return "application/pdf"
@@ -165,7 +201,11 @@ def detect_file_mime(data: bytes) -> str:
         except Exception:
             pass
         return "application/zip"
-    return "application/pdf"
+    if _looks_like_text(data):
+        # Providers accept text/plain documents, so a text attachment now works
+        # rather than being rejected as a malformed PDF.
+        return "text/plain"
+    return "application/octet-stream"
 
 
 def file_to_base64(item: bytes | str) -> tuple[str, str]:
@@ -190,7 +230,10 @@ def file_to_base64(item: bytes | str) -> tuple[str, str]:
     try:
         mime = detect_file_mime(base64.b64decode(item))
     except Exception:
-        mime = "application/pdf"
+        # Undecodable base64 tells us nothing about the format; claiming PDF
+        # here produced a provider-side "invalid PDF" error for content that
+        # was never a PDF.
+        mime = "application/octet-stream"
     return item, mime
 
 

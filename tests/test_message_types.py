@@ -352,6 +352,71 @@ class TestFileContentMethods:
         assert mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
+class TestFileMimeDetection:
+    """Unknown bytes must not be reported as PDF.
+
+    Claiming ``application/pdf`` for anything unrecognised meant attaching a
+    text file (a .jsonl session, a .csv, a log) sent the provider base64 that
+    did not start with ``%PDF``. Anthropic rejected it with
+    ``messages.N.content.M.pdf.source.base64.data: The PDF specified was not
+    valid`` — and because the attachment is persisted in the session, every
+    later turn re-sent it and failed identically, wedging the conversation.
+    """
+
+    def test_pdf_is_still_detected(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime(b"%PDF-1.4 fake") == "application/pdf"
+
+    def test_text_is_reported_as_text_not_pdf(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime(b'{"type":"session","version":3}') == "text/plain"
+
+    def test_utf8_beyond_ascii_is_still_text(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime("héllo wörld — ok".encode()) == "text/plain"
+
+    def test_unknown_binary_is_octet_stream_not_pdf(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime(bytes(range(256))) == "application/octet-stream"
+
+    def test_png_bytes_are_not_claimed_to_be_a_pdf(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime(b"\x89PNG\r\n\x1a\n\x00\x00") == "application/octet-stream"
+
+    def test_empty_input_is_not_a_pdf(self):
+        from tau.message.utils import detect_file_mime
+
+        assert detect_file_mime(b"") == "application/octet-stream"
+
+    def test_a_multibyte_character_split_by_the_sniff_boundary_is_still_text(self):
+        from tau.message.utils import detect_file_mime
+
+        # 'é' is two bytes; land it exactly across the 8 KiB sample edge.
+        data = b"a" * 8191 + "é".encode()
+        assert detect_file_mime(data) == "text/plain"
+
+    def test_a_session_jsonl_round_trips_as_text(self, tmp_path):
+        # The exact shape that produced the original failure.
+        from tau.message.types import FileContent
+
+        path = tmp_path / "session.jsonl"
+        path.write_text('{"type":"session","version":3}\n{"type":"message"}\n')
+
+        _, mime = FileContent.from_file(path).to_base64()[0]
+        assert mime == "text/plain"
+
+    def test_undecodable_base64_is_not_claimed_to_be_a_pdf(self):
+        from tau.message.utils import file_to_base64
+
+        _, mime = file_to_base64("!!!not base64 at all!!!")
+        assert mime == "application/octet-stream"
+
+
 class TestBranchSummaryMessage:
     def test_construction(self):
         from tau.message.types import BranchSummaryMessage, Role
