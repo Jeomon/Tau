@@ -32,7 +32,7 @@ import contextlib
 from typing import TYPE_CHECKING, Any
 
 from .manager import SandboxConfig, SandboxManager
-from .sandbox_tool import SandboxTerminalTool
+from .tool import SandboxTerminalTool
 
 if TYPE_CHECKING:
     from tau.extensions.api import ExtensionAPI
