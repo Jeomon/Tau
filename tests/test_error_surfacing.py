@@ -32,7 +32,8 @@ from tau.engine.service import Engine
 from tau.engine.types import EngineContext
 from tau.hooks.engine import AgentErrorEvent, SettledEvent
 from tau.hooks.service import Hooks
-from tau.inference.types import EndEvent, StopReason, TextEndEvent
+from tau.inference.types import EndEvent, ErrorEvent, StopReason, TextEndEvent
+from tau.inference.utils import ErrorKind
 from tau.message.types import AssistantMessage, TextContent, UserMessage
 
 # ── Engine: the catch-all path now carries the error on a message ─────────────
@@ -129,6 +130,60 @@ def test_successful_turn_is_unaffected() -> None:
     ends = _message_ends(events)
     assert len(ends) == 1
     assert ends[0].message.stop_reason == StopReason.Stop
+
+
+# ── The invariant every consumer depends on ──────────────────────────────────
+
+
+class _ErrorEventLLM(_RaisingLLM):
+    """A model that reports failure the well-formed way, via ErrorEvent.
+
+    Drives the *other* engine branch: the provider named the failure, so the
+    message already carries stop_reason, error, and a classified error_kind
+    before the engine decides what to do with it.
+    """
+
+    async def _gen(self):
+        yield ErrorEvent(
+            reason=StopReason.Error,
+            error="rate limited",
+            kind=ErrorKind.RATE_LIMIT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("llm", "expected"),
+    [
+        (_ErrorEventLLM(ValueError("unused")), "rate limited"),
+        (_RaisingLLM(ValueError("client not constructible")), "client not constructible"),
+    ],
+    ids=["in_stream", "catch_all"],
+)
+def test_agent_error_is_always_preceded_by_an_error_message(llm, expected: str) -> None:
+    """Guards what lets the TUI skip subscribing to ``agent_error`` at all.
+
+    Consumers render from the message (it carries error_kind; the event does
+    not) and treat the event purely as the signal. A future emission site that
+    fires ``agent_error`` on its own would silently make the failure invisible
+    again in the interactive UI — this is the check that catches that.
+    """
+    events = _run_engine(llm)
+
+    idx = next(i for i, e in enumerate(events) if isinstance(e, AgentErrorEvent))
+    assert idx > 0, "agent_error was the first event — nothing could have carried it"
+
+    preceding = events[idx - 1]
+    assert getattr(preceding, "type", None) == "message_end"
+    assert preceding.message.stop_reason == StopReason.Error
+    assert expected in (preceding.message.error or "")
+
+
+def test_error_kind_survives_on_the_message_for_labelling() -> None:
+    """message_list renders its label from error_kind, which AgentErrorEvent lacks."""
+    events = _run_engine(_ErrorEventLLM(ValueError("unused")))
+
+    end = _message_ends(events)[0]
+    assert end.message.error_kind == ErrorKind.RATE_LIMIT
 
 
 # ── Agent: a failed turn still settles ───────────────────────────────────────

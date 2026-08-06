@@ -85,7 +85,10 @@ class Engine:
     1. **Initialization**: Sets up LLM, tools, and state (e.g., EngineState).
     2. **Loop Execution**: Streams LLM responses, executes tools, and handles events.
     3. **Continuation**: Resumes from saved state via run_continue().
-    4. **Error Handling**: Catches exceptions and emits AgentErrorEvent.
+    4. **Error Handling**: Catches exceptions, ends the in-flight message with
+       stop_reason=Error carrying the failure, then emits AgentErrorEvent. Every
+       AgentErrorEvent is paired with such a message — consumers render from the
+       message (it also carries error_kind) and treat the event as the signal.
 
     Example Usage::
 

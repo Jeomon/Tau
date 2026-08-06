@@ -118,6 +118,11 @@ class AgentHookHandler:
             hooks.register("llm_retry", self._on_llm_retry),
             hooks.register("compaction_start", self._on_compaction_start),
             hooks.register("compaction_end", self._on_compaction_end),
+            # No "agent_error" handler on purpose. Every site that emits it first
+            # emits a message_end whose message carries stop_reason=Error (see
+            # Engine's class docstring), and _on_message_end already renders that
+            # — with the error_kind label, which the event itself does not carry.
+            # Subscribing here would repeat it as a poorer duplicate.
         ]
 
     def unsubscribe(self) -> None:
