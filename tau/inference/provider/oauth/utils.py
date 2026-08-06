@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import ssl
@@ -35,22 +34,14 @@ def format_http_error_body(body_text: str) -> str:
     Token-endpoint error bodies are pretty-printed JSON (e.g. Anthropic's
     ``{"error": {"type": ..., "message": ...}}``), which reads as a wall of
     indented lines when embedded verbatim in a RuntimeError shown to the user.
-    Pull out ``error.message`` (or top-level ``message``) when present; fall
-    back to the raw, whitespace-collapsed text for anything else.
+
+    Delegates to :func:`~tau.inference.utils.format_error_body` so the OAuth
+    flows and the inference layers extract error payloads by one set of rules
+    rather than two that can drift apart.
     """
-    try:
-        parsed = json.loads(body_text)
-    except (json.JSONDecodeError, TypeError):
-        return " ".join(body_text.split())
-    if isinstance(parsed, dict):
-        error = parsed.get("error")
-        if isinstance(error, dict) and error.get("message"):
-            return str(error["message"])
-        if isinstance(error, str) and error:
-            return error
-        if parsed.get("message"):
-            return str(parsed["message"])
-    return " ".join(body_text.split())
+    from tau.inference.utils import format_error_body
+
+    return format_error_body(body_text)
 
 
 def http_error_to_runtime_error(e, message: str) -> RuntimeError:

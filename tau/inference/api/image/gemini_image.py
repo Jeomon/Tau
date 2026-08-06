@@ -6,6 +6,7 @@ from google.genai import types as genai_types
 from tau.inference.api.image.base import BaseImageAPI
 from tau.inference.model.types import Model
 from tau.inference.types import GeneratedImage, ImageContext, ImageOptions, ImageStopReason
+from tau.inference.utils import format_exception_message
 from tau.message.types import ImageContent, TextContent, Usage
 
 
@@ -73,5 +74,5 @@ class GeminiImageAPI(BaseImageAPI):
                 provider=model.provider,
                 output=[],
                 stop_reason=ImageStopReason.Error,
-                error=str(exc),
+                error=format_exception_message(exc),
             )

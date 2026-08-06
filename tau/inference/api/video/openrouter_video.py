@@ -15,6 +15,7 @@ from tau.inference.types import (
     VideoOptions,
     VideoStopReason,
 )
+from tau.inference.utils import format_error_body
 
 _BASE = "https://openrouter.ai/api/v1"
 
@@ -86,7 +87,7 @@ class OpenRouterVideoAPI(BaseVideoAPI):
                     model_id=model.id,
                     provider="openrouter",
                     stop_reason=VideoStopReason.Error,
-                    error=f"HTTP {resp.status_code}: {resp.text}",
+                    error=f"HTTP {resp.status_code}: {format_error_body(resp.text)}",
                 )
 
             data = resp.json()
@@ -104,7 +105,9 @@ class OpenRouterVideoAPI(BaseVideoAPI):
                         model_id=model.id,
                         provider="openrouter",
                         stop_reason=VideoStopReason.Error,
-                        error=f"HTTP {status_resp.status_code}: {status_resp.text}",
+                        error=(
+                            f"HTTP {status_resp.status_code}: {format_error_body(status_resp.text)}"
+                        ),
                     )
 
                 result = status_resp.json()

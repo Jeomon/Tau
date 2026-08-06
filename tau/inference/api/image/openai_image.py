@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from tau.inference.api.image.base import BaseImageAPI
 from tau.inference.model.types import Model
 from tau.inference.types import GeneratedImage, ImageContext, ImageOptions, ImageStopReason
+from tau.inference.utils import format_exception_message
 from tau.message.types import ImageContent, TextContent, Usage
 
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
@@ -103,5 +104,5 @@ class OpenAIImageAPI(BaseImageAPI):
             provider=model.provider,
             output=[],
             stop_reason=ImageStopReason.Error,
-            error=str(last_error or "Failed after retries"),
+            error=(format_exception_message(last_error) if last_error else "Failed after retries"),
         )

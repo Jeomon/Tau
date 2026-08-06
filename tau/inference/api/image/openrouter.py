@@ -10,6 +10,7 @@ from tau.inference.api.image.base import BaseImageAPI
 from tau.inference.api.text.utils import image_data_url
 from tau.inference.model.types import Model
 from tau.inference.types import GeneratedImage, ImageContext, ImageOptions, ImageStopReason
+from tau.inference.utils import format_error_body, format_exception_message
 from tau.message.types import ImageContent, TextContent, Usage
 
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
@@ -112,7 +113,7 @@ class OpenRouterImageAPI(BaseImageAPI):
                         self.options.on_response(response)
 
                     if not response.is_success:
-                        text = response.text
+                        text = format_error_body(response.text)
                         if (
                             attempt < self.options.max_retries
                             and response.status_code in _RETRYABLE_STATUSES
@@ -154,5 +155,5 @@ class OpenRouterImageAPI(BaseImageAPI):
             provider=model.provider,
             output=[],
             stop_reason=ImageStopReason.Error,
-            error=str(last_error or "Failed after retries"),
+            error=(format_exception_message(last_error) if last_error else "Failed after retries"),
         )

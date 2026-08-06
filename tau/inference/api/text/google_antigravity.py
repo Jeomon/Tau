@@ -25,6 +25,7 @@ from tau.inference.api.text.utils import (
     tool_result_text,
 )
 from tau.inference.model.types import Model
+from tau.inference.provider.oauth.utils import format_http_error_body
 from tau.inference.types import (
     EndEvent,
     ErrorEvent,
@@ -577,9 +578,13 @@ class GoogleAntigravityAPI(BaseAPI):
                     # TextLLM.stream can classify the error and honour
                     # Retry-After; yielding an ErrorEvent here would defeat
                     # its retry/backoff and OAuth-recovery logic.
+                    # Pull the server's explanation out of the JSON body: the
+                    # raw payload ends up in the message the user is shown,
+                    # and format_exception_message has no `.body` to prefer
+                    # here because this exception is ours, not an SDK's.
                     raise _HTTPError(
                         response.status_code,
-                        f"HTTP {response.status_code}: {error_body}",
+                        f"HTTP {response.status_code}: {format_http_error_body(error_body)}",
                         headers=dict(response.headers),
                     )
 

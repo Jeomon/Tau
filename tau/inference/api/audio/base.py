@@ -15,6 +15,7 @@ from tau.inference.types import (
     TranscribedAudio,
     TTSContext,
 )
+from tau.inference.utils import format_exception_message
 
 
 class BaseAudioAPI(ABC):
@@ -48,7 +49,7 @@ class BaseAudioAPI(ABC):
             audio=b"",
             format=fmt,
             stop_reason=AudioStopReason.Error,
-            error=str(exc),
+            error=format_exception_message(exc),
             timestamp=time.time(),
         )
 
@@ -60,7 +61,7 @@ class BaseAudioAPI(ABC):
             provider=model.provider,
             text="",
             stop_reason=AudioStopReason.Error,
-            error=str(exc),
+            error=format_exception_message(exc),
             timestamp=time.time(),
         )
 

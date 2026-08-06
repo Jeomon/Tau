@@ -15,6 +15,7 @@ from tau.inference.types import (
     VideoOptions,
     VideoStopReason,
 )
+from tau.inference.utils import format_error_body
 
 _BASE = "https://api.z.ai/api/paas/v4"
 
@@ -80,7 +81,7 @@ class ZaiVideoAPI(BaseVideoAPI):
                     model_id=model.id,
                     provider="zai",
                     stop_reason=VideoStopReason.Error,
-                    error=f"HTTP {resp.status_code}: {resp.text}",
+                    error=f"HTTP {resp.status_code}: {format_error_body(resp.text)}",
                 )
 
             data = resp.json()
@@ -97,7 +98,9 @@ class ZaiVideoAPI(BaseVideoAPI):
                         model_id=model.id,
                         provider="zai",
                         stop_reason=VideoStopReason.Error,
-                        error=f"HTTP {status_resp.status_code}: {status_resp.text}",
+                        error=(
+                            f"HTTP {status_resp.status_code}: {format_error_body(status_resp.text)}"
+                        ),
                     )
 
                 result = status_resp.json()

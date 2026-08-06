@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -250,22 +251,75 @@ def _status(error: Exception) -> int | None:
 def format_exception_message(error: Exception) -> str:
     """Human-readable single-line message for a caught inference-API exception.
 
-    SDK exceptions (openai, anthropic, ...) stringify as
-    ``"Error code: 429 - {'error': {'type': ..., 'message': ...}}"``, embedding
-    the raw response body dict verbatim. Prefer the parsed ``error.message``
-    from ``.body`` when present so the user sees the server's actual
-    explanation instead of a Python dict repr; fall back to ``str(error)``.
+    SDK exceptions stringify with the raw response body embedded — for example
+    ``"Error code: 429 - {'error': {'type': ..., 'message': ...}}"`` — so the
+    user is shown a Python dict repr instead of the server's sentence. Prefer
+    the parsed explanation the SDK already carries; fall back to ``str(error)``
+    only when there is nothing better.
+
+    Where that explanation lives differs per SDK, and every shape below is one
+    a real provider produces:
+
+    - **openai** unwraps the payload before attaching it
+      (``data = body.get("error", body) if is_mapping(body) else body``), so
+      ``{"error": {"message": ...}}`` leaves a dict but ``{"code": ...,
+      "error": "..."}`` — xAI's quota errors — leaves a bare string.
+    - **anthropic** attaches the whole body, unwrapped.
+    - **mistral** attaches the undecoded JSON *document* as a string.
+    - **google-genai** attaches no body at all; it parses the payload in the
+      constructor and keeps the result on ``.message``.
     """
-    body = getattr(error, "body", None)
-    if isinstance(body, dict):
-        err = body.get("error")
+    message = _message_from_payload(getattr(error, "body", None))
+    if message:
+        return message
+
+    # Checked after the body: the openai SDK also defines `.message`, holding
+    # the very dict-repr string this function exists to avoid.
+    attribute = getattr(error, "message", None)
+    if isinstance(attribute, str) and attribute.strip():
+        return attribute.strip()
+    return str(error)
+
+
+def format_error_body(body_text: str) -> str:
+    """Collapse a raw HTTP error body into a single-line human-readable message.
+
+    For layers that hold a response body rather than an SDK exception: the
+    image, video and audio APIs read ``response.text`` directly, and putting
+    that in a result's ``error`` field shows the user a JSON document. Pulls
+    out the server's sentence when the body is a recognisable error payload,
+    and otherwise returns the text with its whitespace collapsed.
+    """
+    message = _message_from_payload(body_text)
+    return " ".join((message or body_text).split())
+
+
+def _message_from_payload(payload: object) -> str | None:
+    """Pull the server's explanation out of an error payload, or None.
+
+    Accepts whatever an SDK attached: a mapping, or a string that may itself
+    be the undecoded JSON document. A string that does not parse is taken to
+    be the message already — which is exactly the case once openai has
+    unwrapped a provider's ``error`` field onto the exception.
+    """
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError):
+            return text
+        return _message_from_payload(parsed) or text
+    if isinstance(payload, dict):
+        err = payload.get("error")
         if isinstance(err, dict) and err.get("message"):
             return str(err["message"])
-        if isinstance(err, str) and err:
-            return err
-        if body.get("message"):
-            return str(body["message"])
-    return str(error)
+        if isinstance(err, str) and err.strip():
+            return err.strip()
+        if payload.get("message"):
+            return str(payload["message"])
+    return None
 
 
 def _msg(error: Exception) -> str:
