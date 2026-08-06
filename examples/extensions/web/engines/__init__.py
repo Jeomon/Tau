@@ -27,7 +27,6 @@ __all__ = [
     "JinaSearchEngine",
     "TavilySearchEngine",
     "build_engine",
-    "get_nested",
 ]
 
 
@@ -59,16 +58,6 @@ def __getattr__(name: str) -> Any:
 
         return TavilySearchEngine
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def get_nested(d: dict, path: str, default: Any = "") -> Any:
-    """Read ``path`` (dot-notation) from a raw config dict, or ``default``."""
-    obj: Any = d
-    for part in path.split("."):
-        if not isinstance(obj, dict) or part not in obj:
-            return default
-        obj = obj[part]
-    return obj if obj is not None else default
 
 
 def _resolve_secret(value: str) -> str:
