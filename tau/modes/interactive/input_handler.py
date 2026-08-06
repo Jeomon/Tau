@@ -449,6 +449,15 @@ class InputHandler:
         file: list[bytes] | None = None,
     ) -> None:
         self._invoke_task = asyncio.current_task()
+        # Snapshot the branch tip before running: a mid-stream provider error
+        # ends the turn with a persisted AssistantMessage(stop_reason=Error)
+        # that AgentHookHandler._on_message_end already renders as a labeled
+        # error card (see message_list.py). Only notify below if this call
+        # failed *without* leaving that trail — e.g. a client-construction
+        # error raised before the stream even starts — otherwise the user
+        # would see the same failure reported twice.
+        sm = self._runtime.session_manager
+        leaf_before = sm.get_leaf_id() if sm is not None else None
         try:
             from tau.agent.types import PromptOptions
 
@@ -466,11 +475,28 @@ class InputHandler:
             pass
         except Exception as exc:
             _log.exception("Error during invoke")
-            self._layout.spinner.set_label(f"error: {exc}")
             self._layout.spinner.stop()
-            self._tui.request_render()
+            if not self._error_already_rendered(sm, leaf_before):
+                self._notify(f"error: {exc}", type="error")
         finally:
             self._invoke_task = None
+
+    @staticmethod
+    def _error_already_rendered(sm: Any, leaf_before: str | None) -> bool:
+        """True if the turn already ended with a rendered error message.
+
+        Compares the session branch tip before/after the failed call: if it
+        moved and the new tip is an AssistantMessage with stop_reason=Error,
+        the engine's normal in-stream error path already persisted and
+        rendered it, so a second generic notice would just be noise.
+        """
+        if sm is None or sm.get_leaf_id() == leaf_before:
+            return False
+        from tau.inference.types import StopReason
+        from tau.message.types import AssistantMessage
+
+        last = sm.find_last_assistant_message()
+        return isinstance(last, AssistantMessage) and last.stop_reason == StopReason.Error
 
     @staticmethod
     def _build_user_message(
@@ -506,8 +532,7 @@ class InputHandler:
             await agent._engine.steer(msg)
         except Exception as exc:
             _log.exception("Error during steer")
-            self._layout.spinner.set_label(f"error: {exc}")
-            self._tui.request_render()
+            self._notify(f"error: {exc}", type="error")
 
     async def _queue_followup(
         self,
@@ -534,8 +559,7 @@ class InputHandler:
                 await agent._engine.follow_up(msg)
             except Exception as exc:
                 _log.exception("Error during follow-up")
-                self._layout.spinner.set_label(f"error: {exc}")
-                self._tui.request_render()
+                self._notify(f"error: {exc}", type="error")
 
     # ── Paste handling ────────────────────────────────────────────────────────
 
