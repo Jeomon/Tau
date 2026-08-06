@@ -75,6 +75,11 @@ class AgentHookHandler:
         self._partial_tool_block: MessageBlock | None = None
         self._partial_tool_results: dict[str, ToolResultContent] = {}
         self._tool_names: dict[str, str] = {}
+        # True when something is registered on `tool_call` and can therefore
+        # block a call. Only then is it worth hiding calls until they resolve —
+        # with no gate installed the reveal would follow within microseconds
+        # and buy nothing, so the default path stays exactly as it was.
+        self._gate_active = False
         self._unsubs: list[Callable[[], None]] = []
         self._replay_task: asyncio.Task | None = None
 
@@ -99,6 +104,10 @@ class AgentHookHandler:
         if agent is None:
             return
         hooks = agent.hooks
+        # Sampled per subscribe (and so re-sampled after /reload) rather than
+        # per call, so installing a gate mid-turn cannot leave one call hidden
+        # with no reveal on the way.
+        self._gate_active = hooks.has_handlers("tool_call")
         self._unsubs = [
             hooks.register("agent_start", self._on_agent_start),
             hooks.register("agent_end", self._on_agent_end),
@@ -233,6 +242,10 @@ class AgentHookHandler:
 
     async def _on_agent_end(self, _event: object) -> None:
         self._clear_retry_notice()
+        # An aborted or errored turn never delivers the execution events that
+        # would reveal a gated call. Nothing further will arrive to unhide it,
+        # and a tool call invisible forever is far worse than one shown late.
+        self._layout.messages.clear_deferred_tool_calls()
         self._spinner(running=False)
 
     async def _on_settled(self, _event: object) -> None:
@@ -365,6 +378,11 @@ class AgentHookHandler:
         msg = getattr(event, "message", None)
         if msg is None:
             return
+        # Hide any calls this message makes until their gate resolves. Done
+        # before the block is built so the first render already omits them —
+        # otherwise the call flashes on screen and is then taken away.
+        if self._gate_active and isinstance(msg, AssistantMessage):
+            self._defer_tool_calls(msg)
         if isinstance(msg, (AssistantMessage, ToolMessage)):
             self._mark_turn_content()
             if isinstance(msg, AssistantMessage):
@@ -409,6 +427,10 @@ class AgentHookHandler:
             self._pending_flush_handle.cancel()
             self._pending_flush_handle = None
         self._pending_msg = None
+        # The blocks about to be dropped may own deferred ids. Leaving them in
+        # the set would hide the *replacement* calls, which reuse ids from the
+        # retried turn.
+        self._layout.messages.clear_deferred_tool_calls()
         for _ in range(count):
             if not self._layout.messages.remove_last():
                 break
@@ -421,10 +443,31 @@ class AgentHookHandler:
 
     # ── Tools ─────────────────────────────────────────────────────────────────
 
+    def _defer_tool_calls(self, message: object) -> None:
+        """Hide every tool call this message makes until its gate resolves."""
+        from tau.message.types import ToolCallContent
+
+        ids = [
+            item.id
+            for item in (getattr(message, "contents", None) or [])
+            if isinstance(item, ToolCallContent) and item.id
+        ]
+        if ids:
+            self._layout.messages.defer_tool_calls(ids)
+
+    def _reveal_tool_call(self, tool_call_id: str | None) -> None:
+        """Show a gated call now that it has been allowed or blocked."""
+        if not tool_call_id:
+            return
+        if self._layout.messages.reveal_tool_call(tool_call_id):
+            self._tui.request_render()
+
     async def _on_tool_start(self, event: object) -> None:
         tool_call = getattr(event, "tool_call", None)
         if tool_call is not None:
             self._tool_names[tool_call.id] = tool_call.name
+            # Execution started, so the gate allowed it.
+            self._reveal_tool_call(tool_call.id)
         self._mark_turn_content()
         self._spinner(self._layout.spinner.theme.label_tool_calling)
 
@@ -452,7 +495,12 @@ class AgentHookHandler:
             self._partial_tool_block.invalidate()
         self._tui.request_render()
 
-    async def _on_tool_end(self, _event: object) -> None:
+    async def _on_tool_end(self, event: object) -> None:
+        # A blocked call never emits tool_execution_start — the engine returns
+        # the gate's result and jumps straight here — so this is the only
+        # reveal a denied call ever gets.
+        tool_result = getattr(event, "tool_result", None)
+        self._reveal_tool_call(getattr(tool_result, "id", None))
         # "Working…" until the next model response actually produces content —
         # _on_message_update corrects this once real thinking/text arrives.
         self._spinner(self._layout.spinner.theme.label_working)

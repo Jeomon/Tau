@@ -100,6 +100,7 @@ class MessageBlock:
         user_prefix: str = "❯ ",
         tool_lookup: Callable[[str], Tool | None] | None = None,
         tool_result_preview_lines: int = _DEFAULT_DETAIL_PREVIEW_LINES,
+        deferred_tool_calls: set[str] | None = None,
     ) -> None:
         self._message = message
         self._streaming = streaming
@@ -109,6 +110,11 @@ class MessageBlock:
         self._user_prefix = user_prefix
         self._tool_lookup = tool_lookup
         self._tool_result_preview_lines = max(1, tool_result_preview_lines)
+        # Shared with the owning MessageList by reference, so revealing a call
+        # there takes effect here without re-plumbing every block. Holds the
+        # ids of tool calls whose permission gate has not resolved yet — see
+        # MessageList.defer_tool_calls.
+        self._deferred_tool_calls = deferred_tool_calls
         self._cached: list[str] | None = None
         self._cached_width = 0
         # Keyed by (content_idx, image_idx) — persisted so Kitty image IDs stay stable
@@ -538,7 +544,15 @@ class MessageBlock:
                 for b64, mime in item.to_base64():
                     lines.append(self._render_media_placeholder("File", b64, mime))
 
-            elif isinstance(item, ToolCallContent) and t.show_tool_calls:
+            elif (
+                isinstance(item, ToolCallContent)
+                and t.show_tool_calls
+                # A call still awaiting permission has not happened yet, and
+                # drawing it before the prompt makes the transcript read as if
+                # it ran and was questioned afterwards. It is revealed by
+                # MessageList.reveal_tool_call once the gate resolves.
+                and not (self._deferred_tool_calls and item.id in self._deferred_tool_calls)
+            ):
                 # Separate a tool call from preceding assistant text/media with a
                 # blank line so the call block doesn't render flush against the
                 # prose. Thinking blocks already append their own trailing blank,
@@ -893,6 +907,10 @@ class MessageList(Component):
         self._user_prefix = user_prefix
         self._tool_lookup: Callable[[str], Tool | None] | None = None
         self._tool_result_preview_lines = max(1, tool_result_preview_lines)
+        # Tool calls whose permission gate has not resolved. Shared with every
+        # block by reference so revealing one here is immediately visible to
+        # the block that renders it.
+        self._deferred_tool_calls: set[str] = set()
         # Cache of render units old enough to be considered finalized, kept as
         # already-wrapped ANSI rows — never rebuilt once written, so a frame
         # only pays for the still-changing tail rather than the whole
@@ -1001,6 +1019,55 @@ class MessageList(Component):
         # ----------------
 
         self._bump_invalidation()
+
+    # ── Deferred (permission-gated) tool calls ────────────────────────────────
+
+    def defer_tool_calls(self, ids: Iterable[str]) -> None:
+        """Hide these tool calls until their permission gate resolves.
+
+        Without this the call is drawn the moment the assistant message
+        completes, which is *before* any gate can run — so an approval prompt
+        always appeared underneath a call that looked like it had already been
+        made. Callers must guarantee a matching reveal (or ``clear_deferred``),
+        or the call stays invisible for the rest of the session.
+        """
+        self._deferred_tool_calls.update(ids)
+
+    def reveal_tool_call(self, tool_call_id: str) -> bool:
+        """Show a previously deferred call. True when something changed."""
+        if tool_call_id not in self._deferred_tool_calls:
+            return False
+        self._deferred_tool_calls.discard(tool_call_id)
+        self._invalidate_block_with_tool_call(tool_call_id)
+        return True
+
+    def clear_deferred_tool_calls(self) -> None:
+        """Reveal everything still hidden.
+
+        The safety net: an aborted turn or a rolled-back message never produces
+        the execution events that would normally reveal a call, and a tool call
+        that is invisible forever is far worse than one shown a moment early.
+        """
+        if not self._deferred_tool_calls:
+            return
+        stale = list(self._deferred_tool_calls)
+        self._deferred_tool_calls.clear()
+        for tool_call_id in stale:
+            self._invalidate_block_with_tool_call(tool_call_id)
+
+    def _invalidate_block_with_tool_call(self, tool_call_id: str) -> None:
+        """Re-render the block holding this call. Newest first — it is the tail
+        of the transcript in every realistic case, so this stops immediately."""
+        from tau.message.types import ToolCallContent
+
+        for block in reversed(self._blocks):
+            contents = getattr(block._message, "contents", None) or []
+            if any(
+                isinstance(item, ToolCallContent) and item.id == tool_call_id for item in contents
+            ):
+                block.invalidate()
+                self._bump_invalidation()
+                return
 
     def set_show_images(self, enabled: bool) -> None:
         """Update image visibility across existing and future message blocks."""
@@ -1146,6 +1213,7 @@ class MessageList(Component):
             user_prefix=self._user_prefix,
             tool_lookup=self._tool_lookup,
             tool_result_preview_lines=self._tool_result_preview_lines,
+            deferred_tool_calls=self._deferred_tool_calls,
         )
         self.add_block(block)
         return block
@@ -1169,6 +1237,7 @@ class MessageList(Component):
                 user_prefix=self._user_prefix,
                 tool_lookup=self._tool_lookup,
                 tool_result_preview_lines=self._tool_result_preview_lines,
+                deferred_tool_calls=self._deferred_tool_calls,
             )
             for message in messages
         ]

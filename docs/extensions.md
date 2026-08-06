@@ -949,6 +949,19 @@ def register(tau):
         return None
 ```
 
+**Registering a `tool_call` handler changes when tool calls are drawn.** A tool
+call is normally rendered as soon as the assistant message completes — which is
+*before* any gate runs, so an approval prompt would appear underneath a call that
+looked like it had already been made. When at least one `tool_call` handler is
+registered, the TUI withholds each call until it resolves: it appears on
+`tool_execution_start` if allowed, or on `tool_execution_end` if blocked. With no
+handler registered, rendering is unchanged.
+
+This means a handler must let the event through (or block it) rather than
+swallowing it — an aborted turn or rolled-back message reveals anything still
+pending, but a handler that never returns would leave the call hidden until the
+turn ends.
+
 The first `ToolResultEventResult` returned wins; later handlers are not consulted.
 
 ```python

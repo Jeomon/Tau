@@ -59,8 +59,13 @@ class _Spinner:
 
 class _Layout:
     def __init__(self) -> None:
+        from tau.modes.interactive.components.message_list import MessageList
+
         self.spinner = _Spinner()
         self.blocks: list[MessageBlock] = []
+        # The real Layout always exposes this; the handler reaches it to
+        # reveal permission-gated tool calls.
+        self.messages = MessageList()
 
     def add_message(self, message: object, streaming: bool = False) -> MessageBlock:
         block = MessageBlock(message, streaming=streaming)

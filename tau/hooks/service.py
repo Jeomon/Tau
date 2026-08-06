@@ -68,6 +68,17 @@ class Hooks:
 
         return decorator
 
+    def has_handlers(self, event_type: str) -> bool:
+        """True when anything is listening for ``event_type``.
+
+        Lets a caller keep its default behaviour when nobody is intercepting,
+        rather than paying for an interception path that will never fire.
+        Subscribers are excluded on purpose: they observe every event and
+        cannot change an outcome, so their presence says nothing about whether
+        this particular event is being acted on.
+        """
+        return bool(self._handlers.get(event_type))
+
     # ── Emit ──────────────────────────────────────────────────────────────────
 
     async def emit(self, event: HookEvent, *, timeout: float | None = None) -> list[Any]:
