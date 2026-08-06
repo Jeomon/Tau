@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 __all__ = [
@@ -229,7 +230,7 @@ def openai_responses_function_call_output(content: Any) -> str | list[dict[str, 
         return tool_result_text(content)
     blocks: list[dict[str, Any]] = [{"type": "input_text", "text": tool_result_text(content)}]
     for b64, mime in content.image.to_base64():
-        url = b64 if b64.startswith("http") else f"data:{mime or 'image/png'};base64,{b64}"
+        url = image_data_url(b64, mime)
         blocks.append({"type": "input_image", "image_url": url})
     return blocks
 
@@ -420,11 +421,7 @@ def openai_user_content(content_items: list) -> str | list[dict[str, Any]]:
                 parts.append({"type": "text", "text": item.content})
             case ImageContent():
                 for b64, mime in item.to_base64():
-                    url = (
-                        b64
-                        if b64.startswith("http")
-                        else f"data:{mime or 'image/png'};base64,{b64}"
-                    )
+                    url = image_data_url(b64, mime)
                     parts.append({"type": "image_url", "image_url": {"url": url}})
                 if item.dimension_note:
                     parts.append({"type": "text", "text": item.dimension_note})
@@ -716,3 +713,440 @@ def anthropic_thinking_params(model: Any, options: Any) -> dict[str, Any]:
         return {}
     budgets = options.thinking_budgets or ThinkingBudgets()
     return {"thinking": {"type": "enabled", "budget_tokens": budgets.get(level)}}
+
+
+#: Anthropic requires ``max_tokens``; this is what every Anthropic adapter sends
+#: when ``LLMOptions.max_tokens`` is unset.
+ANTHROPIC_DEFAULT_MAX_TOKENS = 8096
+
+
+def anthropic_default_system_blocks(
+    system: str | None,
+    messages: list[dict[str, Any]],
+    marker: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
+    """One cached text block, or ``None`` so no ``system`` key is sent at all.
+
+    Returns ``(system, messages)``; messages come back untouched. The Claude
+    Code adapter substitutes its own builder, which prepends the OAuth identity
+    blocks.
+    """
+    if not system:
+        return None, messages
+    block: dict[str, Any] = {"type": "text", "text": system}
+    if marker is not None:
+        block["cache_control"] = marker
+    return [block], messages
+
+
+def anthropic_build_params(
+    model: Any,
+    options: Any,
+    system: str | None,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[Any] | None = None,
+    ephemeral_message_count: int = 0,
+    system_blocks: Any = anthropic_default_system_blocks,
+) -> dict[str, Any]:
+    """Assemble the Anthropic Messages request payload.
+
+    Shared by the three Anthropic adapters (direct, Vertex, Claude Code OAuth),
+    which differ only in how the ``system`` array is built — hence the
+    ``system_blocks`` hook, which takes ``(system, messages, marker)`` and
+    returns the pair back.
+    """
+    marker = anthropic_cache_control(model.supports_long_cache_retention, options.cache_retention)
+    params: dict[str, Any] = {
+        "model": model.id,
+        "messages": anthropic_apply_message_cache(
+            messages, skip_tail=ephemeral_message_count, marker=marker
+        ),
+        "max_tokens": options.max_tokens or ANTHROPIC_DEFAULT_MAX_TOKENS,
+    }
+    if not model.thinking_suppresses_sampling:
+        params["temperature"] = options.temperature
+    system_value, params["messages"] = system_blocks(system, params["messages"], marker)
+    if system_value is not None:
+        params["system"] = system_value
+    params.update(anthropic_thinking_params(model, options))
+
+    if tools:
+        tool_defs = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.schema.model_json_schema(),
+            }
+            for tool in tools
+        ]
+        # Cache the last tool definition to reduce repeated prompt-token charges.
+        if marker is not None:
+            tool_defs[-1]["cache_control"] = marker
+        params["tools"] = tool_defs
+    elif has_tool_history(params["messages"]):
+        # Anthropic rejects the request outright if tool_use/tool_result blocks
+        # exist anywhere in history but `tools` is absent — even an empty list
+        # must be sent explicitly (e.g. after an extension calls
+        # set_active_tools([]) mid-conversation).
+        params["tools"] = []
+
+    return params
+
+
+def gemini_encode_signature(signature: bytes | None) -> str:
+    """Encode an SDK thought signature for JSON-safe message persistence."""
+    import base64
+
+    return base64.b64encode(signature).decode("ascii") if signature else ""
+
+
+def gemini_decode_signature(signature: object) -> bytes | None:
+    """Decode a persisted thought signature for the Google Gen AI SDK."""
+    import base64
+
+    if not isinstance(signature, str) or not signature:
+        return None
+    return base64.b64decode(signature)
+
+
+def gemini_messages_to_contents(
+    messages: list[Any],
+    *,
+    distrust_thought_signatures: bool = False,
+    include_call_ids: bool = True,
+) -> tuple[str | None, list[Any]]:
+    """Convert tau messages to ``(system, contents)`` for the Google Gen AI SDK.
+
+    Shared by the Gemini and Vertex adapters. ``include_call_ids`` is the one
+    behavioural difference between them: the Gemini API echoes the per-call
+    ``id`` on functionCall/functionResponse, while Vertex correlates a response
+    to its call by tool *name* and rejects the id field.
+    """
+    from google.genai import types as genai_types
+
+    from tau.message.types import (
+        AssistantMessage,
+        AudioContent,
+        FileContent,
+        ImageContent,
+        SystemMessage,
+        TextContent,
+        ThinkingContent,
+        ToolCallContent,
+        ToolMessage,
+        ToolResultContent,
+        UserMessage,
+        VideoContent,
+    )
+
+    def _blob_parts(item: Any, default_mime: str | None = None) -> list[Any]:
+        return [
+            genai_types.Part(
+                inline_data=genai_types.Blob(
+                    mime_type=mime or default_mime,
+                    data=b64,  # type: ignore[arg-type]
+                ),
+            )
+            for b64, mime in item.to_base64()
+        ]
+
+    system: str | None = None
+    contents: list[Any] = []
+
+    for msg in messages:
+        match msg:
+            case SystemMessage():
+                system = "\n".join(c.content for c in msg.contents if isinstance(c, TextContent))
+            case UserMessage():
+                parts: list[Any] = []
+                for item in msg.contents:
+                    match item:
+                        case TextContent():
+                            parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
+                        case ImageContent():
+                            parts.extend(_blob_parts(item, "image/png"))
+                        case FileContent() | AudioContent() | VideoContent():
+                            parts.extend(_blob_parts(item))
+                if parts:
+                    contents.append(genai_types.Content(role="user", parts=parts))  # type: ignore[arg-type]
+            case AssistantMessage():
+                parts = []
+                for item in msg.contents:
+                    match item:
+                        case TextContent():
+                            parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
+                        case ThinkingContent():
+                            parts.append(
+                                genai_types.Part(
+                                    text=item.content,
+                                    thought=True,
+                                    thought_signature=(
+                                        None
+                                        if distrust_thought_signatures
+                                        else gemini_decode_signature(item.signature)
+                                    ),
+                                )
+                            )
+                        case ToolCallContent():
+                            sig = (
+                                None
+                                if distrust_thought_signatures
+                                else gemini_decode_signature(item.metadata.get("thought_signature"))
+                            )
+                            if sig is None:
+                                # A functionCall part with no thoughtSignature is
+                                # rejected (or silently degraded) by Gemini — not just
+                                # gemini-3 — whenever history was replayed from a turn
+                                # that never had one (a different provider, or a model
+                                # switch). Fall back to a plain text description
+                                # instead of sending an unsigned functionCall.
+                                args_str = json.dumps(item.args, indent=2)
+                                parts.append(
+                                    genai_types.Part(
+                                        text=f"[Tool Call: {item.name}]\nArguments: {args_str}"
+                                    )
+                                )
+                            else:
+                                call = (
+                                    genai_types.FunctionCall(
+                                        id=item.id, name=item.name, args=item.args
+                                    )
+                                    if include_call_ids
+                                    else genai_types.FunctionCall(name=item.name, args=item.args)
+                                )
+                                parts.append(
+                                    genai_types.Part(function_call=call, thought_signature=sig)
+                                )
+                if parts:
+                    contents.append(genai_types.Content(role="model", parts=parts))  # type: ignore[arg-type]
+            case ToolMessage():
+                parts = []
+                for content in msg.contents:
+                    if isinstance(content, ToolResultContent):
+                        # Gemini's FunctionResponse.response uses "output" for success
+                        # and "error" for failure — Gemini 3 Flash Preview strictly
+                        # rejects the older lenient providers' {"result", "isError"}
+                        # shape (older Gemini models tolerated it).
+                        key = "error" if content.is_error else "output"
+                        if include_call_ids:
+                            response = genai_types.FunctionResponse(
+                                id=content.id,
+                                name=content.tool_name or content.id,
+                                response={key: tool_result_text(content)},
+                                parts=gemini_function_response_parts(content),
+                            )
+                        else:
+                            response = genai_types.FunctionResponse(
+                                name=content.tool_name or content.id,
+                                response={key: tool_result_text(content)},
+                                parts=gemini_function_response_parts(content),
+                            )
+                        parts.append(genai_types.Part(function_response=response))
+                if parts:
+                    contents.append(genai_types.Content(role="user", parts=parts))  # type: ignore[arg-type]
+
+    return system, contents
+
+
+def image_data_url(b64: str, mime: str | None) -> str:
+    """The value an OpenAI-shaped ``image_url`` field takes for one image.
+
+    A remote URL passes through untouched; raw base64 is wrapped in a ``data:``
+    URL. The PNG fallback matters because several providers reject a data URL
+    with an empty media type outright.
+    """
+    return b64 if b64.startswith("http") else f"data:{mime or 'image/png'};base64,{b64}"
+
+
+def openai_stop_reason(finish_reason: str | None) -> Any:
+    """Map a chat-completions ``finish_reason`` to a tau StopReason.
+
+    An unknown or absent reason degrades to Stop rather than raising — a
+    provider inventing a new string should not fail the turn.
+    """
+    from tau.inference.types import StopReason
+
+    return {
+        "stop": StopReason.Stop,
+        "length": StopReason.Length,
+        "tool_calls": StopReason.ToolCalls,
+        "content_filter": StopReason.ContentFilter,
+    }.get(finish_reason or "", StopReason.Stop)
+
+
+async def stream_openai_chat_events(
+    sdk_stream: Any,
+    *,
+    cancelled: Callable[[], bool],
+    extract_thinking: Callable[[Any], str | None] | None = None,
+) -> AsyncGenerator[Any, None]:
+    """Translate an OpenAI chat-completions SDK stream into tau LLMEvents.
+
+    Shared by every provider speaking the chat-completions wire format
+    (OpenAI, GitHub Copilot, Vertex's OpenAI endpoint, ...). Callers own the
+    request — params, client, the ``on_response`` hook — and hand the parsed
+    SDK stream here; everything from the first chunk to the final ``EndEvent``
+    is identical between them.
+
+    ``extract_thinking`` returns a provider's reasoning delta for a chunk delta,
+    or None. Passing None means the provider emits no reasoning at all, so no
+    Thinking events are produced.
+
+    ``StartEvent`` is *not* emitted here — callers yield it before the request
+    so an error while opening the connection still follows a started stream.
+    """
+    from tau.inference.types import (
+        EndEvent,
+        ErrorEvent,
+        StopReason,
+        TextDeltaEvent,
+        TextEndEvent,
+        TextStartEvent,
+        ThinkingDeltaEvent,
+        ThinkingEndEvent,
+        ThinkingStartEvent,
+        ToolCallDeltaEvent,
+        ToolCallEndEvent,
+        ToolCallStartEvent,
+    )
+    from tau.message.types import TextContent, ThinkingContent, ToolCallContent
+
+    text_started = False
+    text_buf = ""
+    thinking_started = False
+    thinking_buf = ""
+    tool_started: dict[int, bool] = {}
+    tool_bufs: dict[int, str] = {}
+    tool_meta: dict[int, dict[str, str]] = {}
+    input_tokens = 0
+    output_tokens = 0
+    cache_read_tokens = 0
+    has_finish_reason = False
+    stop_reason = StopReason.Stop
+
+    def finalize_open_blocks() -> list[Any]:
+        """Close any still-open thinking/text block and resolve any still-open
+        tool call. Shared between the normal finish_reason branch and the
+        no-finish-reason fallback below, so a stream that never sends
+        finish_reason at all (observed from some non-standard OpenAI-compatible
+        providers) still ends every block properly instead of leaving one
+        dangling.
+        """
+        nonlocal thinking_started, thinking_buf, text_started, text_buf
+        events: list[Any] = []
+        if thinking_started:
+            events.append(ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf)))
+            thinking_started = False
+            thinking_buf = ""
+        if text_started:
+            events.append(TextEndEvent(text=TextContent(content=text_buf)))
+            text_started = False
+            text_buf = ""
+        for idx in sorted(tool_started):
+            args = parse_tool_args(tool_bufs[idx].strip())
+            events.append(
+                ToolCallEndEvent(
+                    tool_call=ToolCallContent(
+                        id=tool_meta[idx]["id"],
+                        name=tool_meta[idx]["name"],
+                        args=args,
+                    )
+                )
+            )
+        tool_started.clear()
+        tool_bufs.clear()
+        tool_meta.clear()
+        return events
+
+    async for chunk in sdk_stream:
+        if cancelled():
+            yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
+            return
+
+        usage_data = getattr(chunk, "usage", None)
+        if usage_data:
+            input_tokens = getattr(usage_data, "prompt_tokens", 0) or 0
+            output_tokens = getattr(usage_data, "completion_tokens", 0) or 0
+            details = getattr(usage_data, "prompt_tokens_details", None)
+            cache_read_tokens = getattr(details, "cached_tokens", 0) or 0
+
+        choice = chunk.choices[0] if chunk.choices else None
+        if choice is None:
+            continue
+
+        delta = choice.delta
+
+        reasoning = extract_thinking(delta) if extract_thinking is not None else None
+        if reasoning:
+            if not thinking_started:
+                yield ThinkingStartEvent(thinking=ThinkingContent(content=""))
+                thinking_started = True
+            thinking_buf += reasoning
+            yield ThinkingDeltaEvent(thinking=ThinkingContent(content=reasoning))
+
+        delta_text = extract_openai_delta_text(delta.content)
+        if delta_text:
+            # If thinking was happening, end it before starting text
+            if thinking_started:
+                yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
+                thinking_started = False
+                thinking_buf = ""
+            if not text_started:
+                yield TextStartEvent(text=TextContent(content=""))
+                text_started = True
+            text_buf += delta_text
+            yield TextDeltaEvent(text=TextContent(content=delta_text))
+
+        if delta.tool_calls:
+            # If thinking was happening, end it
+            if thinking_started:
+                yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
+                thinking_started = False
+                thinking_buf = ""
+            for tc in delta.tool_calls:
+                idx = tc.index
+                if idx not in tool_started:
+                    tool_started[idx] = True
+                    tool_bufs[idx] = ""
+                    tool_meta[idx] = {
+                        "id": tc.id or "",
+                        "name": tc.function.name or "" if tc.function else "",
+                    }
+                    yield ToolCallStartEvent(
+                        tool_call=ToolCallContent(
+                            id=tool_meta[idx]["id"],
+                            name=tool_meta[idx]["name"],
+                        )
+                    )
+                if tc.function and tc.function.arguments:
+                    tool_bufs[idx] += tc.function.arguments
+                    yield ToolCallDeltaEvent(tool_call=ToolCallContent(id=tool_meta[idx]["id"]))
+
+        if choice.finish_reason:
+            has_finish_reason = True
+            for event in finalize_open_blocks():
+                yield event
+            stop_reason = openai_stop_reason(choice.finish_reason)
+
+    if not has_finish_reason:
+        # Some non-standard OpenAI-compatible providers never send a
+        # finish_reason chunk at all — treat stream exhaustion as the implicit
+        # stop instead of crashing. stop_reason keeps its StopReason.Stop
+        # default: the honest answer when the provider never said why.
+        for event in finalize_open_blocks():
+            yield event
+
+    # The usage-bearing chunk (stream_options.include_usage) arrives as a
+    # separate final chunk with empty choices, *after* the finish_reason chunk —
+    # yielding EndEvent inside the finish_reason branch above would capture 0
+    # tokens whenever that chunk hadn't landed yet (routinely the case for
+    # tool-calling turns). Yield only once the stream is fully drained so the
+    # token counts reflect whatever arrived.
+    yield EndEvent(
+        reason=stop_reason,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        input_tokens_include_cache_read=True,
+    )

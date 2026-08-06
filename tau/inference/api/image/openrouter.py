@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from tau.inference.api.image.base import BaseImageAPI
+from tau.inference.api.text.utils import image_data_url
 from tau.inference.model.types import Model
 from tau.inference.types import GeneratedImage, ImageContext, ImageOptions, ImageStopReason
 from tau.message.types import ImageContent, TextContent, Usage
@@ -21,7 +22,7 @@ def _build_content(context: ImageContext) -> list[dict[str, Any]]:
             parts.append({"type": "text", "text": item.content})
         elif isinstance(item, ImageContent):
             for b64, mime in item.to_base64():
-                url = b64 if b64.startswith("http") else f"data:{mime or 'image/png'};base64,{b64}"
+                url = image_data_url(b64, mime)
                 parts.append({"type": "image_url", "image_url": {"url": url}})
     return parts
 

@@ -17,6 +17,7 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     drop_orphan_function_call_outputs,
+    image_data_url,
     openai_responses_function_call_output,
     parse_tool_args,
 )
@@ -166,11 +167,7 @@ def _content_to_input(content_items: list, role: str) -> list[dict[str, Any]]:
                 parts.append({"type": text_type, "text": item.content})
             case ImageContent():
                 for b64, mime in item.to_base64():
-                    url = (
-                        b64
-                        if b64.startswith("http")
-                        else f"data:{mime or 'image/png'};base64,{b64}"
-                    )
+                    url = image_data_url(b64, mime)
                     parts.append({"type": "input_image", "image_url": url})
             case FileContent():
                 for b64, mime in item.to_base64():
@@ -234,11 +231,7 @@ def _messages_to_input(messages: list[LLMMessage]) -> tuple[str, list[dict[str, 
                             text_parts.append({"type": "output_text", "text": content.content})
                         case ImageContent():
                             for b64, mime in content.to_base64():
-                                url = (
-                                    b64
-                                    if b64.startswith("http")
-                                    else f"data:{mime or 'image/png'};base64,{b64}"
-                                )
+                                url = image_data_url(b64, mime)
                                 text_parts.append({"type": "input_image", "image_url": url})
                         case FileContent():
                             for b64, mime in content.to_base64():

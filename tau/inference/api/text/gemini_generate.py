@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
@@ -11,9 +10,9 @@ from google.genai import types as genai_types
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
-    gemini_function_response_parts,
+    gemini_encode_signature,
+    gemini_messages_to_contents,
     gemini_tool_schema,
-    tool_result_text,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
@@ -38,19 +37,10 @@ from tau.inference.types import (
     normalize_structured_response_format,
 )
 from tau.message.types import (
-    AssistantMessage,
-    AudioContent,
-    FileContent,
-    ImageContent,
     LLMMessage,
-    SystemMessage,
     TextContent,
     ThinkingContent,
     ToolCallContent,
-    ToolMessage,
-    ToolResultContent,
-    UserMessage,
-    VideoContent,
 )
 
 if TYPE_CHECKING:
@@ -65,15 +55,7 @@ _STOP_REASON: dict[str, StopReason] = {
 
 
 def _encode_signature(signature: bytes | None) -> str:
-    """Encode an SDK thought signature for JSON-safe message persistence."""
-    return base64.b64encode(signature).decode("ascii") if signature else ""
-
-
-def _decode_signature(signature: object) -> bytes | None:
-    """Decode a persisted thought signature for the Google Gen AI SDK."""
-    if not isinstance(signature, str) or not signature:
-        return None
-    return base64.b64decode(signature)
+    return gemini_encode_signature(signature)
 
 
 def _messages_to_gemini(
@@ -81,134 +63,11 @@ def _messages_to_gemini(
     *,
     distrust_thought_signatures: bool = False,
 ) -> tuple[str | None, list[genai_types.Content]]:
-    system: str | None = None
-    contents: list[genai_types.Content] = []
-
-    for msg in messages:
-        match msg:
-            case SystemMessage():
-                system = "\n".join(c.content for c in msg.contents if isinstance(c, TextContent))
-            case UserMessage():
-                parts: list[genai_types.Part] = []
-                for item in msg.contents:
-                    match item:
-                        case TextContent():
-                            parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
-                        case ImageContent():
-                            for b64, mime in item.to_base64():
-                                parts.append(
-                                    genai_types.Part(
-                                        inline_data=genai_types.Blob(
-                                            mime_type=mime or "image/png",
-                                            data=b64,  # type: ignore[arg-type]
-                                        ),
-                                    )
-                                )
-                        case FileContent():
-                            for b64, mime in item.to_base64():
-                                parts.append(
-                                    genai_types.Part(
-                                        inline_data=genai_types.Blob(
-                                            mime_type=mime,
-                                            data=b64,  # type: ignore[arg-type]
-                                        ),
-                                    )
-                                )
-                        case AudioContent():
-                            for b64, mime in item.to_base64():
-                                parts.append(
-                                    genai_types.Part(
-                                        inline_data=genai_types.Blob(
-                                            mime_type=mime,
-                                            data=b64,  # type: ignore[arg-type]
-                                        ),
-                                    )
-                                )
-                        case VideoContent():
-                            for b64, mime in item.to_base64():
-                                parts.append(
-                                    genai_types.Part(
-                                        inline_data=genai_types.Blob(
-                                            mime_type=mime,
-                                            data=b64,  # type: ignore[arg-type]
-                                        ),
-                                    )
-                                )
-                if parts:
-                    contents.append(genai_types.Content(role="user", parts=parts))  # type: ignore[arg-type]
-            case AssistantMessage():
-                parts = []
-                for item in msg.contents:
-                    match item:
-                        case TextContent():
-                            parts.append(genai_types.Part(text=item.content))  # type: ignore[arg-type]
-                        case ThinkingContent():
-                            parts.append(
-                                genai_types.Part(
-                                    text=item.content,
-                                    thought=True,
-                                    thought_signature=(
-                                        None
-                                        if distrust_thought_signatures
-                                        else _decode_signature(item.signature)
-                                    ),
-                                )
-                            )
-                        case ToolCallContent():
-                            sig = (
-                                None
-                                if distrust_thought_signatures
-                                else _decode_signature(item.metadata.get("thought_signature"))
-                            )
-                            if sig is None:
-                                # A functionCall part with no thoughtSignature is
-                                # rejected (or silently degraded) by Gemini — not just
-                                # gemini-3 — whenever history was replayed from a turn
-                                # that never had one (a different provider, or a model
-                                # switch). Fall back to a plain text description
-                                # instead of sending an unsigned functionCall.
-                                args_str = json.dumps(item.args, indent=2)
-                                parts.append(
-                                    genai_types.Part(
-                                        text=f"[Tool Call: {item.name}]\nArguments: {args_str}"
-                                    )
-                                )
-                            else:
-                                parts.append(
-                                    genai_types.Part(
-                                        function_call=genai_types.FunctionCall(
-                                            id=item.id,
-                                            name=item.name,
-                                            args=item.args,
-                                        ),
-                                        thought_signature=sig,
-                                    )
-                                )
-                if parts:
-                    contents.append(genai_types.Content(role="model", parts=parts))  # type: ignore[arg-type]
-            case ToolMessage():
-                parts = []
-                for content in msg.contents:
-                    if isinstance(content, ToolResultContent):
-                        # Gemini's FunctionResponse.response uses "output" for success
-                        # and "error" for failure — Gemini 3 Flash Preview strictly
-                        # rejects the older lenient providers' {"result", "isError"}
-                        # shape (older Gemini models tolerated it).
-                        key = "error" if content.is_error else "output"
-                        parts.append(
-                            genai_types.Part(
-                                function_response=genai_types.FunctionResponse(
-                                    id=content.id,
-                                    name=content.tool_name or content.id,
-                                    response={key: tool_result_text(content)},
-                                    parts=gemini_function_response_parts(content),
-                                ),
-                            )
-                        )
-                if parts:
-                    contents.append(genai_types.Content(role="user", parts=parts))  # type: ignore[arg-type]
-
-    return system, contents
+    return gemini_messages_to_contents(
+        messages,
+        distrust_thought_signatures=distrust_thought_signatures,
+        include_call_ids=True,
+    )
 
 
 def _response_schema(response_format: Any | None) -> dict[str, Any] | None:

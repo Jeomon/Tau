@@ -9,12 +9,9 @@ from anthropic import AsyncAnthropicVertex  # pyright: ignore[reportPrivateImpor
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
-    anthropic_apply_message_cache,
-    anthropic_cache_control,
+    anthropic_build_params,
     anthropic_messages_to_list,
     anthropic_output_config,
-    anthropic_thinking_params,
-    has_tool_history,
     parse_tool_args,
 )
 from tau.inference.model.types import Model
@@ -53,8 +50,6 @@ _STOP_REASON: dict[str, StopReason] = {
     "tool_use": StopReason.ToolCalls,
     "stop_sequence": StopReason.Stop,
 }
-
-_DEFAULT_MAX_TOKENS = 8096
 
 
 def _build_client(options: LLMOptions) -> AsyncAnthropicVertex:
@@ -99,45 +94,14 @@ class AnthropicVertexAPI(BaseAPI):
         tools: list[Tool] | None = None,
         ephemeral_message_count: int = 0,
     ) -> dict[str, Any]:
-        marker = anthropic_cache_control(
-            model.supports_long_cache_retention, self.options.cache_retention
+        return anthropic_build_params(
+            model,
+            self.options,
+            system,
+            messages,
+            tools=tools,
+            ephemeral_message_count=ephemeral_message_count,
         )
-        params: dict[str, Any] = {
-            "model": model.id,
-            "messages": anthropic_apply_message_cache(
-                messages, skip_tail=ephemeral_message_count, marker=marker
-            ),
-            "max_tokens": self.options.max_tokens or _DEFAULT_MAX_TOKENS,
-        }
-        if not model.thinking_suppresses_sampling:
-            params["temperature"] = self.options.temperature
-        if system:
-            system_block: dict[str, Any] = {"type": "text", "text": system}
-            if marker is not None:
-                system_block["cache_control"] = marker
-            params["system"] = [system_block]
-        params.update(anthropic_thinking_params(model, self.options))
-
-        if tools:
-            tool_defs = [
-                {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_schema": tool.schema.model_json_schema(),
-                }
-                for tool in tools
-            ]
-            if marker is not None:
-                tool_defs[-1]["cache_control"] = marker
-            params["tools"] = tool_defs
-        elif has_tool_history(params["messages"]):
-            # Anthropic rejects the request outright if tool_use/tool_result blocks
-            # exist anywhere in history but `tools` is absent — even an empty list
-            # must be sent explicitly (e.g. after an extension calls
-            # set_active_tools([]) mid-conversation).
-            params["tools"] = []
-
-        return params
 
     async def stream(self, context: LLMContext, model: Model) -> AsyncGenerator[LLMEvent, None]:  # type: ignore[override]
         system, anthropic_messages = anthropic_messages_to_list(

@@ -11,6 +11,7 @@ from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     drop_orphan_function_call_outputs,
+    image_data_url,
     openai_gpt56_prompt_cache_options,
     openai_prompt_cache_retention,
     openai_responses_function_call_output,
@@ -145,11 +146,7 @@ def _content_to_openai(
                     text_parts.append(item.content)
                 case ImageContent():
                     for b64, mime in item.to_base64():
-                        url = (
-                            b64
-                            if b64.startswith("http")
-                            else f"data:{mime or 'image/png'};base64,{b64}"
-                        )
+                        url = image_data_url(b64, mime)
                         other_parts.append({"type": "input_image", "image_url": url})
                 # ToolCallContent is handled by _messages_to_input, which hoists
                 # it out to a top-level function_call item — see the comment
@@ -173,11 +170,7 @@ def _content_to_openai(
                 parts.append({"type": text_type, "text": item.content})
             case ImageContent():
                 for b64, mime in item.to_base64():
-                    url = (
-                        b64
-                        if b64.startswith("http")
-                        else f"data:{mime or 'image/png'};base64,{b64}"
-                    )
+                    url = image_data_url(b64, mime)
                     parts.append({"type": "input_image", "image_url": url})
     return parts
 
@@ -257,11 +250,7 @@ def _messages_to_input(
                             text_parts.append({"type": "output_text", "text": content.content})
                         case ImageContent():
                             for b64, mime in content.to_base64():
-                                url = (
-                                    b64
-                                    if b64.startswith("http")
-                                    else f"data:{mime or 'image/png'};base64,{b64}"
-                                )
+                                url = image_data_url(b64, mime)
                                 text_parts.append({"type": "input_image", "image_url": url})
                         case ToolCallContent():
                             if text_parts:
