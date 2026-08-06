@@ -114,6 +114,13 @@ def register(tau: ExtensionAPI) -> None:
 
     tau.on("session_start", _rebuild)
     tau.on("session_tree", _rebuild)
+    # A reload re-runs register(), so `state` above is a brand-new empty
+    # TodoState while the todo:state entries are still sitting on the branch.
+    # Without this the list silently empties on every /reload (and on any
+    # settings change that triggers one): the next `update` reports the task
+    # id as unknown and `list` reports no tasks, even though nothing was
+    # deleted. session_start does not fire on reload, so it cannot cover this.
+    tau.on("extension_reloaded", _rebuild)
 
     def _on_tui_ready(_event: Any, ctx: ExtensionContext) -> None:
         board.sync(ctx)

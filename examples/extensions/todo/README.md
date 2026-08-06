@@ -36,7 +36,7 @@ A widget appears above the editor whenever there is at least one task that
 isn't done or failed, and disappears once every task is resolved or the list
 is empty. It updates immediately after every mutating action
 (`create`/`update`/`delete`/`clear`) and re-syncs on
-`session_start`/`session_tree`/`tui_ready`. Glyphs and colors come from the
+`session_start`/`session_tree`/`extension_reloaded`/`tui_ready`. Glyphs and colors come from the
 active theme (`☐` pending/muted, `■` in_progress/warning, `✓` done/success,
 `✗` failed/error) via `apply_style`, not hardcoded ANSI.
 
@@ -50,13 +50,19 @@ active theme (`☐` pending/muted, `■` in_progress/warning, `✓` done/success
 
 Todos are not stored in a separate file. Every mutation appends a
 `todo:state` custom entry to the session log, and the full list is
-reconstructed by replaying those entries on `session_start` and
-`session_tree`. This means the list automatically reflects whatever branch
+reconstructed by replaying those entries on `session_start`,
+`session_tree`, and `extension_reloaded`. This means the list automatically reflects whatever branch
 of the conversation you're on — fork or rewind, and the todos rewind with
 it. Compaction doesn't affect this: Tau's `get_branch()` never drops entries,
 it's only the LLM-facing prompt that gets trimmed. Sessions persisted before
 the `status` field existed (plain `done` bool) migrate automatically on
 replay.
+
+`extension_reloaded` matters as much as the session events: a reload re-runs
+`register()`, which constructs a fresh empty `TodoState`, and `session_start`
+does not fire on that path. Without rebuilding there the list silently empties
+on every `/reload` — `update` then reports a live task id as unknown and `list`
+reports nothing, despite no task having been deleted.
 
 The agent is not forced to keep working through pending tasks between
 turns — it decides on its own whether to continue, same as any other tool.

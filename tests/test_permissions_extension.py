@@ -582,3 +582,100 @@ def test_denial_message_tells_the_model_not_to_retry() -> None:
     )
     assert "**/.env" in message
     assert "not retry" in message.lower()
+
+
+# ── Reload wiring ────────────────────────────────────────────────────────────
+
+
+class _API:
+    """ExtensionAPI double recording what register() subscribes to."""
+
+    def __init__(self, cwd: Path) -> None:
+        self.cwd = str(cwd)
+        self.handlers: dict[str, list[Any]] = {}
+        self.commands: list[str] = []
+        self.active_tools: list[str] | None = None
+
+    def on(self, event: str, handler: Any = None) -> Any:
+        if handler is None:
+
+            def deco(fn: Any) -> Any:
+                self.handlers.setdefault(event, []).append(fn)
+                return fn
+
+            return deco
+        self.handlers.setdefault(event, []).append(handler)
+        return handler
+
+    def register_command(self, name: str, *_a: Any, **_k: Any) -> None:
+        self.commands.append(name)
+
+    def set_active_tools(self, names: list[str]) -> None:
+        self.active_tools = names
+
+
+class _ReloadCtx:
+    ui = None
+
+    def __init__(self, trusted: bool = True) -> None:
+        self._trusted = trusted
+
+    async def is_project_trusted(self) -> bool:
+        return self._trusted
+
+    def get_system_prompt_options(self) -> dict:
+        return {"tools": ["read", "write", "terminal"]}
+
+
+class TestReloadWiring:
+    """A /reload rebuilds the gate, so the policy must be re-read there too.
+
+    Mirrors the todo extension's bug: register() runs again on reload and
+    runtime_ready does not fire a second time, so an extension that loads state
+    only from runtime_ready silently runs on defaults afterwards.
+    """
+
+    def test_policy_loads_on_both_startup_and_reload(self, tmp_path: Path) -> None:
+        module = importlib.import_module(_PKG)
+        api = _API(tmp_path)
+        module.register(api)
+
+        assert api.handlers.get("runtime_ready"), "policy must load at startup"
+        assert api.handlers.get("extension_reloaded"), "policy must reload on /reload"
+
+    def test_the_same_handler_serves_both_events(self, tmp_path: Path) -> None:
+        module = importlib.import_module(_PKG)
+        api = _API(tmp_path)
+        module.register(api)
+
+        assert api.handlers["runtime_ready"] == api.handlers["extension_reloaded"]
+
+    def test_config_edited_before_a_reload_is_picked_up(self, tmp_path: Path) -> None:
+        module = importlib.import_module(_PKG)
+        api = _API(tmp_path)
+        module.register(api)
+
+        # Config written after register(), as an edit between reloads would be.
+        _write_project_config(tmp_path, {"permission": {"read": "deny"}})
+
+        handler = api.handlers["extension_reloaded"][0]
+        asyncio.run(handler(None, _ReloadCtx()))
+
+        # The reload must have seen the file, not the built-in defaults.
+        gate_module = importlib.import_module(_PKG)
+        assert gate_module is module  # sanity: same package instance
+        assert api.active_tools is not None, "a fully denied tool should be hidden"
+        assert "read" not in api.active_tools
+
+    def test_untrusted_project_config_is_still_ignored_on_reload(self, tmp_path: Path) -> None:
+        module = importlib.import_module(_PKG)
+        api = _API(tmp_path)
+        module.register(api)
+
+        _write_project_config(tmp_path, {"permission": {"read": "deny"}})
+
+        handler = api.handlers["extension_reloaded"][0]
+        asyncio.run(handler(None, _ReloadCtx(trusted=False)))
+
+        # Untrusted means the project scope never loads, so nothing is hidden.
+        assert api.active_tools is None

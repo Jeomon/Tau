@@ -80,6 +80,15 @@ def register(tau: ExtensionAPI) -> None:
         # until its own idle_timeout — reap it here too, same as the lsp extension.
         await manager.stop()
 
+    @tau.on("extension_unload")
+    async def _on_extension_unload(_event: Any, _ctx: ExtensionContext) -> None:
+        # A reload re-runs register() and builds a *new* SandboxManager, so
+        # without stopping here the old microVM is simply forgotten while still
+        # running — holding its cpus/memory until its own idle_timeout expires
+        # (30 minutes by default). Reloading a few times while editing an
+        # extension would strand one VM per reload.
+        await manager.stop()
+
     async def cmd_sandbox(ctx: ExtensionContext, args: list[str]) -> None:
         ui = ctx.ui
         if ui is None:
