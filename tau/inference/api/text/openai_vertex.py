@@ -12,44 +12,20 @@ from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
     openai_messages_to_chat,
     openai_response_format,
-    parse_tool_args,
+    stream_openai_chat_events,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
-    EndEvent,
-    ErrorEvent,
     LLMContext,
     LLMEvent,
     LLMOptions,
     StartEvent,
-    StopReason,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ThinkingDeltaEvent,
-    ThinkingEndEvent,
-    ThinkingStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
-)
-from tau.message.types import (
-    TextContent,
-    ThinkingContent,
-    ToolCallContent,
 )
 
 if TYPE_CHECKING:
     from tau.tool.types import Tool
 
 __all__ = ["OpenAIVertexAPI"]
-
-_STOP_REASON: dict[str, StopReason] = {
-    "stop": StopReason.Stop,
-    "length": StopReason.Length,
-    "tool_calls": StopReason.ToolCalls,
-    "content_filter": StopReason.ContentFilter,
-}
 
 # GCP access tokens expire after 1 hour; refresh 5 minutes early
 _TOKEN_REFRESH_BUFFER = 300
@@ -117,6 +93,11 @@ def _base_url(model: Model, project: str, location: str) -> str:
         f"https://{location}-aiplatform.googleapis.com"
         f"/v1/projects/{project}/locations/{location}/{publisher_path}"
     )
+
+
+def _vertex_thinking_delta(delta: Any) -> str | None:
+    """Vertex's OpenAI endpoint reports reasoning under either name, by model."""
+    return getattr(delta, "reasoning_content", None) or getattr(delta, "thinking", None)
 
 
 class OpenAIVertexAPI(BaseAPI):
@@ -194,19 +175,6 @@ class OpenAIVertexAPI(BaseAPI):
             if modified is not None:
                 params = modified
 
-        text_started = False
-        text_buf = ""
-        thinking_started = False
-        thinking_buf = ""
-        tool_started: dict[int, bool] = {}
-        tool_bufs: dict[int, str] = {}
-        tool_meta: dict[int, dict[str, str]] = {}
-        _input_tokens = 0
-        _output_tokens = 0
-        _cache_read_tokens = 0
-        has_finish_reason = False
-        stop_reason = StopReason.Stop
-
         yield StartEvent()
 
         # Read live, not at client-construction time: a `before_provider_request`
@@ -228,108 +196,9 @@ class OpenAIVertexAPI(BaseAPI):
                     )
                 )
             sdk_stream = await raw_response.parse()
-            async for chunk in sdk_stream:
-                if self._cancelled():
-                    yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
-                    return
-
-                usage_data = getattr(chunk, "usage", None)
-                if usage_data:
-                    _input_tokens = getattr(usage_data, "prompt_tokens", 0) or 0
-                    _output_tokens = getattr(usage_data, "completion_tokens", 0) or 0
-                    _details = getattr(usage_data, "prompt_tokens_details", None)
-                    _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
-
-                choice = chunk.choices[0] if chunk.choices else None
-                if choice is None:
-                    continue
-
-                delta = choice.delta
-
-                reasoning = getattr(delta, "reasoning_content", None) or getattr(
-                    delta, "thinking", None
-                )
-                if reasoning:
-                    if not thinking_started:
-                        yield ThinkingStartEvent(thinking=ThinkingContent(content=""))
-                        thinking_started = True
-                    thinking_buf += reasoning
-                    yield ThinkingDeltaEvent(thinking=ThinkingContent(content=reasoning))
-
-                if delta.content:
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-                    if not text_started:
-                        yield TextStartEvent(text=TextContent(content=""))
-                        text_started = True
-                    text_buf += delta.content
-                    yield TextDeltaEvent(text=TextContent(content=delta.content))
-
-                if delta.tool_calls:
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_started:
-                            tool_started[idx] = True
-                            tool_bufs[idx] = ""
-                            tool_meta[idx] = {
-                                "id": tc.id or "",
-                                "name": tc.function.name or "" if tc.function else "",
-                            }
-                            yield ToolCallStartEvent(
-                                tool_call=ToolCallContent(
-                                    id=tool_meta[idx]["id"],
-                                    name=tool_meta[idx]["name"],
-                                )
-                            )
-                        if tc.function and tc.function.arguments:
-                            tool_bufs[idx] += tc.function.arguments
-                            yield ToolCallDeltaEvent(
-                                tool_call=ToolCallContent(id=tool_meta[idx]["id"])
-                            )
-
-                if choice.finish_reason:
-                    has_finish_reason = True
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-                    if text_started:
-                        yield TextEndEvent(text=TextContent(content=text_buf))
-                        text_started = False
-                        text_buf = ""
-                    for idx in sorted(tool_started):
-                        args = parse_tool_args(tool_bufs[idx].strip())
-                        yield ToolCallEndEvent(
-                            tool_call=ToolCallContent(
-                                id=tool_meta[idx]["id"],
-                                name=tool_meta[idx]["name"],
-                                args=args,
-                            )
-                        )
-                    tool_started.clear()
-                    tool_bufs.clear()
-                    tool_meta.clear()
-                    stop_reason = _STOP_REASON.get(choice.finish_reason, StopReason.Stop)
-
-        if not has_finish_reason:
-            raise RuntimeError("Stream ended without finish_reason")
-
-        # The usage-bearing chunk (stream_options.include_usage) arrives as a
-        # separate final chunk with empty choices, *after* the finish_reason
-        # chunk — yielding EndEvent inside the finish_reason branch above would
-        # capture 0 tokens whenever that chunk hadn't landed yet (routinely the
-        # case for tool-calling turns). Yield only once the stream is fully
-        # drained so _input_tokens/_output_tokens reflect whatever arrived.
-        yield EndEvent(
-            reason=stop_reason,
-            input_tokens=_input_tokens,
-            output_tokens=_output_tokens,
-            cache_read_tokens=_cache_read_tokens,
-            input_tokens_include_cache_read=True,
-        )
+            async for event in stream_openai_chat_events(
+                sdk_stream,
+                cancelled=self._cancelled,
+                extract_thinking=_vertex_thinking_delta,
+            ):
+                yield event

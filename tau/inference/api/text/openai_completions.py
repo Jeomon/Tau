@@ -9,45 +9,20 @@ from tau.inference.api.text import dialect
 from tau.inference.api.text.base import BaseLLMAPI as BaseAPI
 from tau.inference.api.text.types import APIResponse
 from tau.inference.api.text.utils import (
-    extract_openai_delta_text,
     openai_messages_to_chat,
     openai_response_format,
-    parse_tool_args,
+    stream_openai_chat_events,
 )
 from tau.inference.model.types import Model
 from tau.inference.types import (
-    EndEvent,
-    ErrorEvent,
     LLMContext,
     LLMEvent,
     LLMOptions,
     StartEvent,
-    StopReason,
-    TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ThinkingDeltaEvent,
-    ThinkingEndEvent,
-    ThinkingStartEvent,
-    ToolCallDeltaEvent,
-    ToolCallEndEvent,
-    ToolCallStartEvent,
-)
-from tau.message.types import (
-    TextContent,
-    ThinkingContent,
-    ToolCallContent,
 )
 
 if TYPE_CHECKING:
     from tau.tool.types import Tool
-
-_STOP_REASON: dict[str, StopReason] = {
-    "stop": StopReason.Stop,
-    "length": StopReason.Length,
-    "tool_calls": StopReason.ToolCalls,
-    "content_filter": StopReason.ContentFilter,
-}
 
 
 def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -142,56 +117,6 @@ class OpenAICompletionsAPI(BaseAPI):
             **(self.options.extra_params or {}),
         }
 
-        text_started = False
-        text_buf = ""
-        thinking_started = False
-        thinking_buf = ""
-        # Tool-call accumulation state keyed by delta index
-        # (OpenAI streams partial tool calls per-index).
-        tool_started: dict[int, bool] = {}
-        tool_bufs: dict[int, str] = {}
-        tool_meta: dict[int, dict[str, str]] = {}
-        _input_tokens = 0
-        _output_tokens = 0
-        _cache_read_tokens = 0
-        has_finish_reason = False
-        stop_reason = StopReason.Stop
-
-        def _finalize_open_blocks() -> list[LLMEvent]:
-            """Close any still-open thinking/text block and resolve any
-            still-open tool call. Shared between the normal finish_reason
-            branch and the no-finish-reason fallback below, so a stream that
-            never sends finish_reason at all (observed from some non-standard
-            OpenAI-compatible providers) still ends every block properly
-            instead of leaving one dangling.
-            """
-            nonlocal thinking_started, thinking_buf, text_started, text_buf
-            events: list[LLMEvent] = []
-            if thinking_started:
-                events.append(ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf)))
-                thinking_started = False
-                thinking_buf = ""
-            if text_started:
-                events.append(TextEndEvent(text=TextContent(content=text_buf)))
-                text_started = False
-                text_buf = ""
-            for idx in sorted(tool_started):
-                args_str = tool_bufs[idx].strip()
-                args = parse_tool_args(args_str)
-                events.append(
-                    ToolCallEndEvent(
-                        tool_call=ToolCallContent(
-                            id=tool_meta[idx]["id"],
-                            name=tool_meta[idx]["name"],
-                            args=args,
-                        )
-                    )
-                )
-            tool_started.clear()
-            tool_bufs.clear()
-            tool_meta.clear()
-            return events
-
         yield StartEvent()
 
         # Read live, not at client-construction time: a `before_provider_request`
@@ -217,97 +142,9 @@ class OpenAICompletionsAPI(BaseAPI):
                     )
                 )
             sdk_stream = await raw_response.parse()
-            async for chunk in sdk_stream:
-                if self._cancelled():
-                    yield ErrorEvent(reason=StopReason.Abort, error="Cancelled")
-                    return
-                usage_data = getattr(chunk, "usage", None)
-                if usage_data:
-                    _input_tokens = getattr(usage_data, "prompt_tokens", 0) or 0
-                    _output_tokens = getattr(usage_data, "completion_tokens", 0) or 0
-                    _details = getattr(usage_data, "prompt_tokens_details", None)
-                    _cache_read_tokens = getattr(_details, "cached_tokens", 0) or 0
-                choice = chunk.choices[0] if chunk.choices else None
-                if choice is None:
-                    continue
-
-                delta = choice.delta
-
-                reasoning = dialect.extract_thinking_delta(delta)
-                if reasoning:
-                    if not thinking_started:
-                        yield ThinkingStartEvent(thinking=ThinkingContent(content=""))
-                        thinking_started = True
-                    thinking_buf += reasoning
-                    yield ThinkingDeltaEvent(thinking=ThinkingContent(content=reasoning))
-
-                delta_text = extract_openai_delta_text(delta.content)
-                if delta_text:
-                    # If thinking was happening, end it before starting text
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-
-                    if not text_started:
-                        yield TextStartEvent(text=TextContent(content=""))
-                        text_started = True
-                    text_buf += delta_text
-                    yield TextDeltaEvent(text=TextContent(content=delta_text))
-
-                if delta.tool_calls:
-                    # If thinking was happening, end it
-                    if thinking_started:
-                        yield ThinkingEndEvent(thinking=ThinkingContent(content=thinking_buf))
-                        thinking_started = False
-                        thinking_buf = ""
-
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_started:
-                            tool_started[idx] = True
-                            tool_bufs[idx] = ""
-                            tool_meta[idx] = {
-                                "id": tc.id or "",
-                                "name": tc.function.name or "" if tc.function else "",
-                            }
-                            yield ToolCallStartEvent(
-                                tool_call=ToolCallContent(
-                                    id=tool_meta[idx]["id"],
-                                    name=tool_meta[idx]["name"],
-                                )
-                            )
-                        if tc.function and tc.function.arguments:
-                            tool_bufs[idx] += tc.function.arguments
-                            yield ToolCallDeltaEvent(
-                                tool_call=ToolCallContent(id=tool_meta[idx]["id"])
-                            )
-
-                if choice.finish_reason:
-                    has_finish_reason = True
-                    for event in _finalize_open_blocks():
-                        yield event
-                    stop_reason = _STOP_REASON.get(choice.finish_reason, StopReason.Stop)
-
-        if not has_finish_reason:
-            # Some non-standard OpenAI-compatible providers never send a
-            # finish_reason chunk at all — treat stream exhaustion as the
-            # implicit stop instead of crashing. stop_reason keeps its
-            # StopReason.Stop default: the honest answer when the provider
-            # never said why it stopped.
-            for event in _finalize_open_blocks():
+            async for event in stream_openai_chat_events(
+                sdk_stream,
+                cancelled=self._cancelled,
+                extract_thinking=lambda d: dialect.extract_thinking_delta(d),
+            ):
                 yield event
-
-        # The usage-bearing chunk (stream_options.include_usage) arrives as a
-        # separate final chunk with empty choices, *after* the finish_reason
-        # chunk — yielding EndEvent inside the finish_reason branch above would
-        # capture 0 tokens whenever that chunk hadn't landed yet (routinely the
-        # case for tool-calling turns). Yield only once the stream is fully
-        # drained so _input_tokens/_output_tokens reflect whatever arrived.
-        yield EndEvent(
-            reason=stop_reason,
-            input_tokens=_input_tokens,
-            output_tokens=_output_tokens,
-            cache_read_tokens=_cache_read_tokens,
-            input_tokens_include_cache_read=True,
-        )
