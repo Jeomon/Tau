@@ -126,6 +126,7 @@ Events emitted in JSON mode:
 | `message_end` | `message` |
 | `tool_execution_start` | `tool_call` |
 | `tool_execution_end` | `tool_result` |
+| `agent_error` | `error` |
 | `settled` | — |
 
 `message_update` carries only the text appended since the previous update, not

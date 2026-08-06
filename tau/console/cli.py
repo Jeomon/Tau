@@ -518,6 +518,7 @@ async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) 
         "message_end",
         "tool_execution_start",
         "tool_execution_end",
+        "agent_error",
         "settled",
     ]
     unsubs = [hooks.register(name, on_event) for name in hook_names]

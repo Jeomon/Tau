@@ -988,13 +988,34 @@ class Agent:
                     await self._check_compaction()
                     if not self._engine.has_pending_messages():
                         break
-
-                self._phase = AgentPhase.IDLE
-                await self.hooks.emit(SettledEvent())
+            except Exception:
+                # A failed turn still ends the lifecycle, so settle before the
+                # error leaves this frame. Without it, everything keyed on
+                # `settled` — deferred /command and !terminal input waiting to
+                # replay, RPC clients, footer badges — is left waiting on an
+                # event that never arrives for the rest of the session.
+                # Cancellation is deliberately not covered: CancelledError is a
+                # BaseException, and awaiting a hook while unwinding a cancelled
+                # task is not reliable.
+                await self._settle()
+                raise
+            else:
+                await self._settle()
             finally:
                 self._phase = AgentPhase.IDLE
         finally:
             self._idle_event.set()
+
+    async def _settle(self) -> None:
+        """Mark the invocation lifecycle idle and announce it.
+
+        Phase goes IDLE *before* the event is emitted: handlers gate on
+        ``Agent.is_idle()`` (which reads the phase) to decide whether it is
+        safe to start new work, so emitting first would make every one of
+        them see a still-busy agent and skip.
+        """
+        self._phase = AgentPhase.IDLE
+        await self.hooks.emit(SettledEvent())
 
     def _build_turn_context(self) -> EngineContext:
         """Build the LLM context for a turn from the current (possibly compacted) session."""

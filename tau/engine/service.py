@@ -1042,6 +1042,22 @@ class Engine:
         except Exception as e:
             end_reason = AgentEndReason.Error
             _log.exception("agent loop raised")
+            # Carry the failure on a message, the way the in-stream error branch
+            # above does. Without one, a failure raised outside the stream (a
+            # client that can't be constructed, a bug in the loop) reaches the
+            # UI through no normal path and leaves nothing in the session, so it
+            # is gone entirely on the next resume. An in-flight message adopts
+            # the error so a partial response isn't left dangling mid-stream;
+            # otherwise this is a standalone marker, like the abort case.
+            failed = self.state.streaming_message
+            if isinstance(failed, AssistantMessage):
+                self.state.streaming_message = None
+            else:
+                failed = AssistantMessage()
+                await emit(MessageStartEvent(message=failed))
+            failed.stop_reason = StopReason.Error
+            failed.error = str(e)
+            await emit(MessageEndEvent(message=failed))
             await emit(AgentErrorEvent(error=str(e)))
 
         _log.debug("agent loop ended: reason=%s", end_reason.value)
