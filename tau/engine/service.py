@@ -1053,9 +1053,7 @@ class Engine:
             # the error so a partial response isn't left dangling mid-stream;
             # otherwise this is a standalone marker, like the abort case.
             failed = self.state.streaming_message
-            if isinstance(failed, AssistantMessage):
-                self.state.streaming_message = None
-            else:
+            if not isinstance(failed, AssistantMessage):
                 failed = AssistantMessage()
                 await emit(MessageStartEvent(message=failed))
             failed.stop_reason = StopReason.Error
