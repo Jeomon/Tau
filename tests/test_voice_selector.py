@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from tau.modes.interactive.components.voice_selector import VoiceSelector
 from tau.tui.input import KeyEvent
-from tests.render_helpers import render_cells_to_lines
+from tests.render_helpers import render_to_lines
 
 
 def _selector(
@@ -23,7 +23,7 @@ def _selector(
 
 
 def test_render_shows_model_voices_and_current_selection() -> None:
-    output = "\n".join(render_cells_to_lines(_selector(current="coral"), 80))
+    output = "\n".join(render_to_lines(_selector(current="coral"), 80))
     assert "Speak Voice" in output
     assert "TTS-1" in output
     assert "alloy" in output

@@ -14,7 +14,7 @@ from tau.tui import (
     Text,
     TextInput,
 )
-from tests.render_helpers import render_cells_to_lines
+from tests.render_helpers import render_to_lines
 
 
 def test_public_api_exports_core_tui_primitives() -> None:
@@ -27,7 +27,7 @@ def test_public_api_exports_core_tui_primitives() -> None:
 
 
 def _lines(component: Component, width: int) -> list[str]:
-    return [line.rstrip() for line in render_cells_to_lines(component, width)]
+    return [line.rstrip() for line in render_to_lines(component, width)]
 
 
 def test_text_wraps_and_updates() -> None:

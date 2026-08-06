@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from tau.tui.component import Columns, Constrained, Rows, StaticComponent
 from tau.tui.utils import visible_width
-from tests.render_helpers import render_cells_to_lines as _lines
+from tests.render_helpers import render_to_lines as _lines
 
 
 def _rstrip_all(lines: list[str]) -> list[str]:
-    # render_cells always pads to the full buffer width — trailing whitespace
+    # The render helper pads every row to the full width — trailing whitespace
     # isn't meaningful for content-equality checks below.
     return [line.rstrip() for line in lines]
 

@@ -15,26 +15,9 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 from tau.tui.component import Component
 
 WIDTH = 40
-
-
-def _render_capable_non_components() -> list[type]:
-    """Classes that render but do not inherit from Component."""
-    import tau.modes.interactive.components.selector_controller as sc
-
-    found = []
-    for _name, obj in inspect.getmembers(sc, inspect.isclass):
-        if obj.__module__ != sc.__name__:
-            continue
-        if issubclass(obj, Component):
-            continue
-        if hasattr(obj, "render"):
-            found.append(obj)
-    return found
 
 
 def test_selector_controller_is_a_component_that_implements_render() -> None:
@@ -42,15 +25,6 @@ def test_selector_controller_is_a_component_that_implements_render() -> None:
 
     assert issubclass(SelectorController, Component)
     assert SelectorController.render is not Component.render
-
-
-@pytest.mark.parametrize("cls", _render_capable_non_components(), ids=lambda c: c.__name__)
-def test_non_component_renderers_provide_render(cls: type) -> None:
-    """No base class supplies it, so the entry point must exist on its own."""
-    assert callable(getattr(cls, "render", None)), (
-        f"{cls.__name__} is missing render(); Layout calls it directly, and "
-        "TUI._do_render swallows the AttributeError into a frozen screen"
-    )
 
 
 def test_selector_controller_renders_nothing_when_idle() -> None:

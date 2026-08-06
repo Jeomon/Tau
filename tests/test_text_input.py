@@ -8,12 +8,12 @@ import tau.tui.input as input_module
 from tau.tui.components.text_input import TextInput
 from tau.tui.input import KeyEvent, PasteEvent, configure_keybindings
 from tau.tui.utils import is_window_focused, set_window_focused
-from tests.render_helpers import render_cells_to_lines
+from tests.render_helpers import render_to_lines
 
 
 def _render(editor: TextInput, width: int) -> None:
     """Render for side effects only (e.g. lazily starting the blink task)."""
-    render_cells_to_lines(editor, width)
+    render_to_lines(editor, width)
 
 
 @pytest.fixture(autouse=True)

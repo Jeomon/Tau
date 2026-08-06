@@ -1,4 +1,4 @@
-"""Tests for SelectList's rendering onto List/ListState (Buffer-native).
+"""Tests for SelectList's rendering onto List/ListState.
 
 Covers what the pre-existing test_tui_select_list.py (keyboard navigation)
 doesn't: that scroll indicators/label-desc columns render correctly, and that
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tau.tui.components.select_list import SelectItem, SelectList
 from tau.tui.style import Style
-from tests.render_helpers import render_cells_to_lines as _lines
+from tests.render_helpers import render_to_lines as _lines
 
 
 def test_scroll_indicators_shown_when_scrolled() -> None:

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from tau.tui.autocomplete import AutocompleteItem, AutocompletePicker
 from tau.tui.utils import strip_ansi, visible_width
-from tests.render_helpers import render_cells_to_lines as _lines
+from tests.render_helpers import render_to_lines as _lines
 
 
 def test_wide_labels_do_not_shift_the_description_column() -> None:

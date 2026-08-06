@@ -1,17 +1,15 @@
-"""Every class in the render tree must satisfy both render contracts.
+"""Every class in the render tree must implement the render contract.
 
-``Component`` bridges ``render(width)`` and ``render_cells(area, buf)``, so a
-subclass can implement either and both callers work. A class that renders
-*without* inheriting Component gets no bridge, so it satisfies exactly the one
-contract it happens to implement — and any caller using the other raises
-AttributeError, which ``TUI._do_render`` swallows into a frozen screen with a
-perfectly healthy process.
+``render(width) -> list[str]`` is the sole contract. A class that renders
+without providing it raises AttributeError in whichever caller renders it, and
+``TUI._do_render`` swallows that into a frozen screen with a perfectly healthy
+process.
 
 That failure mode shipped twice during the string-renderer migration:
-``SelectorController`` lost ``render_cells`` (froze every selector) and the
-selectors themselves never had ``render`` (froze ``/resume``, ``/model``,
-``/theme``). Both were invisible to the suite and only visible in the session
-log, so this audit walks the package and fails at test time instead.
+``SelectorController`` and then the selectors themselves were each missing the
+method their caller used, freezing every selector and then ``/resume``,
+``/model`` and ``/theme``. Both were invisible to the suite and only visible in
+the session log, so this audit walks the package and fails at test time instead.
 """
 
 from __future__ import annotations
@@ -22,16 +20,11 @@ import pkgutil
 
 import pytest
 
-from tau.tui.component import Component
-
-# Renderers and the Widget protocol also define a `render`, but a different
-# one: Widget.render(area, buf) -> None is the grid-drawing protocol, reaching
-# the tree only wrapped in WidgetComponent, and the scrollback renderers are
-# not components at all. Neither is ever called as Component.render(width).
+# These define a `render`, but not the Component one: the widget library draws
+# itself from explicit column maths, and the scrollback renderers are not
+# components at all. Neither is ever called as Component.render(width).
 _NOT_COMPONENTS = {
-    "tau.tui.widget",
     "tau.tui.widgets",
-    "tau.tui.frame",
     "tau.tui.scrollback",
     "tau.tui.service",
     "tau.tui.markdown",
@@ -45,19 +38,6 @@ _NOT_IN_THE_TREE = {
     # A per-message render helper owned by MessageList, which calls
     # block.render(width) directly. It is never added as a child.
     "tau.modes.interactive.components.message_list.MessageBlock",
-}
-
-# Classes allowed to define both contracts themselves.
-_DUAL_BY_DESIGN = {
-    # The bridge itself.
-    "tau.tui.component.Component",
-    # Defines both on purpose, so a container never forces a migrated child
-    # back through cells while its siblings are still on render_cells.
-    "tau.tui.component.Container",
-    # Mid-migration: still carries the legacy render_cells path used by the
-    # cell Renderer. Retires when that renderer is deleted. This set should
-    # only ever shrink.
-    "tau.modes.interactive.components.message_list.MessageList",
 }
 
 
@@ -80,7 +60,7 @@ def _render_capable_classes() -> list[tuple[str, type]]:
                 continue
             if inspect.isabstract(obj) or getattr(obj, "_is_protocol", False):
                 continue  # Protocols declare a contract, they do not render
-            if "render" in obj.__dict__ or "render_cells" in obj.__dict__:
+            if "render" in obj.__dict__:
                 found[f"{name}.{obj.__name__}"] = obj
     return sorted(found.items())
 
@@ -106,24 +86,4 @@ def test_render_capable_class_implements_render(name: str, cls: type) -> None:
         "contract. Inherit Component and implement it, or forward it explicitly "
         "if this is a transparent proxy — otherwise whichever caller renders it "
         "raises, and TUI._do_render turns that into a frozen screen."
-    )
-
-
-@pytest.mark.parametrize(
-    ("name", "cls"), _CANDIDATES, ids=[n.rsplit(".", 1)[-1] for n, _ in _CANDIDATES]
-)
-def test_render_cells_is_not_hand_written_on_a_component(name: str, cls: type) -> None:
-    """A Component should implement one contract and inherit the other.
-
-    Hand-writing both is how a migration quietly stops migrating: it removes
-    the pressure to move, and leaves two implementations to keep in step.
-    Proxies that must forward both are not Components, so they are exempt.
-    """
-    if not issubclass(cls, Component) or name in _DUAL_BY_DESIGN:
-        return
-    own_render = "render" in cls.__dict__
-    own_cells = "render_cells" in cls.__dict__
-    assert not (own_render and own_cells), (
-        f"{name} defines both render() and render_cells(). Implement one and let "
-        "Component bridge the other."
     )
