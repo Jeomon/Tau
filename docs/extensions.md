@@ -914,20 +914,40 @@ def register(tau):
 
 | Event | Payload | Result | Notes |
 |---|---|---|---|
+| `tool_call` | `tool_call_id`, `tool_name`, `input` | `ToolCallEventResult` | Interceptable, fires **before** execution. The only hook that can stop a tool from running |
 | `tool_execution_start` | `tool_call` (`ToolCallContent`) | — | Just before `execute()` runs |
 | `tool_execution_update` | `partial_tool_result` (`ToolResult`) | — | One streaming progress update |
 | `tool_execution_end` | `tool_result` (`ToolResultContent`) | — | `execute()` returned |
 | `tool_execution_failure` | `tool_name`, `tool_call_id`, `input`, `error` | — | The tool raised an uncaught exception, as distinct from returning an error result |
-| `tool_result` | `tool_call_id`, `tool_name`, `input`, `content`, `is_error` | `ToolResultEventResult` | Interceptable: the only tool hook whose return value is honoured |
+| `tool_result` | `tool_call_id`, `tool_name`, `input`, `content`, `is_error` | `ToolResultEventResult` | Interceptable, fires **after** execution |
 
-`ToolResultEventResult` fields:
+`ToolCallEventResult` fields:
 
 | Field | Type | Effect |
 |---|---|---|
-| `content` | `str \| None` | Replaces the result text |
-| `is_error` | `bool \| None` | Overrides the error flag |
-| `terminate` | `bool` | Ends the agent loop after this result |
-| `metadata` | `dict \| None` | Merged into the result's metadata |
+| `block` | `bool` | Cancels the call. The tool never runs; `reason` is returned to the model as an error result |
+| `reason` | `str \| None` | Denial message shown to the model. Defaults to a generic message naming the tool |
+| `params` | `dict \| None` | Replaces the invocation's params, letting you narrow a call instead of refusing it |
+
+`block` takes precedence over `params` on the same result — a handler asking for
+both is denying, and running its rewritten params would invert that intent. The
+first handler to return `block=True` decides; every handler still runs, because
+`emit` fans out to all of them before the results are read.
+
+Handlers see the invocation *after* `prepare_arguments`, so what you inspect is
+what the tool actually receives. This is the hook to build a permission gate on:
+
+```python
+from tau.hooks import ToolCallEventResult
+
+
+def register(tau):
+    @tau.on("tool_call")
+    async def gate(event, ctx):
+        if event.tool_name == "terminal" and "rm -rf" in event.input.get("cmd", ""):
+            return ToolCallEventResult(block=True, reason="Destructive command denied.")
+        return None
+```
 
 The first `ToolResultEventResult` returned wins; later handlers are not consulted.
 
@@ -1000,12 +1020,11 @@ indicates whether the aborted turn is retried after compaction (overflow recover
 
 ### Reserved events that never fire
 
-The following event types are defined and exported but have **no emit site** anywhere in
-Tau. Do not subscribe to them: a handler will never run.
+The following event type is defined and exported but has **no emit site** anywhere in
+Tau. Do not subscribe to it: a handler will never run.
 
 | Event | Result type | Status |
 |---|---|---|
-| `tool_call` | `ToolCallEventResult` | Never emitted. The equivalent interception point is the engine's non-hook `before_tool_call` callback, which is not exposed to extensions. Use `tool_result` to rewrite an outcome, or shadow the tool itself to gate it |
 | `before_agent_start` | `BeforeAgentStartEventResult` | Never emitted. Use `tau.append_prompt()` for static prompt additions, or `context` for per-request injection |
 
 Two result types are also declared but never consumed:

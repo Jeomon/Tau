@@ -208,7 +208,11 @@ def get_palette_overrides(agent: object) -> dict[str, str]:
             level = getattr(opts, "thinking_level", None)
             if level is not None:
                 effort_val = getattr(level, "value", str(level))
-    overrides["effort"] = effort_val if effort_val is not None else "Set thinking effort level"
+    overrides["effort"] = (
+        f"Using thinking level {effort_val}"
+        if effort_val is not None
+        else "Set thinking effort level"
+    )
 
     return overrides
 

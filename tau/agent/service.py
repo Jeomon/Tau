@@ -10,12 +10,20 @@ from typing import TYPE_CHECKING, Any
 from tau.agent.types import AgentConfig, AgentPhase, ContextUsage, PromptOptions
 from tau.engine.types import EngineContext
 from tau.hooks.engine import CompactionReason as _CompactionReason
-from tau.hooks.engine import MessageEndEvent, MessageRollbackEvent, SavePointEvent, SettledEvent
+from tau.hooks.engine import (
+    MessageEndEvent,
+    MessageRollbackEvent,
+    SavePointEvent,
+    SettledEvent,
+    ToolCallEvent,
+    ToolCallEventResult,
+)
 from tau.hooks.service import Hooks
 from tau.message.types import (
     AssistantMessage,
     LLMMessage,
     ToolMessage,
+    ToolResultContent,
     UserMessage,
 )
 from tau.message.utils import strip_unusable_trailing_assistant
@@ -298,14 +306,46 @@ class Agent:
             await self._runtime.resume_session(session_file)
 
     # -------------------------------------------------------------------------
-    # Engine-level tool hooks (pass-through)
+    # Engine-level tool hooks
     # -------------------------------------------------------------------------
 
     async def _before_tool_call(
         self,
         invocation: ToolInvocation,
         signal: asyncio.Event | None,
-    ) -> ToolInvocation | None:
+    ) -> ToolInvocation | ToolResultContent | None:
+        """Emit ``tool_call`` and honour the first interceptable result.
+
+        This is the only pre-execution gate: returning a ``ToolResultContent``
+        cancels the call (``engine/service.py`` turns it straight into the tool
+        result), while returning a rewritten invocation changes what runs.
+        Handlers see the invocation *after* ``prepare_arguments``, so what a
+        permission gate inspects is what the tool actually receives.
+
+        ``block`` wins over ``params``: a handler that asks for both is denying,
+        and silently running rewritten params would invert its intent.
+        """
+        results = await self.hooks.emit(
+            ToolCallEvent(
+                tool_call_id=invocation.id,
+                tool_name=invocation.name,
+                input=invocation.params,
+            )
+        )
+
+        for res in results:
+            if not isinstance(res, ToolCallEventResult):
+                continue
+            if res.block:
+                return ToolResultContent(
+                    id=invocation.id,
+                    is_error=True,
+                    content=res.reason or f"Tool call '{invocation.name}' blocked by an extension.",
+                    metadata={"blocked_by_extension": True},
+                )
+            if res.params is not None:
+                invocation.params = res.params
+
         return invocation
 
     async def _after_tool_call(
