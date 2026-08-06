@@ -56,7 +56,7 @@ DEFAULT_HINT = "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"
 class PickerRow:
     """One row: a label plus optional pre-styled spans around it (checkmark,
     description, status text, ...). Spans are independent of selection
-    state — the label's own style is chosen by render_picker_cells based on
+    state — the label's own style is chosen by render_picker_lines based on
     whether this row is selected.
 
     ``prefix_spans`` sit between the cursor arrow and the label, which is where

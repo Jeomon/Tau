@@ -365,10 +365,10 @@ class TextInput(Component):
     def render(self, width: int) -> list[str]:
         """Return the input's styled lines, recording where the cursor belongs.
 
-        Migrated off ``render_cells``: the wrapped segments were already ANSI
-        strings carrying a ``CURSOR_MARKER``, so building cells only to
-        serialise them straight back was pure overhead — and this runs on every
-        keystroke, which makes it the most latency-sensitive component there is.
+        The wrapped segments are already ANSI strings carrying a
+        ``CURSOR_MARKER``, so they are handed back with no further conversion.
+        This runs on every keystroke, which makes it the most
+        latency-sensitive component there is.
 
         ``cursor_position`` is published in this component's own coordinates
         (row 0 == its first line); the containers above offset it.

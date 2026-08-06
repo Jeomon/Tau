@@ -3,8 +3,8 @@
 The rest of the TUI (``utils.py`` SGR constants, ``_AnsiStateTracker``) bakes
 style directly into ANSI-laden strings and re-parses it back out for diffing.
 This module keeps style as data — ``fg``/``bg``/modifiers stay structured
-from the moment a ``Span`` is authored until a ``Cell`` resolves it to SGR at
-write time (see ``buffer.py``). Nothing here emits ANSI except ``Style.sgr()``.
+from the moment a ``Span`` is authored until it is resolved to SGR at write
+time by ``compose.line_to_ansi``. Nothing here emits ANSI except ``Style.sgr()``.
 """
 
 from __future__ import annotations

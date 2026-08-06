@@ -85,7 +85,7 @@ class TextPrompt(Component):
 
         prompt.open(label, on_commit, on_cancel, secret=False)
         prompt.handle_input(event) -> bool   # True = consumed (modal)
-        prompt.render_cells(area, buf) -> int
+        prompt.render(width) -> list[str]
         prompt.active                        # True while visible
     """
 
@@ -1449,7 +1449,7 @@ class Layout(Component):
         """Show an arbitrary, already-built Component inline, replacing the input editor.
 
         Unlike the specific open_*_selector methods above, ``component`` owns its
-        entire render_cells/handle_input lifecycle (commit/cancel included) — pair
+        entire render/handle_input lifecycle (commit/cancel included) — pair
         the chosen ``kind`` with an entry in SelectorController's ``delegated`` set
         so key events reach it unmodified instead of being routed by kind-specific
         logic there.

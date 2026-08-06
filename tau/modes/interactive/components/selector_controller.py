@@ -14,13 +14,8 @@ if TYPE_CHECKING:
 class SelectorController(Component):
     """Own the lifecycle and input routing for inline selector modals.
 
-    A ``Component`` purely so it inherits the bridging between the two render
-    contracts. It implements ``render(width)`` -- the contract everything is
-    moving to -- while ``Layout.render_cells`` still calls ``render_cells`` on
-    it directly; the bridge supplies that, and it disappears on its own once
-    Layout migrates. Hand-writing a second ``render_cells`` here would be
-    moving backwards, and would be one more pair of implementations to keep in
-    step.
+    A ``Component`` so it takes part in the normal render tree, implementing
+    ``render(width)`` like everything else Layout draws.
     """
 
     def __init__(self, request_render: Callable[[], None]) -> None:

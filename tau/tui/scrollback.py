@@ -1,8 +1,8 @@
 """String-based differential renderer for growing scrollback content.
 
-Replaces the ``Cell``-grid renderer in ``frame.py``. Components hand this
-already-styled ANSI *lines*; it diffs whole lines and repaints the ones that
-changed. Nothing is ever parsed into per-character cells and serialised back.
+Components hand this already-styled ANSI *lines*; it diffs whole lines and
+repaints the ones that changed. Nothing is ever parsed into per-character
+cells and serialised back.
 
 Why
 ---
@@ -17,7 +17,7 @@ The trade: a one-character change repaints its whole line (~100 bytes instead
 of ~20). At 60fps that is single-digit KB/s — irrelevant next to the round trip
 it removes.
 
-Everything about *how* the terminal is driven is preserved from ``frame.py``:
+Everything about *how* the terminal is driven is deliberate:
 relative cursor moves only (rows that scroll into native scrollback can never
 be addressed again — CSI H addresses the visible screen), viewport tracking,
 synchronized-output batching, and novelty-tracked raw writes for inline images.
@@ -65,10 +65,9 @@ def _window_focused() -> bool:
 class ScrollbackRenderer:
     """Differentially paints a list of ANSI lines into the terminal's scrollback.
 
-    Its frame representation is ``list[str]``. It replaced a ``Cell``-grid
-    renderer, and deliberately kept that one's terminal behaviour: relative
-    cursor moves only, viewport tracking, synchronized output, and
-    novelty-tracked raw writes.
+    Its frame representation is ``list[str]``. Terminal behaviour is
+    deliberately conservative: relative cursor moves only, viewport tracking,
+    synchronized output, and novelty-tracked raw writes.
     """
 
     def __init__(self, terminal: Terminal, show_hardware_cursor: bool = False) -> None:

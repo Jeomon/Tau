@@ -1,10 +1,9 @@
 """Grapheme-aware ANSI string manipulation: tokenize, wrap, splice.
 
-This is the string-native replacement for what ``ansi_bridge``/``buffer`` did
-via a ``Cell`` grid. The correctness property that mattered there and still
-matters here is *cluster* handling: a combining accent, a ZWJ emoji sequence,
-a variation selector or a regional-indicator flag is one glyph occupying one
-(or two) columns, and must never be split. ``utils.wrap`` measures per
+Width-aware text handling for the string render contract. The correctness
+property that matters here is *cluster* handling: a combining accent, a ZWJ
+emoji sequence, a variation selector or a regional-indicator flag is one glyph
+occupying one (or two) columns, and must never be split. ``utils.wrap`` measures per
 codepoint and gets all of those wrong; everything in this module works on
 whole grapheme clusters instead.
 

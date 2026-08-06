@@ -22,12 +22,9 @@ from tau.tui.utils import strip_ansi, truncate_to_width, visible_width
 def line_to_ansi_row(line: Line, width: int, row_style: Style | None = None) -> str:
     """``line_to_ansi`` plus an optional style patched across the whole row.
 
-    Reproduces what ``Buffer.set_style(Rect(x, y, width, 1), style)`` did after
-    a row was written: the style lands on every column including the trailing
-    blanks, which is what makes a selected row read as a solid bar rather than
-    a highlighted word. Patch direction matches ``Cell.set_style`` --
-    ``existing.patch(row_style)`` -- so the row style wins where it sets a
-    field.
+    The style lands on every column including the trailing blanks, which is
+    what makes a selected row read as a solid bar rather than a highlighted
+    word. ``row_style`` is patched last, so it wins wherever it sets a field.
     """
     if row_style is None:
         return line_to_ansi(line, width)
@@ -98,14 +95,12 @@ def composite_lines(
 def line_to_ansi(line: Line, width: int, x: int = 0) -> str:
     """Flatten a ``Line`` of styled spans into one ANSI string.
 
-    The string-contract counterpart of ``Buffer.set_line``, for components that
-    build structured ``Line``/``Span`` content — selectors, pickers, the
-    spinner, footer widgets.
+    For components that build structured ``Line``/``Span`` content —
+    selectors, pickers, the spinner, footer widgets.
 
-    Pure string assembly: no ``Buffer`` is built. Spans are clipped to the
-    remaining columns with ``truncate_to_width``, which will not split a
-    grapheme cluster, and alignment is resolved by padding the way
-    ``set_line`` resolves it.
+    Pure string assembly. Spans are clipped to the remaining columns with
+    ``truncate_to_width``, which will not split a grapheme cluster, and
+    alignment is resolved by padding.
     """
     if width <= 0:
         return ""
@@ -128,8 +123,8 @@ def line_to_ansi(line: Line, width: int, x: int = 0) -> str:
         text = truncate_to_width(span.content, limit - col)
         if not text:
             continue
-        # Mirrors Buffer.set_line: the line's base style sits behind the span's
-        # own, so a Line carrying a style is not silently dropped.
+        # The line's base style sits behind the span's own, so a Line carrying
+        # a style is not silently dropped.
         out.append(apply_style(line.style.patch(span.style), text))
         col += visible_width(text)
     return "".join(out)

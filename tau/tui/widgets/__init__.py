@@ -1,4 +1,4 @@
-"""Concrete widgets built on the Buffer/Rect/Widget render layer (see ``tau.tui.widget``).
+"""Concrete widgets built on the string render contract.
 
 The core rendering contract is separate from this widget library. Everything
 here returns styled ANSI lines, computing column positions itself (``List``

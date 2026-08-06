@@ -398,8 +398,8 @@ class StringRenderer:
     """Builds a frame from the component tree and hands it to the diff engine.
 
     The tree is asked for ANSI lines via ``Component.render(width)``, overlays
-    are composited as lines, and the result goes to ``ScrollbackRenderer``. No
-    ``Buffer`` of ``Cell`` is built for a frame at any point.
+    are composited as lines, and the result goes to ``ScrollbackRenderer``.
+    Everything stays strings; no per-character grid is built for a frame.
 
     ``stable_through`` is the whole of the incremental machinery here: how many
     leading rows the caller guarantees are unchanged, so the diff can skip
@@ -422,7 +422,7 @@ class StringRenderer:
         height = self._terminal.height
         has_overlays = bool(overlays)
 
-        with _span("tui.render_cells"), _span("tui.base_component_render"):
+        with _span("tui.render"), _span("tui.base_component_render"):
             content = component.render(width)
 
         pad = " " * _LEFT_PAD
@@ -595,13 +595,13 @@ class TUI(Container):
         # Mouse-aware children use this to translate terminal coordinates into
         # coordinates relative to their own rendered content.
         self._child_rows: dict[int, int] = {}
-        # See render_cells: rows confirmed identical to last frame's buffer,
-        # safe for the renderer to skip re-diffing.
+        # Rows confirmed identical to the last frame's output, so the renderer
+        # can skip re-diffing them.
         self._stable_rows: int = 0
         self._prev_stable_rows: int = 0
-        # Last-seen child.frozen_generation, keyed by id(child) — lets
-        # render_cells notice a child rebuilt its frozen cache (content changed
-        # without necessarily changing row count) even between frames where
+        # Last-seen child.frozen_generation, keyed by id(child) — lets ``render``
+        # notice a child rebuilt its frozen cache (content changed without
+        # necessarily changing row count) even between frames where
         # frozen_rows_this_frame happens to match _prev_stable_rows.
         self._child_frozen_gen: dict[int, int] = {}
 
@@ -625,20 +625,18 @@ class TUI(Container):
     def render(self, width: int) -> list[str]:
         """Render children to lines, recording their starting rows.
 
-        String counterpart of ``render_cells`` below. A child exposing
-        ``render_split_lines`` (currently just MessageList) hands over its
-        already-wrapped frozen rows directly; everything after that prefix is
-        the still-live tail, which is what the renderer needs to re-diff.
+        A child exposing ``render_split_lines`` (currently just MessageList)
+        hands over its already-wrapped frozen rows directly; everything after
+        that prefix is the still-live tail, which is what the renderer needs
+        to re-diff.
 
         ``_stable_rows`` is the absolute row through which the frame is known
         identical to last frame — the frozen prefix plus any children rendered
         above it (header, spacer). ``StringRenderer`` passes it to the engine
         as ``stable_through``.
 
-        There is no elision or row-widening machinery here: those existed only
-        because copying ``Cell`` rows into the frame buffer was expensive.
-        Copying string references is not, so the frozen rows are spliced in
-        directly.
+        Copying string references is cheap, so the frozen rows are spliced in
+        directly; there is no elision or row-widening machinery here.
         """
         lines: list[str] = []
         self._child_rows = {}
@@ -726,9 +724,9 @@ class TUI(Container):
     def _forget_child_state(self, component: Component) -> None:
         """Drop id()-keyed render-cache state for a component leaving the tree.
 
-        Without this, ``_child_frozen_gen`` (see
-        render_cells) only ever grow — a long session that dynamically swaps
-        widgets (e.g. ``Layout.set_footer``) leaks one entry per removal.
+        Without this, ``_child_rows`` and ``_child_frozen_gen`` only ever grow —
+        a long session that dynamically swaps widgets (e.g. ``Layout.set_footer``)
+        leaks one entry per removal.
         Worse than the leak itself: once the removed component is garbage
         collected, CPython can reuse its ``id()`` for an unrelated new
         object, which would then spuriously hit this stale cache entry on
@@ -895,10 +893,10 @@ class TUI(Container):
         Needed whenever content is spliced in somewhere other than the live
         tail (e.g. backfilling older history above what's already on
         screen) — the differential renderer's above-viewport "pure shift"
-        optimization (frame.py's ``_render``) assumes shifted rows are
-        already physically present in the terminal's scrollback and just
-        need re-numbering. That's true for edits to content already
-        painted, but not for brand-new rows the terminal has never seen,
+        optimization assumes shifted rows are already physically present in
+        the terminal's scrollback and just need re-numbering. That's true for
+        edits to content already painted, but not for brand-new rows the
+        terminal has never seen,
         so those callers must force a real reprint rather than let the
         diff engine take that shortcut.
         """

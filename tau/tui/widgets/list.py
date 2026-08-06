@@ -105,11 +105,10 @@ def _emit_row(
 ) -> str:
     """Flatten styled runs into one line, clipped to ``width``.
 
-    ``highlight`` reproduces ``Buffer.set_style`` over the whole row: the cell
-    path patched it onto every cell *after* the content was written, including
-    the trailing blanks, which is what makes a selected row read as a solid
-    bar. Patch order matches ``Cell.set_style`` — ``existing.patch(highlight)``,
-    so the highlight wins where it sets a field.
+    ``highlight`` lands on the whole row, including the trailing blanks, which
+    is what makes a selected row read as a solid bar rather than a highlighted
+    word. It is patched last — ``existing.patch(highlight)`` — so it wins
+    wherever it sets a field.
     """
     out: list[str] = []
     col = 0

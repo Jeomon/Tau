@@ -3,7 +3,7 @@
 Composition is fixed: a ``Text`` holds ``Line``s, a ``Line`` holds ``Span``s,
 a ``Span`` is one run of text with one ``Style``. Style at each level is a
 patch (see ``Style.patch``) applied on top of the level above when the
-content is finally written into a ``Buffer``.
+content is finally flattened to ANSI (see ``compose.line_to_ansi``).
 """
 
 from __future__ import annotations

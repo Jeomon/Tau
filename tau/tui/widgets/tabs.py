@@ -65,8 +65,8 @@ class Tabs:
 
             title_width = max(0, box_width - self.padding_left - self.padding_right)
             patched = title.patch_style(style)
-            # Mirrors Buffer.set_line: alignment resolved by padding, and the
-            # line's base style merged behind each span's own.
+            # Alignment is resolved by padding, and the line's base style is
+            # merged behind each span's own.
             room = title_width
             if room > 0 and patched.alignment is not Alignment.LEFT:
                 slack = max(0, room - patched.width)
