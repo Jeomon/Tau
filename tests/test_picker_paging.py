@@ -331,3 +331,48 @@ class TestSettingsSelector:
         selector.page_down()
 
         assert selector._selected == 4
+
+
+class TestFooterHints:
+    """The hint has to name the keys the picker actually accepts."""
+
+    def test_picker_hint_advertises_every_key_it_handles(self) -> None:
+        from tau.tui.components.simple_picker import DEFAULT_HINT
+
+        for fragment in ("↑/↓", "PgUp/PgDn", "Home/End", "Enter", "Esc"):
+            assert fragment in DEFAULT_HINT
+
+    def test_multi_select_hint_advertises_every_key_it_handles(self) -> None:
+        from tau.tui.components.multi_select_list import DEFAULT_HINT
+
+        for fragment in ("↑/↓", "PgUp/PgDn", "Home/End", "Space", "Enter", "Esc"):
+            assert fragment in DEFAULT_HINT
+
+    def test_hints_fit_80_columns_without_wrapping(self) -> None:
+        """render_picker_lines wraps an over-wide line onto a second row."""
+        from tau.tui.components.multi_select_list import DEFAULT_HINT as MULTI_HINT
+        from tau.tui.components.simple_picker import DEFAULT_HINT as PICKER_HINT
+        from tau.tui.utils import visible_width
+
+        for hint in (PICKER_HINT, MULTI_HINT):
+            assert visible_width(hint) + 2 <= 80  # 2 = the leading indent
+
+    def test_login_and_logout_render_the_hint(self) -> None:
+        from tau.modes.interactive.components.oauth_selector import (
+            OAuthProviderItem,
+            OAuthSelector,
+        )
+        from tau.tui.components.simple_picker import DEFAULT_HINT
+        from tau.tui.utils import strip_ansi
+
+        for mode in ("login", "logout"):
+            selector = OAuthSelector(
+                mode=mode,  # type: ignore[arg-type]
+                providers=[OAuthProviderItem(id="oauth", name="Subscription")],
+                on_select=Mock(),
+                on_cancel=Mock(),
+            )
+            rendered = [strip_ansi(line) for line in selector.render(80)]
+            assert any(DEFAULT_HINT in line for line in rendered), mode
+            # One row, not wrapped onto two.
+            assert sum(DEFAULT_HINT in line for line in rendered) == 1, mode

@@ -22,10 +22,14 @@ def open_login_selector(ctx: CommandContext) -> None:
     if has_oauth and has_api:
         items = [
             OAuthProviderItem(
-                id="oauth", name="Subscription", status="OAuth — GitHub Copilot, OpenAI Codex, etc."
+                id="oauth",
+                name="Sign in with an account",
+                status="OAuth — GitHub Copilot, OpenAI Codex, etc.",
             ),
             OAuthProviderItem(
-                id="api_key", name="API key", status="A static key, $ENV_VAR, or !command"
+                id="api_key",
+                name="Sign in with an API key",
+                status="A static key, $ENV_VAR, or !command",
             ),
         ]
 
@@ -36,7 +40,11 @@ def open_login_selector(ctx: CommandContext) -> None:
                 open_api_key_provider_selector(ctx)
 
         ctx.layout.open_oauth_selector(
-            "login", items, on_type, lambda: ctx.notify("Login cancelled.")
+            "login",
+            items,
+            on_type,
+            lambda: ctx.notify("Login cancelled."),
+            title="Select authentication method:",
         )
     elif has_oauth:
         open_oauth_provider_selector(ctx)
@@ -107,7 +115,13 @@ def open_oauth_provider_selector(ctx: CommandContext) -> None:
     def on_pick(provider_id: str) -> None:
         asyncio.ensure_future(run_oauth_login(ctx, provider_id))
 
-    ctx.layout.open_oauth_selector("login", items, on_pick, lambda: ctx.notify("Login cancelled."))
+    ctx.layout.open_oauth_selector(
+        "login",
+        items,
+        on_pick,
+        lambda: ctx.notify("Login cancelled."),
+        title="Select an account to sign in with:",
+    )
 
 
 async def run_oauth_login(ctx: CommandContext, provider_id: str) -> None:
@@ -241,7 +255,13 @@ def open_api_key_provider_selector(ctx: CommandContext) -> None:
             secret=False,
         )
 
-    ctx.layout.open_oauth_selector("login", items, on_pick, lambda: ctx.notify("Login cancelled."))
+    ctx.layout.open_oauth_selector(
+        "login",
+        items,
+        on_pick,
+        lambda: ctx.notify("Login cancelled."),
+        title="Select a provider for the API key:",
+    )
 
 
 def _save_api_key(ctx: CommandContext, provider_id: str, provider_name: str, key: str) -> None:
@@ -309,5 +329,9 @@ def open_logout_selector(ctx: CommandContext) -> None:
             ctx.on_palette_refresh()
 
     ctx.layout.open_oauth_selector(
-        "logout", items, on_pick, lambda: ctx.notify("Logout cancelled.")
+        "logout",
+        items,
+        on_pick,
+        lambda: ctx.notify("Logout cancelled."),
+        title="Select an account to sign out of:",
     )

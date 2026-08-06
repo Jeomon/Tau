@@ -48,8 +48,10 @@ if TYPE_CHECKING:
     from tau.tui.theme import LayoutTheme
 
 # Every current caller uses this exact hint text; it is the default so call
-# sites don't each re-type the literal.
-DEFAULT_HINT = "↑/↓ to move  ·  Enter to select  ·  Esc to cancel"
+# sites don't each re-type the literal. The three navigation keys share one
+# clause rather than getting a separator each: listing them individually pushed
+# the line past 80 columns, where render_picker_lines wraps it onto a second row.
+DEFAULT_HINT = "↑/↓ PgUp/PgDn Home/End move  ·  Enter select  ·  Esc cancel"
 
 
 @dataclass

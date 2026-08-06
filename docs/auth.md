@@ -236,11 +236,11 @@ an environment variable, or a runtime override from an embedding application.
 
 Run `/login` inside a session. Tau first asks for the authentication type:
 
-- **Subscription**: the OAuth provider list. Tau opens your browser and prompts
-  for any required input (device code, redirect URL) inside the TUI.
-- **API key**: the API-key provider list. Select one and enter the key into a
-  masked input. Literals, `$ENV_VAR`, and `!command` are all accepted;
-  references are stored verbatim and resolved at runtime.
+- **Sign in with an account**: the OAuth provider list. Tau opens your browser
+  and prompts for any required input (device code, redirect URL) inside the TUI.
+- **Sign in with an API key**: the API-key provider list. Select one and enter
+  the key into a masked input. Literals, `$ENV_VAR`, and `!command` are all
+  accepted; references are stored verbatim and resolved at runtime.
 
 Either way the credential is written to `~/.tau/auth.json`.
 

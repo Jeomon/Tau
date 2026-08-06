@@ -146,8 +146,8 @@ Copies the text of the last assistant message on the current branch to the syste
 
 If both OAuth and API-key providers are available, first asks which authentication type to use:
 
-- **Subscription**: OAuth flow. Opens the browser and prompts for any required input inside the TUI.
-- **API key**: lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
+- **Sign in with an account**: OAuth flow. Opens the browser and prompts for any required input inside the TUI.
+- **Sign in with an API key**: lists API-key providers; paste the key into the secure input overlay (displayed as `***`).
 
 Either way, credentials are saved to `~/.tau/auth.json`.
 

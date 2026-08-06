@@ -1364,6 +1364,7 @@ class Layout(Component):
         providers: list,
         on_select: Callable[[str], None],
         on_cancel: Callable[[], None],
+        title: str | None = None,
     ) -> None:
         """Open an OAuth/API-key provider picker with fuzzy search and status indicators."""
         from tau.modes.interactive.components.oauth_selector import OAuthSelector
@@ -1384,6 +1385,7 @@ class Layout(Component):
             on_select=_on_select,
             on_cancel=_on_cancel,
             theme=self._theme,
+            title=title,
         )
         self._active_selector = InlineSelector(kind="oauth", selector=sel)
         self._tui.request_render()

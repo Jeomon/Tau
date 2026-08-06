@@ -36,10 +36,18 @@ class OAuthSelector(KeyboundSelector):
         on_select: Callable[[str], None],
         on_cancel: Callable[[], None],
         theme: LayoutTheme | None = None,
+        title: str | None = None,
     ) -> None:
         super().__init__(on_select, on_cancel, theme)
         self._mode = mode
         self._providers = providers
+        # /login is three screens deep (auth method, then which provider), so the
+        # heading cannot be derived from the mode alone the way it once was —
+        # each step says what it is actually asking for. Falls back to the
+        # mode-derived wording for callers that don't name one.
+        self._title = title or (
+            "Configure provider:" if mode == "login" else "Logout from provider:"
+        )
 
     def _items(self) -> list:
         return self._providers
@@ -53,7 +61,7 @@ class OAuthSelector(KeyboundSelector):
 
     def render(self, width: int) -> list[str]:
         t = self._theme
-        title = "Configure provider:" if self._mode == "login" else "Logout from provider:"
+        title = self._title
 
         rows = []
         for p in self._providers:

@@ -33,7 +33,7 @@ DETAIL_INDENT = "      "
 CHECKED_SYMBOL = "✔"
 UNCHECKED_SYMBOL = "✖"
 
-DEFAULT_HINT = "↑/↓ move  ·  Space toggle  ·  Enter confirm  ·  Esc cancel"
+DEFAULT_HINT = "↑/↓ PgUp/PgDn Home/End move  ·  Space toggle  ·  Enter confirm  ·  Esc cancel"
 
 
 @dataclass

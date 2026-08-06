@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 
 from tau.modes.interactive.commands.context import CommandContext
@@ -461,6 +462,15 @@ def open_settings_panel(ctx: CommandContext) -> None:
     # Flat reference list for _update_parent — built after extensions are appended
     items = settings_items + model_items + advanced_items + extension_items
 
+    # Compared against on close to tell "saved" from "just looked around".
+    # The merged view, not the manager's modified-field sets: those are sticky
+    # for the life of the process, so a field touched by an earlier visit would
+    # already be marked and a genuine second change to it would look like none.
+    # Values also make a re-pick of the value already in force correctly count
+    # as no change. _save() re-merges before its batch-mode early return, so
+    # this view stays current while the panel is open.
+    settings_before = copy.deepcopy(sm.settings)
+
     sm.begin_batch()
 
     def _update_parent(parent_id: str, new_value: str) -> None:
@@ -580,8 +590,11 @@ def open_settings_panel(ctx: CommandContext) -> None:
                     return
 
     def on_close() -> None:
+        # Read before save_batch(): the write it schedules clears the manager's
+        # modified-field bookkeeping, and re-merging can only settle the view.
+        changed = sm.settings != settings_before
         sm.save_batch()  # commits the batch and re-merges the live settings view
-        ctx.notify("Settings saved.")
+        ctx.notify("Settings saved." if changed else "Settings closed — no changes.")
         # Rebuild the palette now that settings are committed — feature-gated
         # commands (e.g. /compact when compaction is off) appear/disappear here.
         if ctx.on_palette_refresh is not None:
