@@ -24,14 +24,16 @@ from pathlib import Path
 
 import pytest
 
-BUILTIN_DIR = Path(__file__).parent.parent / "tau" / "builtins" / "extensions"
+ROOT = Path(__file__).parent.parent
+BUILTIN_DIR = ROOT / "tau" / "builtins" / "extensions"
+EXAMPLE_DIR = ROOT / "examples" / "extensions"
 
 _ON_RE = re.compile(r'(?:@tau\.on|tau\.on)\(\s*"([a-z_]+)"')
 
 
-def _events(extension: str) -> set[str]:
+def _events(extension: str, base: Path = BUILTIN_DIR) -> set[str]:
     """Every event name the extension subscribes to, across all its modules."""
-    directory = BUILTIN_DIR / extension
+    directory = base / extension
     found: set[str] = set()
     for path in directory.rglob("*.py"):
         found.update(_ON_RE.findall(path.read_text(encoding="utf-8")))
@@ -45,6 +47,14 @@ STATEFUL = ["todo"]
 # Extensions that create an external resource in register() (process, VM,
 # server) and therefore have to release the old one when replaced.
 RESOURCE_OWNING = ["sandbox", "web"]
+
+# Same two rules, applied to the shipped examples. `autoresearch` owns an
+# above-editor widget: Session.hide() is guarded by self._shown, so only the
+# outgoing Session can take its own widget down. These are checked through
+# examples/ rather than the project-local copies, because `.gitignore` excludes
+# `.tau/`, so what lives there varies per checkout.
+EXAMPLE_STATEFUL = ["autoresearch", "todo"]
+EXAMPLE_RESOURCE_OWNING = ["autoresearch", "sandbox"]
 
 
 @pytest.mark.parametrize("extension", STATEFUL)
@@ -75,3 +85,25 @@ def test_sandbox_stops_the_microvm_on_every_teardown_path() -> None:
 def test_todo_restores_on_every_branch_changing_path() -> None:
     events = _events("todo")
     assert {"session_start", "session_tree", "extension_reloaded"} <= events
+
+
+@pytest.mark.parametrize("extension", EXAMPLE_STATEFUL)
+def test_example_stateful_extensions_restore_after_reload(extension: str) -> None:
+    assert "extension_reloaded" in _events(extension, EXAMPLE_DIR), (
+        f"examples/{extension} rebuilds state in register() but never restores it"
+    )
+
+
+@pytest.mark.parametrize("extension", EXAMPLE_RESOURCE_OWNING)
+def test_example_resource_owning_extensions_release_on_unload(extension: str) -> None:
+    assert "extension_unload" in _events(extension, EXAMPLE_DIR), (
+        f"examples/{extension} never releases what it owns when replaced"
+    )
+
+
+def test_autoresearch_brackets_its_widget_with_both_reload_events() -> None:
+    # Only the outgoing Session can remove its own widget (hide() is guarded by
+    # self._shown), and only the incoming one can redraw — so both halves are
+    # required or the dashboard is stranded on screen.
+    events = _events("autoresearch", EXAMPLE_DIR)
+    assert {"extension_unload", "extension_reloaded"} <= events

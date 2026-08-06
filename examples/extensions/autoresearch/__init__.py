@@ -255,6 +255,24 @@ def register(tau: Any) -> None:
         session.bind(ctx)
         session.refresh()
 
+    @tau.on("extension_unload")
+    def _on_unload(_event: Any, ctx: Any) -> None:
+        # Take the widget down while *this* Session still knows it owns it.
+        # hide() is guarded by self._shown, and the replacement Session built
+        # by the next register() starts with _shown=False — so if the old one
+        # does not clean up here, the dashboard is stranded on screen with
+        # nothing able to remove it.
+        session.bind(ctx)
+        session.hide()
+
+    @tau.on("extension_reloaded")
+    def _on_reloaded(_event: Any, ctx: Any) -> None:
+        # tui_ready fires once per TUI, not per reload, so without this the
+        # fresh Session stays unbound and the dashboard is missing until the
+        # next turn settles.
+        session.bind(ctx)
+        session.refresh()
+
     async def _command(ctx: Any, args: list[str]) -> None:
         session.bind(ctx)
         sub = args[0].lower() if args else ""
