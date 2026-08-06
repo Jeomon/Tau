@@ -68,9 +68,13 @@ How a session's entries are encoded is isolated behind `SessionStorage` in `tau/
 |---------|----------|----------|
 | `FileSessionStorage` | JSONL, one line per entry, one file per session | The default; the format described above |
 | `InMemorySessionStorage` | Process memory, nothing on disk | Untrusted projects (before trust is granted) and tests |
-| `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Listing without parsing history; indexed lookups |
+| `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Nothing yet — see below |
 
-`SessionManager` uses this seam for all of its own I/O: locking, reading, appending, rewriting and selective rehydration go through the backend, and `session_file` is a property whose setter rebinds it. `FileSessionStorage` is what a normal session runs on. The `open()`, `fork_from()` and listing entry points still address files directly — those are repository concerns (finding, naming and copying sessions) rather than encoding, and they have no seam yet.
+`SessionManager` uses this seam for all of its own I/O: locking, reading, appending, rewriting and selective rehydration go through the backend, and `session_file` is a property whose setter rebinds it. `FileSessionStorage` is what a normal session runs on; `InMemorySessionStorage` backs untrusted projects and tests.
+
+> **`SQLiteSessionStorage` is not reachable in a running tau.** Nothing constructs it outside its tests. Encoding is behind a seam, but *finding* a session is not: sessions are discovered by globbing `*.jsonl`, and a session id is resolved by matching it against a filename. With one database per project the id is a column, so those lookups have to become queries rather than different globs. That work spans `session/utils.py`, `modes/interactive/components/session_selector.py`, `agent/embedded.py`, `console/cli.py` and `console/commands/doctor.py`, and it is the repository seam — `create`/`open`/`list`/`delete`/`fork` returning handles instead of paths. Until it exists, the SQLite backend is a tested implementation with no caller.
+
+For the same reason `open()`, `fork_from()` and the listing entry points still address files directly. `fork_from` also serialises without `exclude_none`, so routing it through `rewrite()` would change the bytes of every forked session.
 
 All three backends are substitutable, and one conformance suite (`tests/test_session_storage.py`) runs against every backend. Three guarantees are load-bearing:
 
@@ -88,7 +92,7 @@ All three backends are substitutable, and one conformance suite (`tests/test_ses
 
 Projects stay independent, with no cross-project write contention. SQLite runs in WAL mode, so while a session is open the directory also holds `sessions.db-wal` and `sessions.db-shm`; both are removed on close, leaving one file at rest. Entry ids are unique *per session* rather than globally, because a fork legitimately copies an entry id into a second session.
 
-The reason for project scope is listing. `build_session_info` derives a session's name and message count by reading its history, so `/resume` parses every line of every session file. `list_sqlite_sessions()` gets the same information from an indexed `GROUP BY`, deserializing only header and name rows:
+The reason for choosing project scope (rather than a database per session) is listing. `build_session_info` derives a session's name and message count by reading its history, so `/resume` parses every line of every session file. `list_sqlite_sessions()` gets the same information from an indexed `GROUP BY`, deserializing only header and name rows:
 
 | Session history | `list_sessions_from_dir` | `list_sqlite_sessions` |
 |---|---|---|
@@ -96,7 +100,7 @@ The reason for project scope is listing. `build_session_info` derives a session'
 | 60 sessions x 1200 entries (34.9 MiB) | 182 ms | 29 ms |
 | 240 sessions x 300 entries (34.9 MiB) | 193 ms | 32 ms |
 
-Both report identical message counts. The JSONL cost scales with total bytes on disk; the SQLite cost does not.
+Both report identical message counts. The JSONL cost scales with total bytes on disk; the SQLite cost does not. This is the payoff the repository seam would unlock — it is not available today.
 
 ### Related paths
 
