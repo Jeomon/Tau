@@ -278,7 +278,13 @@ async def generate_branch_summary(
     """Generate a summary of abandoned branch entries."""
     import asyncio
 
-    from tau.inference.types import LLMContext, TextDeltaEvent, TextEndEvent
+    from tau.inference.types import (
+        EndEvent,
+        LLMContext,
+        StopReason,
+        TextDeltaEvent,
+        TextEndEvent,
+    )
     from tau.message.types import UserMessage
     from tau.session.compaction import (
         SUMMARIZATION_SYSTEM_PROMPT,
@@ -323,6 +329,21 @@ async def generate_branch_summary(
         return BranchSummaryResult(aborted=True)
     except Exception as error:
         return BranchSummaryResult(error=str(error))
+
+    # A summary cut off mid-word by the generation's own token cap is worse than
+    # no summary: it reads as complete while silently dropping everything past
+    # the cutoff, and this one gets persisted as a BranchSummaryEntry that the
+    # user never sees generated. Report it as a failure instead — the caller
+    # notifies, emits BranchSummaryFailureEvent, and navigates without a
+    # summary. Mirrors compaction._call_llm_for_summary's guard.
+    end = next((e for e in events if isinstance(e, EndEvent)), None)
+    if end is not None and end.reason == StopReason.Length:
+        return BranchSummaryResult(
+            error=(
+                "Branch summary was cut off by the model's own output token limit "
+                "(stop_reason=length), so it was discarded rather than persisted."
+            )
+        )
 
     text_end = next((e for e in events if isinstance(e, TextEndEvent)), None)
     if text_end:

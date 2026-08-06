@@ -104,7 +104,8 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     default=None,
     metavar="NAME",
     help=(
-        "UI theme name (default: dark). Builtins: dark, light. See /theme for all installed themes."
+        "UI theme name (default: dark), or 'auto' to follow the terminal background. "
+        "See /theme for all installed themes."
     ),
 )
 @click.option(

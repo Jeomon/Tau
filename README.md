@@ -172,7 +172,7 @@ Common flags:
 | `--resume [ID]` | `-r` | Resume the most recent or a specified session |
 | `--fork ID` | | Fork a specified session at startup |
 | `--ephemeral` | `-e` | Don't save this session to disk |
-| `--theme` | `-t` | UI theme: `dark`, `light`, or a custom theme |
+| `--theme` | `-t` | UI theme: any of the 17 built-ins, a custom theme, or `auto` |
 | `--cwd PATH` | `-c` | Set the working directory |
 | `--output-format` | `-f` | Non-interactive output: `text` or `json` |
 | `--quiet` | `-q` | Hide the non-interactive spinner |

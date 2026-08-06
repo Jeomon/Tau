@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from tau.inference.types import TextEndEvent
+from tau.inference.types import EndEvent, StopReason, TextEndEvent
 from tau.message.types import (
     AssistantMessage,
     TextContent,
@@ -217,3 +217,57 @@ class TestGenerateBranchSummary:
 
         assert result.summary is None
         assert result.error == "provider unavailable"
+
+    def test_length_capped_summary_is_discarded(self):
+        """A summary truncated by the output token cap must not be persisted.
+
+        It reads as complete while silently dropping everything past the cutoff,
+        and nothing downstream would ever surface the truncation.
+        """
+
+        class TruncatingLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                return [
+                    TextEndEvent(text=TextContent(content="Files changed: src/a.py, src/b")),
+                    EndEvent(reason=StopReason.Length),
+                ]
+
+        entries = [MessageEntry(message=AssistantMessage.from_text("work"))]
+        result = asyncio.run(
+            generate_branch_summary(
+                entries,
+                TruncatingLLM(),  # type: ignore[arg-type]
+                context_window=1_000,
+                reserve_tokens=100,
+            )
+        )
+
+        assert result.summary is None
+        assert result.error is not None
+        assert "stop_reason=length" in result.error
+
+    def test_normal_stop_reason_still_produces_a_summary(self):
+        class CompleteLLM:
+            model = SimpleNamespace(input_limit=1_000)
+
+            async def invoke(self, context):
+                return [
+                    TextEndEvent(text=TextContent(content="complete summary")),
+                    EndEvent(reason=StopReason.Stop),
+                ]
+
+        entries = [MessageEntry(message=AssistantMessage.from_text("work"))]
+        result = asyncio.run(
+            generate_branch_summary(
+                entries,
+                CompleteLLM(),  # type: ignore[arg-type]
+                context_window=1_000,
+                reserve_tokens=100,
+            )
+        )
+
+        assert result.error is None
+        assert result.summary is not None
+        assert "complete summary" in result.summary

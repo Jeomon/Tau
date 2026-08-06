@@ -164,7 +164,7 @@ When `/tree` moves you away from a branch, Tau can summarize the path you are le
 - Programmatic callers opt in with `runtime.navigate_tree(target_id, summarize=True)`.
 - The summary captures goal, progress, key decisions, next steps, and files read/modified.
 - It is stored as a `branch_summary` entry under the destination node and injected into that branch's context.
-- If summarization fails or is aborted, navigation still completes and Tau reports it.
+- If summarization fails or is aborted, navigation still completes and Tau reports it. A summary the model cut off at its own output token limit counts as a failure: it would read as complete while silently dropping everything past the cutoff, so it is discarded rather than persisted.
 - Extensions can return a finished summary from `session_before_tree` to bypass Tau's own model call. See [Extensions](extensions.md).
 
 ## Branching: `/tree`, `/fork`, and `/clone`

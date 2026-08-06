@@ -40,7 +40,7 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 | `--model ID` | | from settings | Model ID, or `provider/model` shorthand |
 | `--base-url URL` | | provider default | Override the provider base URL for this run only |
 | `--effort LEVEL` | | model default | Thinking/reasoning effort for this run |
-| `--theme NAME` | `-t` | `dark` | UI theme; builtins are `dark` and `light` |
+| `--theme NAME` | `-t` | `dark` | UI theme: any of the 17 built-ins, a custom theme, or `auto` to follow the terminal background. See [Themes](themes.md) |
 | `--system TEXT` | `-s` | generated | Replace the generated system prompt completely |
 | `--tools NAMES` | | all | Comma-separated allowlist of tool names |
 | `--resume [ID]` | `-r` | | Resume the most recent session, or a specific one by ID |
