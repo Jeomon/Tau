@@ -11,9 +11,9 @@ Both must render. Either would otherwise raise inside ``TUI._do_render``,
 which swallows exceptions — so a third-party extension would present as a
 frozen screen with no error shown to the user.
 
-The ``render_cells(area, buf)`` shape is gone along with the cell grid. A
-component still on it gets a named TypeError rather than a silent freeze,
-which is the point of ``_child_lines`` raising explicitly.
+A child that implements neither shape gets a named error rather than a silent
+freeze, which is the point of ``_child_lines`` and ``Component.render``
+raising explicitly instead of returning nothing.
 """
 
 from __future__ import annotations
@@ -46,11 +46,11 @@ class DuckTypedWidget:
         pass
 
 
-class LegacyCellWidget(Component):
-    """The removed contract. Must fail loudly rather than freeze the screen."""
+class ComponentWithoutRender(Component):
+    """Subclasses Component but never implements render().
 
-    def render_cells(self, area: object, buf: object) -> int:
-        raise AssertionError("should never be called")
+    Must fail loudly rather than freeze the screen.
+    """
 
 
 class NotRenderable:
@@ -89,11 +89,11 @@ def test_a_non_renderable_child_says_so_clearly() -> None:
         container.render(WIDTH)
 
 
-def test_a_cells_only_component_fails_loudly() -> None:
-    """render_cells is gone; a component still on it must not silently render blank."""
+def test_a_component_missing_render_fails_loudly() -> None:
+    """A Component inheriting the unimplemented base render must not go blank."""
     container = Container()
-    container.add_child(LegacyCellWidget())
-    with pytest.raises(NotImplementedError, match="LegacyCellWidget"):
+    container.add_child(ComponentWithoutRender())
+    with pytest.raises(NotImplementedError, match="ComponentWithoutRender"):
         container.render(WIDTH)
 
 

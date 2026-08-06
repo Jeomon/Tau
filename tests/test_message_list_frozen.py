@@ -105,7 +105,7 @@ def test_frozen_cache_survives_incremental_calls_without_rebuilding() -> None:
     ml.add_message(AssistantMessage.from_text("new answer"))
     ml.render_split_lines(WIDTH)
 
-    # Same Buffer object, only grown — old rows are the *same* Cell objects.
+    # The frozen prefix only ever grows; rows already frozen stay byte-identical.
     assert len(ml._frozen_lines) >= frozen_rows_before
     for y in range(frozen_rows_before):
         assert ml._frozen_lines[y] == frozen_before[y]
