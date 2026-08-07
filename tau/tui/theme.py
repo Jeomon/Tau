@@ -98,10 +98,23 @@ class MessageTheme:
     error_label: Style = field(default_factory=lambda: Style().bold().with_fg("bright_red"))
     dim: Style = field(default_factory=lambda: Style().dim())
     stream_cursor: Style = field(default_factory=lambda: Style().with_fg("bright_white"))
-    diff_added: Style = field(default_factory=lambda: Style().with_fg("bright_green"))
-    diff_removed: Style = field(default_factory=lambda: Style().with_fg("bright_red"))
+    # Standard rather than bright: these are whole-line colours applied to many
+    # consecutive rows, where bright reads as alarm rather than information.
+    # The edit tool's result view has always used the standard pair, and it is
+    # the diff people see most, so every other diff surface matches it.
+    diff_added: Style = field(default_factory=lambda: Style().with_fg("green"))
+    diff_removed: Style = field(default_factory=lambda: Style().with_fg("red"))
     diff_context: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     diff_hunk: Style = field(default_factory=lambda: Style().with_fg("bright_yellow"))
+    # Optional bands behind added/removed lines, for a renderer that wants a
+    # block rather than coloured text. Off by default: the foreground pair is
+    # legible on its own, and a band drawn behind a run of code competes with
+    # whatever syntax colouring sits on top of it.
+    #
+    # A band covers the text only, not the row: ``ToolRenderOptions`` carries no
+    # width, so a render_result callback cannot pad out to the terminal edge.
+    diff_added_bg: Style | None = None
+    diff_removed_bg: Style | None = None
     # Word-diff highlight applied *inside* an already-colored removed/added
     # line (see message_list.py's render_diff call). Must stay a ColorFn: it
     # toggles reverse-video on then back off (`\x1b[27m`), not a full reset —

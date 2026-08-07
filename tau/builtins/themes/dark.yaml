@@ -36,8 +36,8 @@ colors:
   stream_cursor:      bright_white
 
   # Diffs
-  diff_added:         bright_green
-  diff_removed:       bright_red
+  diff_added:         green
+  diff_removed:       red
   diff_context:       bright_black
   diff_hunk:          bright_yellow
 

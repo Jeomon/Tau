@@ -215,6 +215,33 @@ The six semantic roles (`muted`, `emphasis`, `success`, `warning`, `error`, `acc
 | `diff_removed` | Removed lines |
 | `diff_context` | Unchanged context lines |
 | `diff_hunk` | Hunk headers |
+| `diff_added_bg` | Background band behind added lines |
+| `diff_removed_bg` | Background band behind removed lines |
+
+`diff_added` and `diff_removed` default to the standard `green`/`red` rather
+than their bright variants. These colour whole lines, many in a row, where
+bright reads as alarm instead of information — and the edit tool's result view,
+which is the diff you see most, has always used the standard pair. Every diff
+surface now matches it: the edit tool, `render_diff` in the transcript, and the
+permission prompt's preview.
+
+The two `_bg` tokens take a colour like any other but seat it as a
+*background*. Both are **off by default** — a band drawn behind a run of code
+competes with whatever colouring sits on top of it. Opt in per theme:
+
+```yaml
+colors:
+  diff_added_bg:   "#dafbe1"
+  diff_removed_bg: "#ffebe9"
+```
+
+Set either to `none` to switch a band back off in a theme that inherits one.
+That is the only way to remove one: a missing key falls back to the inherited
+value rather than to nothing.
+
+A band sits behind the text only, not out to the terminal edge —
+`ToolRenderOptions` carries no width, so a tool's `render_result` callback has
+no way to pad the row.
 
 ### Markdown
 

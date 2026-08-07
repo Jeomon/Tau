@@ -293,11 +293,32 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
     removed = metadata.get("lines_removed", 0)
     diff = metadata.get("diff", "")
 
+    # Prefer the theme's diff roles over the module-level GREEN/RED so this
+    # view shares a palette with every other diff surface (`render_diff` in the
+    # transcript, the permission prompt's preview). The constants remain the
+    # fallback for a renderer invoked without a theme — tests, --print, RPC.
+    message = getattr(opts.theme, "message", None) if opts.theme is not None else None
+    add_style = getattr(message, "diff_added", None)
+    del_style = getattr(message, "diff_removed", None)
+    # Background bands sit *behind* the text only: ToolRenderOptions carries no
+    # width, so a renderer cannot pad a row out to the terminal edge.
+    add_bg = getattr(message, "diff_added_bg", None)
+    del_bg = getattr(message, "diff_removed_bg", None)
+
+    def _paint(text: str, style: Any, bg: Any, fallback: str) -> str:
+        if style is None:
+            return f"{fallback}{text}{RESET}"
+        return apply_style(style.patch(bg) if bg is not None else style, text)
+
     parts = []
     if added:
-        parts.append(f"{GREEN}Added {added} {'line' if added == 1 else 'lines'}{RESET}")
+        parts.append(
+            _paint(f"Added {added} {'line' if added == 1 else 'lines'}", add_style, None, GREEN)
+        )
     if removed:
-        parts.append(f"{RED}Removed {removed} {'line' if removed == 1 else 'lines'}{RESET}")
+        parts.append(
+            _paint(f"Removed {removed} {'line' if removed == 1 else 'lines'}", del_style, None, RED)
+        )
     result = [", ".join(parts) if parts else content.strip()]
 
     if not diff:
@@ -321,12 +342,13 @@ def _render_edit_result(content: str, opts: Any) -> list[str]:
                 result.append(muted)
                 continue
             char, ol, nl, text = line
+            rendered = _render_hunk_line(char, ol, nl, text)
             if char == "+":
-                result.append(f"{GREEN}{_render_hunk_line(char, ol, nl, text)}{RESET}")
+                result.append(_paint(rendered, add_style, add_bg, GREEN))
             elif char == "-":
-                result.append(f"{RED}{_render_hunk_line(char, ol, nl, text)}{RESET}")
+                result.append(_paint(rendered, del_style, del_bg, RED))
             else:
-                result.append(_render_hunk_line(char, ol, nl, text))
+                result.append(rendered)
 
     if hidden_total:
         result.append("(ctrl+o to expand)")

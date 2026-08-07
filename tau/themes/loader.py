@@ -115,6 +115,23 @@ def _c(
     return _make_style(colors.get(key), bold=bold, italic=italic, dim=dim)
 
 
+def _bg(colors: dict, key: str, fallback: Style | None) -> Style | None:
+    """A *background* style from a theme colour key.
+
+    ``_c`` only ever produces foregrounds, so the resolved colour is moved to
+    the background here. ``"none"`` is honoured explicitly: without it a theme
+    could only add a band, never remove one, since a missing key falls through
+    to the default rather than to nothing.
+    """
+    raw = colors.get(key)
+    if isinstance(raw, str) and raw.strip().lower() == "none":
+        return None
+    style = _make_style(raw)
+    if style is None:
+        return fallback
+    return Style().with_bg(style.fg) if style.fg is not None else fallback
+
+
 # ---------------------------------------------------------------------------
 # Dict → LayoutTheme
 # ---------------------------------------------------------------------------
@@ -201,6 +218,11 @@ def load_theme_from_dict(data: dict) -> tuple[LayoutTheme | None, str | None]:
         diff_removed=_c(colors, "diff_removed") or d.message.diff_removed,
         diff_context=_c(colors, "diff_context") or d.message.diff_context,
         diff_hunk=_c(colors, "diff_hunk") or d.message.diff_hunk,
+        # ``_bg`` keys carry a *background*; _c() builds foreground styles, so
+        # the colour is re-seated with with_bg(). "none" turns the band off for
+        # a theme that would rather keep diffs foreground-only.
+        diff_added_bg=_bg(colors, "diff_added_bg", d.message.diff_added_bg),
+        diff_removed_bg=_bg(colors, "diff_removed_bg", d.message.diff_removed_bg),
         show_thinking=bool(data["show_thinking"])
         if "show_thinking" in data
         else d.message.show_thinking,

@@ -32,6 +32,13 @@ colors:
   dim:              "#9ca3af"
   stream_cursor:    "#374151"
 
+  # Diffs. The default green/red are terminal-palette colours that a light
+  # background washes out, so they are pinned to darker inks here.
+  diff_added:       "#116329"
+  diff_removed:     "#82071e"
+  diff_context:     "#6b7280"
+  diff_hunk:        "#8250df"
+
   # Select list
   selected_label:   { color: "#6d28d9", bold: true }
   selected_desc:    "#0066cc"
