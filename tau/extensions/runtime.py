@@ -33,6 +33,7 @@ _INTERCEPTABLE_EVENTS: frozenset[str] = frozenset(
         "resources_discover",
         "project_trust",
         "input",
+        "tool_call",
         "tool_result",
         "context",
     }
@@ -81,12 +82,26 @@ class ExtensionRuntime:
     # ── Errors ────────────────────────────────────────────────────────────────
 
     def _record_error(self, error: ExtensionError) -> None:
-        """Append an error and let the host mode observe it (RPC surfaces these)."""
+        """Append an error and let the host mode observe it (RPC and the TUI show these).
+
+        Total by construction: this is only ever called because something has
+        already gone wrong, and every caller is inside an exception handler
+        that another failure would escape. Escaping here would propagate out of
+        the registered hook handler into ``Hooks.emit``, which logs and returns
+        no result — turning a *reported* extension failure back into a silent
+        one, and on ``tool_call`` into a silently permitted call.
+
+        The append happens first so the record survives even when telling
+        anyone about it does not.
+        """
         self._errors.append(error)
-        runtime = self.runtime_ref.runtime
-        report = getattr(runtime, "report_extension_error", None)
-        if callable(report):
-            report(error)
+        try:
+            runtime = self.runtime_ref.runtime
+            report = getattr(runtime, "report_extension_error", None)
+            if callable(report):
+                report(error)
+        except Exception:  # noqa: BLE001 - see above; reporting must not raise
+            _log.debug("could not report extension error", exc_info=True)
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
@@ -95,15 +110,56 @@ class ExtensionRuntime:
 
         async def wrapped(event: Any) -> Any:
             """Invoke handler with extension context."""
-            from tau.extensions.context import ExtensionContext
-
-            runtime = self.runtime_ref.runtime
-            ctx = ExtensionContext.from_runtime(runtime) if runtime is not None else None
             return await self._invoke_handler(
-                ext, handler, event, ctx, getattr(event, "type", "unknown")
+                ext,
+                handler,
+                event,
+                self._context(ext, getattr(event, "type", "unknown")),
+                getattr(event, "type", "unknown"),
             )
 
         return wrapped
+
+    def _context(self, ext: Any, event_type: str) -> Any:
+        """Build the ``ExtensionContext``, or ``None`` if it cannot be built.
+
+        Guarded for the same reason handler bodies are, and for a sharper
+        reason on interceptable events. This runs *inside* the registered hook
+        handler, so an exception escaping it lands in ``Hooks.emit``, which
+        logs and moves on — the caller then collects no result at all. For
+        ``tool_call`` that is indistinguishable from "no objection", so a
+        context failure would execute a call the gate never got to inspect,
+        and ``_record_error`` would never fire either: silent, in the one place
+        silence is least affordable.
+
+        Handing the handler ``None`` instead lets it run and decide. Most
+        handlers will then fail on ``ctx.something``, which ``_invoke_handler``
+        records — visible, rather than an unexplained allow.
+        """
+        runtime = self.runtime_ref.runtime
+        if runtime is None:
+            return None
+        from tau.extensions.context import ExtensionContext
+
+        try:
+            return ExtensionContext.from_runtime(runtime)
+        except Exception:
+            tb = traceback.format_exc()
+            _log.warning(
+                "extension %s: could not build context for %r: %s",
+                getattr(ext, "path", "?"),
+                event_type,
+                tb.strip().splitlines()[-1],
+            )
+            self._record_error(
+                ExtensionError(
+                    extension_path=getattr(ext, "path", "?"),
+                    event=event_type,
+                    error=f"could not build extension context: {tb.strip().splitlines()[-1]}",
+                    stack=tb,
+                )
+            )
+            return None
 
     async def _invoke_handler(
         self, ext: Any, handler: Any, event: Any, ctx: Any, event_type: str
@@ -115,11 +171,7 @@ class ExtensionRuntime:
         runtime that emitted the event. The depth counters must be balanced
         even then, hence the ``finally``.
         """
-        runtime = self.runtime_ref.runtime
-        begin = getattr(runtime, "_begin_extension_callback", None)
-        end = getattr(runtime, "_end_extension_callback", None)
-        if callable(begin):
-            begin()
+        self._callback_depth("_begin_extension_callback")
         try:
             result = handler(event, ctx)
             if inspect.isawaitable(result):
@@ -143,8 +195,23 @@ class ExtensionRuntime:
             )
             return None
         finally:
-            if callable(end):
-                end()
+            self._callback_depth("_end_extension_callback")
+
+    def _callback_depth(self, name: str) -> None:
+        """Nudge the runtime's extension-callback depth counter, never raising.
+
+        Both the lookup and the call used to sit outside the ``try`` above, so
+        a runtime that threw from either took the exception out of the
+        registered hook handler and into ``Hooks.emit``, which logs it and
+        collects no result — read as consent on ``tool_call``. Bookkeeping
+        does not get to decide whether a tool runs.
+        """
+        try:
+            fn = getattr(self.runtime_ref.runtime, name, None)
+            if callable(fn):
+                fn()
+        except Exception:  # noqa: BLE001 - see above; must never raise
+            _log.debug("extension callback counter %r failed", name, exc_info=True)
 
     async def _dispatch(self, event: Any) -> None:
         """Catch-all hooks subscriber — re-dispatches every event to extension handlers.
@@ -158,13 +225,15 @@ class ExtensionRuntime:
         if event_type in _INTERCEPTABLE_EVENTS:
             return
 
-        from tau.extensions.context import ExtensionContext
-
-        runtime = self.runtime_ref.runtime
-        ctx = ExtensionContext.from_runtime(runtime) if runtime is not None else None
-
         for ext in self._extensions:
-            for handler in ext.handlers.get(event_type, []):
+            handlers = ext.handlers.get(event_type, [])
+            if not handlers:
+                continue
+            # Per-extension rather than once for the whole loop: a context
+            # failure is attributed to an extension in the error record, and
+            # building it lazily means an event nobody handles pays nothing.
+            ctx = self._context(ext, event_type)
+            for handler in handlers:
                 await self._invoke_handler(ext, handler, event, ctx, event_type)
 
     def unsubscribe(self) -> None:

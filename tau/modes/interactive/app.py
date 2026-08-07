@@ -425,6 +425,61 @@ class App:
     # Lifecycle
     # -------------------------------------------------------------------------
 
+    def _surface_extension_errors(self) -> None:
+        """Put extension load/dispatch failures on screen instead of in a log file.
+
+        RPC has forwarded these to its client since it existed; interactive
+        mode never wired the callback, so a handler that raised produced a
+        warning on a logger whose output :meth:`_redirect_logging_off_terminal`
+        deliberately sends to a file. Nothing reached the user.
+
+        That is tolerable for a decorative extension and not at all tolerable
+        for an interceptable event: a ``tool_call`` handler that raises is
+        treated by the host as "no objection", so a permission gate crashing
+        mid-decision silently turns into an allowed tool call. Surfacing the
+        failure is what makes that visible rather than merely survivable.
+
+        Deduplicated by (extension, event, message): the same handler usually
+        raises on *every* call, and a fresh notification per tool call would
+        bury the transcript it is trying to warn in.
+        """
+        runtime = self._runtime
+        register = getattr(runtime, "set_extension_error_callback", None)
+        if not callable(register):
+            return
+
+        seen: set[tuple[str, str, str]] = set()
+
+        def _report(error: object) -> None:
+            import os
+            import time
+
+            from tau.message.types import CustomMessage, LinesContent
+
+            path = str(getattr(error, "extension_path", "") or "extension")
+            event = str(getattr(error, "event", "") or "?")
+            message = str(getattr(error, "error", "") or error)
+            if (path, event, message) in seen:
+                return
+            seen.add((path, event, message))
+
+            name = os.path.basename(os.path.dirname(path)) or os.path.basename(path)
+            self._layout.add_message(
+                CustomMessage(
+                    custom_type="system",
+                    timestamp=time.time(),
+                    contents=[
+                        LinesContent(
+                            lines=[f"extension error: {name} failed on {event}", message, ""],
+                            notify_type="error",
+                        )
+                    ],
+                )
+            )
+            self._tui.request_render()
+
+        register(_report)
+
     def _redirect_logging_off_terminal(self) -> None:
         """Keep all logging off the terminal while the TUI owns the screen.
 
@@ -546,6 +601,7 @@ class App:
     async def run(self) -> None:
         """Set up hooks, replay session, then run the TUI loop."""
         self._redirect_logging_off_terminal()
+        self._surface_extension_errors()
         # Before any hook can ask for a token count: hold the tokenizer's
         # vocabulary load until the first frame is up. The footer's
         # context-usage readout requests one during tui_ready, which would
