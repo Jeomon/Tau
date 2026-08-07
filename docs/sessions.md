@@ -283,8 +283,8 @@ Every entry shares `id` (8 hex chars), `timestamp` (Unix seconds, float), and `p
 | `message` | `message`, `meta` | A user, assistant, tool, or terminal message |
 | `custom_message` | `custom_type`, `content`, `display`, `details` | Extension-injected message; participates in LLM context |
 | `custom` | `custom_type`, `data` | Extension state; **not** shown in the TUI and **not** sent to the model |
-| `compaction` | `summary`, `first_kept_entry_id`, `tokens_before`, `details` | Context compaction checkpoint |
-| `branch_summary` | `from_id`, `summary`, `details`, `from_hook`, `label` | Summary of an abandoned branch |
+| `compaction` | `summary`, `first_kept_entry_id`, `tokens_before`, `details`, `usage` | Context compaction checkpoint |
+| `branch_summary` | `from_id`, `summary`, `details`, `from_hook`, `label`, `usage` | Summary of an abandoned branch |
 | `leaf` | `target_id` | Navigation record marking the new active node |
 | `label` | `target_id`, `label` | Bookmark on an entry; `label: null` clears it |
 | `thinking_level_change` | `thinking_level` | Thinking/effort level changed |
@@ -352,8 +352,8 @@ Every `append_*` method returns the new entry's ID.
 | `append_session_info(name)` | `session_info` |
 | `append_custom_info(custom_type, data=None)` | `custom` |
 | `append_custom_message(custom_type, content, display=True, details=None)` | `custom_message` |
-| `append_compaction(summary, first_kept_entry_id, tokens_before, details=None)` | `compaction` |
-| `append_branch_summary(from_id, summary, details=None, from_hook=False, label=None)` | `branch_summary` |
+| `append_compaction(summary, first_kept_entry_id, tokens_before, details=None, usage=None)` | `compaction` |
+| `append_branch_summary(from_id, summary, details=None, from_hook=False, label=None, usage=None)` | `branch_summary` |
 
 ### Tree navigation and inspection
 
@@ -384,6 +384,8 @@ Every `append_*` method returns the new entry's ID.
 | `new_session(options=None)` | Start a new session; `SessionOptions(id, parent_session)` |
 | `set_session(session_file)` | Load or initialize a session from a path |
 | `enable_persist()` | Switch an in-memory session to persisting, flushing buffered entries |
+
+`compaction` and `branch_summary` both carry an optional `usage`: the tokens and cost of the summarization call that produced them. Both are real model calls and nothing else in the history records what they cost, so an entry written without it loses that spend permanently — `usage` is `null` on entries written before this was tracked, and on a summary an extension supplied rather than the model. `tau.session.stats.compute_session_stats()` folds them into the session totals shown by `/session` and RPC's `get_session_stats`.
 
 `build_session_context()` walks the current branch, applies the most recent compaction by dropping everything before `first_kept_entry_id`, converts entries to messages, and prepends the compaction summary. Attributes `cwd`, `session_id`, `session_file`, `session_dir`, `persist`, `leaf_id`, `entries`, and `by_id` are readable directly.
 

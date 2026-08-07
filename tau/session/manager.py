@@ -13,6 +13,7 @@ from tau.message.types import (
     AssistantMessage,
     CustomMessage,
     ToolMessage,
+    Usage,
     UserMessage,
 )
 from tau.session.storage import (
@@ -538,14 +539,20 @@ class SessionManager:
         details: dict | None = None,
         from_hook: bool = False,
         label: str | None = None,
+        usage: Usage | None = None,
     ) -> str:
-        """Record a summary when abandoning a branch."""
+        """Record a summary when abandoning a branch.
+
+        ``usage`` is what generating it cost, and is ``None`` when an extension
+        supplied the summary instead of the model.
+        """
         entry = BranchSummaryEntry(
             from_id=from_id,
             summary=summary,
             details=details,
             from_hook=from_hook,
             label=label,
+            usage=usage,
             parent_id=self.leaf_id,
         )
         return self._append_entry(entry)
@@ -581,13 +588,20 @@ class SessionManager:
         first_kept_entry_id: str,
         tokens_before: int,
         details: dict | None = None,
+        usage: Usage | None = None,
     ) -> str:
-        """Record a context compaction."""
+        """Record a context compaction.
+
+        ``usage`` is what the summarization call itself cost. Nothing else in
+        the history carries it, so an entry written without it loses that spend
+        permanently.
+        """
         entry = CompactionEntry(
             summary=summary,
             first_kept_entry_id=first_kept_entry_id,
             tokens_before=tokens_before,
             details=details,
+            usage=usage,
             parent_id=self.leaf_id,
         )
         entry_id = self._append_entry(entry)

@@ -1233,6 +1233,9 @@ class Runtime:
             label = preparation.label
             summary_text: str | None = None
             summary_details: dict | None = None
+            # Only the model's own call is billed; an extension-supplied
+            # summary cost nothing and stays None.
+            summary_usage = None
             from_extension = False
             for result in results:
                 if not isinstance(result, SessionBeforeTreeResult):
@@ -1311,6 +1314,7 @@ class Runtime:
                     )
                 elif result.summary:
                     summary_text = result.summary
+                    summary_usage = result.usage
                     summary_details = {
                         "read_files": result.read_files,
                         "modified_files": result.modified_files,
@@ -1325,6 +1329,7 @@ class Runtime:
                     label=label,
                     details=summary_details,
                     from_hook=from_extension,
+                    usage=summary_usage,
                 )
                 await self._context.hooks.emit(
                     BranchSummaryEndEvent(

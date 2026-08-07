@@ -691,6 +691,7 @@ class Agent:
                 summary=result.summary,
                 first_kept_entry_id=result.first_kept_entry_id,
                 tokens_before=result.tokens_before,
+                usage=result.usage,
             )
             # Only announce manual /compact — automatic compaction already
             # surfaces through the spinner's "Compacting…" phase and the

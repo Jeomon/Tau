@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from tau.message.types import Usage
+
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
     from tau.session.manager import SessionManager
@@ -28,6 +30,9 @@ class BranchSummaryResult:
     modified_files: list[str] = field(default_factory=list)
     aborted: bool = False
     error: str | None = None
+    #: Tokens and cost of the summarization call. Summarizing an abandoned
+    #: branch is a real model call, and nothing else in the session records it.
+    usage: Usage | None = None
 
 
 @dataclass
@@ -286,6 +291,7 @@ async def generate_branch_summary(
         TextEndEvent,
     )
     from tau.message.types import UserMessage
+    from tau.message.utils import usage_from_end_event
     from tau.session.compaction import (
         SUMMARIZATION_SYSTEM_PROMPT,
         _truncate_middle,
@@ -361,6 +367,7 @@ async def generate_branch_summary(
 
     return BranchSummaryResult(
         summary=summary or "No summary generated",
+        usage=usage_from_end_event(end, getattr(llm, "model", None)) if end else Usage(),
         read_files=read_files,
         modified_files=modified_files,
     )

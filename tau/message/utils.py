@@ -356,3 +356,52 @@ def close_dangling_tool_calls(
             ]
             patched.append(ToolMessage.from_results(results + synthetic))
     return patched
+
+
+def usage_from_end_event(event: Any, model: Any = None) -> Any:
+    """Build a priced :class:`Usage` from a stream's closing ``EndEvent``.
+
+    Providers report tokens, never money — the per-million rates live on the
+    model, so a caller that skips ``calculate_cost`` records a usage whose cost
+    is silently zero. Every code path that consumes an ``EndEvent`` needs the
+    same two steps, so they live here rather than being written out again at
+    each call site.
+
+    ``model`` may be ``None``, or a custom provider's model with no pricing, in
+    which case the token counts are still recorded and the cost stays zero.
+    """
+    from tau.message.types import Usage
+
+    usage = Usage(
+        input_tokens=getattr(event, "input_tokens", 0),
+        output_tokens=getattr(event, "output_tokens", 0),
+        cache_read_tokens=getattr(event, "cache_read_tokens", 0),
+        cache_write_tokens=getattr(event, "cache_write_tokens", 0),
+        cache_write_1h_tokens=getattr(event, "cache_write_1h_tokens", 0),
+        input_tokens_include_cache_read=getattr(event, "input_tokens_include_cache_read", False),
+    )
+    priced = getattr(model, "calculate_cost", None)
+    if callable(priced):
+        priced(usage)
+    return usage
+
+
+def add_usage(total: Any, extra: Any) -> None:
+    """Accumulate ``extra`` into ``total`` in place, cost included.
+
+    Cache tokens are only added when the provider reports them *separately*
+    from ``input_tokens``; Anthropic does, OpenAI and Gemini fold them in, and
+    summing both would double-count the same tokens.
+    """
+    if extra is None:
+        return
+    total.input_tokens += extra.input_tokens
+    total.output_tokens += extra.output_tokens
+    if not extra.input_tokens_include_cache_read:
+        total.cache_read_tokens += extra.cache_read_tokens
+        total.cache_write_tokens += extra.cache_write_tokens
+    total.cost.input += extra.cost.input
+    total.cost.output += extra.cost.output
+    total.cost.cache_read += extra.cost.cache_read
+    total.cost.cache_write += extra.cost.cache_write
+    total.cost.total += extra.cost.total

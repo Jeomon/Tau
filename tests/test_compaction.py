@@ -247,7 +247,7 @@ class TestSummaryBudget:
                 return [TextEndEvent(text=TextContent(content="summary"))]
 
         llm = FakeLLM()
-        result = asyncio.run(
+        result, _usage = asyncio.run(
             generate_summary(
                 [UserMessage.from_text("x" * 4_000)],
                 llm,  # type: ignore[arg-type]
@@ -299,7 +299,7 @@ class TestSummaryTruncationDetection:
                 ]
 
         llm = FakeLLM()
-        result = asyncio.run(
+        result, _usage = asyncio.run(
             generate_summary(
                 [UserMessage.from_text("hello")],
                 llm,  # type: ignore[arg-type]
@@ -319,7 +319,7 @@ class TestSummaryTruncationDetection:
                 return [TextEndEvent(text=TextContent(content="summary"))]
 
         llm = FakeLLM()
-        result = asyncio.run(
+        result, _usage = asyncio.run(
             generate_summary(
                 [UserMessage.from_text("hello")],
                 llm,  # type: ignore[arg-type]

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from tau.inference.types import ThinkingLevel
-from tau.message.types import AgentMessage, ImageContent, TextContent
+from tau.message.types import AgentMessage, ImageContent, TextContent, Usage
 
 if TYPE_CHECKING:
     pass
@@ -125,6 +125,11 @@ class CompactionEntry(BaseSessionEntry):
     first_kept_entry_id: str
     tokens_before: int
     details: dict[str, Any] | None = None
+    #: Tokens and cost of the summarization call itself. Compacting is a real
+    #: model call, so leaving it unrecorded under-reports what a session spent
+    #: — and unlike a message, nothing else in the history carries it.
+    #: ``None`` on entries written before this was tracked.
+    usage: Usage | None = None
 
 
 class BranchSummaryEntry(BaseSessionEntry):
@@ -134,6 +139,9 @@ class BranchSummaryEntry(BaseSessionEntry):
     details: dict[str, Any] | None = None
     from_hook: bool = False
     label: str | None = None
+    #: As on CompactionEntry — summarizing an abandoned branch costs money.
+    #: ``None`` when an extension supplied the summary instead of the model.
+    usage: Usage | None = None
 
 
 SessionEntries = (

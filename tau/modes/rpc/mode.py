@@ -943,28 +943,20 @@ async def _handle_command(
                     _ok({"sessionId": None, "totalMessages": 0, "cwd": None})
                     return
                 entries = sm.get_branch()
-                from tau.message.types import AssistantMessage, UserMessage
-                from tau.session.types import MessageEntry
+                # Same numbers the `/session` panel shows, from the same code —
+                # the two used to be computed separately and had drifted, so a
+                # client had to pull every entry and re-derive tokens and spend,
+                # cache-accounting rules included.
+                from tau.session.stats import compute_session_stats
 
-                user_count = 0
-                asst_count = 0
-                for e in entries:
-                    if not isinstance(e, MessageEntry):
-                        continue
-                    if isinstance(e.message, UserMessage):
-                        user_count += 1
-                    elif isinstance(e.message, AssistantMessage):
-                        asst_count += 1
-                context_usage = _context_usage(runtime.agent)
+                stats = compute_session_stats(sm.get_branch())
                 _ok(
                     {
                         "sessionFile": str(getattr(sm, "session_file", "") or ""),
                         "sessionId": getattr(sm, "session_id", None),
-                        "userMessages": user_count,
-                        "assistantMessages": asst_count,
-                        "totalMessages": user_count + asst_count,
                         "cwd": str(sm.cwd),
-                        "contextUsage": context_usage,
+                        "contextUsage": _context_usage(runtime.agent),
+                        **stats.to_dict(),
                     }
                 )
 

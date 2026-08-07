@@ -471,8 +471,7 @@ async def _apply_clone(ctx: CommandContext) -> None:
 
 
 def cmd_session(ctx: CommandContext) -> None:
-    from tau.message.types import AssistantMessage, ToolMessage, UserMessage
-    from tau.session.types import MessageEntry as SessionMessageEntry
+    from tau.session.stats import compute_session_stats
     from tau.tui.utils import BOLD, DIM, RESET
 
     sm = ctx.runtime.session_manager
@@ -480,42 +479,8 @@ def cmd_session(ctx: CommandContext) -> None:
         ctx.notify("No active session.")
         return
 
-    branch = sm.get_branch()
-
-    user_count = 0
-    assistant_count = 0
-    tool_call_count = 0
-    tool_result_count = 0
-    input_tokens = 0
-    output_tokens = 0
-    cache_read_tokens = 0
-    cache_write_tokens = 0
-    total_cost = 0.0
-
-    for entry in branch:
-        if not isinstance(entry, SessionMessageEntry):
-            continue
-        msg = entry.message
-        if isinstance(msg, UserMessage):
-            user_count += 1
-        elif isinstance(msg, AssistantMessage):
-            assistant_count += 1
-            tool_call_count += len(msg.tool_calls())
-            input_tokens += msg.usage.input_tokens
-            output_tokens += msg.usage.output_tokens
-            # When input_tokens already folds in the cache read/write breakdown
-            # (OpenAI, Gemini), summing them separately here would double-count
-            # against the Total line below; only providers that report cache
-            # tokens as fully separate from input_tokens (Anthropic) add them.
-            if not msg.usage.input_tokens_include_cache_read:
-                cache_read_tokens += msg.usage.cache_read_tokens
-                cache_write_tokens += msg.usage.cache_write_tokens
-            total_cost += msg.usage.cost.total
-        elif isinstance(msg, ToolMessage):
-            tool_result_count += len(msg.contents)
-
-    total_messages = user_count + assistant_count + (1 if tool_result_count else 0)
-    total_tokens = input_tokens + output_tokens + cache_read_tokens + cache_write_tokens
+    stats = compute_session_stats(sm.get_branch())
+    usage = stats.usage
 
     session_name = sm.get_session_name()
     session_file = sm.session_file
@@ -531,33 +496,38 @@ def cmd_session(ctx: CommandContext) -> None:
     lines.append(f"{DIM}{'ID':<{W}}{RESET} {session_id}")
     lines.append("")
     lines.append(f"{BOLD}Messages{RESET}")
-    lines.append(f"{DIM}{'User':<{W}}{RESET} {user_count}")
-    lines.append(f"{DIM}{'Assistant':<{W}}{RESET} {assistant_count}")
-    lines.append(f"{DIM}{'Tool calls':<{W}}{RESET} {tool_call_count}")
-    lines.append(f"{DIM}{'Tool results':<{W}}{RESET} {tool_result_count}")
-    lines.append(f"{DIM}{'Total':<{W}}{RESET} {total_messages}")
+    lines.append(f"{DIM}{'User':<{W}}{RESET} {stats.user_messages}")
+    lines.append(f"{DIM}{'Assistant':<{W}}{RESET} {stats.assistant_messages}")
+    lines.append(f"{DIM}{'Tool calls':<{W}}{RESET} {stats.tool_calls}")
+    lines.append(f"{DIM}{'Tool results':<{W}}{RESET} {stats.tool_results}")
+    if stats.summaries:
+        lines.append(f"{DIM}{'Summaries':<{W}}{RESET} {stats.summaries}")
+    lines.append(f"{DIM}{'Total':<{W}}{RESET} {stats.total_messages}")
     lines.append("")
     lines.append(f"{BOLD}Tokens{RESET}")
 
-    # Cost rates per token (USD). Use defaults if the LLM didn't report a cost.
-    INPUT_RATE = 0.0001 / 1_000  # $0.0001 per 1 k input tokens
-    OUTPUT_RATE = 0.0002 / 1_000  # $0.0002 per 1 k output tokens
-
-    # Token counts with human‑readable format and inline cost (two decimals)
-    input_cost = input_tokens * INPUT_RATE
-    output_cost = output_tokens * OUTPUT_RATE
-    lines.append(f"{DIM}{'Input':<{W}}{RESET} {format_number(input_tokens)} (${input_cost:.2f})")
-    lines.append(f"{DIM}{'Output':<{W}}{RESET} {format_number(output_tokens)} (${output_cost:.2f})")
-    if cache_read_tokens:
-        lines.append(f"{DIM}{'Cache read':<{W}}{RESET} {format_number(cache_read_tokens)}")
-    if cache_write_tokens:
-        lines.append(f"{DIM}{'Cache write':<{W}}{RESET} {format_number(cache_write_tokens)}")
-    # Total tokens and total cost (use provided total_cost if available, else estimate)
-    total_cost_est = (
-        total_cost if total_cost > 0 else input_tokens * INPUT_RATE + output_tokens * OUTPUT_RATE
+    # Costs are the model's own per-million rates, applied when each response
+    # landed — including the compaction and branch-summary calls, which are
+    # billed like any other and used to be left out of this total entirely.
+    lines.append(
+        f"{DIM}{'Input':<{W}}{RESET} {format_number(usage.input_tokens)} (${usage.cost.input:.2f})"
     )
     lines.append(
-        f"{DIM}{'Total':<{W}}{RESET} {format_number(total_tokens)} (${total_cost_est:.2f})"
+        f"{DIM}{'Output':<{W}}{RESET} {format_number(usage.output_tokens)}"
+        f" (${usage.cost.output:.2f})"
+    )
+    if usage.cache_read_tokens:
+        lines.append(
+            f"{DIM}{'Cache read':<{W}}{RESET} {format_number(usage.cache_read_tokens)}"
+            f" (${usage.cost.cache_read:.2f})"
+        )
+    if usage.cache_write_tokens:
+        lines.append(
+            f"{DIM}{'Cache write':<{W}}{RESET} {format_number(usage.cache_write_tokens)}"
+            f" (${usage.cost.cache_write:.2f})"
+        )
+    lines.append(
+        f"{DIM}{'Total':<{W}}{RESET} {format_number(stats.total_tokens)} (${stats.total_cost:.2f})"
     )
 
     ctx.notify("\n".join(lines))

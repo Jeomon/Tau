@@ -17,6 +17,8 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from tau.message.types import Usage
+
 if TYPE_CHECKING:
     from tau.inference.api.text.service import TextLLM
 
@@ -84,6 +86,8 @@ class CompactionResult:
     first_kept_entry_id: str
     tokens_before: int
     details: dict[str, Any] | None = None
+    #: Tokens and cost of the summarization call(s) this result came from.
+    usage: Usage | None = None
 
 
 @dataclass
@@ -702,9 +706,16 @@ Be concise. Focus on what's needed to understand the kept suffix."""
 async def _call_llm_for_summary(
     prompt_text: str,
     llm: TextLLM,
-) -> str:
+) -> tuple[str, Usage]:
+    """Return the summary text and what generating it cost.
+
+    Compaction is a real model call. Returning only the text is how its cost
+    used to disappear: nothing else in the session carries it, so it could not
+    be recovered afterwards.
+    """
     from tau.inference.types import EndEvent, LLMContext, StopReason, TextDeltaEvent, TextEndEvent
     from tau.message.types import UserMessage
+    from tau.message.utils import usage_from_end_event
 
     context = LLMContext(
         messages=[UserMessage.from_text(prompt_text)],
@@ -727,12 +738,14 @@ async def _call_llm_for_summary(
             "mid-word if used, so it was discarded rather than persisted."
         )
 
+    usage = usage_from_end_event(end, getattr(llm, "model", None)) if end else Usage()
+
     # Prefer TextEndEvent (full accumulated text); fall back to concatenating deltas
     text_end = next((e for e in events if isinstance(e, TextEndEvent)), None)
     if text_end:
-        return text_end.text.content
+        return text_end.text.content, usage
 
-    return "".join(e.text.content for e in events if isinstance(e, TextDeltaEvent))
+    return "".join(e.text.content for e in events if isinstance(e, TextDeltaEvent)), usage
 
 
 async def generate_summary(
@@ -741,7 +754,7 @@ async def generate_summary(
     reserve_tokens: int,
     previous_summary: str | None = None,
     custom_instructions: str | None = None,
-) -> str:
+) -> tuple[str, Usage]:
     conversation_text = serialize_conversation(messages)
 
     base_prompt = UPDATE_SUMMARIZATION_PROMPT if previous_summary else SUMMARIZATION_PROMPT
@@ -784,7 +797,7 @@ async def _generate_turn_prefix_summary(
     messages: list,
     llm: TextLLM,
     reserve_tokens: int,
-) -> str:
+) -> tuple[str, Usage]:
     conversation_text = serialize_conversation(messages)
     suffix = f"</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
     prompt = _fit_summary_prompt(conversation_text, suffix, llm, reserve_tokens)
@@ -885,10 +898,15 @@ async def compact(
 ) -> CompactionResult:
     settings = preparation.settings
 
+    from tau.message.utils import add_usage
+
+    # A split turn runs two calls; both are billed, so both are accumulated.
+    usage = Usage()
+
     if preparation.is_split_turn and preparation.turn_prefix_messages:
         # Generate both summaries in parallel
-        async def _no_history() -> str:
-            return "No prior history."
+        async def _no_history() -> tuple[str, Usage]:
+            return "No prior history.", Usage()
 
         history_coro = (
             generate_summary(
@@ -901,7 +919,7 @@ async def compact(
             if preparation.messages_to_summarize
             else _no_history()
         )
-        history_text, prefix_text = await asyncio.gather(
+        (history_text, history_usage), (prefix_text, prefix_usage) = await asyncio.gather(
             history_coro,
             _generate_turn_prefix_summary(
                 preparation.turn_prefix_messages,
@@ -909,9 +927,11 @@ async def compact(
                 settings.reserve_tokens,
             ),
         )
+        add_usage(usage, history_usage)
+        add_usage(usage, prefix_usage)
         summary = f"{history_text}\n\n---\n\n**Turn Context (split turn):**\n\n{prefix_text}"
     else:
-        summary = await generate_summary(
+        summary, usage = await generate_summary(
             preparation.messages_to_summarize,
             llm,
             settings.reserve_tokens,
@@ -923,6 +943,7 @@ async def compact(
         summary=summary,
         first_kept_entry_id=preparation.first_kept_entry_id,
         tokens_before=preparation.tokens_before,
+        usage=usage,
     )
 
 

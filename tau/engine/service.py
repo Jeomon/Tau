@@ -64,8 +64,8 @@ from tau.message.types import (
     ToolCallContent,
     ToolMessage,
     ToolResultContent,
-    Usage,
 )
+from tau.message.utils import usage_from_end_event
 from tau.tool.types import ToolContext, ToolExecutionMode, ToolInvocation, ToolResult
 from tau.utils import profiling
 
@@ -927,16 +927,12 @@ class Engine:
                                 message.error_kind = kind
                             case EndEvent() as ev:
                                 message.stop_reason = ev.reason
-                                message.usage = Usage(
-                                    input_tokens=ev.input_tokens,
-                                    output_tokens=ev.output_tokens,
-                                    cache_read_tokens=ev.cache_read_tokens,
-                                    cache_write_tokens=ev.cache_write_tokens,
-                                    cache_write_1h_tokens=ev.cache_write_1h_tokens,
-                                    input_tokens_include_cache_read=(
-                                        ev.input_tokens_include_cache_read
-                                    ),
-                                )
+                                # Priced here, not just counted: the provider
+                                # reports tokens and the per-million rates live
+                                # on the model, so without this every
+                                # `usage.cost` keeps its zero default and
+                                # anything totalling spend reports nothing.
+                                message.usage = usage_from_end_event(ev, self.llm.model)
 
                     # If we broke out of the stream early due to abort, treat as abort
                     if signal.is_set() and message.stop_reason == StopReason.Stop:
