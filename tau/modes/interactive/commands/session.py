@@ -162,14 +162,15 @@ def open_tree_selector(ctx: CommandContext) -> None:
 
     # Flatten once to map id -> parent_id, so we can walk current_leaf's
     # ancestor chain and mark the active path (independent of tree nesting).
-    parent_of: dict[str, str | None] = {}
-
-    def _index(node_list: list) -> None:
-        for node in node_list:
-            parent_of[node.entry.id] = node.entry.parent_id
-            _index(node.children)
-
-    _index(nodes)
+    #
+    # Taken straight from the entry list rather than by descending the tree.
+    # The tree is built from exactly these entries, so the map is the same, and
+    # a linear conversation nests one node deep per entry — recursing to build
+    # it raised `RecursionError: maximum recursion depth exceeded` on any
+    # session past roughly a thousand entries, which is what `/tree` reported
+    # instead of opening. This is also what the comment above always described:
+    # the map is flat, so building it has no reason to care how deep the tree is.
+    parent_of: dict[str, str | None] = {entry.id: entry.parent_id for entry in sm.get_entries()}
 
     active_ids: set[str] = set()
     cur = current_leaf
@@ -237,25 +238,40 @@ def open_tree_selector(ctx: CommandContext) -> None:
                 chars.append(" ")
         return "".join(chars)
 
-    def _walk(
-        node_list: list,
-        gutters: list[tuple[int, bool]],
-        display_indent: int,
-        just_branched: bool,
-    ) -> None:
-        """
-        Tree walk:
+    def _emit_rows(root_nodes: list) -> None:
+        """Build one row per displayable entry, in pre-order.
+
+        Iterative, for the same reason `_contains_active` just above and
+        `SessionManager.get_tree` are: a linear conversation is a chain one
+        node deep per entry, so recursing per node raised
+
+            RecursionError: maximum recursion depth exceeded
+
+        on any session past roughly a thousand entries — `/tree` stopped
+        working on exactly the long sessions it is most useful for. One real
+        session reached a chain depth of 2390 against a limit of 1000.
+
+        Children are pushed in reverse so popping reproduces the traversal
+        order the recursion produced; the rows are byte-for-byte what they
+        were.
+
+        Layout rules, unchanged:
         - Connectors (├─/└─) only when multiple siblings exist.
         - Linear single-child chains stay flat (no indent increase, no connector).
         - Gutters (│) track open branch lines for descendants.
-        - just_branched: parent had multiple children → first gen after branch also indents.
         """
-        n = len(node_list)
-        is_branching = n > 1  # multiple siblings → show connectors
+        root_count = len(root_nodes)
+        # (node, gutters, display_indent, is_branching, is_last). `is_branching`
+        # and `is_last` describe the node's position among its own siblings,
+        # which the recursion derived from the list it was called with.
+        stack: list[tuple[object, list[tuple[int, bool]], int, bool, bool]] = [
+            (node, [], 0, root_count > 1, i == root_count - 1) for i, node in enumerate(root_nodes)
+        ]
+        stack.reverse()
 
-        for i, node in enumerate(node_list):
-            is_last = i == n - 1
-            entry = node.entry
+        while stack:
+            node, gutters, display_indent, is_branching, is_last = stack.pop()
+            entry = node.entry  # type: ignore[attr-defined]
             role_text = _entry_role_text(entry)
 
             if role_text is not None:
@@ -277,14 +293,14 @@ def open_tree_selector(ctx: CommandContext) -> None:
                         selectable=selectable,
                         value=entry.id,
                         parent_value=getattr(entry, "parent_id", None),
-                        has_children=len(node.children) > 0,
+                        has_children=len(node.children) > 0,  # type: ignore[attr-defined]
                     )
                 )
 
             # Sort children so the branch containing the active leaf comes first
-            children = node.children
+            children = node.children  # type: ignore[attr-defined]
             if len(children) > 1:
-                children = sorted(children, key=lambda n: 0 if _contains_active(n) else 1)
+                children = sorted(children, key=lambda c: 0 if _contains_active(c) else 1)
 
             # Child indent rules:
             #   - node has multiple children → +1 (they will branch)
@@ -302,9 +318,19 @@ def open_tree_selector(ctx: CommandContext) -> None:
             else:
                 child_gutters = gutters
 
-            _walk(children, child_gutters, child_indent, just_branched=is_branching)
+            child_count = len(children)
+            for i in range(child_count - 1, -1, -1):
+                stack.append(
+                    (
+                        children[i],
+                        child_gutters,
+                        child_indent,
+                        child_count > 1,
+                        i == child_count - 1,
+                    )
+                )
 
-    _walk(nodes, [], 0, just_branched=False)
+    _emit_rows(nodes)
 
     if not rows:
         ctx.notify("No navigable branches found.")
