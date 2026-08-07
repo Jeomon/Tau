@@ -793,12 +793,27 @@ class LSP:
     async def diagnostics(self) -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {}
 
+        # Every dict here is snapshotted before iterating. All three are mutated
+        # from outside this coroutine while it runs:
+        #
+        #   * `_clients` gains and loses entries as servers start and are reaped
+        #   * `client.diagnostics` is written by `_on_diagnostics`, a
+        #     notification callback the language server drives at arbitrary
+        #     times
+        #   * `client._file_versions` is written by `open_file`
+        #
+        # and the per-file pull below awaits *inside* its loop, which hands
+        # control back to exactly those coroutines mid-iteration. The result was
+        # `RuntimeError: dictionary changed size during iteration` escaping the
+        # `tool_result` handler, so a read that happened to coincide with the
+        # server publishing diagnostics silently lost them.
+
         # Collect push diagnostics (publishDiagnostics notifications)
-        for client in self._clients.values():
-            for path, diags in client.diagnostics.items():
+        for client in list(self._clients.values()):
+            for path, diags in list(client.diagnostics.items()):
                 result.setdefault(path, []).extend(diags)
 
-        for client in self._clients.values():
+        for client in list(self._clients.values()):
             if not client.supports("diagnosticProvider"):
                 continue
             # Try workspace-wide pull first (gives diagnostics for all files at once)
@@ -809,7 +824,7 @@ class LSP:
                         result[path] = diags
                 continue
             # Fall back to per-file pull for open files with no push data
-            for path in client._file_versions:
+            for path in list(client._file_versions):
                 if path not in result:
                     pulled = await client.pull_diagnostics(path)
                     if pulled:
