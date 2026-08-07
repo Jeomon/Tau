@@ -6,7 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.tools.utils import atomic_write_text, resolve_tool_path, serialize_file_mutation
+from tau.builtins.tools.utils import (
+    atomic_write_text,
+    resolve_tool_path,
+    serialize_file_mutation,
+    stamp_lines,
+)
 from tau.tool.render import call_line
 from tau.tool.types import (
     AbortSignal,
@@ -57,8 +62,16 @@ def _render_write_result(content: str, opts: Any) -> list[str]:
     if not lines:
         return result
 
-    for i, text in enumerate(lines, 1):
-        result.append(f"{DIM}{i}{RESET}  {text}")
+    # Hashline anchors, the same form `read` and `edit` display, rather than a
+    # bare index: the number alone is not what either of those addresses a line
+    # by, so a written file read back looked like a different kind of thing.
+    #
+    # Computed here rather than stored in metadata, which the session persists —
+    # one token per line of every write would grow every session file for
+    # something derivable from the content already there.
+    anchors = stamp_lines(lines)
+    for i, (token, text) in enumerate(zip(anchors, lines, strict=True), 1):
+        result.append(f"{DIM}{i}:{token}{RESET}  {text}")
 
     return result
 
