@@ -177,6 +177,16 @@ Tau does not include a sandbox. Built-in tools, extensions, package code, and sh
 
 For untrusted repositories, unattended automation, or generated code you do not intend to review closely, run Tau inside a container or VM with only the files and credentials the task needs. Real isolation has to come from the operating system, not from the agent process.
 
+The bundled `sandbox` extension routes the `terminal` tool through a microsandbox microVM where that runtime is available. Read its default carefully: **when the microVM cannot start — unsupported platform, missing dependency, or a boot failure — it runs the command on the host instead** and prints a one-time notice. That default is why the extension can ship enabled; it is also isolation disappearing without the caller being asked.
+
+Set `fail_closed` (`/settings` → Sandbox → Fail closed) to refuse the command instead. Every reason to route a command through a microVM is a reason not to run it on the host, and a boot failure does not change that — so for unattended or untrusted work, turn it on:
+
+```jsonc
+{ "extensions": { "sandbox": { "fail_closed": true } } }
+```
+
+Note what this is and is not: with `fail_closed` on, an unavailable sandbox stops the command. It does not make the sandbox itself a security boundary you should rely on for hostile code — see the paragraph above.
+
 ## Telemetry
 
 Tau sends telemetry to PostHog (`https://us.i.posthog.com`). One settings flag controls all of it.

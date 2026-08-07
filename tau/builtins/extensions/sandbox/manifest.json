@@ -2,7 +2,9 @@
   "tau": {
     "name": "Sandbox",
     "author": "jeomon",
-    "dependencies": ["microsandbox"],
+    "dependencies": [
+      "microsandbox"
+    ],
     "settings": {
       "title": "Sandbox",
       "fields": [
@@ -45,7 +47,10 @@
           "key": "network",
           "label": "Network",
           "type": "enum",
-          "values": ["public", "none"],
+          "values": [
+            "public",
+            "none"
+          ],
           "default": "public",
           "description": "\"public\" allows outbound network access from the sandbox; \"none\" fully isolates it."
         },
@@ -55,6 +60,13 @@
           "type": "int",
           "default": 1800,
           "description": "The runtime stops the microVM after this many seconds without activity, so an abandoned or crashed session doesn't leave it running forever. The next command boots a fresh one."
+        },
+        {
+          "key": "fail_closed",
+          "label": "Fail closed",
+          "type": "bool",
+          "default": false,
+          "description": "Refuse a command outright when the sandbox microVM cannot start, instead of running it on the host. Off by default so an unsupported platform still has a working terminal; turn it on for unattended or untrusted work, where silently losing isolation is worse than failing."
         },
         {
           "key": "prewarm",

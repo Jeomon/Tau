@@ -53,6 +53,17 @@ class SandboxConfig:
     persistent: bool = True
     network: str = "public"  # "public" | "none"
     idle_timeout_seconds: int = 1800
+    #: Refuse the command outright when the microVM cannot be started, instead
+    #: of running it on the host.
+    #:
+    #: Off by default: this extension is enabled by default and the runtime is
+    #: genuinely unavailable on some platforms, so defaulting to closed would
+    #: leave those users with a terminal tool that only ever errors. Turn it on
+    #: for unattended or untrusted work, where quietly losing isolation is the
+    #: worse outcome — the reason to route commands through a microVM is that
+    #: running them on the host is not acceptable, and a boot failure does not
+    #: make it acceptable.
+    fail_closed: bool = False
 
 
 class SandboxManager:

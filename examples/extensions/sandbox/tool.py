@@ -153,6 +153,42 @@ class SandboxTerminalTool(Tool):
 
         return attempt
 
+    async def _unavailable(
+        self,
+        error: SandboxUnavailableError,
+        invocation: ToolInvocation,
+        tool_execution_update_callback: ToolExecutionUpdateCallback | None,
+        signal: AbortSignal | None,
+        context: ToolContext | None,
+    ) -> ToolResult:
+        """Decide what an unbootable sandbox means for this command.
+
+        Falling back to the host is the default and the reason this extension
+        can be on out of the box: the runtime is unsupported on some platforms,
+        and a terminal tool that only ever errors there would be worse than no
+        sandbox at all.
+
+        It is also, precisely, isolation disappearing without the caller being
+        asked. ``fail_closed`` is for the case where that trade is wrong —
+        unattended runs, untrusted input — and it refuses rather than
+        downgrading. The message names the cause, because "sandbox
+        unavailable" with no reason is unactionable when the fix is usually
+        installing a package or picking a supported platform.
+        """
+        if self._manager.config.fail_closed:
+            return ToolResult.error(
+                invocation.id,
+                f"Sandbox unavailable ({error}) and fail_closed is on, so the command"
+                " was not run. Start the sandbox runtime, or turn off"
+                " /settings → Sandbox → Fail closed to allow host execution.",
+            )
+        if not self._warned_unavailable:
+            self._warned_unavailable = True
+            self._notify(f"Sandbox unavailable ({error}); running commands on the host instead.")
+        return await self._fallback.execute(
+            invocation, tool_execution_update_callback, signal, context
+        )
+
     async def execute(
         self,
         invocation: ToolInvocation,
@@ -163,11 +199,8 @@ class SandboxTerminalTool(Tool):
         try:
             sandbox = await self._manager.get()
         except SandboxUnavailableError as e:
-            if not self._warned_unavailable:
-                self._warned_unavailable = True
-                self._notify(f"Sandbox unavailable ({e}); running commands on the host instead.")
-            return await self._fallback.execute(
-                invocation, tool_execution_update_callback, signal, context
+            return await self._unavailable(
+                e, invocation, tool_execution_update_callback, signal, context
             )
 
         params = TerminalParams.model_validate(invocation.params)
@@ -178,9 +211,8 @@ class SandboxTerminalTool(Tool):
             try:
                 sandbox = await self._manager.get()
             except SandboxUnavailableError as e:
-                self._notify(f"Sandbox unavailable ({e}); running commands on the host instead.")
-                return await self._fallback.execute(
-                    invocation, tool_execution_update_callback, signal, context
+                return await self._unavailable(
+                    e, invocation, tool_execution_update_callback, signal, context
                 )
             attempt = await self._run_once(sandbox, params.cmd, params.timeout, signal)
 

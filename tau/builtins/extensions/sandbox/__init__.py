@@ -17,6 +17,8 @@ Settings (see manifest.json / /settings → Sandbox):
   network              "public" (outbound network allowed) or "none" (isolated).
   idle_timeout_seconds Runtime-enforced auto-stop after this much inactivity, so a
                        crashed/abandoned session doesn't leave a VM running forever.
+  fail_closed          Refuse the command instead of running it on the host when the
+                       microVM cannot start (default false).
   prewarm              Start booting the microVM in the background at session start
                        instead of on the first command.
 
@@ -51,6 +53,7 @@ def register(tau: ExtensionAPI) -> None:
         persistent=bool(config.get("persistent", True)),
         network=config.get("network", "public"),
         idle_timeout_seconds=int(config.get("idle_timeout_seconds", 1800)),
+        fail_closed=bool(config.get("fail_closed", False)),
     )
     manager = SandboxManager(tau.cwd, sandbox_config)
     prewarm = bool(config.get("prewarm", True))
