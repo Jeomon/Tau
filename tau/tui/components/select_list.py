@@ -165,6 +165,20 @@ class SelectList[T](Component):
         self._all_items = items
         self._apply_filter()
 
+    def append_search(self, text: str) -> None:
+        """Extend the filter query — what typing into this picker does.
+
+        The fuzzy filter has been here all along; there was simply no way to
+        feed it a keystroke. ``SelectorController`` calls this on every
+        printable character, so its absence did not disable filtering quietly:
+        it raised out of the stdin callback and swallowed the key.
+        """
+        self.set_query(self._query + text)
+
+    def backspace_search(self) -> None:
+        """Delete the last character of the filter query."""
+        self.set_query(self._query[:-1])
+
     def set_query(self, query: str) -> None:
         if query == self._query:
             return

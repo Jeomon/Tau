@@ -66,7 +66,16 @@ class SelectorController(Component):
             return True
 
         selector = active.selector
-        tree = selector if active.kind == "tree" else None
+        # Gated on the capability, not the label. Two different components are
+        # opened as kind="tree": `open_branch_tree_selector` supplies a real
+        # `TreeSelectList`, while `open_tree_selector` — what `ui.select`,
+        # `ui.confirm` and every extension picker go through — supplies a plain
+        # `SelectList`, which has no folding, no filters and no search methods.
+        # Trusting the label meant a left arrow or a printable character in a
+        # permission prompt called straight into a method that does not exist,
+        # raising out of `_on_stdin_ready` where only asyncio's default handler
+        # saw it: the keystroke was swallowed and nothing appeared on screen.
+        tree = selector if active.kind == "tree" and hasattr(selector, "fold_or_up") else None
         if tree is not None and getattr(tree, "label_editing", False):
             tree.label_edit_key(event)
             return self._rendered()
@@ -131,10 +140,18 @@ class SelectorController(Component):
         """
         if SelectorController._feed_paging(selector, event):
             return
+        # getattr for the same reason _feed_paging below uses it, and the paste
+        # branch in handle_input: a selector that does not implement search is
+        # a normal thing, and an unclaimed key should fall through rather than
+        # raise out of the stdin callback.
         if event.key == "backspace":
-            selector.backspace_search()
+            deleter = getattr(selector, "backspace_search", None)
+            if deleter is not None:
+                deleter()
         elif len(event.key) == 1 and event.key.isprintable():
-            selector.append_search(event.char or event.key)
+            appender = getattr(selector, "append_search", None)
+            if appender is not None:
+                appender(event.char or event.key)
 
     @staticmethod
     def _feed_paging(selector: Any, event: KeyEvent) -> bool:
@@ -258,10 +275,13 @@ class SelectorController(Component):
             case ch if tree is not None and len(ch) == 1 and ch.isprintable():
                 tree.append_search(event.char or ch)
             case _ if tree is None:
-                # Non-tree inline pickers wrap a SelectList, which already
-                # implements paging; the tree arms above claim these keys first
-                # for their own fold/scroll meaning.
-                self._feed_paging(active.selector, event)
+                # Non-tree inline pickers wrap a SelectList. `_feed_search`
+                # tries paging first and then search, both guarded, so a
+                # printable key filters the list the way it does in every
+                # other picker instead of being dropped. The tree arms above
+                # claim these keys first only for their own fold/scroll
+                # meaning.
+                self._feed_search(active.selector, event)
         return self._rendered()
 
     def _commit(self, active: InlineSelector, value: Any) -> None:
