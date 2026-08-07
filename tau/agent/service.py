@@ -624,8 +624,22 @@ class Agent:
     # -------------------------------------------------------------------------
 
     async def compact(self, custom_instructions: str | None = None) -> bool:
-        """Manually trigger context compaction. Returns True if compaction ran."""
+        """Manually trigger context compaction. Returns True if compaction ran.
+
+        Refuses unless the agent is idle. Compaction saves and restores the
+        phase, so overlapping it with a turn (or with the automatic compaction
+        that runs inside one) makes the two restores fight: the loser's phase
+        is written back last and the agent never returns to IDLE, which wedges
+        every later ``invoke()`` on "Agent is busy" for the rest of the
+        session. Callers that dispatch commands concurrently (RPC) must wait
+        for ``settled`` or handle this error.
+        """
         from tau.session.compaction import prepare_compaction
+
+        if self._phase is not AgentPhase.IDLE:
+            raise RuntimeError(
+                f"Agent is busy (phase={self._phase!r}). Wait for the current operation to finish."
+            )
 
         entries = self._session_manager.get_branch()
         preparation = prepare_compaction(entries, self._current_compaction_settings())
@@ -648,8 +662,18 @@ class Agent:
         custom_instructions: str | None = None,
         reason: _CompactionReason = _CompactionReason.Manual,
     ) -> None:
-        """Run a prepared compaction, persist the summary, and emit the end event."""
+        """Run a prepared compaction, persist the summary, and emit the end event.
+
+        Not re-entrant: ``previous_phase`` below is a plain local, so a second
+        compaction entered while this one is awaiting would capture (and later
+        restore) ``COMPACTION`` and leave the agent permanently non-idle.
+        ``compact()`` and ``_check_compaction()`` both gate on the phase; this
+        is the backstop for any other caller.
+        """
         from tau.hooks.engine import CompactionEndEvent, CompactionFailureEvent
+
+        if self._phase is AgentPhase.COMPACTION:
+            raise RuntimeError("A compaction is already running.")
 
         will_retry = reason == _CompactionReason.Overflow
         previous_phase = self._phase

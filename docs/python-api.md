@@ -350,9 +350,11 @@ agent.get_context_usage()    # ContextUsage(tokens, context_window, percent) | N
 agent.get_system_prompt()    # str
 
 await agent.wait_for_idle()  # through save-point handlers and post-run compaction
-await agent.compact(custom_instructions=None)  # -> bool
+await agent.compact(custom_instructions=None)  # -> bool; raises if not idle
 agent.abort()
 ```
+
+`compact()` raises `RuntimeError` unless the agent is idle, the same way `invoke()` does. Overlapping it with a turn would race the automatic compaction that runs inside one, and the two would fight over the saved phase — leaving the agent permanently non-idle. Call `await agent.wait_for_idle()` first.
 
 ### ToolRegistry
 

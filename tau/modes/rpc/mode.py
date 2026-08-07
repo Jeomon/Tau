@@ -563,6 +563,13 @@ def _is_streaming(agent: Any) -> bool:
     return bool(getattr(agent, "_running", False))
 
 
+def _busy_error(action: str) -> str:
+    """Error text for a command that may not run while a turn is in flight."""
+    return (
+        f"Agent is busy; cannot {action} mid-turn. Abort the turn or wait for the 'settled' event."
+    )
+
+
 async def _start_prompt(
     runtime: Runtime,
     text: str,
@@ -752,6 +759,12 @@ async def _handle_command(
             case "new_session":
                 # `cancelled` means the user (or a hook) declined — a crash is a
                 # failure and must not be dressed up as a polite refusal.
+                # Swapping the runtime context out from under a running turn
+                # leaves the old agent writing to the session it was detached
+                # from, so refuse rather than tear down mid-flight.
+                if _is_streaming(runtime.agent):
+                    _err(_busy_error("start a new session"))
+                    return
                 parent = cmd.get("parentSession") or cmd.get("parent_session")
                 try:
                     await runtime.new_session(parent_session=parent)
@@ -982,6 +995,13 @@ async def _handle_command(
                 if not callable(compact_fn):
                     _err("Compaction is not available")
                     return
+                # Racing the automatic compaction that runs inside a turn
+                # corrupts the agent's saved phase and wedges it non-idle for
+                # the rest of the session. Agent.compact() rejects this too;
+                # the check here makes the reason explicit to the client.
+                if _is_streaming(agent):
+                    _err(_busy_error("compact"))
+                    return
                 # compact() returns a bool, not a result object — the summary and
                 # token counts live on the compaction_end event and the session's
                 # CompactionEntry.
@@ -1098,6 +1118,11 @@ async def _handle_command(
                 if not path:
                     _err("'sessionPath' is required")
                     return
+                # Same hazard as new_session: the running turn keeps writing to
+                # the context this would replace.
+                if _is_streaming(runtime.agent):
+                    _err(_busy_error("switch sessions"))
+                    return
                 from pathlib import Path as _Path
 
                 cancelled = False
@@ -1113,6 +1138,12 @@ async def _handle_command(
                 position = cmd.get("position", "at")
                 if not entry_id:
                     _err("'entryId' is required")
+                    return
+                # fork_session() replaces the runtime context, same as
+                # new_session; a turn still in flight would go on writing to
+                # the context it was detached from.
+                if _is_streaming(runtime.agent):
+                    _err(_busy_error("fork"))
                     return
                 cancelled = False
                 fork_text = ""
@@ -1143,6 +1174,11 @@ async def _handle_command(
                 sm = runtime.session_manager
                 if sm is None:
                     _err("No active session")
+                    return
+                # Clone is a fork at the current leaf, so it replaces the
+                # context the same way.
+                if _is_streaming(runtime.agent):
+                    _err(_busy_error("clone"))
                     return
                 cancelled = False
                 leaf_id = getattr(sm, "leaf_id", None)

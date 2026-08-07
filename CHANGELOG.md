@@ -8,6 +8,10 @@ All notable changes to `tau-coding-agent` are documented here.
 
 -   `requires-python` is now `>=3.12`, was `==3.12`. The exact pin admitted only 3.12.x, so the project could not be installed under 3.13 or 3.14 — including into the sandbox extension's own microVM, whose `python` image resolves to the latest release. Nothing in the codebase required the pin: the full suite passes unchanged on 3.14.6. `ruff`'s `target-version` and mypy's `python_version` stay at 3.12, since both should track the *oldest* supported version rather than the newest
 
+### Fixed
+
+-   A compaction that overlaps another one no longer wedges the agent for the rest of the session. `Agent._apply_compaction` saves the current phase in a local and restores it in its `finally`, so a second compaction entered while the first was awaiting captured `COMPACTION` as *its* previous phase and wrote that back last: `is_idle()` then answered False forever and every subsequent `invoke()` failed with "Agent is busy". Only RPC could reach it — commands are dispatched as independent tasks (`asyncio.ensure_future` per stdin line), and neither the `compact` handler nor `Agent.compact()` checked whether a turn was in flight, so a `compact` sent mid-turn raced the automatic compaction running inside that turn. The TUI was never exposed, because slash commands default to `requires_idle=True` and are deferred until `settled`. `Agent.compact()` now raises `RuntimeError` unless the agent is idle, mirroring `invoke()`, and `_apply_compaction` refuses to re-enter while a compaction is already running. The RPC `compact`, `new_session`, `switch_session`, `fork` and `clone` handlers reject mid-turn commands with a message naming `settled`, rather than letting them swap the runtime context out from under a running agent
+
 ## 0.9.2 — 2026-08-06
 
 ### Breaking

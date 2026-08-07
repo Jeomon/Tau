@@ -7,6 +7,7 @@ the handler must now reach the real API, and say so when it cannot.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -671,3 +672,100 @@ class TestParentSessionLineage:
 
         # The option existed on the dataclass but was never passed through.
         assert seen == ["/tmp/prev.jsonl"]
+
+
+class TestBusyGuards:
+    """Commands are dispatched concurrently, so a client can land a
+    session-mutating command in the middle of a turn. `compact` racing the
+    automatic compaction inside that turn used to wedge the agent's phase
+    non-idle for the rest of the session."""
+
+    class _BusyAgent(_Agent):
+        def is_idle(self) -> bool:
+            return False
+
+    @pytest.mark.asyncio
+    async def test_compact_is_rejected_mid_turn(self, captured):
+        agent = self._BusyAgent()
+        compact_calls: list = []
+        agent.compact = lambda **kwargs: compact_calls.append(kwargs)
+
+        await mode._handle_command({"type": "compact", "id": "1"}, _Runtime(agent), {})
+
+        assert captured[-1]["success"] is False
+        assert "busy" in captured[-1]["error"]
+        assert compact_calls == []
+
+    @pytest.mark.asyncio
+    async def test_new_session_is_rejected_mid_turn(self, captured):
+        started: list = []
+
+        class _RT(_Runtime):
+            async def new_session(self, *, parent_session=None):
+                started.append(parent_session)
+
+        await mode._handle_command({"type": "new_session", "id": "1"}, _RT(self._BusyAgent()), {})
+
+        assert captured[-1]["success"] is False
+        assert "busy" in captured[-1]["error"]
+        assert started == []
+
+    @pytest.mark.asyncio
+    async def test_switch_session_is_rejected_mid_turn(self, captured):
+        resumed: list = []
+
+        class _RT(_Runtime):
+            async def resume_session(self, path):
+                resumed.append(path)
+
+        await mode._handle_command(
+            {"type": "switch_session", "id": "1", "sessionPath": "/tmp/s.jsonl"},
+            _RT(self._BusyAgent()),
+            {},
+        )
+
+        assert captured[-1]["success"] is False
+        assert "busy" in captured[-1]["error"]
+        assert resumed == []
+
+    @pytest.mark.asyncio
+    async def test_fork_is_rejected_mid_turn(self, captured):
+        forked: list = []
+
+        class _RT(_Runtime):
+            async def fork_session(self, entry_id, position="at"):
+                forked.append(entry_id)
+
+        rt = _RT(self._BusyAgent(), session_manager=SimpleNamespace(get_branch=lambda: []))
+        await mode._handle_command({"type": "fork", "id": "1", "entryId": "e7c1"}, rt, {})
+
+        assert captured[-1]["success"] is False
+        assert "busy" in captured[-1]["error"]
+        assert forked == []
+
+    @pytest.mark.asyncio
+    async def test_clone_is_rejected_mid_turn(self, captured):
+        forked: list = []
+
+        class _RT(_Runtime):
+            async def fork_session(self, entry_id, position="at"):
+                forked.append(entry_id)
+
+        rt = _RT(self._BusyAgent(), session_manager=SimpleNamespace(leaf_id="leaf"))
+        await mode._handle_command({"type": "clone", "id": "1"}, rt, {})
+
+        assert captured[-1]["success"] is False
+        assert "busy" in captured[-1]["error"]
+        assert forked == []
+
+    @pytest.mark.asyncio
+    async def test_compact_still_runs_when_idle(self, captured):
+        agent = _Agent()  # is_idle() -> True
+        agent.compact = AsyncMock(return_value=True)
+
+        await mode._handle_command(
+            {"type": "compact", "id": "1"}, _Runtime(agent, session_manager=None), {}
+        )
+
+        agent.compact.assert_awaited_once()
+        assert captured[-1]["success"] is True

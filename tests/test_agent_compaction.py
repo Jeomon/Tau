@@ -445,3 +445,75 @@ def test_ephemeral_injection_falls_back_when_called_without_transform_context() 
         assert build_calls == 1
 
     asyncio.run(scenario())
+
+
+# ── Concurrency ──────────────────────────────────────────────────────────────
+
+
+def _compaction_agent() -> Any:
+    """An agent wired just enough to run _apply_compaction end to end."""
+    agent = _agent(_Settings())
+    agent._runtime = None
+    agent.hooks = Hooks()
+    agent._session_manager = SimpleNamespace(append_compaction=lambda **kwargs: "entry")
+    return agent
+
+
+def test_overlapping_compactions_do_not_wedge_the_phase() -> None:
+    """A second compaction entered while the first is awaiting must be refused.
+
+    _apply_compaction saves and restores the phase in a local, so a nested run
+    used to capture COMPACTION and restore it, leaving the agent permanently
+    non-idle: every later invoke() then failed with "Agent is busy".
+    """
+
+    async def scenario() -> None:
+        agent = _compaction_agent()
+        agent._phase = AgentPhase.TURN  # auto-compaction runs inside a turn
+        gate = asyncio.Event()
+
+        async def slow_compaction(*args: Any, **kwargs: Any):
+            await gate.wait()
+            return (
+                CompactionResult(summary="s", first_kept_entry_id="k", tokens_before=1),
+                False,
+            )
+
+        agent._run_compaction = slow_compaction
+
+        # Both run as tasks, the way RPC dispatches them: the pre-fix failure
+        # mode is not an exception but a corrupted phase left behind after
+        # both have finished.
+        first = asyncio.ensure_future(agent._apply_compaction(SimpleNamespace(), [], manual=False))
+        await asyncio.sleep(0)  # let it claim the COMPACTION phase
+        second = asyncio.ensure_future(agent._apply_compaction(SimpleNamespace(), [], manual=True))
+        await asyncio.sleep(0)
+
+        gate.set()
+        outcomes = await asyncio.gather(first, second, return_exceptions=True)
+
+        assert outcomes[0] is None  # the compaction already under way completed
+        assert isinstance(outcomes[1], RuntimeError)
+        assert "already running" in str(outcomes[1])
+        assert agent._phase is AgentPhase.TURN
+        assert agent.is_idle() is False  # still mid-turn, but not wedged
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", [AgentPhase.TURN, AgentPhase.COMPACTION])
+def test_manual_compact_is_refused_while_the_agent_is_busy(phase: AgentPhase) -> None:
+    """RPC dispatches commands concurrently, so /compact can land mid-turn."""
+
+    async def scenario() -> None:
+        agent = _compaction_agent()
+        agent._phase = phase
+        agent._run_compaction = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="Agent is busy"):
+            await agent.compact()
+
+        agent._run_compaction.assert_not_awaited()
+        assert agent._phase is phase  # the refusal must not disturb the phase
+
+    asyncio.run(scenario())

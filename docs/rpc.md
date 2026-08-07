@@ -260,6 +260,8 @@ Start a fresh session. Pass `parentSession` (a session file path) to record wher
 
 If starting the session raises, the error is logged and the response reports `{"cancelled": true}` with `success: true`, not a failure response.
 
+Refused while a turn is in flight: the running agent would keep writing to the context this replaces. `abort` first, or wait for `settled`. `switch_session`, `fork` and `clone` are refused for the same reason.
+
 ### State and Messages
 
 #### get_state
@@ -478,6 +480,8 @@ Cycles through the levels *this model* supports, wrapping around, and reports th
 ```
 
 The summary and token count are read back from the session's compaction entry after the run. A failed compaction answers `success: false`; watch `compaction_failure` for the reason.
+
+Only valid while the agent is idle. Sent mid-turn it is refused, because it would race the automatic compaction that runs inside a turn and leave the agent stuck non-idle for the rest of the session. Wait for `settled`, or `abort` first.
 
 #### set_auto_compaction
 
@@ -917,6 +921,7 @@ A failed command returns a response with `success: false` and an `error` string.
 | No model for the thinking-level commands | `"No active model"` |
 | Failed model switch | `"Could not switch to '<id>' — unknown model, missing credentials, or no active agent"` |
 | Prompt sent mid-turn without `streamingBehavior` | `"Agent is streaming; specify streamingBehavior: 'steer' or 'followUp'"` |
+| `compact`, `new_session`, `switch_session`, `fork` or `clone` sent mid-turn | `"Agent is busy; cannot <action> mid-turn. Abort the turn or wait for the 'settled' event."` |
 | No session for `clone`, `set_session_name`, `export_html` | `"No active session"` |
 | Unhandled exception in a handler | `error` is `str(exception)` |
 

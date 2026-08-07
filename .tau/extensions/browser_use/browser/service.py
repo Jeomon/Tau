@@ -1776,7 +1776,23 @@ class Browser:
             if self._process is None or self._process.returncode is not None:
                 code = None if self._process is None else self._process.returncode
                 detail = self._read_stderr()
-                message = f"browser exited during startup with code {code}"
+                if code == 0:
+                    # A clean, immediate exit is Chrome handing the request to
+                    # an instance that already owns the profile ("Opening in
+                    # existing browser session." — on stdout, which is
+                    # DEVNULL here, so the code is the only signal). That
+                    # other process was not started for us and may expose no
+                    # debug port at all. Phrased to match
+                    # _PROFILE_LOCK_MARKERS so _launch_process retries on an
+                    # ephemeral profile before giving up.
+                    message = (
+                        f"browser exited immediately: profile {profile} is already "
+                        "in use by another Chrome instance, which took over the "
+                        "request instead of starting a debuggable browser. Quit "
+                        "it, or point user_data_dir at a different directory"
+                    )
+                else:
+                    message = f"browser exited during startup with code {code}"
                 if detail:
                     message = f"{message}: {detail}"
                 raise BrowserLaunchError(message)

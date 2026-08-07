@@ -20,6 +20,15 @@ if TYPE_CHECKING:
     from .dom.types import Element
 
 
+def _describe_probe_error(exc: Exception) -> str:
+    """One-line reason a /json/version probe failed, per endpoint."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}"
+    if isinstance(exc, urllib.error.URLError):
+        return str(exc.reason)
+    return f"{type(exc).__name__}: {exc}"
+
+
 def _resolve_ws_url(value: str, timeout: float = 10.0) -> str:
     """Turn a user-supplied CDP endpoint (bare port, http URL, or ws URL)
     into the websocket debugger URL BrowserSettings.cdp_url expects.
@@ -42,7 +51,10 @@ def _resolve_ws_url(value: str, timeout: float = 10.0) -> str:
     ]
 
     deadline = time.monotonic() + timeout
-    last_error: Exception | None = None
+    # Per-endpoint, so a reachable-but-useless endpoint is not masked by the
+    # other family's refusal — the two failures mean very different things.
+    failures: dict[str, str] = dict.fromkeys(urls, "not probed")
+    served_404 = False
     while time.monotonic() < deadline:
         for url in urls:
             try:
@@ -50,13 +62,27 @@ def _resolve_ws_url(value: str, timeout: float = 10.0) -> str:
                     info = json.loads(response.read())
                 return info["webSocketDebuggerUrl"]
             except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
-                last_error = exc
+                served_404 = served_404 or (
+                    isinstance(exc, urllib.error.HTTPError) and exc.code == 404
+                )
+                failures[url] = _describe_probe_error(exc)
         time.sleep(0.5)
-    raise RuntimeError(
-        f"could not reach a Chrome debug endpoint at {' or '.join(urls)}: "
-        f"{last_error}. Make sure Chrome was launched with "
-        "--remote-debugging-port."
-    )
+
+    detail = "; ".join(f"{url} -> {reason}" for url, reason in failures.items())
+    if served_404:
+        # Chrome 136+ keeps the socket but disables the endpoint when remote
+        # debugging is asked for on the default profile, so the flag looks
+        # applied while every DevTools path 404s.
+        hint = (
+            "Something is listening there but is not serving DevTools. Chrome "
+            "ignores --remote-debugging-port on the default user profile "
+            "(Chrome 136+) — relaunch it with a dedicated --user-data-dir, "
+            "point cdp_url at a free port, or clear cdp_url to let the agent "
+            "launch its own browser."
+        )
+    else:
+        hint = "Make sure Chrome was launched with --remote-debugging-port."
+    raise RuntimeError(f"could not reach a Chrome debug endpoint: {detail}. {hint}")
 
 
 _HIGHLIGHT_DURATION_MS = 5000

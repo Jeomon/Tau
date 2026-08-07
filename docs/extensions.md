@@ -2005,7 +2005,7 @@ runtime *generation*. See [Hot Reload](#hot-reload) for staleness rules.
 | `ctx.abort()` | — | Cancel the current turn; no-op when idle |
 | `ctx.shutdown()` | — | Exit Tau |
 | `ctx.get_context_usage()` | `dict \| None` | Keys `tokens`, `context_window`, `percent` |
-| `ctx.compact(custom_instructions=None)` | — | Trigger compaction, fire-and-forget |
+| `ctx.compact(custom_instructions=None)` | — | Trigger compaction, fire-and-forget. Requires an idle agent — gate on `ctx.is_idle()`, or the failure is only logged |
 | `ctx.get_system_prompt()` | `str` | The effective system prompt |
 | `ctx.get_system_prompt_options()` | `dict` | Keys `skills`, `prompts`, `tools`, `system_prompt_length` |
 | `ctx.has_pending_messages()` | `bool` | True when steering or follow-ups are queued |
