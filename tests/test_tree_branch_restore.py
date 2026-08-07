@@ -31,6 +31,26 @@ class _Settings:
         return True
 
 
+class _FakeAgent:
+    """The slice of the agent contract branch navigation touches."""
+
+    def __init__(self) -> None:
+        self._phase = AgentPhase.IDLE
+
+    @property
+    def phase(self) -> AgentPhase:
+        return self._phase
+
+    def is_idle(self) -> bool:
+        return self._phase is AgentPhase.IDLE
+
+    def abort(self) -> None:
+        return None
+
+    async def wait_for_idle(self) -> None:
+        return None
+
+
 class _FakeInput:
     def __init__(self, text: str = "") -> None:
         self.text = text
@@ -61,7 +81,7 @@ def _ctx(tmp_path, editor_text: str = "") -> tuple[CommandContext, SessionManage
 
     runtime: Any = Runtime.__new__(Runtime)
     runtime._context = SimpleNamespace(
-        agent=SimpleNamespace(_phase=AgentPhase.IDLE),
+        agent=_FakeAgent(),
         session_manager=manager,
         settings_manager=_Settings(),
         llm=None,

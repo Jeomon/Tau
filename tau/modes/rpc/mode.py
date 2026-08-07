@@ -202,6 +202,58 @@ def _shallow_asdict(event: object) -> dict:
     return {f.name: getattr(event, f.name, None) for f in dataclasses.fields(event)}  # type: ignore[arg-type]
 
 
+class _UpdateDeltas:
+    """Tracks streamed text so ``message_update`` can carry what was appended.
+
+    ``message_update`` fires once per streamed token and carries the *whole*
+    accumulated message, so a client that only wants the new characters still
+    pays for the full message every tick — stdout grows with the square of the
+    reply length. The full ``message`` stays (clients redraw from it), and
+    ``delta``/``thinking_delta`` are added alongside for clients that would
+    rather append. ``omit_message`` drops the redundant copy for a client that
+    has opted in with ``set_update_mode``.
+    """
+
+    def __init__(self) -> None:
+        self._text = ""
+        self._thinking = ""
+        self.omit_message = False
+
+    def reset(self) -> None:
+        """Start a fresh message; deltas are relative to it, not the last one."""
+        self._text = ""
+        self._thinking = ""
+
+    @staticmethod
+    def _appended(previous: str, current: str) -> str:
+        """The suffix added to ``previous``, or all of ``current`` if rewritten.
+
+        A TextEndEvent replaces a streaming block's content outright rather than
+        appending to it, so the prefix does not always hold.
+        """
+        return current[len(previous) :] if current.startswith(previous) else current
+
+    def annotate(self, payload: dict, message: object) -> dict:
+        """Add ``delta``/``thinking_delta`` to a serialized message_update."""
+        from tau.message.types import TextContent, ThinkingContent
+
+        contents = getattr(message, "contents", []) or []
+        text = "".join(c.content for c in contents if isinstance(c, TextContent))
+        thinking = "".join(c.content for c in contents if isinstance(c, ThinkingContent))
+        if delta := self._appended(self._text, text):
+            payload["delta"] = delta
+        if delta := self._appended(self._thinking, thinking):
+            payload["thinking_delta"] = delta
+        self._text, self._thinking = text, thinking
+        if self.omit_message:
+            payload.pop("message", None)
+        return payload
+
+
+# One stream at a time, so one tracker for the process.
+_DELTAS = _UpdateDeltas()
+
+
 def _serialize_event(event: object) -> dict:
     """Turn an event object into the dict that goes on the wire.
 
@@ -773,6 +825,20 @@ async def _handle_command(
                     _err(f"Could not start a new session: {exc}")
                     return
                 _ok({"cancelled": False})
+
+            # ── Streaming shape ──────────────────────────────────────────────
+
+            case "set_update_mode":
+                # "full" (default) keeps `message` on every message_update;
+                # "delta" drops it, leaving only the appended text. Both shapes
+                # always carry `delta`/`thinking_delta`, so a client opts in
+                # once it knows it can reassemble from them.
+                mode_value = str(cmd.get("mode", "") or "").strip().lower()
+                if mode_value not in ("full", "delta"):
+                    _err(f"Unknown update mode: '{cmd.get('mode')}' (expected 'full' or 'delta')")
+                    return
+                _DELTAS.omit_message = mode_value == "delta"
+                _ok({"mode": mode_value})
 
             # ── State ────────────────────────────────────────────────────────
 
@@ -1418,7 +1484,13 @@ async def run_rpc_mode(runtime: Runtime) -> None:
     # ── Subscribe to agent events and stream them out ────────────────────────
 
     async def on_event(event: object) -> None:
-        _write(_serialize_event(event))
+        payload = _serialize_event(event)
+        event_type = payload.get("type")
+        if event_type == "message_start":
+            _DELTAS.reset()
+        elif event_type == "message_update":
+            payload = _DELTAS.annotate(payload, getattr(event, "message", None))
+        _write(payload)
         # Let a slow client apply backpressure here rather than inside a
         # blocking write that would stall the whole event loop.
         await _OUTPUT.drain()

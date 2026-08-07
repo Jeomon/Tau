@@ -267,3 +267,54 @@ def test_load_one_execs_extension_module_off_the_main_thread(
 
     assert not result.errors
     assert builtins._tau_load_thread_name != threading.main_thread().name  # type: ignore[attr-defined]
+
+
+# ── Late-registered tools across /reload ─────────────────────────────────────
+
+
+class _FakeTool:
+    def __init__(self, name: str, renderer: str = "") -> None:
+        self.name = name
+        self.render_result = renderer
+
+
+def _ext(path: str, tools: dict) -> SimpleNamespace:
+    return SimpleNamespace(path=path, tools=tools)
+
+
+def _ext_runtime(extensions: list) -> SimpleNamespace:
+    return SimpleNamespace(
+        get_extensions=lambda: tuple(extensions),
+        get_tools=lambda: [t for ext in extensions for t in ext.tools.values()],
+    )
+
+
+def test_reload_keeps_a_tool_registered_after_load() -> None:
+    """A tool registered from a session_start handler lives on the extension
+    object, and a reload builds a new one by calling register() again — nothing
+    re-runs that handler, so replace_source used to drop the tool and its
+    renderer with it."""
+    old = {"a/ext.py": [_FakeTool("from_register"), _FakeTool("late", renderer="custom")]}
+    new_ext = _ext_runtime([_ext("a/ext.py", {"from_register": _FakeTool("from_register")})])
+
+    carried = Runtime._carry_over_late_tools(old, new_ext)
+
+    assert [tool.name for tool in carried] == ["late"]
+    assert carried[0].render_result == "custom"
+
+
+def test_reload_drops_tools_of_an_extension_that_is_gone() -> None:
+    """Disabling or deleting an extension must still remove its tools."""
+    old = {"a/gone.py": [_FakeTool("orphan")]}
+    new_ext = _ext_runtime([_ext("a/other.py", {})])
+
+    assert Runtime._carry_over_late_tools(old, new_ext) == []
+
+
+def test_a_re_registered_tool_wins_over_the_carried_copy() -> None:
+    """The fresh load's own tool is authoritative; the stale one is not kept
+    alongside it, or replace_source would see the name twice."""
+    old = {"a/ext.py": [_FakeTool("shared", renderer="stale")]}
+    new_ext = _ext_runtime([_ext("a/ext.py", {"shared": _FakeTool("shared", renderer="fresh")})])
+
+    assert Runtime._carry_over_late_tools(old, new_ext) == []

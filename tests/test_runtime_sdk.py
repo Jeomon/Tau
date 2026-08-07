@@ -89,6 +89,7 @@ def test_new_session_clears_startup_resume_flag(
         settings_manager=None,
         hooks=None,
         ext_runtime=None,
+        agent=None,  # read by _settle_active_turn before the session is replaced
     )
     runtime._extension_generation = 0
     captured: list[RuntimeConfig] = []
@@ -117,6 +118,157 @@ def test_new_session_clears_startup_resume_flag(
     assert len(captured) == 1
     assert captured[0].session_file is None
     assert captured[0].resume is False
+
+
+def test_new_session_settles_the_running_turn_before_rebuilding_the_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The old turn must be stopped *before* the context is replaced, or it
+    keeps streaming into the session manager it was detached from."""
+    agent = _TurnAgent()
+    runtime = object.__new__(Runtime)
+    runtime._config = RuntimeConfig(cwd=tmp_path)
+    runtime._context = SimpleNamespace(  # type: ignore[assignment]
+        settings_manager=None,
+        hooks=None,
+        ext_runtime=None,
+        agent=agent,
+    )
+    runtime._extension_generation = 0
+    runtime._extension_callback_depth = 0
+    idle_at_rebuild: list[bool] = []
+
+    async def create_context(
+        cls: type[RuntimeContext], config: RuntimeConfig, **kwargs: Any
+    ) -> Any:
+        idle_at_rebuild.append(agent.is_idle())
+        return SimpleNamespace()
+
+    async def no_op(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(RuntimeContext, "create", classmethod(create_context))
+    monkeypatch.setattr(runtime, "_emit_session_shutdown", no_op)
+    monkeypatch.setattr(runtime, "_emit_session_start", no_op)
+    monkeypatch.setattr(runtime, "_run_with_session", no_op)
+    monkeypatch.setattr(runtime, "_reinit_after_context_create", lambda: None)
+
+    asyncio.run(runtime.new_session())
+
+    assert agent.aborted is True
+    assert idle_at_rebuild == [True]
+
+
+class _TurnAgent:
+    """An agent stuck mid-turn until abort() releases it."""
+
+    def __init__(self) -> None:
+        self.aborted = False
+        self._idle = asyncio.Event()
+
+    def is_idle(self) -> bool:
+        return self._idle.is_set()
+
+    def abort(self) -> None:
+        self.aborted = True
+        self._idle.set()
+
+    async def wait_for_idle(self) -> None:
+        await self._idle.wait()
+
+
+def _settle_runtime(agent: Any, callback_depth: int = 0) -> Runtime:
+    runtime = object.__new__(Runtime)
+    runtime._context = SimpleNamespace(agent=agent)  # type: ignore[assignment]
+    runtime._extension_callback_depth = callback_depth
+    return runtime
+
+
+def test_settle_active_turn_aborts_and_drains_before_a_session_switch() -> None:
+    """A turn still in flight would go on writing into the session being
+    replaced, so it is stopped and drained first."""
+    agent = _TurnAgent()
+    runtime = _settle_runtime(agent)
+
+    asyncio.run(runtime._settle_active_turn())
+
+    assert agent.aborted is True
+    assert agent.is_idle() is True
+
+
+def test_settle_active_turn_is_a_no_op_when_already_idle() -> None:
+    agent = _TurnAgent()
+    agent.abort()  # reach idle without recording an abort from the switch
+    agent.aborted = False
+    runtime = _settle_runtime(agent)
+
+    asyncio.run(runtime._settle_active_turn())
+
+    assert agent.aborted is False
+
+
+def test_settle_active_turn_does_not_wait_inside_an_extension_callback() -> None:
+    """The callback may itself be running inside the turn being waited for,
+    so waiting there would deadlock. The abort is still requested."""
+
+    class _NeverIdleAgent(_TurnAgent):
+        def abort(self) -> None:
+            self.aborted = True  # deliberately never becomes idle
+
+    agent = _NeverIdleAgent()
+    runtime = _settle_runtime(agent, callback_depth=1)
+
+    asyncio.run(asyncio.wait_for(runtime._settle_active_turn(), timeout=2))
+
+    assert agent.aborted is True
+    assert agent.is_idle() is False
+
+
+def test_settle_active_turn_gives_up_rather_than_hanging_the_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A turn that never reports itself idle must not block the switch forever."""
+    import tau.runtime.service as runtime_service
+
+    class _NeverIdleAgent(_TurnAgent):
+        def abort(self) -> None:
+            self.aborted = True
+
+    monkeypatch.setattr(runtime_service, "_SESSION_SETTLE_TIMEOUT", 0.01)
+    agent = _NeverIdleAgent()
+    runtime = _settle_runtime(agent)
+
+    asyncio.run(asyncio.wait_for(runtime._settle_active_turn(), timeout=2))
+
+    assert agent.aborted is True
+
+
+def test_settle_active_turn_waits_out_a_compaction_started_outside_a_turn() -> None:
+    """wait_for_idle() only tracks the invoke() lifecycle: a manual compaction
+    moves the phase without clearing the idle event, so waiting on the event
+    alone returns instantly and the session gets swapped mid-compaction."""
+
+    class _CompactingAgent(_TurnAgent):
+        def __init__(self) -> None:
+            super().__init__()
+            self._idle.set()  # as it stands after any completed turn
+            self.compacting = True
+
+        def is_idle(self) -> bool:
+            return not self.compacting
+
+    async def scenario() -> None:
+        agent = _CompactingAgent()
+        runtime = _settle_runtime(agent)
+
+        settle = asyncio.ensure_future(runtime._settle_active_turn())
+        await asyncio.sleep(0.05)
+        assert not settle.done(), "returned while the agent was still compacting"
+
+        agent.compacting = False
+        await asyncio.wait_for(settle, timeout=2)
+
+    asyncio.run(scenario())
 
 
 def test_runtime_tool_filters() -> None:

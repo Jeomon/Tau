@@ -109,6 +109,18 @@ class SetFollowUpModeCommand(TypedDict, total=False):
     mode: Literal["all", "one-at-a-time"]
 
 
+class SetUpdateModeCommand(TypedDict, total=False):
+    """Whether ``message_update`` still carries the full accumulated message.
+
+    ``delta`` drops it, leaving only ``delta``/``thinking_delta`` — which both
+    modes always send. Opt in once the client can reassemble from them.
+    """
+
+    type: Literal["set_update_mode"]
+    id: str
+    mode: Literal["full", "delta"]
+
+
 class CompactCommand(TypedDict, total=False):
     type: Literal["compact"]
     id: str

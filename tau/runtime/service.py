@@ -60,6 +60,14 @@ _SHUTDOWN_TASK_TIMEOUT = 1.0
 # under self._reload_lock, so a handler that hangs forever wedges every future
 # reload/toggle attempt for the rest of the session, not just the current one.
 _SHUTDOWN_HOOK_TIMEOUT = 10.0
+# Bounds the drain of an aborted turn before its session is replaced. abort()
+# races the engine's tool calls against the abort signal rather than waiting
+# for them, so a turn normally unwinds in well under a second; this only rules
+# out a turn that never reports itself idle, where hanging the session switch
+# forever would be worse than switching with the old turn still unwinding.
+_SESSION_SETTLE_TIMEOUT = 10.0
+# The agent phase has no change signal, so the tail of that wait polls it.
+_SETTLE_POLL_INTERVAL = 0.02
 
 
 class Runtime:
@@ -765,7 +773,14 @@ class Runtime:
 
         old = self._context.ext_runtime
         self._extension_generation += 1
+        # Snapshot before unload: an extension_unload handler may clear its own
+        # tool dict, and this is the only record of tools registered after
+        # load() (see _carry_over_late_tools).
+        old_tools_by_path: dict[str, list] = {}
         if old is not None:
+            for ext in old.get_extensions():
+                if ext.tools:
+                    old_tools_by_path[str(ext.path)] = list(ext.tools.values())
             for ext in old._extensions:
                 await self._emit_to_extension(ext, "extension_unload")
             old.unsubscribe()
@@ -801,7 +816,7 @@ class Runtime:
 
         # ── Sync tools via registry then push to engine ───────────────────────
         self._resync_extension_tools_and_prompt(
-            new_ext.get_tools(),
+            new_ext.get_tools() + self._carry_over_late_tools(old_tools_by_path, new_ext),
             cwd=cwd,
             extra_appends=new_ext.get_prompt_appends(),
             system_prompt=resources.system_prompt,
@@ -814,6 +829,40 @@ class Runtime:
             self._extension_ui_refresh()
 
         return load_result
+
+    @staticmethod
+    def _carry_over_late_tools(old_tools_by_path: dict[str, list], new_ext) -> list:
+        """Tools an extension registered after ``register()``, kept across a reload.
+
+        ``register_tool`` writes to the *extension object*, and a reload builds
+        new ones by calling ``register()`` again — nothing re-runs the handler a
+        tool was registered from. A reload only emits ``extension_reloaded``, so
+        an extension that registers lazily (from ``session_start``, say) had its
+        tool silently dropped by ``replace_source``, taking its ``render_call``
+        / ``render_result`` with it: the agent lost a tool it had a moment ago,
+        with nothing in the transcript to say so.
+
+        Only extensions still loaded after the reload are considered, and only
+        names the fresh load did not itself provide — so disabling or deleting
+        an extension still removes its tools, and a re-registered tool wins over
+        the carried copy.
+
+        The carried object is the one that was live before the reload, closing
+        over state its extension may have torn down in ``extension_unload``. An
+        extension that owns such state should re-register from
+        ``extension_reloaded`` rather than rely on this, which replaces the
+        carried copy by name.
+        """
+        if not old_tools_by_path:
+            return []
+        live_paths = {str(ext.path) for ext in new_ext.get_extensions()}
+        provided = {tool.name for tool in new_ext.get_tools()}
+        carried: list = []
+        for path, tools in old_tools_by_path.items():
+            if path not in live_paths:
+                continue
+            carried.extend(tool for tool in tools if tool.name not in provided)
+        return carried
 
     def _resync_extension_tools_and_prompt(
         self,
@@ -1025,6 +1074,53 @@ class Runtime:
     # Session lifecycle
     # -------------------------------------------------------------------------
 
+    async def _settle_active_turn(self) -> None:
+        """Stop and drain a running turn before the session under it is replaced.
+
+        Every session switch rebuilds the runtime context, but the turn already
+        in flight holds references to the *old* one: it goes on streaming into
+        the session manager it was detached from, so its closing messages (and
+        any tool results still to come) land in a file nothing is reading any
+        more, while the events for them reach a client that has already been
+        told the session changed. Aborting first leaves the partial turn
+        persisted to the session it belongs to, then the swap happens on a
+        quiet runtime.
+
+        The wait is skipped while an extension callback is on the stack: that
+        callback may itself be running inside the very turn being waited for
+        (a ``turn_start`` handler calling ``ctx.new_session()``, say), and
+        waiting there would deadlock. The abort is still requested, so the
+        turn stops at its next check rather than racing on unnoticed.
+        """
+        agent = self._context.agent
+        if agent is None or agent.is_idle():
+            return
+        agent.abort()
+        if self._extension_callback_depth > 0:
+            _log.debug("session switch inside an extension callback; not waiting for idle")
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _SESSION_SETTLE_TIMEOUT
+        try:
+            await asyncio.wait_for(agent.wait_for_idle(), _SESSION_SETTLE_TIMEOUT)
+            # wait_for_idle() only tracks the invoke() lifecycle, which is the
+            # sole owner of the idle event. A compaction started outside a turn
+            # (a manual /compact, an extension's ctx.compact()) moves the phase
+            # without ever clearing that event, so the await above returns
+            # immediately with the agent still busy — and the session would be
+            # swapped mid-compaction. The phase is the complete answer, but
+            # nothing signals a change to it, so poll out the rest of the budget.
+            while not agent.is_idle():
+                if loop.time() >= deadline:
+                    raise TimeoutError
+                await asyncio.sleep(_SETTLE_POLL_INTERVAL)
+        except TimeoutError:
+            _log.warning(
+                "agent did not settle within %.0fs (phase=%r); switching session anyway",
+                _SESSION_SETTLE_TIMEOUT,
+                getattr(agent, "phase", None),
+            )
+
     async def new_session(
         self, *, with_session=None, parent_session: str | Path | None = None
     ) -> None:
@@ -1034,6 +1130,7 @@ class Runtime:
         new session's header — session lineage, so a client (or a later reader)
         can walk back through a chain of related sessions.
         """
+        await self._settle_active_turn()
         await self._emit_session_shutdown(SessionShutdownReason.New)
         self._extension_generation += 1
         # ``resume`` is a startup instruction, not persistent runtime state.
@@ -1065,6 +1162,7 @@ class Runtime:
             if isinstance(r, SessionBeforeSwitchResult) and r.cancel:
                 return
 
+        await self._settle_active_turn()
         await self._emit_session_shutdown(SessionShutdownReason.Resume)
         self._extension_generation += 1
         self._config = self._config.model_copy(update={"session_file": session_file})
@@ -1111,11 +1209,20 @@ class Runtime:
             label=label,
         )
         operation_active = summarize and bool(entries_to_summarize)
+        # Navigating moves the leaf, so a turn still appending to the old one
+        # would write onto whichever branch it happened to reach first.
+        await self._settle_active_turn()
         agent = self._context.agent
-        previous_phase = agent._phase
-        phase_changed = operation_active
-        if operation_active:
+        # Claim the phase only from IDLE, and release it back to IDLE below.
+        # Capturing whatever phase is current and writing that value back is
+        # what wedged compaction: two operations doing it concurrently restore
+        # each other's value and the agent never returns to IDLE. Declining to
+        # claim costs only the "summarizing" indicator, which is what the
+        # previous owner is already showing.
+        phase_changed = False
+        if operation_active and agent is not None and agent.is_idle():
             agent._phase = AgentPhase.BRANCH_SUMMARY
+            phase_changed = True
 
         try:
             results = await self._context.hooks.emit(
@@ -1152,7 +1259,7 @@ class Runtime:
                     from_extension = True
 
             summary_active = operation_active or summary_text is not None
-            if summary_active and not phase_changed:
+            if summary_active and not phase_changed and agent is not None and agent.is_idle():
                 agent._phase = AgentPhase.BRANCH_SUMMARY
                 phase_changed = True
             if summary_active:
@@ -1238,8 +1345,11 @@ class Runtime:
             await self._emit_session_start(SessionStartReason.Fork)
             return True
         finally:
-            if phase_changed:
-                agent._phase = previous_phase
+            # Release, not restore: the phase was claimed from IDLE, so IDLE is
+            # what it goes back to. Nothing else can have taken ownership in
+            # between — anyone who tries finds it non-IDLE and declines.
+            if phase_changed and agent is not None:
+                agent._phase = AgentPhase.IDLE
 
     async def fork_session(
         self,
@@ -1260,6 +1370,10 @@ class Runtime:
             if isinstance(r, SessionBeforeForkResult) and r.cancel:
                 return
 
+        # Forking moves the leaf the running turn is appending to, so its
+        # remaining messages would be written onto the branch just forked away
+        # from — or onto the new one, depending on timing.
+        await self._settle_active_turn()
         sm.branch(from_entry_id)
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.Fork)
@@ -1271,6 +1385,7 @@ class Runtime:
         if leaf_id is None:
             raise ValueError("No active leaf to clone from.")
 
+        await self._settle_active_turn()
         await self._emit_session_shutdown(SessionShutdownReason.Clone)
         self._extension_generation += 1
         # create_branched_session() writes the whole cloned branch to a new

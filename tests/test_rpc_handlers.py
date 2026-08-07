@@ -769,3 +769,101 @@ class TestBusyGuards:
 
         agent.compact.assert_awaited_once()
         assert captured[-1]["success"] is True
+
+
+class TestMessageUpdateDeltas:
+    """`message_update` carries the whole accumulated message on every tick, so
+    a client that only wants the new characters still pays for the full message
+    each time — stdout grows with the square of the reply length. Deltas ride
+    alongside it; `set_update_mode` drops the redundant copy."""
+
+    @staticmethod
+    def _message(text: str = "", thinking: str = ""):
+        from tau.message.types import AssistantMessage, TextContent, ThinkingContent
+
+        contents: list = []
+        if thinking:
+            contents.append(ThinkingContent(content=thinking))
+        if text:
+            contents.append(TextContent(content=text))
+        return AssistantMessage(contents=contents)
+
+    def test_each_tick_carries_only_what_was_appended(self):
+        deltas = mode._UpdateDeltas()
+
+        first = deltas.annotate({}, self._message("Let me"))
+        second = deltas.annotate({}, self._message("Let me check."))
+
+        assert first["delta"] == "Let me"
+        assert second["delta"] == " check."
+
+    def test_thinking_is_tracked_separately_from_text(self):
+        deltas = mode._UpdateDeltas()
+
+        deltas.annotate({}, self._message(thinking="hmm"))
+        payload = deltas.annotate({}, self._message(text="hi", thinking="hmm, ok"))
+
+        assert payload["thinking_delta"] == ", ok"
+        assert payload["delta"] == "hi"
+
+    def test_a_rewritten_block_resends_the_whole_text(self):
+        """TextEndEvent replaces a streaming block outright, so the accumulated
+        prefix does not always hold."""
+        deltas = mode._UpdateDeltas()
+
+        deltas.annotate({}, self._message("draft"))
+        payload = deltas.annotate({}, self._message("final answer"))
+
+        assert payload["delta"] == "final answer"
+
+    def test_reset_starts_the_next_message_from_scratch(self):
+        deltas = mode._UpdateDeltas()
+        deltas.annotate({}, self._message("first reply"))
+
+        deltas.reset()
+        payload = deltas.annotate({}, self._message("second"))
+
+        assert payload["delta"] == "second"
+
+    def test_full_mode_keeps_the_message_and_delta_mode_drops_it(self):
+        deltas = mode._UpdateDeltas()
+        assert "message" in deltas.annotate({"message": {"x": 1}}, self._message("a"))
+
+        deltas.omit_message = True
+        payload = deltas.annotate({"message": {"x": 1}}, self._message("ab"))
+
+        assert "message" not in payload
+        assert payload["delta"] == "b"
+
+    def test_an_unchanged_message_carries_no_delta_key(self):
+        deltas = mode._UpdateDeltas()
+        deltas.annotate({}, self._message("same"))
+
+        assert deltas.annotate({}, self._message("same")) == {}
+
+    @pytest.mark.asyncio
+    async def test_set_update_mode_toggles_the_full_copy(self, captured):
+        try:
+            await mode._handle_command(
+                {"type": "set_update_mode", "id": "1", "mode": "delta"}, _Runtime(), {}
+            )
+            assert captured[-1]["success"] is True
+            assert captured[-1]["data"] == {"mode": "delta"}
+            assert mode._DELTAS.omit_message is True
+
+            await mode._handle_command(
+                {"type": "set_update_mode", "id": "2", "mode": "full"}, _Runtime(), {}
+            )
+            assert mode._DELTAS.omit_message is False
+        finally:
+            mode._DELTAS.omit_message = False
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_update_mode_is_rejected(self, captured):
+        await mode._handle_command(
+            {"type": "set_update_mode", "id": "1", "mode": "sometimes"}, _Runtime(), {}
+        )
+
+        assert captured[-1]["success"] is False
+        assert "sometimes" in captured[-1]["error"]
+        assert mode._DELTAS.omit_message is False

@@ -1919,7 +1919,7 @@ from handlers that fire after startup.
 
 | Method | Description |
 |---|---|
-| `tau.register_tool(tool)` | Add a tool the model can call |
+| `tau.register_tool(tool)` | Add a tool the model can call. Prefer calling it from `register()`; see the note below for registering later |
 | `tau.register_command(name, description, handler, aliases=None, get_argument_completions=None, argument_hint=None, requires_idle=True)` | Add a `/name` slash command |
 | `tau.on(event_type, handler=None)` | Subscribe to a lifecycle event; usable as a decorator |
 | `tau.register_shortcut(key, description=None, handler=None)` | Bind a literal key combination; usable as a decorator |
@@ -1932,6 +1932,8 @@ from handlers that fire after startup.
 | `tau.unregister_provider(provider_id)` | Remove a provider and all its models |
 | `tau.register_flag(name, type="str", default=None, description=None, env=None)` | Declare an env-backed flag |
 | `tau.provide(name, service)` | Publish a service object for other extensions |
+
+Registering a tool from a handler rather than from `register()` works, but a `/reload` rebuilds every extension by calling `register()` again — it emits `extension_reloaded`, and never re-runs the handler your tool was registered from. Tau carries such a tool across the reload so it does not vanish from under the model, but the carried object is the one that was live before, closing over state your extension may have torn down in `extension_unload`. If it owns anything of the sort, re-register it from an `extension_reloaded` handler; a freshly registered tool of the same name replaces the carried copy.
 
 **Runtime-backed**
 
@@ -2037,6 +2039,8 @@ async def guard_context(event, ctx):
 | `ctx.set_project_trusted(trusted, *, remember=False)` | — | Set trust; `remember` persists to `~/.tau/trust.json` |
 | `await ctx.select(title, options)` | `str \| None` | Option picker; `None` headless or on cancel |
 | `await ctx.confirm(title, message="")` | `bool` | Yes/No dialog |
+
+`new_session`, `fork` and `switch_session` abort a running turn and wait for it to unwind before replacing the session, so the interrupted turn stays with the session it belongs to. Called from a handler that is itself running inside that turn, the wait is skipped — waiting there would deadlock — and only the abort is requested, so the turn may still be unwinding when the call returns. Prefer `await ctx.wait_for_idle()` from a `settled` handler when the ordering matters.
 
 Option dataclasses: `NewSessionOptions(parent_session, with_session)`,
 `ForkOptions(position, with_session)`,

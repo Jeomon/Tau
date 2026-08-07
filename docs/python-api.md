@@ -66,6 +66,8 @@ runtime.commands           # CommandRegistry   — slash commands
 
 Session-replacing operations (`new_session()`, `resume_session()`, `clone_session()`) rebuild the internal context. The `Runtime` object itself stays valid, but `runtime.agent` and `runtime.session_manager` return new objects afterwards. The settings manager, hook bus, and extension runtime are carried across.
 
+All of them — plus `fork_session()`, which moves the leaf rather than rebuilding the context — abort a turn that is still running and wait for it to unwind before touching the session. The interrupted turn is left persisted to the session it belongs to, rather than trailing messages into a session manager that has already been replaced. Called from inside an extension callback the wait is skipped (the callback may be running within that very turn, so waiting would deadlock), but the abort is still requested.
+
 ### RuntimeConfig
 
 `RuntimeConfig` (`tau.runtime.types`) is a Pydantic model, an immutable configuration snapshot. `cwd` is the only required field. See the [Options Reference](#options-reference) for every field.
@@ -289,6 +291,8 @@ The LLM, session-manager, and tool-registry factories run again whenever Tau rep
 | `navigate_tree(target_id, *, summarize=False, custom_instructions=None, replace_instructions=False, label=None)` | Move the leaf to another entry, optionally summarizing the abandoned branch. Returns `False` if an extension cancelled it |
 
 `fork_session()` and `navigate_tree()` raise `KeyError` for an unknown entry ID. `clone_session()` raises `ValueError` when there is no active leaf. The optional `with_session` callback receives a fresh `ExtensionContext` after the swap.
+
+`navigate_tree()` sets the agent phase to `BRANCH_SUMMARY` while it summarizes the abandoned branch, but only when it finds the agent idle — if something else already owns the phase it summarizes without claiming it, rather than capturing that value and writing it back afterwards. Read the phase for display, never to restore.
 
 See [Sessions](sessions.md) for the storage format and the `SessionManager` API.
 

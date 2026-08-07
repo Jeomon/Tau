@@ -144,6 +144,7 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 | `cycle_thinking_level` | — | `{level}` |
 | `set_steering_mode` | `mode` | `{mode}` |
 | `set_follow_up_mode` | `mode` | `{mode}` |
+| `set_update_mode` | `mode` | `{mode}` |
 | `compact` | `customInstructions?` | `{compacted, summary, firstKeptEntryId, tokensBefore}` |
 | `set_auto_compaction` | `enabled` | — |
 | `set_auto_retry` | `enabled` | `{enabled}` |
@@ -467,6 +468,20 @@ Cycles through the levels *this model* supports, wrapping around, and reports th
 
 `mode` is `"all"` or `"one-at-a-time"`; hyphens are converted to underscores to match the internal enum, so `"one_at_a_time"` is also accepted. An unrecognised mode fails, as does having no active agent. The change applies to the running session's queue immediately.
 
+#### set_update_mode
+
+Whether `message_update` still carries the full accumulated message. See [message_update](#message_update) for what this costs.
+
+```json
+{"type": "set_update_mode", "mode": "delta"}
+```
+
+```json
+{"type": "response", "command": "set_update_mode", "success": true, "data": {"mode": "delta"}}
+```
+
+`mode` is `"full"` (the default, and the historical shape) or `"delta"`. Under `"delta"` the `message` field is omitted from `message_update` and only `delta`/`thinking_delta` remain; every other event, including `message_end`, is unchanged. An unrecognised mode fails. There is no agent requirement — this is a property of the connection, and it applies from the next event onwards.
+
 ### Compaction and Retry
 
 #### compact
@@ -773,11 +788,21 @@ Enumerated values:
 
 ### message_update
 
-`message_update` carries the whole partial message on each tick, not a delta. Clients redraw from `message.contents` rather than appending. There is no separate delta-event field.
+`message_update` carries the whole partial message on each tick *and* the text appended since the previous tick. A client can redraw from `message.contents` or append `delta` — whichever suits it.
 
 ```json
-{"type": "message_update", "message": {"contents": [{"type": "text", "content": "There are 3 Py"}], "id": "…", "timestamp": 1784547215.53, "role": "assistant", "usage": {}, "stop_reason": "stop", "error": "", "error_kind": "unknown"}}
+{"type": "message_update", "delta": "There are 3 Py", "message": {"contents": [{"type": "text", "content": "There are 3 Py"}], "id": "…", "timestamp": 1784547215.53, "role": "assistant", "usage": {}, "stop_reason": "stop", "error": "", "error_kind": "unknown"}}
 ```
+
+| Field | Present |
+|-------|---------|
+| `message` | Unless the client sent `set_update_mode` with `"delta"` |
+| `delta` | When text was appended this tick |
+| `thinking_delta` | When thinking text was appended this tick |
+
+A delta is measured against the previous tick of the *same* message; `message_start` resets it. When a block is rewritten rather than extended (a `TextEndEvent` replaces a streaming block outright) the delta carries the whole new text, so appending blindly is wrong — compare against what you already hold, or redraw from `message`.
+
+**Cost.** The full message on every tick makes the stream grow with the square of the reply length: a 39 KB answer costs about 38 MB of `message_update` traffic. Sending `set_update_mode` with `"delta"` drops the redundant copy and takes the same reply down to ~0.11 MB. `message_end` still carries the complete message either way, so nothing is lost.
 
 ### message_end
 
@@ -916,7 +941,7 @@ A failed command returns a response with `success: false` and an `error` string.
 | Malformed JSON line | `{"type": "response", "command": "parse", "success": false, "error": "Failed to parse command: …"}` |
 | Unknown `type` | `error: "Unknown command type: '<type>'"` |
 | Missing required field | e.g. `"'message' is required"`, `"'modelId' is required"`, `"'command' is required"`, `"'entryId' is required"`, `"'sessionPath' is required"`, `"'name' is required"`, `"'outputPath' is required"` |
-| Invalid enum value | `"Unknown thinking level: '<level>'"`, `"Unknown mode: '<mode>'"` |
+| Invalid enum value | `"Unknown thinking level: '<level>'"`, `"Unknown mode: '<mode>'"`, `"Unknown update mode: '<mode>' (expected 'full' or 'delta')"` |
 | No agent for `steer`/`follow_up`, queue modes, `compact` | `"No active agent"` |
 | No model for the thinking-level commands | `"No active model"` |
 | Failed model switch | `"Could not switch to '<id>' — unknown model, missing credentials, or no active agent"` |
