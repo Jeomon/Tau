@@ -168,3 +168,48 @@ def test_a_resize_between_frames_still_repaints_at_the_new_width(monkeypatch) ->
 
     assert widths
     assert max(widths) <= 60
+
+
+def test_a_direct_read_is_not_clobbered_by_a_queued_publish(monkeypatch) -> None:
+    """enter_raw_mode re-reads the size; a stale staged one must not land after.
+
+    Once the size is staged rather than assigned, a direct read can overtake a
+    queued one — which is exactly what happens coming back from `suspended()`,
+    where resizes during an external editor were never delivered. Letting the
+    stale value land would leave every consumer sizing to a window that no
+    longer exists, and nothing would detect it: the renderer's width comparison
+    would agree with the wrong number.
+    """
+    monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (200, 50)))
+    term = _CaptureTerminal()
+
+    async def scenario() -> None:
+        monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (80, 20)))
+        term._on_resize()  # stages (80, 20)
+
+        monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (160, 40)))
+        term._pending_size = None
+        term.width, term.height = term._get_size()
+
+        await asyncio.sleep(0)  # the queued publish runs here
+
+    asyncio.run(scenario())
+
+    assert (term.width, term.height) == (160, 40)
+
+
+def test_the_latest_signal_still_wins(monkeypatch) -> None:
+    """Dropping superseded values must not drop the current one."""
+    monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (200, 50)))
+    term = _CaptureTerminal()
+
+    async def scenario() -> None:
+        monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (90, 22)))
+        term._on_resize()
+        monkeypatch.setattr(Terminal, "_get_size", staticmethod(lambda: (70, 18)))
+        term._on_resize()
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+    assert (term.width, term.height) == (70, 18)

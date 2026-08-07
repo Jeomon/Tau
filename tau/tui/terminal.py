@@ -354,6 +354,10 @@ class Terminal:
         self._win_resize_thread: threading.Thread | None = None
         self._win_resize_stop: threading.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Size staged by a SIGWINCH but not yet adopted on the loop. A
+        # direct read (enter_raw_mode) clears it so a queued stale value
+        # cannot land afterwards and undo it.
+        self._pending_size: tuple[int, int] | None = None
         # Stateful UTF-8 decoder for read_raw(): a multibyte sequence can
         # straddle a read-chunk boundary, and a per-chunk bytes.decode() would
         # mangle the split character into U+FFFD replacement characters.
@@ -390,6 +394,7 @@ class Terminal:
         # (startup), which would paint synchronously out of a signal handler,
         # and SIGWINCH does not exist on Windows. Callers that need a repaint
         # already force one (see TUI.suspended); startup renders regardless.
+        self._pending_size = None
         self.width, self.height = self._get_size()
         if _IS_WINDOWS:
             self._enter_raw_mode_windows()
@@ -1019,13 +1024,28 @@ class Terminal:
         Applying and notifying together is what guarantees the first frame
         painted at the new size is the renderer's full clear+redraw, rather
         than some unrelated frame that happened to be scheduled in between.
+
+        A publish that is no longer the latest staged value is dropped. Once
+        the size is staged rather than assigned, a direct read can overtake a
+        queued one — ``enter_raw_mode`` re-reads on the way back from
+        ``suspended()`` precisely because resizes during an external editor
+        were never delivered — and letting the stale value land would leave
+        every consumer sizing to a window that no longer exists. Nothing else
+        detects that, because the width comparison in the renderer would agree
+        with the wrong number.
         """
+        if size != self._pending_size:
+            # Superseded by a later signal, or cleared by a direct read. Either
+            # way this value is not what the terminal is now.
+            return
+        self._pending_size = None
         self.width, self.height = size
         for cb in list(self._resize_callbacks):
             cb()
 
     def _defer_size(self, size: tuple[int, int]) -> None:
         """Publish ``size`` on the event loop, or inline if there isn't one."""
+        self._pending_size = size
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
