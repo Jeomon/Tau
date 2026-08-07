@@ -217,7 +217,14 @@ class MessageBlock:
         if cached is not None and cached[0] == width and cached[1] == show_images:
             return cached[2]
 
-        if not show_images:
+        # Two ways an image ends up as text: the theme switched images off, or
+        # the terminal cannot draw them (no kitty/iTerm2 protocol — the only
+        # fallback branch in Image._compute). Both get the same '└' framing the
+        # audio/video/file placeholders use, so an attachment reads as part of
+        # the message rather than as stray output flush against the margin.
+        from tau.tui.terminal import get_capabilities
+
+        if not show_images or get_capabilities().images is None:
             from tau.tui.components.image import Image
 
             lines = [self._shell_line(Image(b64, mime)._fallback_text())]
