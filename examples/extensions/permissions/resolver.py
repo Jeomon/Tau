@@ -141,8 +141,26 @@ class Resolver:
 
         # A grant only ever loosens an `ask`. It cannot overturn a deny — that
         # would let one hurried approval defeat a policy the user wrote down.
-        if winner.state == "ask" and access is not None:
-            grant = self._grants.allows(winner.surface, access.match_values())
+        #
+        # The values tested have to match how the grant was written, which
+        # differs per surface: `find_grant_pattern` suggests `<parent>/*` for a
+        # path and `<program>*` for a command, and falls back to the decision
+        # target — the bare tool name — on the tool surface. Testing path
+        # spellings alone meant a grant could only ever match when the winning
+        # surface was `path` or `external_directory`; `tool` and `command`
+        # grants were recorded and then never consulted, so "Allow for this
+        # session" silently did nothing and re-prompted on every call.
+        # `command` is deliberately absent here: it is applied per unit in
+        # `_command_layer`, because a whole-command lookup would let one
+        # granted segment carry the others.
+        if winner.state == "ask":
+            values: list[str] | None = None
+            if winner.surface in ("path", "external_directory") and access is not None:
+                values = access.match_values()
+            elif winner.surface == "tool":
+                values = [intent.tool_name]
+
+            grant = self._grants.allows(winner.surface, values) if values else None
             if grant is not None:
                 return Decision(
                     state="allow",
@@ -266,13 +284,31 @@ class Resolver:
         for unit in decomposition.units:
             rule = resolve_rules(rules, [unit.text])
             state: PermissionState = rule.state if rule is not None else "ask"
+            pattern = rule.pattern if rule else None
+            origin = rule.origin if rule else "default"
+            reason = rule.reason if rule else None
+
+            # Session grants are applied per unit, never to the command as a
+            # whole. `SessionGrants.allows` matches if *any* value matches, so
+            # testing every unit text at once would let a grant for one segment
+            # carry the rest: `cd /safe && rm -rf /` decomposes into two units,
+            # and a `cd*` grant would otherwise allow the whole string, which
+            # the shell runs in full. Each unit must earn its own allow.
+            if state == "ask":
+                grant = self._grants.allows("command", [unit.text])
+                if grant is not None:
+                    state = "allow"
+                    pattern = grant.pattern.split("\x00", 1)[-1]
+                    origin = "session"
+                    reason = None
+
             candidate = _Layer(
                 state=state,
                 surface="command",
                 target=unit.text,
-                pattern=rule.pattern if rule else None,
-                origin=rule.origin if rule else "default",
-                reason=rule.reason if rule else None,
+                pattern=pattern,
+                origin=origin,
+                reason=reason,
                 command_context=unit.context,
             )
             if worst is None or _severity(candidate.state) > _severity(worst.state):

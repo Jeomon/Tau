@@ -454,6 +454,111 @@ class TestSessionGrants:
         grants.clear()
         assert len(grants) == 0
 
+    # "Allow for this session" was a no-op on two of the three surfaces. The
+    # grant lookup tested path spellings only, and those exist solely when a
+    # tool names a path — so a `command` or `tool` grant was recorded and then
+    # never consulted. One real session shows `cd /Users/...` approved for the
+    # session and prompted 102 more times, and `edit` 112 times. The tests
+    # below cover the two surfaces that had none.
+
+    def _approve(self, grants: SessionGrants, decision: Any) -> None:
+        """Record a grant the way the extension does after an approval."""
+        pattern = resolver_mod.find_grant_pattern(decision) or decision.target
+        grants.grant(decision.surface, pattern)
+
+    def test_a_command_grant_is_honoured(self, tmp_path: Path) -> None:
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        resolver = Resolver(policy, grants, tmp_path)
+        intent = AccessIntent("terminal", {"cmd": "uname -a"}, tmp_path)
+
+        first = resolver.resolve(intent)
+        assert first.state == "ask"
+
+        self._approve(grants, first)
+        assert resolver.resolve(intent).state == "allow"
+
+    def test_a_tool_grant_is_honoured(self, tmp_path: Path) -> None:
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        resolver = Resolver(policy, grants, tmp_path)
+        intent = AccessIntent("edit", {"path": str(tmp_path / "a.py")}, tmp_path)
+
+        first = resolver.resolve(intent)
+        assert first.state == "ask"
+        assert first.surface == "tool"
+
+        self._approve(grants, first)
+        assert resolver.resolve(intent).state == "allow"
+
+    def test_a_command_grant_does_not_carry_the_rest_of_the_line(self, tmp_path: Path) -> None:
+        """The shell runs every segment, so each must earn its own allow.
+
+        `SessionGrants.allows` matches if *any* value matches, so testing a
+        whole command's units in one lookup would let a `cd*` grant drag an
+        unrelated segment along with it.
+        """
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        grants.grant("command", "cd*")
+        resolver = Resolver(policy, grants, tmp_path)
+
+        decision = resolver.resolve(
+            AccessIntent("terminal", {"cmd": "cd /safe && frobnicate --wat"}, tmp_path)
+        )
+
+        assert decision.state == "ask"
+        assert decision.target == "frobnicate --wat"
+
+    def test_a_command_grant_cannot_carry_a_denied_segment(self, tmp_path: Path) -> None:
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        grants.grant("command", "*")
+        resolver = Resolver(policy, grants, tmp_path)
+
+        decision = resolver.resolve(
+            AccessIntent("terminal", {"cmd": "cd /safe && rm -rf /"}, tmp_path)
+        )
+
+        assert decision.state == "deny"
+
+    def test_a_tool_grant_does_not_cover_another_tool(self, tmp_path: Path) -> None:
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        grants.grant("tool", "edit")
+        resolver = Resolver(policy, grants, tmp_path)
+
+        allowed = resolver.resolve(AccessIntent("edit", {"path": str(tmp_path / "a")}, tmp_path))
+        other = resolver.resolve(AccessIntent("write", {"path": str(tmp_path / "a")}, tmp_path))
+
+        assert allowed.state == "allow"
+        assert other.state == "ask"
+
+    def test_a_tool_grant_does_not_reach_outside_the_project(self, tmp_path: Path) -> None:
+        """A more specific surface still wins; the tool grant does not apply."""
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        grants.grant("tool", "edit")
+        resolver = Resolver(policy, grants, tmp_path)
+
+        decision = resolver.resolve(AccessIntent("edit", {"path": "/etc/hosts"}, tmp_path))
+
+        assert decision.state == "ask"
+        assert decision.surface == "external_directory"
+
+    def test_a_grant_cannot_reach_the_extensions_own_files(self, tmp_path: Path) -> None:
+        policy = config.load_policy(tmp_path, trusted=False)
+        grants = SessionGrants()
+        for surface in ("tool", "path", "command", "external_directory"):
+            grants.grant(surface, "*")
+        resolver = Resolver(policy, grants, tmp_path)
+
+        log = str(tmp_path / ".tau/extensions/permissions/decisions.log")
+        decision = resolver.resolve(AccessIntent("write", {"path": log, "content": "x"}, tmp_path))
+
+        assert decision.state == "deny"
+        assert decision.surface == "self_protection"
+
 
 # ── Decision log ─────────────────────────────────────────────────────────────
 
