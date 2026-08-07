@@ -80,9 +80,18 @@ class DecisionLog:
             "outcome": outcome,
         }
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
+            # 0600/0700, matching how tau stores auth.json and the telemetry
+            # marker. The log names every file touched and every command run,
+            # which is a more revealing record than most of what it sits next
+            # to; it was being written world-readable while a file holding a
+            # version string was not. Applied only on creation, to keep a
+            # chmod off the path of every decision.
+            self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            new_file = not self._path.exists()
             with self._path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(entry, default=str) + "\n")
+            if new_file:
+                self._path.chmod(0o600)
         except Exception as exc:  # noqa: BLE001 - see below; never narrow this
             # Logging is observability, not enforcement. A full disk must not
             # turn into a denied tool call — nor, far worse, into an allowed

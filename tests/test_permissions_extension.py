@@ -598,6 +598,31 @@ class TestDecisionLog:
         log._path = Path("/proc/cannot/write/here.log")  # type: ignore[attr-defined]
         log.record("read", {}, rules.Decision(state="allow", surface="tool"))  # must not raise
 
+    def test_the_log_is_not_world_readable(self, tmp_path: Path) -> None:
+        """It records every file touched and every command run.
+
+        That is a more revealing record than most of what it sits beside, and
+        it was being written 0644 while `auth.json` and even the telemetry
+        version marker are written 0600 in a 0700 directory.
+        """
+        import stat
+
+        log = log_mod.DecisionLog(tmp_path)
+        log.record("read", {"path": "/x"}, rules.Decision(state="allow", surface="tool"))
+
+        assert stat.S_IMODE(log.path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(log.path.parent.stat().st_mode) == 0o700
+
+    def test_appending_to_an_existing_log_still_works(self, tmp_path: Path) -> None:
+        """The chmod is creation-only, so the second write must not regress."""
+        log = log_mod.DecisionLog(tmp_path)
+        decision = rules.Decision(state="allow", surface="tool")
+
+        log.record("read", {"path": "/x"}, decision)
+        log.record("read", {"path": "/y"}, decision)
+
+        assert len(log.tail(10)) == 2
+
 
 # ── Gate wiring ──────────────────────────────────────────────────────────────
 
