@@ -307,7 +307,7 @@ The three engine-level keys leave the corresponding `EngineOptions` default in p
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `quiet_startup` | boolean | `false` | Suppress the startup notice |
-| `telemetry` | boolean | `true` | Send one anonymous, version-only install/update count. **Global scope only** |
+| `telemetry` | boolean | `true` | Send an anonymous install/update count **and** uncaught-exception reports, which include file paths and source context. Asked on first launch; nothing is sent before that is answered. **Global scope only**. See [Security](security.md#telemetry) |
 
 ## Project Trust
 

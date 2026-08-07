@@ -204,6 +204,12 @@ The install ping is the entire first payload: no user id, no machine id, no host
 
 Traceback frames in an autocaptured exception can include absolute file paths and source context from the machine, which is more identifying than the version ping. If that matters for your environment, turn telemetry off.
 
+### First Launch
+
+Telemetry defaults to on, and interactive mode asks about it on the first launch. Neither the ping nor the exception autocapture starts until that question has been answered: both are held back when no settings file existed at startup, and released only once the first-run screen records a choice.
+
+This matters because the autocapture cannot be taken back. It replaces `sys.excepthook` process-wide and has no uninstall, so starting it before the answer and then honouring a decline would still leave it active for the rest of that run. Dismissing the screen without choosing persists nothing and leaves telemetry held for the session, rather than treating silence as consent.
+
 ### Delivery and Deduplication
 
 - The ping is sent in `sync_mode` from a daemon thread, with a 5-second timeout, and never delays process exit.

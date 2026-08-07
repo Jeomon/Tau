@@ -97,6 +97,9 @@ class Runtime:
         self._reload_task: asyncio.Task[None] | None = None
         self.version_check_task: asyncio.Task[str | None] | None = None
         self.telemetry_task: asyncio.Task[None] | None = None
+        # Set by the interactive entry point on a genuine first launch, so
+        # _start_telemetry holds off until the first-run screen has an answer.
+        self._telemetry_pending_consent: bool = False
         self.local_model_discovery_task: asyncio.Task[int] | None = None
         if context.agent is not None:
             context.agent._runtime = self
@@ -115,6 +118,14 @@ class Runtime:
     @classmethod
     async def create(cls, config: RuntimeConfig) -> Runtime:
         """Create a fully initialised Runtime from config and fire the session_start event."""
+        # Sampled before RuntimeContext.create, which writes a settings file:
+        # afterwards a genuine first launch is indistinguishable from a repeat
+        # one. Interactive mode shows the first-run screen in exactly this case
+        # and telemetry has to wait for its answer.
+        from tau.settings.paths import get_settings_path
+
+        first_launch = config.mode == "interactive" and not get_settings_path().exists()
+
         context = await RuntimeContext.create(config=config)
         runtime_config = config.model_copy(
             update={
@@ -133,6 +144,7 @@ class Runtime:
 
             install_extension_ui_bridge(runtime)
         runtime._start_version_check()
+        runtime._telemetry_pending_consent = first_launch
         runtime._start_telemetry()
         runtime._start_local_model_discovery()
         await runtime._emit_session_start(SessionStartReason.Startup)
@@ -186,9 +198,28 @@ class Runtime:
         self.version_check_task = asyncio.ensure_future(check_for_new_version(get_app_version()))
 
     def _start_telemetry(self) -> None:
-        """Start the best-effort version-only telemetry ping when enabled."""
+        """Start telemetry when enabled and consent has been settled.
+
+        Two things are started here, and only one of them is the version count
+        the name suggests. ``report_install`` sends a single event whose only
+        property is the version; ``enable_exception_autocapture`` reports
+        uncaught exceptions, and a PostHog exception payload carries absolute
+        file paths, the surrounding source lines and the exception message —
+        materially more than "anonymous version-only".
+
+        Both are therefore held until the first-run screen has been answered.
+        Telemetry defaults to on, and this runs from :meth:`Runtime.create`,
+        which on a first launch is *before* the interactive mode has asked; a
+        user who then declines would already have had the ping sent and the
+        excepthook installed for the life of the process, since autocapture is
+        process-global and has no uninstall. ``pending_consent`` is set by the
+        interactive entry point when no settings file exists, and cleared by
+        :meth:`resume_telemetry` once an answer is recorded.
+        """
         settings = self.settings_manager
         if settings is None or not settings.get_telemetry():
+            return
+        if self._telemetry_pending_consent:
             return
 
         from tau.settings.paths import get_app_version
@@ -196,6 +227,15 @@ class Runtime:
 
         enable_exception_autocapture()
         self.telemetry_task = asyncio.ensure_future(report_install(get_app_version()))
+
+    def resume_telemetry(self) -> None:
+        """Start telemetry after the first-run screen has recorded an answer.
+
+        A no-op when the user declined: :meth:`_start_telemetry` re-reads the
+        setting, which the screen has already persisted by this point.
+        """
+        self._telemetry_pending_consent = False
+        self._start_telemetry()
 
     def _start_local_model_discovery(self) -> None:
         """Scan locally-running inference backends (Ollama, LM Studio, ...) for

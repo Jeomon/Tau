@@ -861,7 +861,10 @@ class App:
 
             if result is None:
                 # Skipped — restore the startup theme and persist nothing, so
-                # setup is offered again on the next launch.
+                # setup is offered again on the next launch. Telemetry stays
+                # held for this run: the question was never answered, and
+                # treating silence as a yes is the thing the deferral exists
+                # to prevent.
                 self._layout.set_theme(original_theme)
             else:
                 self._auto_theme = result.theme == AUTO_THEME
@@ -872,6 +875,11 @@ class App:
                     self._layout.set_theme(new_theme)
                 sm.set_theme(result.theme)  # persist "auto" verbatim
                 sm.set_telemetry(result.share_telemetry)
+                # Held back in Runtime.create until now. Reads the setting just
+                # persisted above, so declining leaves it a no-op.
+                resume = getattr(self._runtime, "resume_telemetry", None)
+                if callable(resume):
+                    resume()
 
             self._tui.request_render()
             self._setup_trust_screen_if_needed()

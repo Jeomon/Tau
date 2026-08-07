@@ -707,7 +707,10 @@ class SettingsManager:
         self._save()
 
     def get_telemetry(self) -> bool:
-        """Return whether anonymous install/update telemetry is enabled.
+        """Return whether telemetry is enabled.
+
+        Covers both the install/update count and uncaught-exception reporting;
+        see :meth:`Runtime._start_telemetry` for what each transmits.
 
         This is intentionally global-only so project settings cannot re-enable
         telemetry after a user has disabled it.

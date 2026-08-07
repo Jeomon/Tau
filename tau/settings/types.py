@@ -209,7 +209,10 @@ class Settings:
 
     # Startup
     quiet_startup: bool | None = None  # suppress startup notices (default: False)
-    telemetry: bool | None = None  # anonymous version-only install/update count (default: True)
+    # Anonymous install/update count, plus uncaught-exception reports. The
+    # latter carry file paths, surrounding source lines and the exception
+    # message, so this is not version-only. (default: True, asked on first run)
+    telemetry: bool | None = None
 
     # UI behaviour
     double_escape_action: Literal["clear", "fork", "tree", "none"] | None = (
