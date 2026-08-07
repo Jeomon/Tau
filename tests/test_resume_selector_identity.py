@@ -156,8 +156,82 @@ class TestDelete:
         assert not file.exists()
 
 
+class _Ctx:
+    """The slice of CommandContext _apply_resume touches."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Path, str | None]] = []
+        self.messages: list[str] = []
+
+        async def _resume(path, *, session_id=None, with_session=None):
+            self.calls.append((path, session_id))
+
+        self.runtime = SimpleNamespace(resume_session=_resume)
+
+    def notify(self, message: str) -> None:
+        self.messages.append(message)
+
+
 class TestResumeWiring:
+    def test_a_selected_session_resumes_by_id(self, tmp_path):
+        """The whole point: two SQLite sessions share a path, so the id is what
+        says which one to open."""
+        import asyncio
+
+        from tau.modes.interactive.commands.session import _apply_resume
+
+        db = tmp_path / "sessions.db"
+        ctx = _Ctx()
+
+        asyncio.run(_apply_resume(ctx, _info(db, "bbb")))
+
+        assert ctx.calls == [(db, "bbb")]
+
+    def test_a_bare_path_still_resumes(self, tmp_path):
+        """Callers that only have a path keep working, with no id to pass."""
+        import asyncio
+
+        from tau.modes.interactive.commands.session import _apply_resume
+
+        file = tmp_path / "session.jsonl"
+        ctx = _Ctx()
+
+        asyncio.run(_apply_resume(ctx, file))
+
+        assert ctx.calls == [(file, None)]
+
+    def test_cancelling_the_picker_resumes_nothing(self):
+        """The selector hands over None when nothing is highlighted."""
+        import asyncio
+
+        from tau.modes.interactive.commands.session import _apply_resume
+
+        ctx = _Ctx()
+
+        asyncio.run(_apply_resume(ctx, None))
+
+        assert ctx.calls == []
+        assert ctx.messages == []
+
+    def test_a_failed_resume_is_reported_not_raised(self, tmp_path):
+        import asyncio
+
+        from tau.modes.interactive.commands.session import _apply_resume
+
+        ctx = _Ctx()
+
+        async def _boom(path, *, session_id=None, with_session=None):
+            raise RuntimeError("database is locked")
+
+        ctx.runtime.resume_session = _boom
+
+        asyncio.run(_apply_resume(ctx, _info(tmp_path / "s.db", "aaa")))
+
+        assert "database is locked" in ctx.messages[-1]
+
     def test_the_picker_commits_the_session_not_the_path(self):
+        """Guards the seam itself: committing selected_path() would discard the
+        id before _apply_resume ever sees it."""
         import inspect
 
         from tau.modes.interactive.components import selector_controller
@@ -165,12 +239,4 @@ class TestResumeWiring:
         source = inspect.getsource(selector_controller)
 
         assert "selected_session()" in source
-
-    def test_apply_resume_forwards_the_id(self):
-        import inspect
-
-        from tau.modes.interactive.commands import session as panel
-
-        source = inspect.getsource(panel._apply_resume)
-
-        assert "session_id=session_id" in source
+        assert "selected_path()" not in source

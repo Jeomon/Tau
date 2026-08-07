@@ -154,3 +154,56 @@ class TestBackends:
 
         assert hits == []
         assert "only JSONL sessions are searchable" in caplog.text
+
+
+class TestDefaultScope:
+    def test_without_an_explicit_list_the_project_is_searched(self, tmp_path, monkeypatch):
+        """`/search` passes no session list, so the default path is the one
+        that actually runs in the product."""
+        from tau.session import search as module
+
+        info = _session(tmp_path, "a", [("q", "needle here")])
+        seen: list[object] = []
+
+        def _list(cwd):
+            seen.append(cwd)
+            return [info]
+
+        monkeypatch.setattr("tau.session.manager.SessionManager.list", staticmethod(_list))
+
+        hits = module.search_sessions("needle", cwd=tmp_path)
+
+        assert seen == [tmp_path]
+        assert len(hits) == 1
+
+    def test_with_no_cwd_every_project_is_searched(self, tmp_path, monkeypatch):
+        from tau.session import search as module
+
+        info = _session(tmp_path, "a", [("q", "needle here")])
+        called: list[bool] = []
+
+        def _list_all():
+            called.append(True)
+            return [info]
+
+        monkeypatch.setattr("tau.session.manager.SessionManager.list_all", staticmethod(_list_all))
+
+        hits = module.search_sessions("needle")
+
+        assert called == [True]
+        assert len(hits) == 1
+
+
+class TestCommandResults:
+    def test_one_row_per_session_even_with_several_matches(self, tmp_path):
+        """The picker lists sessions, not entries, so a session matching five
+        times must not appear five times."""
+        from tau.session.search import search_sessions
+
+        info = _session(tmp_path, "a", [("needle", "needle")] * 3)
+
+        hits = search_sessions("needle", sessions=[info], limit_per_session=3)
+        unique_sessions = {str(hit.session.path) for hit in hits}
+
+        assert len(hits) == 3
+        assert len(unique_sessions) == 1

@@ -154,3 +154,62 @@ class TestResumeWiring:
         from tau.runtime.types import RuntimeConfig
 
         assert "session_id" in RuntimeConfig.model_fields
+
+
+class TestBranching:
+    def test_a_branched_session_lands_in_the_same_database(self, tmp_path):
+        """Forking builds a new session path, which under SQLite must stay the
+        project database rather than becoming a stray file."""
+        from tau.session.storage import list_sqlite_sessions
+
+        manager = SessionManager(cwd=tmp_path, session_dir=tmp_path / "s", storage_backend="sqlite")
+        _talk(manager, "original")
+        original_id = manager.session_id
+
+        branched = manager.create_branched_session(manager.leaf_id)
+
+        assert branched is not None
+        assert branched.name == "sessions.db"
+        assert manager.session_id != original_id
+        assert not list((tmp_path / "s").glob("*.jsonl"))
+        assert len(list_sqlite_sessions(tmp_path / "s" / "sessions.db")) == 2
+
+    def test_the_branch_carries_the_history_it_forked_from(self, tmp_path):
+        manager = SessionManager(cwd=tmp_path, session_dir=tmp_path / "s", storage_backend="sqlite")
+        _talk(manager, "original")
+        before = len(manager.get_entries())
+
+        manager.create_branched_session(manager.leaf_id)
+
+        assert len(manager.get_entries()) == before
+
+
+class TestTrustGrantedMidSession:
+    def test_enabling_persistence_writes_into_the_database(self, tmp_path):
+        """An untrusted project buffers in memory. Granting trust has to
+        materialise a location, and under SQLite that is the project database,
+        not a JSONL file."""
+        manager = SessionManager(
+            cwd=tmp_path, session_dir=tmp_path / "s", persist=False, storage_backend="sqlite"
+        )
+        _talk(manager, "buffered")
+
+        manager.enable_persist()
+
+        assert manager.session_file is not None
+        assert manager.session_file.name == "sessions.db"
+        assert (tmp_path / "s" / "sessions.db").exists()
+        assert len(manager.get_entries()) == 2
+
+    def test_nothing_buffered_before_trust_is_lost(self, tmp_path):
+        from tau.session.storage import list_sqlite_sessions
+
+        manager = SessionManager(
+            cwd=tmp_path, session_dir=tmp_path / "s", persist=False, storage_backend="sqlite"
+        )
+        _talk(manager, "buffered")
+
+        manager.enable_persist()
+
+        listed = list_sqlite_sessions(tmp_path / "s" / "sessions.db")
+        assert [info.message_count for info in listed] == [2]
