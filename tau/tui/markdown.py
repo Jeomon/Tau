@@ -321,13 +321,34 @@ def _open_inline_cutoff(line: str, start: int = 0) -> int:
 def _hold_open_inline(tail: str, in_fence: bool) -> str:
     """Trim ``tail`` at the first unresolved inline construct on its last line.
 
-    ``in_fence`` suppresses the trim: inside a fenced code block every delimiter
-    is literal, so there is nothing ambiguous to wait for.
+    ``in_fence`` suppresses the *inline* trim: inside a fenced code block every
+    inline delimiter is literal, so there is nothing ambiguous to wait for.
+
+    One thing inside a fence is still ambiguous, though — a line of one or two
+    fence characters. It is either literal content or the closing delimiter
+    still arriving. Rendering it as content and then dropping it when the third
+    character lands shortens the block by a row, which shifts everything below
+    it up: on a streamed reply that is the input box twitching once per code
+    block. Holding it back costs one frame of latency on a line that is usually
+    about to stop existing.
 
     Runs on every streamed frame, so the common case — nothing open — returns
     ``tail`` itself with no copying. Only an actual hold slices, and only once.
     """
-    if in_fence or not tail:
+    if not tail:
+        return tail
+    if in_fence:
+        line_start = tail.rfind("\n") + 1
+        last = tail[line_start:]
+        # A closing fence may be indented up to three spaces (CommonMark 4.5).
+        stripped = last.lstrip(" ")
+        if (
+            stripped
+            and len(last) - len(stripped) <= 3
+            and len(stripped) <= 2
+            and (set(stripped) == {"`"} or set(stripped) == {"~"})
+        ):
+            return tail[:line_start]
         return tail
     cutoff = _open_inline_cutoff(tail, tail.rfind("\n") + 1)
     return tail if cutoff >= len(tail) else tail[:cutoff]
