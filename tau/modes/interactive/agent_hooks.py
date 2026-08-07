@@ -354,6 +354,14 @@ class AgentHookHandler:
         self._pending_msg = None
         if msg is None or self._current_block is None:
             return
+        # A tool call whose arguments stream in is painted by these flushes,
+        # which run long before message_end. Deferring only there meant the
+        # call appeared, vanished when the gate claimed it, then came back on
+        # approval — and the frame carries the whole transcript with the input
+        # at its end, so each of those moved every row below it. Twice per
+        # call, which reads as the input box jumping.
+        if self._gate_active:
+            self._defer_tool_calls(msg)
         tl = _text_length(msg)
         self._update_block(msg, streaming=tl > self._current_text_length)
         self._current_text_length = tl
@@ -378,9 +386,11 @@ class AgentHookHandler:
         msg = getattr(event, "message", None)
         if msg is None:
             return
-        # Hide any calls this message makes until their gate resolves. Done
-        # before the block is built so the first render already omits them —
-        # otherwise the call flashes on screen and is then taken away.
+        # Hide any calls this message makes until their gate resolves. The
+        # streaming flush defers them as they appear, so this is the backstop
+        # for a message that never streamed — a non-streaming provider, or a
+        # call that arrived whole in the final event. Deferring here *alone*
+        # was the bug: by then the flushes had already painted it.
         if self._gate_active and isinstance(msg, AssistantMessage):
             self._defer_tool_calls(msg)
         if isinstance(msg, (AssistantMessage, ToolMessage)):
