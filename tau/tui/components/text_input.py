@@ -33,21 +33,24 @@ _BLINK_HALF_PERIOD = 0.7
 
 # Matches any atomic input token at end-of-string (for backspace)
 # or start-of-string (for delete-forward).
-# Session-scoped (#N) and persistent (:{uuid}) variants for image/audio/video, plus paste markers.
-_ATOMIC_TOKEN_END = re.compile(
-    r"(?:"
+#
+# A marker stands for content the user never typed — an image, a file, a block
+# of pasted text — so it is deleted whole. Editing one character out of
+# "[file #2]" leaves "[file #]", which no longer resolves to anything and
+# reads as if the user had typed the brackets themselves.
+#
+# Every marker the input handler can insert has to be listed here, in both
+# their session-scoped (#N) and persistent (:{uuid}) forms; `file` was missing,
+# so it was the one attachment that backspaced away a character at a time.
+_MARKER_ALTERNATIVES = (
     r"\[image #\d+\]|\[image:[^\]]+\]"
     r"|\[audio #\d+\]|\[audio:[^\]]+\]"
     r"|\[video #\d+\]|\[video:[^\]]+\]"
-    r"|\[paste #\d+(?: \+\d+ lines| \d+ chars)\]"
-    r")$"
-)
-_ATOMIC_TOKEN_START = re.compile(
-    r"\[image #\d+\]|\[image:[^\]]+\]"
-    r"|\[audio #\d+\]|\[audio:[^\]]+\]"
-    r"|\[video #\d+\]|\[video:[^\]]+\]"
+    r"|\[file #\d+\]|\[file:[^\]]+\]"
     r"|\[paste #\d+(?: \+\d+ lines| \d+ chars)\]"
 )
+_ATOMIC_TOKEN_END = re.compile(r"(?:" + _MARKER_ALTERNATIVES + r")$")
+_ATOMIC_TOKEN_START = re.compile(_MARKER_ALTERNATIVES)
 
 
 class TextInput(Component):
