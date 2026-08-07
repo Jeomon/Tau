@@ -964,7 +964,17 @@ swallowing it — an aborted turn or rolled-back message reveals anything still
 pending, but a handler that never returns would leave the call hidden until the
 turn ends.
 
-The first `ToolResultEventResult` returned wins; later handlers are not consulted.
+`content` and `is_error` are first-wins: the first handler to set either claims
+it, and later handlers cannot override. Two extensions rewriting the same output
+is a genuine conflict, and resolving it by load order would be arbitrary.
+
+`metadata` is merged across **every** handler, because annotating a result is not
+rewriting it — several extensions labelling the same call is the ordinary case.
+Later keys win on collision, so namespace yours (`_permission`, `_extra_blocks`)
+rather than using bare names. `terminate` is honoured from any handler.
+
+A handler that returns only `metadata` does not claim the `content` slot, so
+annotating a result never blocks a later handler from rewriting it.
 
 ```python
 from tau.hooks import ToolResultEventResult

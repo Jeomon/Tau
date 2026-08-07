@@ -504,17 +504,27 @@ class Engine:
             ),
             timeout=self.options.event_handler_timeout_seconds,
         )
+        # Content is first-wins: two handlers rewriting the same output would
+        # otherwise fight, and the winner would depend on extension load order.
+        # Metadata is not a rewrite — it is annotation, and two extensions
+        # annotating the same call is the ordinary case, not a conflict. The
+        # merge below already spelled that intent; the `break` meant it could
+        # never span handlers, so whichever extension happened to load first
+        # silently erased every other extension's keys.
+        content_claimed = False
         for r in hook_results:
-            if isinstance(r, ToolResultEventResult):
+            if not isinstance(r, ToolResultEventResult):
+                continue
+            if not content_claimed and (r.content is not None or r.is_error is not None):
                 if r.content is not None:
                     tool_result.content = r.content
                 if r.is_error is not None:
                     tool_result.is_error = r.is_error
-                if r.terminate:
-                    tool_result.terminate = True
-                if r.metadata is not None:
-                    tool_result.metadata = {**(tool_result.metadata or {}), **r.metadata}
-                break
+                content_claimed = True
+            if r.terminate:
+                tool_result.terminate = True
+            if r.metadata is not None:
+                tool_result.metadata = {**(tool_result.metadata or {}), **r.metadata}
 
         return tool_result
 
