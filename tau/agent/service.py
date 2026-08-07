@@ -341,7 +341,23 @@ class Agent:
                     id=invocation.id,
                     is_error=True,
                     content=res.reason or f"Tool call '{invocation.name}' blocked by an extension.",
-                    metadata={"blocked_by_extension": True},
+                    # `blocked` is the fact a reader cares about: this call was
+                    # stopped before it ran, as opposed to running and failing,
+                    # which `is_error` alone cannot distinguish. `blocked_by`
+                    # carries the mechanism as a *value*, so a future blocker
+                    # is a new value rather than a new key every consumer has
+                    # to learn — which is what naming the mechanism in the key
+                    # would have cost.
+                    #
+                    # The handler's own keys go over these. A block is the only
+                    # place a denial can carry structure at all: the call never
+                    # runs, so `tool_result` never fires for it and the reason
+                    # would otherwise survive only as prose inside `content`.
+                    metadata={
+                        "blocked": True,
+                        "blocked_by": "extension",
+                        **(res.metadata or {}),
+                    },
                 )
             if res.params is not None:
                 invocation.params = res.params

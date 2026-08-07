@@ -85,7 +85,8 @@ def test_an_extension_handler_can_block_a_tool_call() -> None:
     assert isinstance(result, ToolResultContent), "the block never reached the caller"
     assert result.is_error is True
     assert result.content == "Denied by the user."
-    assert result.metadata.get("blocked_by_extension") is True
+    assert result.metadata.get("blocked") is True
+    assert result.metadata.get("blocked_by") == "extension"
 
 
 def test_an_extension_handler_can_rewrite_params() -> None:

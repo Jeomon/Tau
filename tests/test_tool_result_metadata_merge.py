@@ -139,3 +139,96 @@ async def test_an_is_error_override_still_applies() -> None:
     result = await _run([fail])
 
     assert result.is_error is True
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_call_carries_the_blockers_metadata() -> None:
+    """A block skips execution, so `tool_result` never fires for it.
+
+    Without `ToolCallEventResult.metadata` the only structured trace of a
+    denial was the host's own `blocked` flag, with the actual reason surviving
+    as prose inside `content`.
+    """
+    from tau.agent.service import Agent
+    from tau.hooks.engine import ToolCallEventResult
+
+    agent = Agent.__new__(Agent)
+
+    class _Hooks:
+        async def emit(self, _event: Any) -> list:
+            return [
+                ToolCallEventResult(
+                    block=True,
+                    reason="Denied by policy.",
+                    metadata={"_permission": {"state": "deny", "pattern": "**/.env"}},
+                )
+            ]
+
+    agent.hooks = _Hooks()  # type: ignore[assignment]
+
+    class _Invocation:
+        id = "tc1"
+        name = "read"
+        params: dict = {}
+
+    result = await agent._before_tool_call(_Invocation(), None)  # type: ignore[arg-type]
+
+    assert result.metadata["blocked"] is True
+    assert result.metadata["blocked_by"] == "extension"
+    assert result.metadata["_permission"]["pattern"] == "**/.env"
+    assert result.is_error is True
+
+
+@pytest.mark.asyncio
+async def test_a_blocker_without_metadata_still_works() -> None:
+    from tau.agent.service import Agent
+    from tau.hooks.engine import ToolCallEventResult
+
+    agent = Agent.__new__(Agent)
+
+    class _Hooks:
+        async def emit(self, _event: Any) -> list:
+            return [ToolCallEventResult(block=True, reason="no")]
+
+    agent.hooks = _Hooks()  # type: ignore[assignment]
+
+    class _Invocation:
+        id = "tc1"
+        name = "read"
+        params: dict = {}
+
+    result = await agent._before_tool_call(_Invocation(), None)  # type: ignore[arg-type]
+
+    assert result.metadata == {"blocked": True, "blocked_by": "extension"}
+
+
+@pytest.mark.asyncio
+async def test_a_blocker_can_attribute_itself() -> None:
+    """`blocked_by` is a value, so a new blocker is not a new key.
+
+    Naming the mechanism in the key — as `blocked_by_extension` did — meant
+    every future source of a block would need its own key, and every consumer
+    would need to learn it just to answer "was this call stopped".
+    """
+    from tau.agent.service import Agent
+    from tau.hooks.engine import ToolCallEventResult
+
+    agent = Agent.__new__(Agent)
+
+    class _Hooks:
+        async def emit(self, _event: Any) -> list:
+            return [
+                ToolCallEventResult(block=True, reason="no", metadata={"blocked_by": "sandbox"})
+            ]
+
+    agent.hooks = _Hooks()  # type: ignore[assignment]
+
+    class _Invocation:
+        id = "tc1"
+        name = "read"
+        params: dict = {}
+
+    result = await agent._before_tool_call(_Invocation(), None)  # type: ignore[arg-type]
+
+    assert result.metadata["blocked"] is True
+    assert result.metadata["blocked_by"] == "sandbox"

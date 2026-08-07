@@ -85,7 +85,8 @@ def test_block_cancels_the_call_with_the_handler_reason() -> None:
     assert result.is_error is True
     assert result.content == "Denied by policy: rm -rf"
     assert result.id == "call-1"
-    assert result.metadata["blocked_by_extension"] is True
+    assert result.metadata["blocked"] is True
+    assert result.metadata["blocked_by"] == "extension"
 
 
 def test_block_without_a_reason_names_the_tool() -> None:

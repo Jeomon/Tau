@@ -304,6 +304,7 @@ class ToolCallEventResult:
     block: bool = False
     reason: str | None = None
     params: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass

@@ -930,6 +930,13 @@ def register(tau):
 | `block` | `bool` | Cancels the call. The tool never runs; `reason` is returned to the model as an error result |
 | `reason` | `str \| None` | Denial message shown to the model. Defaults to a generic message naming the tool |
 | `params` | `dict \| None` | Replaces the invocation's params, letting you narrow a call instead of refusing it |
+| `metadata` | `dict \| None` | Structured detail recorded on the result when `block` is set. A blocked call never executes, so `tool_result` never fires for it — this is the only way to state *why* in fields rather than in `reason`'s prose. Merged over the host's keys; namespace yours |
+
+A blocked call's result carries `{"blocked": True, "blocked_by": "extension"}`.
+`blocked` is the fact worth reading — the call was stopped before it ran, which
+`is_error` alone cannot distinguish from a tool that ran and failed. The source
+is a *value*, so a handler can attribute a block to itself (`{"blocked_by":
+"sandbox"}`) without every consumer learning a new key.
 
 `block` takes precedence over `params` on the same result — a handler asking for
 both is denying, and running its rewritten params would invert that intent. The
