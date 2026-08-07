@@ -23,6 +23,36 @@ class BeforeProviderRequestEvent:
 
 
 @dataclass
+class ProviderRequestEventResult:
+    """Returned by a ``before_provider_request`` handler to refuse the call.
+
+    Mutation never needed a result type — ``headers``, ``messages`` and
+    ``options`` on the event are the live objects, so redacting a prompt or
+    adding a tracing header already works in place. Blocking did: an approved
+    model registry, an egress policy, or a guard that refuses to send a
+    conversation containing secrets all have to *stop* the request, and there
+    was no way to say so.
+
+    ``reason`` becomes the turn's error text, so write it for the person
+    reading the transcript.
+    """
+
+    block: bool = False
+    reason: str = ""
+
+
+class ProviderRequestBlocked(Exception):
+    """Raised when a ``before_provider_request`` handler refuses the call.
+
+    Raised rather than returned so the engine's existing failure path handles
+    it: the agent loop turns any exception into an assistant message carrying
+    ``stop_reason=Error``, emits ``MessageEnd``/``AgentError``, and stops. A
+    bespoke "refused" path would have to reproduce all of that to leave the
+    session in the same state.
+    """
+
+
+@dataclass
 class AfterProviderResponseEvent:
     """Fired immediately after the LLM streaming response is fully collected.
 

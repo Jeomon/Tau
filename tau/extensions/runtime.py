@@ -35,6 +35,7 @@ _INTERCEPTABLE_EVENTS: frozenset[str] = frozenset(
         "input",
         "tool_call",
         "tool_result",
+        "before_provider_request",
         "context",
     }
 )

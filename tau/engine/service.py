@@ -37,7 +37,12 @@ from tau.hooks.engine import (
     ToolResultEvent,
     ToolResultEventResult,
 )
-from tau.hooks.inference import AfterProviderResponseEvent, BeforeProviderRequestEvent
+from tau.hooks.inference import (
+    AfterProviderResponseEvent,
+    BeforeProviderRequestEvent,
+    ProviderRequestBlocked,
+    ProviderRequestEventResult,
+)
 from tau.hooks.service import Hooks
 from tau.hooks.tui import QueueUpdateEvent
 from tau.inference.types import (
@@ -813,7 +818,7 @@ class Engine:
                     )
 
                     await emit(MessageStartEvent(message=message))
-                    await self.hooks.emit(
+                    provider_results = await self.hooks.emit(
                         BeforeProviderRequestEvent(
                             model=self.llm.model,
                             provider_id=self.llm.provider_id,
@@ -822,6 +827,21 @@ class Engine:
                             options=self.llm.api.options,
                         )
                     )
+                    # Handlers mutate the event in place to rewrite a request;
+                    # a returned result is the one thing they cannot express
+                    # that way — refusing to send it at all. Checked after the
+                    # emit so every handler still runs and can log or redact,
+                    # and so two guards refusing produce one stop rather than a
+                    # race over which is reported.
+                    for provider_result in provider_results:
+                        if (
+                            isinstance(provider_result, ProviderRequestEventResult)
+                            and provider_result.block
+                        ):
+                            raise ProviderRequestBlocked(
+                                provider_result.reason
+                                or "Provider request blocked by an extension."
+                            )
 
                     # Providers that report raw HTTP status/headers (currently
                     # Anthropic Messages, OpenAI Completions/Responses, and

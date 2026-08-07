@@ -779,7 +779,7 @@ user submits a prompt ───────────────────�
   │   ├─► turn_start                              │        │
   │   ├─► context (can inject ephemeral messages) │        │
   │   ├─► message_start                           │        │
-  │   ├─► before_provider_request (headers mutable)        │
+  │   ├─► before_provider_request (mutable / blockable)    │
   │   ├─► message_update … (streaming)            │        │
   │   ├─► after_provider_response                 │        │
   │   ├─► message_end                             │        │
@@ -996,12 +996,12 @@ declared but not implemented**, and the prompt still reaches the agent.
 
 ### Provider events
 
-| Event | Payload | Notes |
-|---|---|---|
-| `before_provider_request` | `model`, `provider_id`, `messages`, `headers`, `options` | `headers` is the live dict sent as `extra_headers` on this request; mutating it in place takes effect immediately |
-| `after_provider_response` | `model`, `response`, `status_code`, `response_headers` | Raw HTTP status and headers are captured before the stream body is consumed, for providers that report them (Anthropic Messages and the OpenAI Completions/Responses APIs). `None` otherwise |
+| Event | Payload | Result | Notes |
+|---|---|---|---|
+| `before_provider_request` | `model`, `provider_id`, `messages`, `headers`, `options` | `ProviderRequestEventResult` | Interceptable. `headers`, `messages` and `options` are the live objects sent on this request; mutating them in place takes effect immediately |
+| `after_provider_response` | `model`, `response`, `status_code`, `response_headers` | — | Raw HTTP status and headers are captured before the stream body is consumed, for providers that report them (Anthropic Messages and the OpenAI Completions/Responses APIs). `None` otherwise |
 
-Return values are discarded for both. Mutate `headers` instead:
+To **rewrite** a request, mutate the event — no return value needed:
 
 ```python
 def register(tau):
@@ -1009,6 +1009,36 @@ def register(tau):
     async def add_trace_header(event, ctx):
         event.headers["X-Trace-Id"] = new_trace_id()
 ```
+
+To **refuse** one, return a blocking result. Use this for an approved-model
+registry, an egress policy, or a guard that will not send a conversation
+containing secrets:
+
+```python
+from tau.hooks import ProviderRequestEventResult
+
+APPROVED = {"claude-opus-5", "gpt-5"}
+
+def register(tau):
+    @tau.on("before_provider_request")
+    async def only_approved_models(event, ctx):
+        if getattr(event.model, "id", "") not in APPROVED:
+            return ProviderRequestEventResult(
+                block=True, reason=f"Model {event.model.id} is not approved."
+            )
+```
+
+A refusal raises `tau.hooks.ProviderRequestBlocked` inside the agent loop,
+which ends the turn with `reason` as the error text on the assistant message —
+the same path a provider failure takes, so the session records it and a resume
+sees it.
+
+Every handler runs before the check, so a guard that redacts still redacts
+even when another refuses, and two refusals produce one stop rather than a
+race over which is reported.
+
+`after_provider_response` is observe-only: by the time it fires the request has
+already been sent.
 
 ### Compaction events
 

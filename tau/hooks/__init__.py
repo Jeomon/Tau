@@ -38,6 +38,8 @@ from tau.hooks.engine import (
 from tau.hooks.inference import (
     AfterProviderResponseEvent,
     BeforeProviderRequestEvent,
+    ProviderRequestBlocked,
+    ProviderRequestEventResult,
 )
 from tau.hooks.runtime import (
     InputEvent,
@@ -141,6 +143,8 @@ __all__ = [
     "BeforeAgentStartEventResult",
     # Inference
     "BeforeProviderRequestEvent",
+    "ProviderRequestBlocked",
+    "ProviderRequestEventResult",
     "AfterProviderResponseEvent",
     # TUI
     "TuiReadyEvent",
