@@ -155,6 +155,12 @@ class RpcUIContext:
     def set_working_message(self, msg: str | None = None) -> None:
         return None
 
+    def push_working_reason(self, key: str, label: str) -> None:
+        return None
+
+    def pop_working_reason(self, key: str) -> None:
+        return None
+
     def set_working_visible(self, visible: bool) -> None:
         return None
 

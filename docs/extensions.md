@@ -1487,10 +1487,24 @@ ctx.ui.set_header(StaticComponent(["── My Extension ──"])) # banner abov
 ctx.ui.set_title("My Agent – session 42")                 # terminal window title
 
 ctx.ui.set_working_message("Fetching data…")              # spinner label
+ctx.ui.push_working_reason("mykey", "Waiting for approval…")  # temporary label
+ctx.ui.pop_working_reason("mykey")                       # restore what was under it
 ctx.ui.set_working_visible(False)                         # hide the spinner
 ctx.ui.set_working_indicator(["◐", "◓", "◑", "◒"])        # custom animation
 ctx.ui.set_hidden_thinking_label("reasoning…")            # collapsed-thinking label
+```
 
+Prefer `push_working_reason`/`pop_working_reason` over `set_working_message`
+whenever the label is temporary — an approval prompt, a confirmation, anything
+that pauses the agent and hands control back. `set_working_message(None)`
+reverts to the *default* label rather than to whatever the turn was showing, so
+clearing it mid-tool-call leaves the spinner reading "Thinking…". Reasons are
+layered and keyed: popping restores exactly what was underneath, and two
+independent drivers cannot clobber each other. Pop in a `finally` — a prompt
+that times out must not strand a label describing something no longer
+happening.
+
+```python
 ctx.ui.get_editor_text()                                  # read the input editor
 ctx.ui.set_editor_text("Write a poem")                    # replace its content
 ctx.ui.paste_to_editor("@file.py ")                       # insert at the cursor
@@ -2036,7 +2050,7 @@ narrative version. Summary of the full surface:
 | Widgets | `set_widget`, `remove_widget` |
 | Footer | `set_footer`, `restore_footer`, `set_status`, `clear_status` |
 | Messages | `notify`, `clear_messages` |
-| Chrome | `set_header`, `set_title`, `set_working_message`, `set_working_visible`, `set_working_indicator`, `set_hidden_thinking_label` |
+| Chrome | `set_header`, `set_title`, `set_working_message`, `push_working_reason`, `pop_working_reason`, `set_working_visible`, `set_working_indicator`, `set_hidden_thinking_label` |
 | Editor | `get_editor_text`, `set_editor_text`, `paste_to_editor`, `set_editor_component`, `get_editor_component`, `get_input_text`, `set_input_text`, `clear_input`, `insert_input_text`, `backspace_input`, `set_input_placeholder`, `reset_input_placeholder`, `set_input_cursor`, `reset_input_cursor` |
 | Theme | `theme`, `get_all_themes`, `set_theme` |
 | Tool display | `get_tools_expanded`, `set_tools_expanded`, `get_tool_results_expanded`, `set_tool_results_expanded` |

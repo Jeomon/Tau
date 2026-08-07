@@ -28,6 +28,36 @@ Outcome = Literal["allow_once", "allow_session", "deny"]
 _ALLOW_ONCE = "Allow Once"
 _DENY = "Deny"
 
+#: Spinner reason key. Keyed so a second prompt replaces the first rather than
+#: stacking, and so teardown targets exactly this one.
+_WAITING_KEY = "permissions"
+_WAITING_LABEL = "User Approving…"
+
+
+def _push_waiting_label(ui: Any) -> None:
+    """Say what is actually happening while the picker is open.
+
+    Best-effort: a surface without the API (RPC, an older host) simply keeps
+    whatever label it had. A spinner caption is never worth failing a security
+    prompt over.
+    """
+    try:
+        push = getattr(ui, "push_working_reason", None)
+        if callable(push):
+            push(_WAITING_KEY, _WAITING_LABEL)
+    except Exception:  # noqa: BLE001 - cosmetic
+        _log.debug("permissions: could not set the waiting label", exc_info=True)
+
+
+def _pop_waiting_label(ui: Any) -> None:
+    """Restore the turn's own label. Safe when nothing was ever pushed."""
+    try:
+        pop = getattr(ui, "pop_working_reason", None)
+        if callable(pop):
+            pop(_WAITING_KEY)
+    except Exception:  # noqa: BLE001 - cosmetic
+        _log.debug("permissions: could not clear the waiting label", exc_info=True)
+
 
 #: Long commands are truncated in the detail block. Approving still applies to
 #: the whole thing — the block says so explicitly rather than implying that
@@ -328,6 +358,13 @@ async def ask(
     except Exception:  # noqa: BLE001 - the picker still works without the block
         _log.debug("permissions: could not render the detail block", exc_info=True)
 
+    # The spinner is a sibling of the picker, not part of it, so it keeps
+    # running throughout — still reading "Tool Calling…" while nothing is
+    # calling a tool and the elapsed timer climbs for as long as the prompt
+    # sits unanswered. Layered rather than set outright: popping restores the
+    # turn's own label, where set_working_message(None) would revert to the
+    # default and leave "Thinking…" behind mid-tool-call.
+    _push_waiting_label(ui)
     try:
         chooser = ui.select(title, options)
         choice = (
@@ -341,6 +378,11 @@ async def ask(
     except Exception:  # noqa: BLE001 - a broken dialog must not grant access
         _log.exception("permissions: prompt failed for %s; denying", decision.target)
         return "deny", None
+    finally:
+        # Every exit path, including the two denials above: a stranded label
+        # would describe something that is no longer happening for the rest of
+        # the turn.
+        _pop_waiting_label(ui)
 
     if choice == _ALLOW_ONCE:
         return "allow_once", None

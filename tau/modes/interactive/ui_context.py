@@ -683,6 +683,41 @@ class UIContext:
             layout.spinner.set_label(msg)
         layout._tui.request_render()
 
+    def push_working_reason(self, key: str, label: str) -> None:
+        """Show ``label`` on the spinner until ``pop_working_reason(key)``.
+
+        Use this instead of :meth:`set_working_message` whenever the label is
+        temporary — an approval prompt, a confirmation, anything that pauses
+        the agent and then hands control back. ``set_working_message(None)``
+        reverts to the *default* label rather than to whatever the turn was
+        actually showing, so a gate using it leaves the spinner reading
+        "Thinking…" in the middle of a tool call. Reasons are layered and
+        keyed: popping restores exactly what was underneath, and two
+        independent drivers cannot clobber each other.
+
+        Usage::
+
+            ctx.ui.push_working_reason("permissions", "Waiting for approval…")
+            try:
+                ...
+            finally:
+                ctx.ui.pop_working_reason("permissions")
+        """
+        layout = self._layout()
+        if layout is not None:
+            layout.spinner.push_reason(key, label)
+
+    def pop_working_reason(self, key: str) -> None:
+        """Remove a label pushed by :meth:`push_working_reason`.
+
+        Safe to call for a key that was never pushed, so it belongs in a
+        ``finally``: a prompt that times out or is dismissed must not strand
+        the spinner on a label describing something no longer happening.
+        """
+        layout = self._layout()
+        if layout is not None:
+            layout.spinner.pop_reason(key)
+
     def set_working_visible(self, visible: bool) -> None:
         """Show or force-hide the working spinner.
 
