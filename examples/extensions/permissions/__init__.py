@@ -260,7 +260,18 @@ def register(tau: Any) -> None:
         if args and args[0] == "log":
             entries = gate.log.tail(15)
             if not entries:
-                ctx.ui.notify("permissions: no decisions recorded yet", "info")
+                # Distinguish "nothing happened" from "nothing is being
+                # recorded" — since the log defaults off, an empty result is
+                # now the expected state rather than a surprising one.
+                if not gate.policy.settings.log_decisions:
+                    ctx.ui.notify(
+                        "permissions: decision logging is off; each decision is "
+                        'recorded on its tool result instead. Set "logDecisions": true '
+                        "for a project-scoped file.",
+                        "info",
+                    )
+                else:
+                    ctx.ui.notify("permissions: no decisions recorded yet", "info")
                 return
             ctx.ui.notify(
                 [

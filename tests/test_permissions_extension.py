@@ -720,9 +720,27 @@ class TestGate:
         decision = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, _Hanging()))
         assert decision.state == "deny"
 
-    def test_denied_calls_are_logged(self, tmp_path: Path) -> None:
+    def test_the_decision_log_is_off_by_default(self, tmp_path: Path) -> None:
+        """The session records the same fields, so writing both duplicated it.
+
+        Every allow and deny now carries state, surface, pattern, origin and
+        execution on its tool result, which the session persists. The log
+        stays available for a project-scoped file that outlives a cleared or
+        deleted session — the one thing the session cannot offer.
+        """
         gate = _gate(tmp_path)
+
         asyncio.run(gate.decide("read", {"path": ".env"}, None))
+
+        assert gate.log.tail() == []
+        assert not gate.log.path.exists()
+
+    def test_denied_calls_are_logged_when_enabled(self, tmp_path: Path) -> None:
+        gate = _gate(tmp_path)
+        gate.log = log_mod.DecisionLog(tmp_path, enabled=True)
+
+        asyncio.run(gate.decide("read", {"path": ".env"}, None))
+
         assert gate.log.tail()[-1]["state"] == "deny"
 
 

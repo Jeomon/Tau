@@ -86,7 +86,13 @@ class Settings:
     #: Seconds before an unanswered prompt gives up. Expiry never grants.
     prompt_timeout_seconds: int = 600
     #: Append every decision to ``.tau/extensions/permissions/decisions.log``.
-    log_decisions: bool = True
+    #:
+    #: Off by default: the session now records the same fields on each tool
+    #: result — state, surface, pattern, origin, and whether the call then ran
+    #: — for allows and denies alike, so leaving this on wrote every decision
+    #: twice. Turn it on for a project-scoped file that survives a session
+    #: being cleared or deleted, which is the one thing the session cannot do.
+    log_decisions: bool = False
     #: Remove denied tools from the schema before the turn starts.
     hide_denied_tools: bool = True
 

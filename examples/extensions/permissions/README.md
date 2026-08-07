@@ -57,7 +57,7 @@ With no configuration at all:
 
   "headlessDefault": "deny",            // when there is no UI to ask
   "promptTimeoutSeconds": 600,          // 0 waits forever; expiry never grants
-  "logDecisions": true,
+  "logDecisions": false,                // the session already records each decision
   "hideDeniedTools": true
 }
 ```
@@ -231,21 +231,25 @@ Read these before trusting it with anything that matters.
 
 ## What Gets Recorded Where
 
-Every decision is written to `decisions.log` before the tool runs, with the
-matched pattern, its origin, and the surface that decided. A permitted call is
-then written a second time once it finishes, with `outcome` set to
-`executed:ok` or `executed:error` — the first record cannot know whether the
-call actually worked, because it is made before execution.
+Every decision is attached to its tool result's `metadata` under `_permission`,
+which the session persists — the state, the surface that decided, the matched
+pattern, its origin, and `execution`: `ok`, `error`, or `blocked`. Allows and
+denies carry the same shape, so a transcript can be queried without branching
+on the outcome. That puts the reason a call went the way it did next to the
+call itself.
 
-The same detail is attached to the tool result's `metadata` under `_permission`,
-which the session persists. That puts the reason a call was permitted next to
-the call itself in the transcript, rather than only in a separate file.
+`decisions.log` is **off by default** (`logDecisions`). It records the same
+fields, so leaving it on wrote every decision twice — once in the session and
+once in a file whose parameter redaction is undone anyway by the session
+storing the same call's arguments in full.
 
-The two are deliberately not one store. The session is per-conversation and
-lives outside the project; `decisions.log` is project-scoped, spans every
-session, and is the only one of the two the gate refuses to let the agent write
-to. Blocked calls appear in the log but never carry `_permission` metadata: the
-host turns a block into a tool result without executing, so `tool_result` never
-fires for them.
+Turn it on for one thing the session cannot offer: a project-scoped file that
+survives a session being cleared or deleted, and that the gate refuses to let
+the agent write to. Note that the refusal covers `write` and `edit` only — a
+shell command reaching the same path resolves to `ask`, not `deny`.
+
+When enabled, a decision is written before the tool runs, and a permitted call
+is written again once it finishes with `outcome` set to `executed:ok` or
+`executed:error`; the first record is made before execution and cannot know.
 
 Tests: `tests/test_permissions_extension.py`.
