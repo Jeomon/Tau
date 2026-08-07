@@ -63,6 +63,7 @@ Most commands wait until the active turn finishes. UI-only and read-only command
 |---------|-------------|
 | `/new` | Start a fresh session |
 | `/resume` | Browse and resume a past session interactively |
+| `/search <text>` | Find and resume a past session by what was said in it |
 | `/fork <entry_id>` | Branch the session tree at a given entry ID (argument required) |
 | `/tree` | Navigate the session tree and switch to a different branch |
 | `/clone` | Duplicate the current session at the current position |
@@ -77,6 +78,7 @@ Most commands wait until the active turn finishes. UI-only and read-only command
 | `/effort` | Set the thinking effort level for the current model |
 | `/theme` | Change the UI theme (interactive picker) |
 | `/settings` | Show current settings |
+| `/trust [yes\|session\|no\|forget]` | Show or change whether this project is trusted |
 
 ### Authentication
 

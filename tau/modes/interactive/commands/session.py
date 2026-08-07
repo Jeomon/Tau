@@ -16,6 +16,7 @@ async def open_resume_selector(ctx: CommandContext) -> None:
     sm = ctx.runtime.session_manager
     cwd = sm.cwd if sm is not None else None
     current_path = sm.session_file if sm is not None else None
+    current_id = getattr(sm, "session_id", None) if sm is not None else None
     current_pager = None
     all_pager = None
 
@@ -45,10 +46,8 @@ async def open_resume_selector(ctx: CommandContext) -> None:
     def load_more(scope: str) -> None:
         asyncio.create_task(load_page(scope))
 
-    def commit(path: object) -> None:
-        from pathlib import Path
-
-        asyncio.ensure_future(_apply_resume(ctx, Path(str(path))))
+    def commit(session: object) -> None:
+        asyncio.ensure_future(_apply_resume(ctx, session))
 
     ctx.layout.open_resume_selector(
         sessions=[],
@@ -59,17 +58,30 @@ async def open_resume_selector(ctx: CommandContext) -> None:
         on_load_all=lambda: load_more("all"),
         on_load_more=load_more,
         current_session_path=current_path,
+        current_session_id=current_id,
     )
     load_more("current")
 
 
-async def _apply_resume(ctx: CommandContext, path: object) -> None:
+async def _apply_resume(ctx: CommandContext, target: object) -> None:
+    """Resume the selected session.
+
+    ``target`` is a SessionInfo when it comes from a picker, and a bare path
+    when a caller only has one. The id matters for the SQLite backend, where
+    one database holds every session of a project and the path cannot say
+    which of them to open.
+    """
     from pathlib import Path
 
+    if target is None:
+        return
+    path = getattr(target, "path", target)
+    session_id = getattr(target, "id", None)
     p = Path(str(path))
     try:
-        await ctx.runtime.resume_session(p)
-        ctx.notify(f"Resumed session {p.stem[:32]}")
+        await ctx.runtime.resume_session(p, session_id=session_id)
+        label = session_id[:32] if session_id else p.stem[:32]
+        ctx.notify(f"Resumed session {label}")
     except Exception as exc:
         ctx.notify(f"Failed to resume: {exc}")
 
@@ -530,4 +542,87 @@ def cmd_session(ctx: CommandContext) -> None:
         f"{DIM}{'Total':<{W}}{RESET} {format_number(stats.total_tokens)} (${stats.total_cost:.2f})"
     )
 
+    # Cache misses are already inside the total above; this says how much of it
+    # was re-billed for a prefix that should have been read from cache.
+    waste = stats.cache_waste
+    if waste.miss_count:
+        causes = []
+        if waste.expired_count:
+            causes.append(f"{waste.expired_count} after an idle gap")
+        if waste.model_change_count:
+            causes.append(f"{waste.model_change_count} after a model switch")
+        detail = f" - {', '.join(causes)}" if causes else ""
+        misses = "1 miss" if waste.miss_count == 1 else f"{waste.miss_count} misses"
+        lines.append("")
+        lines.append(f"{BOLD}Cache{RESET}")
+        lines.append(
+            f"{DIM}{'Re-billed':<{W}}{RESET} {format_number(waste.missed_tokens)}"
+            f" (${waste.missed_cost:.2f}) across {misses}{detail}"
+        )
+
     ctx.notify("\n".join(lines))
+
+
+async def open_search_selector(ctx: CommandContext, query: str) -> None:
+    """Resume a session found by what was said in it, not its name or date.
+
+    This is the resume picker with its list pre-filtered to sessions that
+    contain ``query``, rather than a separate surface: picking a result resumes
+    it exactly as `/resume` would.
+    """
+
+    from tau.session.manager import SessionManager
+    from tau.session.search import search_sessions
+
+    query = query.strip()
+    if not query:
+        ctx.notify('Usage: /search <text>  — e.g. /search "compaction race"')
+        return
+
+    sm = ctx.runtime.session_manager
+    cwd = sm.cwd if sm is not None else None
+    current_path = sm.session_file if sm is not None else None
+    current_id = getattr(sm, "session_id", None) if sm is not None else None
+
+    def _run() -> tuple[list, dict[str, str]]:
+        sessions = SessionManager.list(cwd) if cwd else SessionManager.list_all()
+        hits = search_sessions(query, sessions=sessions)
+        # One entry per session, newest first, keeping the first snippet as the
+        # reason it matched — the picker lists sessions, not entries.
+        matched: list = []
+        snippets: dict[str, str] = {}
+        for hit in hits:
+            key = str(hit.session.path)
+            if key in snippets:
+                continue
+            snippets[key] = hit.snippet
+            matched.append(hit.session)
+        return matched, snippets
+
+    try:
+        matched, snippets = await asyncio.to_thread(_run)
+    except Exception:
+        ctx.notify("Search failed; see the session log.")
+        return
+
+    if not matched:
+        ctx.notify(f"No session contains {query!r}.")
+        return
+
+    def commit(session: object) -> None:
+        asyncio.ensure_future(_apply_resume(ctx, session))
+
+    ctx.layout.open_resume_selector(
+        sessions=[],
+        loading=True,
+        on_commit=commit,
+        on_cancel=lambda: ctx.notify("Search cancelled."),
+        all_sessions_loader=lambda: [],
+        on_load_all=lambda: None,
+        on_load_more=lambda _scope: None,
+        current_session_path=current_path,
+        current_session_id=current_id,
+    )
+    ctx.layout.append_resume_sessions("current", matched, False, len(matched))
+    plural = "session" if len(matched) == 1 else "sessions"
+    ctx.notify(f"{len(matched)} {plural} matching {query!r}.")

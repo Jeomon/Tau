@@ -67,8 +67,10 @@ class SessionManager:
         session_dir: Path | None = None,
         session_file: Path | None = None,
         persist: bool = True,
+        storage_backend: str | None = None,
+        session_id: str | None = None,
     ):
-        self.session_id: str | None = None
+        self.session_id: str | None = session_id
         self.cwd = Path(cwd).resolve()
         self.persist = persist
         self.session_dir = (
@@ -76,6 +78,10 @@ class SessionManager:
             if session_dir
             else get_default_project_session_dir(self.cwd)
         )
+        # Which backend a session's history lives in. Resolved once here rather
+        # than read per call, so a settings change mid-session cannot leave the
+        # manager reading one backend and writing another.
+        self._storage_backend = storage_backend or "file"
         self._storage: SessionStorage = InMemorySessionStorage()
         self.session_file = session_file
         self.by_id: dict[str, SessionEntry] = {}
@@ -107,7 +113,7 @@ class SessionManager:
 
     @session_file.setter
     def session_file(self, path: Path | None) -> None:
-        """Point the manager at a session file, rebinding its storage backend.
+        """Point the manager at a session location, rebinding its storage backend.
 
         A property rather than a plain attribute because the storage object
         caches the path (and, for the file backend, its lock). Assigning the
@@ -115,7 +121,41 @@ class SessionManager:
         writing another. Callers keep assigning ``session_file`` as before.
         """
         self._session_file = path
-        self._storage = FileSessionStorage(path) if path else InMemorySessionStorage()
+        self._storage = self._make_storage(path)
+
+    def _make_storage(self, path: Path | None) -> SessionStorage:
+        """Build the storage backing ``path``.
+
+        The SQLite backend scopes its rows by session id, so it can only be
+        built once the id is known. During ``__init__`` the path is assigned
+        before any session exists, and ``set_session`` learns the id by reading
+        the location; both fall back to the file backend until an id arrives,
+        and rebind through ``session_file`` once it does.
+        """
+        if path is None:
+            return InMemorySessionStorage()
+        if self._storage_backend == "sqlite" and self.session_id:
+            from tau.session.storage import SQLiteSessionStorage
+
+            return SQLiteSessionStorage(path, self.session_id)
+        return FileSessionStorage(path)
+
+    @property
+    def storage_backend(self) -> str:
+        """The backend this manager persists through: ``"file"`` or ``"sqlite"``."""
+        return self._storage_backend
+
+    def _new_session_path(self, session_id: str) -> Path:
+        """Where a newly created session's history belongs.
+
+        One JSONL file per session, or the project's single database — the
+        SQLite backend keeps every session of a project in one file, which is
+        what makes listing an indexed query rather than a full read.
+        """
+        if self._storage_backend == "sqlite":
+            return (self.session_dir / "sessions.db").resolve()
+        file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
+        return (self.session_dir / f"{file_timestamp}_{session_id}.jsonl").resolve()
 
     def enable_persist(self) -> None:
         """Switch from a non-persisting session to a persisting one.
@@ -129,12 +169,7 @@ class SessionManager:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         # Materialise the session file path that new_session() skipped earlier.
         if self.session_file is None and self.session_id is not None:
-            from datetime import datetime
-
-            file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
-            self.session_file = (
-                self.session_dir / f"{file_timestamp}_{self.session_id}.jsonl"
-            ).resolve()
+            self.session_file = self._new_session_path(self.session_id)
         self._rewrite_file()
 
     def set_session(self, session_file: Path):
@@ -216,10 +251,8 @@ class SessionManager:
         self.flushed = False
 
         if self.persist:
-            file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
-            self.session_file = (
-                self.session_dir / f"{file_timestamp}_{session_id}.jsonl"
-            ).resolve()
+            # session_id is assigned above, so the SQLite backend can scope itself.
+            self.session_file = self._new_session_path(session_id)
 
         return self.session_file
 
@@ -910,8 +943,7 @@ class SessionManager:
             path_parent_id = copied_entry.id
 
         session_id = create_session_id()
-        file_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S-%f")
-        new_session_file = self.session_dir / f"{file_timestamp}_{session_id}.jsonl"
+        new_session_file = self._new_session_path(session_id)
 
         header = SessionHeader(
             id=session_id,

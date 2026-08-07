@@ -206,6 +206,10 @@ class Settings:
 
     # Session
     session_dir: str | None = None
+    # Where a session's history is stored. "file" writes one JSONL file per
+    # session; "sqlite" collapses a project's sessions into one indexed
+    # database, which makes listing O(sessions) instead of O(bytes on disk).
+    session_storage: Literal["file", "sqlite"] | None = None  # default: "file"
 
     # Startup
     quiet_startup: bool | None = None  # suppress startup notices (default: False)

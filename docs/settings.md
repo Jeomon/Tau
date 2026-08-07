@@ -193,6 +193,7 @@ Note the underscores: `"one_at_a_time"`, not `"one-at-a-time"`.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `session_dir` | string | `~/.tau/sessions` | Directory for session storage. Accepts absolute or relative paths, and a leading `~` |
+| `session_storage` | `"file"` \| `"sqlite"` | `"file"` | Where a session's history is written. `"file"` keeps one JSONL file per session. `"sqlite"` collapses a project's sessions into one indexed `sessions.db`, making `/resume` listing an indexed query instead of a full read of every session. See the caveat in [sessions](sessions.md#storage-backends) before enabling it |
 
 ```json
 { "session_dir": "~/work/tau-sessions" }

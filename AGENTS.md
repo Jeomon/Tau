@@ -152,6 +152,7 @@ See `docs/project-structure.md` for the full breakdown.
 |---------|-------------|
 | `/new` | Start a fresh session |
 | `/resume` | Browse and resume a past session interactively |
+| `/search <text>` | Find and resume a past session by what was said in it |
 | `/fork [entry-id]` | Branch the session tree at a specific entry |
 | `/tree` | Navigate the session tree and switch branch |
 | `/clone` | Duplicate the current session at the current position |
@@ -167,6 +168,7 @@ See `docs/project-structure.md` for the full breakdown.
 | `/logout` | Remove stored credentials for a provider |
 | `/reload` | Reload extensions, skills, prompts, and settings |
 | `/settings` | Show current settings |
+| `/trust [yes\|session\|no\|forget]` | Show or change whether this project is trusted |
 | `/help` / `/?` | List all commands and shortcuts |
 | `/quit` / `/q` / `/exit` | Exit tau |
 

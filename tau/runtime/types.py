@@ -78,6 +78,11 @@ class RuntimeConfig(BaseModel):
     # Session
     session_file: Path | None = None
     session_dir: Path | None = None
+    # Which session inside ``session_file`` to open. Only the SQLite backend
+    # needs it: one database holds every session of a project, so the path
+    # alone does not identify one. Ignored by the file backend, where the path
+    # is the session.
+    session_id: str | None = None
     persist_session: bool = True
     resume: bool = False
 
@@ -337,6 +342,8 @@ class RuntimeContext:
                 session_dir=session_dir,
                 session_file=config.session_file,
                 persist=_persist,
+                storage_backend=settings_manager.get_session_storage(),
+                session_id=config.session_id,
             )
         # Record the starting model/thinking level for a genuinely new session
         # (leaf_id is only None before any entry has ever been appended — a

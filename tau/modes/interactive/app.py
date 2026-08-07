@@ -334,6 +334,7 @@ class App:
         from tau.modes.interactive.commands import model as cmd_model
         from tau.modes.interactive.commands import session as cmd_session
         from tau.modes.interactive.commands import settings as cmd_settings
+        from tau.modes.interactive.commands import trust as cmd_trust
 
         reg = [
             CommandInfo(
@@ -371,6 +372,19 @@ class App:
                 name="resume",
                 description="Browse and resume a past session interactively.",
                 call=lambda _r, _a: cmd_session.open_resume_selector(self._ctx()),
+            ),
+            CommandInfo(
+                name="trust",
+                description="Show or change whether this project is trusted.",
+                call=lambda _r, args: cmd_trust.cmd_trust(self._ctx(), list(args)),
+                argument_hint="[yes|session|no|forget]",
+                requires_idle=False,
+            ),
+            CommandInfo(
+                name="search",
+                description="Find and resume a past session by what was said in it.",
+                call=lambda _r, args: cmd_session.open_search_selector(self._ctx(), " ".join(args)),
+                argument_hint="<text>",
             ),
             CommandInfo(
                 name="tree",

@@ -108,6 +108,7 @@ class ResumeSelector(Component):
         current_sessions: list,
         all_sessions_loader: Callable[[], list],
         current_session_path: Path | None = None,
+        current_session_id: str | None = None,
         max_visible: int = 10,
         theme: LayoutTheme | None = None,
         loading: bool = False,
@@ -127,6 +128,9 @@ class ResumeSelector(Component):
         self._all_total_count = 0
         self._loading_all = False
         self._cur_path = current_session_path
+        # A path does not identify a session under the SQLite backend, where
+        # every session of a project lives in one database. The id does.
+        self._cur_id = current_session_id
         self._max_visible = max_visible
 
         if theme is None:
@@ -141,7 +145,7 @@ class ResumeSelector(Component):
         self._filtered: list = []
         self._selected = 0
 
-        self._confirming_delete: Path | None = None
+        self._confirming_delete = None  # the SessionInfo awaiting confirmation
         self._status_msg: str = ""
         self._meta_cache: dict[str, str] = {}
 
@@ -154,10 +158,34 @@ class ResumeSelector(Component):
         return self._confirming_delete is not None
 
     def selected_path(self) -> Path | None:
+        session = self.selected_session()
+        if session is None:
+            return None
+        return Path(session.path) if not isinstance(session.path, Path) else session.path
+
+    def _is_current(self, session) -> bool:
+        """Whether ``session`` is the one already open.
+
+        Prefers the id, since two sessions share a path under the SQLite
+        backend. Falls back to the path when no id was supplied, so callers
+        that never pass one keep their previous behaviour.
+        """
+        if self._cur_id is not None:
+            return bool(getattr(session, "id", None) == self._cur_id)
+        if self._cur_path is None:
+            return False
+        path = Path(session.path) if not isinstance(session.path, Path) else session.path
+        return path == self._cur_path
+
+    def selected_session(self):
+        """The highlighted session itself.
+
+        Callers need the id as well as the path: one SQLite database holds
+        every session of a project, so the path alone cannot say which.
+        """
         if not self._filtered:
             return None
-        s = self._filtered[self._selected]
-        return Path(s.path) if not isinstance(s.path, Path) else s.path
+        return self._filtered[self._selected]
 
     def append_sessions(self, scope: str, sessions: list, has_more: bool, total_count: int) -> None:
         """Append one background-loaded session page for ``scope``."""
@@ -253,23 +281,30 @@ class ResumeSelector(Component):
         if not self._filtered:
             return
         sel = self._filtered[self._selected]
-        sel_path = Path(sel.path) if not isinstance(sel.path, Path) else sel.path
-        if self._cur_path and sel_path == self._cur_path:
+        if self._is_current(sel):
             self._status_msg = "Cannot delete the active session"
             return
-        self._confirming_delete = sel_path
+        self._confirming_delete = sel
 
     def confirm_delete(self) -> None:
-        path = self._confirming_delete
+        session = self._confirming_delete
         self._confirming_delete = None
-        if path is None:
+        if session is None:
             return
+        path = Path(session.path) if not isinstance(session.path, Path) else session.path
         try:
             _cleanup_session_media(path)
-            path.unlink(missing_ok=True)
-            self._current = [s for s in self._current if Path(s.path) != path]
+            if path.suffix == ".db":
+                # One database holds every session of the project. Unlinking it
+                # would destroy all of them, so drop just this session's rows.
+                from tau.session.storage import SQLiteSessionStorage
+
+                SQLiteSessionStorage(path, session.id).rewrite([])
+            else:
+                path.unlink(missing_ok=True)
+            self._current = [s for s in self._current if s.id != session.id]
             if self._all is not None:
-                self._all = [s for s in self._all if Path(s.path) != path]
+                self._all = [s for s in self._all if s.id != session.id]
             self._refilter()
             self._selected = min(self._selected, max(0, len(self._filtered) - 1))
             self._status_msg = "Session deleted"
@@ -384,10 +419,9 @@ class ResumeSelector(Component):
             for i in range(start, end_idx):
                 session = self._filtered[i]
                 is_sel = i == self._selected
-                sel_path = (
-                    Path(session.path) if not isinstance(session.path, Path) else session.path
+                is_del_target = (
+                    self._confirming_delete is not None and session.id == self._confirming_delete.id
                 )
-                is_del_target = sel_path == self._confirming_delete
 
                 # Named sessions show the name; unnamed show a short ID prefix
                 display = session.name[: max(12, width - 6)] if session.name else session.id[:12]
@@ -478,12 +512,8 @@ class ResumeSelector(Component):
         else:
             filtered = list(sessions)
 
-        if self._cur_path:
-            filtered = [
-                s
-                for s in filtered
-                if (Path(s.path) if not isinstance(s.path, Path) else s.path) != self._cur_path
-            ]
+        if self._cur_path or self._cur_id:
+            filtered = [s for s in filtered if not self._is_current(s)]
 
         label = self._SORT_LABELS[self._sort_idx]
         if label == "Recent":

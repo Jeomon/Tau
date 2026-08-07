@@ -577,8 +577,12 @@ def list_sessions_from_dir(
     progress_total: int | None = None,
 ) -> list[SessionInfo]:
     """
-    Read all .jsonl session files in a directory and return a list of SessionInfo objects.
+    Read every session stored in a directory and return a list of SessionInfo objects.
     Optionally reports progress through the on_progress callback.
+
+    Both backends are read, so a project that switched between them still lists
+    its whole history: one ``.jsonl`` per session, plus every session inside
+    ``sessions.db`` if the SQLite backend has been used here.
     """
     sessions: list[SessionInfo] = []
     dir_path = Path(dir_path)
@@ -601,6 +605,17 @@ def list_sessions_from_dir(
 
     except Exception:
         _log.warning("failed to list sessions from %s", dir_path, exc_info=True)
+
+    database = dir_path / "sessions.db"
+    if database.exists():
+        from tau.session.storage import list_sqlite_sessions
+
+        try:
+            # One indexed query for every session in the project, rather than
+            # a full read per session as the file backend needs.
+            sessions.extend(list_sqlite_sessions(database))
+        except Exception:
+            _log.warning("failed to list sqlite sessions from %s", database, exc_info=True)
 
     return sessions
 

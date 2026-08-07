@@ -68,13 +68,15 @@ How a session's entries are encoded is isolated behind `SessionStorage` in `tau/
 |---------|----------|----------|
 | `FileSessionStorage` | JSONL, one line per entry, one file per session | The default; the format described above |
 | `InMemorySessionStorage` | Process memory, nothing on disk | Untrusted projects (before trust is granted) and tests |
-| `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Nothing yet — see below |
+| `SQLiteSessionStorage` | One `.db` per **project**, all its sessions in an `entries` table scoped by `session_id` | Opt-in via `session_storage: "sqlite"` — see below |
 
 `SessionManager` uses this seam for all of its own I/O: locking, reading, appending, rewriting and selective rehydration go through the backend, and `session_file` is a property whose setter rebinds it. `FileSessionStorage` is what a normal session runs on; `InMemorySessionStorage` backs untrusted projects and tests.
 
-> **`SQLiteSessionStorage` is not reachable in a running tau.** Nothing constructs it outside its tests. Encoding is behind a seam, but *finding* a session is not: sessions are discovered by globbing `*.jsonl`, and a session id is resolved by matching it against a filename. With one database per project the id is a column, so those lookups have to become queries rather than different globs. That work spans `session/utils.py`, `modes/interactive/components/session_selector.py`, `agent/embedded.py`, `console/cli.py` and `console/commands/doctor.py`, and it is the repository seam — `create`/`open`/`list`/`delete`/`fork` returning handles instead of paths. Until it exists, the SQLite backend is a tested implementation with no caller.
+Set `session_storage` to `"sqlite"` to select it. `SessionManager` then writes new sessions into the project's `sessions.db` instead of a file per session, and `list_sessions_from_dir` reads **both** backends, so a project that switched still lists its whole history.
 
-For the same reason `open()`, `fork_from()` and the listing entry points still address files directly. `fork_from` also serialises without `exclude_none`, so routing it through `rewrite()` would change the bytes of every forked session.
+A session is identified by its id rather than its path throughout the picker, because under SQLite every session of a project shares a path. `Runtime.resume_session` takes a `session_id` alongside the path, the picker commits the selected session rather than its location, and hiding the active session, highlighting a delete target and refusing to delete the session you are in all compare ids. Deleting a SQLite session drops its rows through `rewrite([])`; only a JSONL session is removed by unlinking its file, since unlinking a database would take every session of the project with it.
+
+`fork_from()` still addresses files directly: it reads and writes JSONL without going through a backend, and serialises without `exclude_none`, so routing it through `rewrite()` would change the bytes of every forked session. `tau --fork` is therefore file-only.
 
 All three backends are substitutable, and one conformance suite (`tests/test_session_storage.py`) runs against every backend. Three guarantees are load-bearing:
 
@@ -100,7 +102,7 @@ The reason for choosing project scope (rather than a database per session) is li
 | 60 sessions x 1200 entries (34.9 MiB) | 182 ms | 29 ms |
 | 240 sessions x 300 entries (34.9 MiB) | 193 ms | 32 ms |
 
-Both report identical message counts. The JSONL cost scales with total bytes on disk; the SQLite cost does not. This is the payoff the repository seam would unlock — it is not available today.
+Both report identical message counts. The JSONL cost scales with total bytes on disk; the SQLite cost does not.
 
 ### Related paths
 
@@ -119,6 +121,7 @@ Session management from inside the TUI:
 |---------|-----------|-------------|
 | `/new` | — | Start a fresh session |
 | `/resume` | — | Browse and resume a past session interactively |
+| `/search` | `<text>` | Find and resume a past session by what was said in it |
 | `/tree` | — | Navigate the session tree and switch branch |
 | `/fork` | `<entry_id>` *(required)* | Branch the session tree at a given entry ID |
 | `/clone` | — | Duplicate the current session at the current position |
@@ -385,7 +388,7 @@ Every `append_*` method returns the new entry's ID.
 | `set_session(session_file)` | Load or initialize a session from a path |
 | `enable_persist()` | Switch an in-memory session to persisting, flushing buffered entries |
 
-`compaction` and `branch_summary` both carry an optional `usage`: the tokens and cost of the summarization call that produced them. Both are real model calls and nothing else in the history records what they cost, so an entry written without it loses that spend permanently — `usage` is `null` on entries written before this was tracked, and on a summary an extension supplied rather than the model. `tau.session.stats.compute_session_stats()` folds them into the session totals shown by `/session` and RPC's `get_session_stats`.
+`compaction` and `branch_summary` both carry an optional `usage`: the tokens and cost of the summarization call that produced them. Both are real model calls and nothing else in the history records what they cost, so an entry written without it loses that spend permanently — `usage` is `null` on entries written before this was tracked, and on a summary an extension supplied rather than the model. `tau.session.stats.compute_session_stats()` folds them into the session totals shown by `/session` and RPC's `get_session_stats`, alongside `tau.session.cache_stats.compute_cache_waste()`, which reports how much of that spend was prompt tokens re-billed because the cache missed.
 
 `build_session_context()` walks the current branch, applies the most recent compaction by dropping everything before `first_kept_entry_id`, converts entries to messages, and prepends the compaction summary. Attributes `cwd`, `session_id`, `session_file`, `session_dir`, `persist`, `leaf_id`, `entries`, and `by_id` are readable directly.
 

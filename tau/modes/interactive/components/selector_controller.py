@@ -217,7 +217,9 @@ class SelectorController(Component):
                 if selector.confirming_delete:
                     selector.confirm_delete()
                 else:
-                    self._commit(active, selector.selected_path())
+                    # The session, not its path: one SQLite database holds
+                    # every session of a project, so the path cannot say which.
+                    self._commit(active, selector.selected_session())
             case "escape":
                 if selector.confirming_delete:
                     selector.cancel_delete()

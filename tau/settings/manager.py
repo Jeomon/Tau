@@ -874,6 +874,10 @@ class SettingsManager:
             return Path.home() / session_dir[2:]
         return Path(session_dir).resolve()
 
+    def get_session_storage(self) -> str:
+        """Return the session storage backend: ``"file"`` (default) or ``"sqlite"``."""
+        return self.settings.session_storage or "file"
+
     def set_session_dir(self, path: str | None):
         """Set the session storage directory and persist to global settings."""
         self.global_settings.session_dir = path

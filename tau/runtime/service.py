@@ -1149,8 +1149,15 @@ class Runtime:
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.New)
 
-    async def resume_session(self, session_file: Path, *, with_session=None) -> None:
-        """Shut down the current session and resume an existing one from a file."""
+    async def resume_session(
+        self, session_file: Path, *, session_id: str | None = None, with_session=None
+    ) -> None:
+        """Shut down the current session and resume an existing one.
+
+        ``session_id`` selects which session to open inside ``session_file``.
+        Only the SQLite backend needs it — one database holds every session of
+        a project, so the path alone does not identify one.
+        """
         session_file = Path(session_file).resolve()
 
         before_results = await self._context.hooks.emit(
@@ -1165,7 +1172,9 @@ class Runtime:
         await self._settle_active_turn()
         await self._emit_session_shutdown(SessionShutdownReason.Resume)
         self._extension_generation += 1
-        self._config = self._config.model_copy(update={"session_file": session_file})
+        self._config = self._config.model_copy(
+            update={"session_file": session_file, "session_id": session_id}
+        )
         await self._recreate_context()
         await self._run_with_session(with_session)
         await self._emit_session_start(SessionStartReason.Resume)
