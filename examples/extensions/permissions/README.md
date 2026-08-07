@@ -229,4 +229,23 @@ Read these before trusting it with anything that matters.
 | `prompt.py` | TUI / RPC / headless prompting |
 | `log.py` | Append-only JSONL decision log |
 
+## What Gets Recorded Where
+
+Every decision is written to `decisions.log` before the tool runs, with the
+matched pattern, its origin, and the surface that decided. A permitted call is
+then written a second time once it finishes, with `outcome` set to
+`executed:ok` or `executed:error` — the first record cannot know whether the
+call actually worked, because it is made before execution.
+
+The same detail is attached to the tool result's `metadata` under `_permission`,
+which the session persists. That puts the reason a call was permitted next to
+the call itself in the transcript, rather than only in a separate file.
+
+The two are deliberately not one store. The session is per-conversation and
+lives outside the project; `decisions.log` is project-scoped, spans every
+session, and is the only one of the two the gate refuses to let the agent write
+to. Blocked calls appear in the log but never carry `_permission` metadata: the
+host turns a block into a tool result without executing, so `tool_result` never
+fires for them.
+
 Tests: `tests/test_permissions_extension.py`.

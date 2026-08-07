@@ -14,10 +14,11 @@ which is the only point in Tau that can stop a tool from executing.
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-from tau.hooks import ToolCallEventResult
+from tau.hooks import ToolCallEventResult, ToolResultEventResult
 
 from .config import Policy, load_policy
 from .log import DecisionLog
@@ -38,6 +39,28 @@ class PermissionGate:
         self.policy: Policy = load_policy(cwd, trusted=False)
         self.log = DecisionLog(cwd, enabled=self.policy.settings.log_decisions)
         self.trusted = False
+        # Decisions awaiting their tool result, keyed by tool call id. A gated
+        # call is decided in `tool_call` and finishes in `tool_result`, and only
+        # the second knows whether the tool actually succeeded. Bounded because
+        # a blocked call never reaches `tool_result` — see `take_decision`.
+        self._pending: OrderedDict[str, Decision] = OrderedDict()
+
+    #: Decisions kept while their tool runs. Calls are gated one at a time, so
+    #: this holds one entry in practice; the cap only bounds the pathological
+    #: case where results never arrive.
+    _PENDING_LIMIT = 64
+
+    def remember_decision(self, tool_call_id: str, decision: Decision) -> None:
+        """Hold a decision until its tool result arrives."""
+        if not tool_call_id:
+            return
+        self._pending[tool_call_id] = decision
+        while len(self._pending) > self._PENDING_LIMIT:
+            self._pending.popitem(last=False)
+
+    def take_decision(self, tool_call_id: str) -> Decision | None:
+        """Retrieve and forget the decision for a finished call."""
+        return self._pending.pop(tool_call_id, None)
 
     def reload(self, *, trusted: bool) -> None:
         """Re-read the policy from disk, keeping this gate's session grants.
@@ -171,8 +194,50 @@ def register(tau: Any) -> None:
         registry = getattr(getattr(ctx, "_runtime", None), "tool_registry", None)
         decision = await gate.decide(event.tool_name, event.input, ctx.ui, registry)
         if decision.state == "allow":
+            gate.remember_decision(event.tool_call_id, decision)
             return None
         return ToolCallEventResult(block=True, reason=_denial_message(decision))
+
+    @tau.on("tool_result")
+    async def _annotate(event: Any, ctx: Any) -> ToolResultEventResult | None:
+        """Record what the permitted call actually did.
+
+        The decision log answers "was this allowed, and by which rule". Until
+        now nothing answered "and did it then work" — the log is written before
+        the tool runs, so an approval that ended in a failure looked identical
+        to one that succeeded. Only `tool_result` knows.
+
+        The same detail goes onto the tool result's metadata, which the session
+        persists, so a transcript carries the reason a call was permitted next
+        to the call itself rather than only in a separate file.
+
+        Blocked calls never arrive here: the host turns a `block` into a tool
+        result directly and skips execution, so `_pending` only ever holds
+        allows, and each is removed as it completes.
+        """
+        decision = gate.take_decision(event.tool_call_id)
+        if decision is None:
+            return None
+
+        outcome = "error" if event.is_error else "ok"
+        gate.log.record(
+            event.tool_name,
+            event.input,
+            decision,
+            prompted=decision.origin == "session",
+            outcome=f"executed:{outcome}",
+        )
+        return ToolResultEventResult(
+            metadata={
+                "_permission": {
+                    "state": decision.state,
+                    "surface": decision.surface,
+                    "pattern": decision.matched_pattern,
+                    "origin": decision.origin,
+                    "execution": outcome,
+                }
+            }
+        )
 
     async def _cmd(ctx: Any, args: list[str]) -> None:
         if ctx.ui is None:

@@ -726,6 +726,51 @@ class TestGate:
         assert gate.log.tail()[-1]["state"] == "deny"
 
 
+class TestExecutionOutcome:
+    """The log said a call was permitted; nothing said whether it then worked.
+
+    `record` runs before the tool does, so an approval that ended in a failure
+    was indistinguishable from one that succeeded. Only `tool_result` knows,
+    so the decision is carried across and completed there — and the same
+    detail is attached to the tool result's metadata, which the session
+    persists, putting the reason a call was permitted next to the call.
+    """
+
+    def test_a_decision_is_held_until_its_result_arrives(self, tmp_path: Path) -> None:
+        gate = _gate(tmp_path)
+        decision = rules.Decision(state="allow", surface="tool", target="read")
+
+        gate.remember_decision("tc1", decision)
+
+        assert gate.take_decision("tc1") is decision
+        assert gate.take_decision("tc1") is None, "a decision must be consumed once"
+
+    def test_an_unknown_call_id_yields_nothing(self, tmp_path: Path) -> None:
+        """Blocked calls never reach tool_result, and neither do ungated ones."""
+        gate = _gate(tmp_path)
+
+        assert gate.take_decision("never-seen") is None
+
+    def test_pending_decisions_are_bounded(self, tmp_path: Path) -> None:
+        """A result that never arrives must not grow the map without limit."""
+        gate = _gate(tmp_path)
+        decision = rules.Decision(state="allow", surface="tool", target="read")
+
+        for i in range(gate._PENDING_LIMIT + 25):
+            gate.remember_decision(f"tc{i}", decision)
+
+        assert len(gate._pending) == gate._PENDING_LIMIT
+        assert gate.take_decision("tc0") is None, "the oldest is evicted first"
+        assert gate.take_decision(f"tc{gate._PENDING_LIMIT + 24}") is decision
+
+    def test_a_blank_call_id_is_not_stored(self, tmp_path: Path) -> None:
+        gate = _gate(tmp_path)
+
+        gate.remember_decision("", rules.Decision(state="allow", surface="tool"))
+
+        assert len(gate._pending) == 0
+
+
 class TestDetailBlockPlacement:
     """The specifics belong inside the picker's own frame.
 
