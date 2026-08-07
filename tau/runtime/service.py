@@ -225,6 +225,19 @@ class Runtime:
         return self._context.agent
 
     @property
+    def tool_registry(self):
+        """Get the tool registry.
+
+        Exposed because a ``tool_call`` handler frequently needs the *tool*,
+        not just its name — to preview a call with the tool's own
+        ``render_result``, say, so an approval prompt and the result it
+        produces look alike. The registry lived only on ``RuntimeContext``,
+        which left an extension reaching through two private attributes and
+        silently falling back to a lesser rendering when it guessed wrong.
+        """
+        return self._context.tool_registry
+
+    @property
     def hooks(self):
         """Get the hooks dispatcher."""
         return self._context.hooks

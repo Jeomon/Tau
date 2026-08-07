@@ -670,14 +670,27 @@ def build_manifest_panel(
     *,
     default_title: str,
     apply: Callable[[str, Any], None],
+    on_problem: Callable[[str], None] | None = None,
 ) -> Any:
     """Construct an :class:`ExtensionSettingsRegistration` from a manifest schema.
 
     ``apply(key, value)`` is called with the full dot-path key and the coerced
     value when — and only when — a field's value actually changes. Returns
     ``None`` if the schema yields no usable items.
+
+    ``on_problem(message)`` receives every rejected field. A malformed entry is
+    *dropped*, so without this the setting simply is not in ``/settings`` and
+    the only trace is a warning on a logger the TUI deliberately routes to a
+    file — the author sees a missing knob and no reason for it. One typo'd
+    ``type`` is enough: ``"number"`` is the JSON Schema spelling and not one of
+    ``_LEAF_TYPES``, which is how permissions' prompt timeout went missing.
     """
     from tau.extensions.api import ExtensionSettingsRegistration
+
+    def _reject(message: str) -> None:
+        _log.warning("settings_schema: %s", message)
+        if on_problem is not None:
+            on_problem(message)
 
     field_defs: dict[str, dict] = {}  # full key -> field def (for coerce/validate)
     currents: dict[str, Any] = {}  # full key -> current config value (for diff)
@@ -686,11 +699,11 @@ def build_manifest_panel(
         items: list[SettingItem] = []
         for f in fields:
             if not isinstance(f, dict):
-                _log.warning("settings_schema: skipping non-object field %r", f)
+                _reject(f"skipping non-object field {f!r}")
                 continue
             key = f.get("key")
             if not key:
-                _log.warning("settings_schema: skipping field with no 'key': %r", f)
+                _reject(f"skipping field with no 'key': {f!r}")
                 continue
             full = f"{prefix}.{key}" if prefix else key
             label = str(f.get("label") or key)
@@ -714,12 +727,13 @@ def build_manifest_panel(
                 continue
 
             if ftype not in _LEAF_TYPES:
-                _log.warning(
-                    "settings_schema: unknown field type %r for %r — skipping", ftype, full
+                _reject(
+                    f"unknown field type {ftype!r} for {full!r} — skipping"
+                    f" (expected one of: {', '.join(sorted(_LEAF_TYPES))})"
                 )
                 continue
             if ftype in ("enum", "select") and not f.get("values"):
-                _log.warning("settings_schema: enum field %r has no values — skipping", full)
+                _reject(f"enum field {full!r} has no values — skipping")
                 continue
 
             current = _get_nested(config, full, f.get("default", ""))

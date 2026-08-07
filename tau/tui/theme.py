@@ -117,11 +117,20 @@ class MessageTheme:
     diff_removed_bg: Style | None = None
     # Word-diff highlight applied *inside* an already-colored removed/added
     # line (see message_list.py's render_diff call). Must stay a ColorFn: it
-    # toggles reverse-video on then back off (`\x1b[27m`), not a full reset —
+    # sets a background and clears it again with `\x1b[49m`, not a full reset —
     # a full reset here would also clear the enclosing line's color for
     # everything after the highlighted word. Style's close is always a full
     # reset (see apply_style), so this one case doesn't fit that model.
-    diff_inverse: ColorFn = field(default_factory=lambda: lambda s: "\x1b[7m" + s + "\x1b[27m")
+    #
+    # A dim background rather than reverse video (`\x1b[7m`). Reverse promotes
+    # the line's own foreground to the background, so a bright-red removal
+    # became a saturated red block — the loudest thing on screen for what is
+    # usually a one-word change. Painting a dark band behind the unchanged
+    # foreground keeps the red/green distinction while letting the *line* stay
+    # the thing you read.
+    diff_inverse: ColorFn = field(
+        default_factory=lambda: lambda s: "\x1b[48;5;238m" + s + "\x1b[49m"
+    )
     # Semantic colour roles exposed to tool render_result() callbacks via
     # ToolRenderOptions.theme. Defaults mirror LayoutTheme's roles; when this
     # MessageTheme is part of a LayoutTheme they are overwritten from the

@@ -640,6 +640,27 @@ class ExtensionLoader:
             )
             return None, errors
 
+    def _record_settings_error(self, ext: Extension, message: str) -> None:
+        """Report a rejected manifest settings field to whoever is listening.
+
+        Total by construction: this runs while building a panel during load,
+        and an exception escaping here would take the whole extension's panel
+        with it — turning "one field is missing" into "no settings at all".
+        """
+        try:
+            runtime = self._runtime_ref.runtime if self._runtime_ref is not None else None
+            report = getattr(runtime, "report_extension_error", None)
+            if callable(report):
+                report(
+                    ExtensionError(
+                        extension_path=ext.path,
+                        event="settings_schema",
+                        error=message,
+                    )
+                )
+        except Exception:  # noqa: BLE001 - reporting a problem must not add one
+            _log.debug("could not report a settings schema problem", exc_info=True)
+
     def _attach_manifest_panel(self, ext: Extension, path: Path) -> None:
         """Auto-build a /settings sub-panel from the manifest ``settings`` schema.
 
@@ -698,11 +719,18 @@ class ExtensionLoader:
                 if reload_all is not None:
                     asyncio.ensure_future(reload_all()).add_done_callback(_log_reload_error)
 
+        def _schema_problem(message: str) -> None:
+            # A rejected field is dropped, so the symptom is a setting that is
+            # simply absent from /settings. Report it like any other extension
+            # failure rather than leaving the author to infer it from a gap.
+            self._record_settings_error(ext, message)
+
         reg = build_manifest_panel(
             schema,
             ext.config,
             default_title=ext_dir.name,
             apply=_apply,
+            on_problem=_schema_problem,
         )
         if reg is not None:
             ext.settings_registrations.append(reg)

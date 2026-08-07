@@ -158,13 +158,32 @@ class TestMessageTheme:
         result = apply_style(t.diff_removed, "-removed line")
         assert "-removed line" in result
 
-    def test_diff_inverse_is_still_a_colorfn(self):
-        # Deliberately not migrated to Style: it toggles reverse-video on then
-        # off (`\x1b[27m`), not a full reset, so it composes correctly inside
-        # an already-colored line. See the field comment in theme.py.
+    def test_diff_inverse_composes_inside_a_coloured_line(self):
+        # Deliberately not migrated to Style. The word highlight is applied
+        # *inside* an already-coloured removed/added line, so its closing code
+        # must undo only itself: Style's close is always a full reset, which
+        # would drop the line's own colour for everything after the highlight.
         t = MessageTheme()
+
         result = t.diff_inverse("word")
-        assert result == "\x1b[7mword\x1b[27m"
+
+        assert "word" in result
+        assert result.startswith("\x1b[")
+        assert result.endswith("\x1b[49m"), "must clear only the background"
+        assert "\x1b[0m" not in result, "a full reset would kill the line's colour"
+
+    def test_diff_inverse_is_a_dim_band_not_reverse_video(self):
+        """Reverse video promoted the line's own colour to the background.
+
+        On a bright-red removal that produced a saturated red block — the
+        loudest thing on screen for what is usually a one-word change.
+        """
+        t = MessageTheme()
+
+        result = t.diff_inverse("word")
+
+        assert "\x1b[7m" not in result, "reverse video is what made it shout"
+        assert "\x1b[48;5;" in result, "expected an explicit background colour"
 
 
 class TestInputTheme:
