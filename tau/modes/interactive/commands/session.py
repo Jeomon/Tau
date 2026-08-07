@@ -160,6 +160,16 @@ def open_tree_selector(ctx: CommandContext) -> None:
     current_leaf = sm.get_leaf_id()
     rows: list[TreeRow[str]] = []
 
+    # Snippets were cut to a fixed 80 characters, so a wide terminal showed a
+    # short column of text with the rest of the screen empty and words sliced
+    # mid-token. The renderer already clips each row to the real width, so this
+    # only has to keep a row from carrying an entire message: a slice of the
+    # message text is held per entry, and a long session has thousands of them.
+    # Budget the visible width plus enough slack that the renderer, not this
+    # line, decides where the text ends — the prefix, role and label sit to the
+    # left of it and vary per row.
+    snippet_budget = max(80, ctx.tui.content_width)
+
     # Flatten once to map id -> parent_id, so we can walk current_leaf's
     # ancestor chain and mark the active path (independent of tree nesting).
     #
@@ -287,7 +297,7 @@ def open_tree_selector(ctx: CommandContext) -> None:
                     TreeRow(
                         prefix=prefix,
                         role=role,
-                        text=strip_control_chars(text[:80]),
+                        text=strip_control_chars(text[:snippet_budget]),
                         on_active_path=entry.id in active_ids,
                         is_current=entry.id == current_leaf,
                         selectable=selectable,

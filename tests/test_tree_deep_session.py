@@ -60,9 +60,10 @@ class _Layout:
 
 
 class _Ctx:
-    def __init__(self, sm: SessionManager) -> None:
+    def __init__(self, sm: SessionManager, width: int = 120) -> None:
         self.runtime = type("R", (), {"session_manager": sm})()
         self.layout = _Layout()
+        self.tui = type("T", (), {"content_width": width})()
         self.notices: list[str] = []
 
     def notify(self, message: str = "", *_a: Any, **_k: Any) -> None:
@@ -183,3 +184,65 @@ def test_row_count_matches_entry_count(tmp_path: Path, turns: int) -> None:
     open_tree_selector(ctx)  # type: ignore[arg-type]
 
     assert len(ctx.layout.rows) == len(sm.get_entries())
+
+
+def _long_message_session(tmp_path: Path, length: int) -> SessionManager:
+    sm = SessionManager(cwd=tmp_path, session_dir=tmp_path, persist=False)
+    sm.append_message(UserMessage(contents=[TextContent(content="x" * length)]))
+    return sm
+
+
+def test_a_snippet_is_not_capped_at_eighty_characters(tmp_path: Path) -> None:
+    """A wide terminal showed a narrow column with the rest of the row empty.
+
+    The snippet was sliced to a fixed 80 characters before the renderer ever
+    saw it, so widening the terminal could not reveal more of a message — it
+    just added blank space to the right, with words cut mid-token.
+    """
+    sm = _long_message_session(tmp_path, 400)
+    ctx = _Ctx(sm, width=200)
+
+    open_tree_selector(ctx)  # type: ignore[arg-type]
+
+    assert len(ctx.layout.rows[0].text) > 80
+
+
+def test_a_wider_terminal_carries_more_text(tmp_path: Path) -> None:
+    sm = _long_message_session(tmp_path, 400)
+    narrow, wide = _Ctx(sm, width=90), _Ctx(sm, width=250)
+
+    open_tree_selector(narrow)  # type: ignore[arg-type]
+    open_tree_selector(wide)  # type: ignore[arg-type]
+
+    assert len(wide.layout.rows[0].text) > len(narrow.layout.rows[0].text)
+
+
+def test_a_narrow_terminal_still_gets_a_usable_snippet(tmp_path: Path) -> None:
+    """The floor matters: search matches on row text, not on the visible slice."""
+    sm = _long_message_session(tmp_path, 400)
+    ctx = _Ctx(sm, width=20)
+
+    open_tree_selector(ctx)  # type: ignore[arg-type]
+
+    assert len(ctx.layout.rows[0].text) >= 80
+
+
+def test_a_short_message_is_not_padded(tmp_path: Path) -> None:
+    sm = _long_message_session(tmp_path, 12)
+    ctx = _Ctx(sm, width=200)
+
+    open_tree_selector(ctx)  # type: ignore[arg-type]
+
+    assert ctx.layout.rows[0].text == "x" * 12
+
+
+def test_control_characters_are_still_stripped(tmp_path: Path) -> None:
+    """A newline in a snippet would corrupt the picker's single-line rows."""
+    sm = SessionManager(cwd=tmp_path, session_dir=tmp_path, persist=False)
+    sm.append_message(UserMessage(contents=[TextContent(content="a\nb\tc")]))
+    ctx = _Ctx(sm, width=200)
+
+    open_tree_selector(ctx)  # type: ignore[arg-type]
+
+    assert "\n" not in ctx.layout.rows[0].text
+    assert "\t" not in ctx.layout.rows[0].text
