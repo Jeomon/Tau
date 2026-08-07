@@ -179,6 +179,22 @@ class TreeSelectList[T](Component):
         self._folded_nodes.clear()
         self._apply_filter()
 
+    def append_search(self, text: str) -> None:
+        """Extend the filter query — what typing into the tree does.
+
+        `SelectorController` calls this on every printable key, and this class
+        never defined it, so each keystroke raised out of `TUI._on_stdin_ready`
+        and was swallowed. The filtering it drives was already here and already
+        advertised: `_help_lines` lists "type to search" and `render` draws the
+        query back with a cursor. Only the two methods that feed it were
+        missing.
+        """
+        self.set_query(self._query + text)
+
+    def backspace_search(self) -> None:
+        """Delete the last character of the filter query."""
+        self.set_query(self._query[:-1])
+
     def toggle_label_timestamps(self) -> None:
         self._show_label_timestamps = not self._show_label_timestamps
 
