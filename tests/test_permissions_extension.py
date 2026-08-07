@@ -706,6 +706,75 @@ class TestPromptPresentation:
 
         assert full in block
 
+    def test_an_edit_previews_with_the_edit_tool_s_own_renderer(self, tmp_path: Path) -> None:
+        """Approving one format and then reading another makes them hard to compare.
+
+        The tool's renderer shows hashline anchors, which are what a later edit
+        has to reference — so the preview is the result view, not a lookalike.
+        """
+        from tau.builtins.tools import TOOLS
+        from tau.tool.registry import ToolRegistry
+        from tau.tui.theme import LayoutTheme
+        from tau.tui.utils import strip_ansi
+
+        registry = ToolRegistry()
+        for tool in TOOLS:
+            registry.register(tool, source="builtin")
+
+        target = tmp_path / "app.py"
+        target.write_text("def greet(name):\n    return None\n\ndef main():\n    greet('x')\n")
+        decision = rules.Decision(state="ask", surface="tool", target="edit")
+        params = {
+            "path": "app.py",
+            "start_anchor": "1:aaaa",
+            "end_anchor": "2:bbbb",
+            "new_content": "def greet(name: str) -> None:\n",
+        }
+
+        block = strip_ansi(
+            "\n".join(self.prompt.detail_lines(decision, params, tmp_path, LayoutTheme(), registry))
+        )
+
+        assert "Added 1 line" in block, "the tool's summary line is missing"
+        assert re.search(r"\d+:[0-9a-f]{4}\s+\+", block), "no hashline anchor on an added line"
+        assert "@@" not in block, "that is the fallback unified-diff format"
+
+    def test_it_falls_back_to_a_unified_diff_without_a_registry(self, tmp_path: Path) -> None:
+        """RPC has no registry; the block is still worth showing."""
+        from tau.tui.theme import LayoutTheme
+        from tau.tui.utils import strip_ansi
+
+        target = tmp_path / "app.py"
+        target.write_text("old = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = strip_ansi(
+            "\n".join(
+                self.prompt.detail_lines(
+                    decision, {"path": "app.py", "content": "new = 2\n"}, tmp_path, LayoutTheme()
+                )
+            )
+        )
+
+        assert "new = 2" in block
+
+    def test_a_broken_registry_costs_the_preview_not_the_prompt(self, tmp_path: Path) -> None:
+        class _Exploding:
+            def get(self, name: str):
+                raise RuntimeError("registry is gone")
+
+        target = tmp_path / "app.py"
+        target.write_text("old = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = "\n".join(
+            self.prompt.detail_lines(
+                decision, {"path": "app.py", "content": "new = 2\n"}, tmp_path, None, _Exploding()
+            )
+        )
+
+        assert "app.py" in block, "the block still renders"
+
     def test_the_diff_is_coloured_when_a_theme_is_available(self, tmp_path: Path) -> None:
         """The diff is the decision on a write/edit; grey text buries it."""
         from tau.tui.theme import LayoutTheme
