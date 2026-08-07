@@ -3,6 +3,29 @@
 from __future__ import annotations
 
 
+def extension_dir(name: str, *, builtin: bool = False):
+    """Where a bundled extension's source lives, for tests.
+
+    Project extensions are looked up in ``.tau/extensions`` first — that is the
+    copy actually loaded when tau runs here, so local edits are what gets
+    tested — and fall back to the tracked mirror in ``examples/extensions``.
+
+    The fallback is what makes the suite survive a fresh clone: ``.tau/`` is
+    gitignored in its entirety, so on a clean checkout the project copy simply
+    does not exist and every test loading one used to fail at import, with
+    nothing to indicate the source was absent rather than broken.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    if builtin:
+        return root / "tau" / "builtins" / "extensions" / name
+    local = root / ".tau" / "extensions" / name
+    if (local / "__init__.py").exists():
+        return local
+    return root / "examples" / "extensions" / name
+
+
 def load_extension(name: str, *, builtin: bool = False):
     """Import a bundled extension the way tau's loader does — as a package.
 
@@ -19,11 +42,8 @@ def load_extension(name: str, *, builtin: bool = False):
     import hashlib
     import importlib.util
     import sys
-    from pathlib import Path
 
-    root = Path(__file__).parent.parent
-    base = root / "tau" / "builtins" / "extensions" if builtin else root / ".tau" / "extensions"
-    directory = base / name
+    directory = extension_dir(name, builtin=builtin)
     module_name = f"_tau_ext_{hashlib.sha1(str(directory.resolve()).encode()).hexdigest()[:16]}"
 
     if module_name in sys.modules:
