@@ -751,7 +751,9 @@ Other dispatch properties:
 
 - Handlers run **sequentially** in registration order, never concurrently.
 - A handler that raises is caught, logged, and recorded as an `ExtensionError`; the next
-  handler still runs, and the raising handler contributes no result.
+  handler still runs, and the raising handler contributes no result. In interactive mode
+  the failure is also printed to the transcript, deduplicated by extension, event and
+  message, so a broken handler is visible rather than only present in the log file.
 - Sync and async handlers are both supported.
 - Shutdown-path events are bounded by a timeout so one hung handler cannot wedge exit:
   `tui_exit` gets 2 seconds, `runtime_stop` and the per-extension reload events get 10.

@@ -480,6 +480,79 @@ class App:
 
         register(_report)
 
+    def _surface_event_loop_errors(self) -> None:
+        """Put exceptions that escape into the event loop on screen.
+
+        A callback scheduled on the loop — ``TUI._on_stdin_ready``, a
+        ``call_soon``, a task nobody awaits — that raises does not reach any
+        ``except`` in Tau. asyncio catches it and hands it to the loop's
+        exception handler, whose default logs it on the ``asyncio`` logger, and
+        :meth:`_redirect_logging_off_terminal` sends that to a file. The
+        keystroke, or the frame, is simply lost with no sign on screen.
+
+        This is not a hypothetical gap. One session's log held 48 WARNING+
+        records; 42 were ``Exception in callback TUI._on_stdin_ready()``, every
+        one of them a real bug in Tau that ran unnoticed for hours. Filtering
+        logging by ``tau.*`` would not have shown them either, since asyncio
+        files them under its own logger — the signal is not *who logged it* but
+        *that an exception escaped*.
+
+        The default handler still runs, so the log file keeps the full
+        traceback; this only adds the on-screen line. Deduplicated by exception
+        type, message and callback the same way extension errors are: a broken
+        stdin callback raises on every keystroke, and a notification per
+        keystroke would bury the transcript it is trying to warn in.
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        default = loop.get_exception_handler()
+        seen: set[tuple[str, str, str]] = set()
+
+        def _handle(active_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+            # Chain first: whatever else happens, the log file gets the record
+            # with its traceback. An on-screen line is strictly additional.
+            if default is not None:
+                default(active_loop, context)
+            else:
+                active_loop.default_exception_handler(context)
+
+            exc = context.get("exception")
+            if exc is None:
+                return
+            where = str(
+                context.get("handle") or context.get("future") or context.get("message") or ""
+            )
+            key = (type(exc).__name__, str(exc), where)
+            if key in seen:
+                return
+            seen.add(key)
+
+            import time
+
+            from tau.message.types import CustomMessage, LinesContent
+
+            detail = f"{type(exc).__name__}: {exc}"
+            lines = [f"internal error: {detail}"]
+            if where:
+                lines.append(f"in {where}")
+            lines.append("")
+            with contextlib.suppress(Exception):
+                self._layout.add_message(
+                    CustomMessage(
+                        custom_type="system",
+                        timestamp=time.time(),
+                        contents=[LinesContent(lines=lines, notify_type="error")],
+                    )
+                )
+                self._tui.request_render()
+
+        loop.set_exception_handler(_handle)
+
     def _redirect_logging_off_terminal(self) -> None:
         """Keep all logging off the terminal while the TUI owns the screen.
 
@@ -602,6 +675,7 @@ class App:
         """Set up hooks, replay session, then run the TUI loop."""
         self._redirect_logging_off_terminal()
         self._surface_extension_errors()
+        self._surface_event_loop_errors()
         # Before any hook can ask for a token count: hold the tokenizer's
         # vocabulary load until the first frame is up. The footer's
         # context-usage readout requests one during tui_ready, which would
