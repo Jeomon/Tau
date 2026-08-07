@@ -73,16 +73,31 @@ def _highlight_code(code: str, lang: str, style: str) -> list[str] | None:
     Falls back (returns None) when the fence has no language, the language is
     unknown, or highlighting raises for any reason — so plain rendering is
     always a safe default.
+
+    The guard covers the whole body, not just the ``highlight`` call. It used
+    to wrap only that, leaving ``_lexer`` and ``_pygments`` — which do the
+    deferred imports — free to raise straight through ``render_markdown`` and
+    out of ``TUI._do_render``, which abandons the entire frame. Colour in a
+    code block is not worth a dropped repaint, and pygments' lazily-populated
+    ``formatters`` package can genuinely fail to yield a name when it is first
+    imported from the event loop while an extension is importing it on a
+    worker thread:
+
+        ImportError: cannot import name 'Terminal256Formatter'
+                     from 'pygments.formatters'
+
+    ``lru_cache`` does not memoise exceptions, so each attempt retried and
+    dropped another frame rather than degrading once.
     """
     if not lang or not style:
         return None
-    lexer = _lexer(lang.lower())
-    if lexer is None:
-        return None
-    pyg_highlight, _, _, _ = _pygments()
     try:
+        lexer = _lexer(lang.lower())
+        if lexer is None:
+            return None
+        pyg_highlight, _, _, _ = _pygments()
         out = pyg_highlight(code, lexer, _formatter(style))
-    except Exception:
+    except Exception:  # noqa: BLE001 - highlighting is decoration; see above
         return None
     return out.rstrip("\n").split("\n")
 
