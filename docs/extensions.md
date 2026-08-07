@@ -15,7 +15,7 @@ schemas and the `/settings` panel, see [Extension Settings](extension-settings.m
 > extensions under `.tau/extensions/` load only after the project is trusted.
 
 Working, maintained implementations live in `examples/extensions/` in this repository:
-`todo`, `web`, `lsp`, `sandbox`, `subagent`, `workflow`, `loop`, `peer`, `ask_user`,
+`todo`, `web`, `rlm`, `lsp`, `sandbox`, `subagent`, `workflow`, `loop`, `peer`, `ask_user`,
 `autoresearch`, `computer_use`, and `voice`. They are referenced throughout this document and are the
 best starting point for anything non-trivial.
 

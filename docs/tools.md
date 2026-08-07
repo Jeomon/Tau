@@ -145,6 +145,9 @@ These tools ship with Tau but are provided by built-in extensions rather than th
 | `todo` | `read` | `sequential` | `todo` | Maintain the session's task list |
 | `web_search` | `web` | `parallel` | `web` | Search the web through a configured search engine |
 | `web_fetch` | `web` | `parallel` | `web` | Fetch and extract the contents of a URL |
+| `rlm_query` | `read` | `parallel` | `rlm` | Answer a question about text too large to read into the conversation |
+
+`rlm_query` accepts `query` (required) plus either `paths` (files, globs expanded) or `text`, and an optional `max_iterations` (default `8`). It implements Recursive Language Models ([arXiv:2512.24601](https://arxiv.org/abs/2512.24601)): rather than reading the input into the conversation, it loads it into a Python REPL as a variable and lets a model narrow it down with code, sub-querying a model on the slices that need judgement. Only the answer returns, so the transcript cost is independent of the input size. It refuses inputs under 2000 characters — several model calls to read what `read` would return in one is a worse answer, not a better one.
 
 `web_search` accepts `query` (required), plus `mode` (`text`, `news`, `images`, `videos`, or `books`; default `text`), `max_results` (default `10`), and an optional site/region filter. `web_fetch` accepts `url` (required), an optional extraction hint, and `timeout` (default `10` seconds).
 

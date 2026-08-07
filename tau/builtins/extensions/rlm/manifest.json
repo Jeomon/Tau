@@ -1,0 +1,32 @@
+{
+  "tau": {
+    "name": "RLM",
+    "author": "jeomon",
+    "settings": {
+      "title": "Recursive Language Model",
+      "fields": [
+        {
+          "key": "enabled",
+          "label": "Enabled",
+          "type": "bool",
+          "default": true,
+          "description": "Register the rlm_query tool for querying oversized inputs."
+        },
+        {
+          "key": "max_iterations",
+          "label": "Max root turns",
+          "type": "number",
+          "default": 8,
+          "description": "Exploration turns before the model must answer from what it found."
+        },
+        {
+          "key": "sub_call_budget",
+          "label": "Sub-call budget",
+          "type": "number",
+          "default": 8,
+          "description": "Recursive llm_query calls allowed per run. Runs cost is dominated by these."
+        }
+      ]
+    }
+  }
+}
