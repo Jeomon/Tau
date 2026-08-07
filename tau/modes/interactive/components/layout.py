@@ -1132,11 +1132,17 @@ class Layout(Component):
     # -------------------------------------------------------------------------
 
     def _make_select_list(
-        self, items: list[SelectItem], current_label: str | None = None
+        self,
+        items: list[SelectItem],
+        current_label: str | None = None,
+        title: str = "",
     ) -> SelectList:
         """Build a SelectList with theme/visibility settings and optional initial selection."""
         selector = SelectList(
-            items, max_visible=self._picker_max_visible, theme=self._theme.select_list
+            items,
+            max_visible=self._picker_max_visible,
+            theme=self._theme.select_list,
+            title=title,
         )
         if current_label is not None:
             labels = [item.label for item in items]
@@ -1348,11 +1354,17 @@ class Layout(Component):
         items: list[SelectItem[str]],
         on_commit: Callable[[str], None],
         on_cancel: Callable[[], None],
+        title: str = "",
     ) -> None:
-        """Open a tree/list selector modal."""
+        """Open a tree/list selector modal.
+
+        ``title`` is shown as a heading above the options. It used to be the
+        caller's job to smuggle it into the first item's description column,
+        which read as though the question belonged to that one choice.
+        """
         self._active_selector = InlineSelector(
             kind="tree",
-            selector=self._make_select_list(items),
+            selector=self._make_select_list(items, title=title),
             on_commit=on_commit,
             on_cancel=on_cancel,
         )

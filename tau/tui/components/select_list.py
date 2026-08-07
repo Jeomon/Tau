@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 from tau.tui.component import Component
+from tau.tui.compose import wrap_to_rows
 from tau.tui.input import InputEvent, KeyEvent, get_keybindings
 from tau.tui.style import Style, apply_style
 from tau.tui.text import Line, Span
-from tau.tui.utils import clip_to_width, fuzzy_filter, pad, visible_width
+from tau.tui.utils import clip_to_width, fuzzy_filter, pad, rule, visible_width
 from tau.tui.widgets.list import List, ListItem, ListState
 
 if TYPE_CHECKING:
@@ -74,12 +75,14 @@ class SelectList[T](Component):
         items: list[SelectItem[T]] | None = None,
         max_visible: int = 5,
         theme: SelectListTheme | None = None,
+        title: str = "",
     ) -> None:
         self._all_items: list[SelectItem[T]] = items or []
         self._filtered: list[SelectItem[T]] = list(self._all_items)
         self._max_visible = max(1, max_visible)
         self._state = ListState(selected=0)
         self._query = ""
+        self._title = title
         self._on_confirm: Callable[[SelectItem[T]], None] | None = None
         self._on_dismiss: Callable[[], None] | None = None
 
@@ -103,7 +106,60 @@ class SelectList[T](Component):
 
     @property
     def line_count(self) -> int:
-        return min(self._max_visible, len(self._filtered))
+        """Rows this picker occupies, assuming no heading line has to wrap.
+
+        Width isn't known here, so a long heading line that wraps renders
+        taller than this reports.
+        """
+        return min(self._max_visible, len(self._filtered)) + self._heading_height()
+
+    def _heading_height(self) -> int:
+        return len(self._title.split("\n")) + 1 if self._title else 0
+
+    def _heading_rows(self, width: int) -> list[str]:
+        """The heading, as styled rows, closed by a rule above the choices.
+
+        ``title`` may carry newlines. The first line is the question and is
+        styled as the heading; anything after it is supporting detail and is
+        styled as body text, so a caller can pass a whole block (what command,
+        which path, a diff) without every row shouting. Callers that need more
+        than one line have nowhere else to put it — a selector renders between
+        the editor's two dividers, so content mounted anywhere else in the
+        layout lands outside them.
+
+        The rule is what makes the block readable once it is more than one
+        line: everything above it is static text and everything below is
+        selectable, and a bare blank line left the first option looking like
+        one more paragraph rather than the start of a list.
+
+        A line that already carries ANSI is passed through with its own
+        colours intact. Overpainting it with the body style would flatten a
+        caller's diff — reds and greens are most of what makes a write/edit
+        prompt reviewable — and this component has no business deciding how
+        someone else's content should look.
+
+        Rows are wrapped rather than clipped: the detail is usually the point
+        (a truncated command is what the reader most needs to see), and an
+        over-wide row would soft-wrap in the terminal and desync the
+        renderer's row accounting.
+        """
+        if not self._title:
+            return []
+        t = self._theme
+        rows: list[str] = []
+        for i, line in enumerate(self._title.split("\n")):
+            if not line:
+                rows.append("")
+                continue
+            pre_styled = "\x1b" in line
+            style = t.title if i == 0 else t.normal_desc
+            for row in wrap_to_rows(f"  {line}", width):
+                rows.append(row if pre_styled else apply_style(style, row))
+        rows.append(rule(width, t.title_divider))
+        return rows
+
+    def set_title(self, title: str) -> None:
+        self._title = title
 
     def set_items(self, items: list[SelectItem[T]]) -> None:
         self._all_items = items
@@ -172,8 +228,12 @@ class SelectList[T](Component):
         t = self._theme
         items = self._filtered
 
+        # Rendered even when the filter empties the list: dropping it would
+        # leave "no matches" with nothing saying what was being asked.
+        heading = self._heading_rows(width)
+
         if not items:
-            return [apply_style(t.empty, "  no matches")]
+            return [*heading, apply_style(t.empty, "  no matches")]
 
         count = len(items)
         visible = min(self._max_visible, count)
@@ -195,7 +255,7 @@ class SelectList[T](Component):
         )
         desc_w = max(0, width - label_w - 3)  # 3 = "  " indent + " " gap
 
-        out: list[str] = []
+        out: list[str] = list(heading)
         if start > 0:
             out.append(apply_style(t.indicator, f"  \u2191 {start} more"))
 

@@ -145,6 +145,14 @@ class SelectListTheme:
     normal_desc: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     indicator: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     empty: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
+    # Heading above the options. Bold with an inherited foreground rather than a
+    # fixed colour: it must read as a heading against every theme's background,
+    # and must not compete with selected_label for "this is the active row".
+    title: Style = field(default_factory=lambda: Style().bold())
+    # Rule closing the heading. Everything above it is static text; everything
+    # below is selectable, and without the break the first option reads as one
+    # more line of prose. Muted, since it separates rather than announces.
+    title_divider: Style = field(default_factory=lambda: Style().with_fg("bright_black"))
     # Emphasised entry — e.g. directories in the file picker. Lists that have no
     # such distinction simply ignore it.
     selected_dir: Style = field(default_factory=lambda: Style().bold().with_fg("cyan"))

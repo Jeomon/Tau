@@ -12,11 +12,13 @@ import asyncio
 import importlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tau.tui.utils import strip_ansi
 from tests.ext_loader import load_extension
 
 _PKG = load_extension("permissions").__name__
@@ -29,10 +31,18 @@ preview = importlib.import_module(f"{_PKG}.preview")
 resolver_mod = importlib.import_module(f"{_PKG}.resolver")
 rules = importlib.import_module(f"{_PKG}.rules")
 session_mod = importlib.import_module(f"{_PKG}.session")
+prompt_mod = importlib.import_module(f"{_PKG}.prompt")
 
 AccessIntent = resolver_mod.AccessIntent
 Resolver = resolver_mod.Resolver
 SessionGrants = session_mod.SessionGrants
+
+# Taken from the module rather than retyped: these are user-facing prose that
+# gets reworded ("Allow once" -> "Allow Once"), and a hardcoded copy turns a
+# harmless rename into a suite-wide failure that looks like a logic break.
+ALLOW_ONCE = prompt_mod._ALLOW_ONCE
+DENY = prompt_mod._DENY
+ALLOW_SESSION = "Allow for this session"
 
 
 def _resolver(tmp_path: Path, policy=None) -> Any:
@@ -488,32 +498,55 @@ class TestDecisionLog:
 
 
 class _UI:
-    """Stand-in UI that answers every prompt with a fixed choice."""
+    """Stand-in UI that answers every prompt with a fixed choice.
+
+    Records the detail block through both channels it can arrive on — a
+    transient widget on a component surface, a notify everywhere else — plus
+    the widget teardown, which has to happen on every exit path.
+    """
 
     supports_components = True
 
     def __init__(self, answer: str | None) -> None:
         self.answer = answer
-        self.notes: list[object] = []
+        self.notes: list[list[str]] = []
+        #: Titles the prompt asked with — where the specifics are expected to
+        #: travel on a component surface.
+        self.titles: list[str] = []
+        #: Widget lifecycle, recorded only to assert that nothing is mounted
+        #: outside the picker's frame.
+        self.widget_log: list[tuple[str, str]] = []
 
     async def select(self, title: str, options: list[str]) -> str | None:
+        self.titles.append(title)
         if self.answer is None:
             return None
         return next((o for o in options if o.startswith(self.answer)), None)
 
-    def notify(self, message, type="info") -> None:  # noqa: A002
+    def notify(self, message: list[str], type: str = "info") -> None:  # noqa: A002
         self.notes.append(message)
+
+    def set_widget(
+        self,
+        id: str,  # noqa: A002
+        widget: list[str],
+        placement: str = "above_editor",
+    ) -> None:
+        self.widget_log.append(("set", id))
+
+    def remove_widget(self, id: str) -> None:  # noqa: A002
+        self.widget_log.append(("remove", id))
 
 
 class TestGate:
     def test_ask_becomes_allow_when_the_user_approves(self, tmp_path: Path) -> None:
         gate = _gate(tmp_path)
-        decision = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, _UI("Allow once")))
+        decision = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, _UI(ALLOW_ONCE)))
         assert decision.state == "allow"
 
     def test_ask_becomes_deny_when_the_user_declines(self, tmp_path: Path) -> None:
         gate = _gate(tmp_path)
-        decision = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, _UI("Deny")))
+        decision = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, _UI(DENY)))
         assert decision.state == "deny"
 
     def test_dismissing_the_prompt_denies(self, tmp_path: Path) -> None:
@@ -523,13 +556,13 @@ class TestGate:
 
     def test_session_approval_is_remembered_for_later_calls(self, tmp_path: Path) -> None:
         gate = _gate(tmp_path)
-        ui = _UI("Allow for this session")
+        ui = _UI(ALLOW_SESSION)
 
         first = asyncio.run(gate.decide("read", {"path": "/etc/hosts"}, ui))
         assert first.state == "allow"
 
         # A second call in the same directory needs no prompt at all.
-        second = asyncio.run(gate.decide("read", {"path": "/etc/passwd"}, _UI("Deny")))
+        second = asyncio.run(gate.decide("read", {"path": "/etc/passwd"}, _UI(DENY)))
         assert second.state == "allow"
 
     def test_no_ui_applies_the_headless_default(self, tmp_path: Path) -> None:
@@ -561,6 +594,64 @@ class TestGate:
         gate = _gate(tmp_path)
         asyncio.run(gate.decide("read", {"path": ".env"}, None))
         assert gate.log.tail()[-1]["state"] == "deny"
+
+
+class TestDetailBlockPlacement:
+    """The specifics belong inside the picker's own frame.
+
+    A selector renders between the editor's two dividers, and that frame is
+    the whole prompt. A ``notify`` appends to the message list instead, which
+    puts it above the dividers *and* leaves it there after the choice — a
+    permanent duplicate of the tool-call block that appears the instant the
+    gate resolves.
+    """
+
+    prompt = importlib.import_module(f"{_PKG}.prompt")
+
+    def _ask(self, ui, **kw):
+        decision = rules.Decision(state="ask", surface="command", target="echo hi")
+        return asyncio.run(
+            self.prompt.ask(ui, decision, timeout_seconds=0, params={"cmd": "echo hi"}, **kw)
+        )
+
+    def test_nothing_is_left_in_the_message_list(self) -> None:
+        ui = _UI(ALLOW_ONCE)
+
+        self._ask(ui)
+
+        assert ui.notes == [], "a notify outlives the prompt and sits outside the dividers"
+        assert ui.widget_log == [], "a widget renders above the top divider"
+
+    def test_the_specifics_travel_inside_the_picker_title(self) -> None:
+        ui = _UI(ALLOW_ONCE)
+
+        self._ask(ui)
+
+        assert "echo hi" in ui.titles[0]
+
+    def test_the_question_is_the_first_line_of_the_title(self) -> None:
+        """SelectList styles line 0 as the heading and the rest as body."""
+        ui = _UI(ALLOW_ONCE)
+
+        self._ask(ui)
+
+        assert ui.titles[0].splitlines()[0] == self.prompt.headline(
+            rules.Decision(state="ask", surface="command", target="echo hi")
+        )
+
+    def test_a_surface_without_components_keeps_the_notify(self) -> None:
+        """RPC has no picker frame, and a one-line title would truncate the block."""
+
+        class _Rpc(_UI):
+            supports_components = False
+
+        ui = _Rpc(ALLOW_ONCE)
+
+        self._ask(ui)
+
+        assert ui.notes, "the client would otherwise never see what it approved"
+        assert "echo hi" in "\n".join(ui.notes[0])
+        assert "\n" not in ui.titles[0], "the title stays short where it cannot be rendered tall"
 
 
 def _gate(tmp_path: Path, *, trusted: bool = False):
@@ -614,8 +705,89 @@ class TestPromptPresentation:
         block = "\n".join(self.prompt.detail_lines(decision, {"cmd": full}))
 
         assert full in block
-        assert "triggered by" in block
-        assert "runs the command in full" in block
+
+    def test_the_diff_is_coloured_when_a_theme_is_available(self, tmp_path: Path) -> None:
+        """The diff is the decision on a write/edit; grey text buries it."""
+        from tau.tui.theme import LayoutTheme
+
+        target = tmp_path / "app.py"
+        target.write_text("old = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+        params = {"path": "app.py", "content": "new = 2\n"}
+
+        block = "\n".join(self.prompt.detail_lines(decision, params, tmp_path, LayoutTheme()))
+
+        assert "\x1b[" in block, "the diff carries colour"
+        assert "old = 1" in strip_ansi(block)
+        assert "new = 2" in strip_ansi(block)
+
+    def test_the_block_stays_plain_without_a_theme(self, tmp_path: Path) -> None:
+        """The RPC path has no terminal to colour for."""
+        target = tmp_path / "app.py"
+        target.write_text("old = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = "\n".join(
+            self.prompt.detail_lines(decision, {"path": "app.py", "content": "new = 2\n"}, tmp_path)
+        )
+
+        assert "\x1b[" not in block
+
+    def test_a_broken_theme_costs_the_colour_not_the_prompt(self, tmp_path: Path) -> None:
+        class _Exploding:
+            @property
+            def message(self):
+                raise RuntimeError("no theme for you")
+
+        target = tmp_path / "app.py"
+        target.write_text("old = 1\n")
+        decision = rules.Decision(state="ask", surface="tool", target="write")
+
+        block = "\n".join(
+            self.prompt.detail_lines(
+                decision, {"path": "app.py", "content": "new = 2\n"}, tmp_path, _Exploding()
+            )
+        )
+
+        assert "new = 2" in block, "the block still renders, just without colour"
+        assert "\x1b[" not in block
+
+    def test_the_block_carries_no_boilerplate(self) -> None:
+        """Only the rows. The picker heading already says what is being approved."""
+        full = 'uname -a; echo "---"'
+        decision = rules.Decision(state="ask", surface="command", target="uname -a")
+
+        block = "\n".join(self.prompt.detail_lines(decision, {"cmd": full}))
+
+        assert "approval required" not in block
+        assert "runs the command in full" not in block
+
+    def test_a_segment_already_visible_in_the_command_is_not_repeated(self) -> None:
+        """A target that is a substring of the command row adds no information.
+
+        It only pushes the choices further down the screen, which matters most
+        on the prompt people see most often.
+        """
+        full = ".venv/bin/python -m pytest -q 2>&1 | tail -12"
+        decision = rules.Decision(
+            state="ask", surface="command", target=".venv/bin/python -m pytest -q"
+        )
+
+        block = "\n".join(self.prompt.detail_lines(decision, {"cmd": full}))
+
+        assert full in block
+        assert "triggered by" not in block
+        assert "segment" not in block
+
+    def test_a_segment_missing_from_the_command_row_is_still_shown(self) -> None:
+        """The command row is clipped, so the gated part can be off the end."""
+        full = "echo " + "x" * 400 + "; rm -rf /tmp/gone"
+        decision = rules.Decision(state="ask", surface="command", target="rm -rf /tmp/gone")
+
+        block = "\n".join(self.prompt.detail_lines(decision, {"cmd": full}))
+
+        assert "segment" in block
+        assert "rm -rf /tmp/gone" in block
 
     def test_a_tool_decision_names_the_file_it_acts_on(self) -> None:
         decision = rules.Decision(state="ask", surface="tool", target="write")
@@ -654,22 +826,29 @@ class TestPromptPresentation:
         block = "\n".join(self.prompt.detail_lines(decision, {"cmd": "echo $(cat /etc/passwd)"}))
         assert "command substitution" in block
 
-    def test_a_very_long_command_is_clipped_but_still_flagged_as_whole(self) -> None:
+    def test_a_very_long_command_is_clipped_but_stays_readable(self) -> None:
         long_cmd = "echo " + "a" * 4000
         decision = rules.Decision(state="ask", surface="command", target="echo")
 
         lines = self.prompt.detail_lines(decision, {"cmd": long_cmd})
 
         assert all(len(line) < 300 for line in lines), "the block must stay readable"
-        assert "runs the command in full" in "\n".join(lines)
+        assert any("echo" in line for line in lines)
 
     def test_rows_are_column_aligned(self) -> None:
         decision = rules.Decision(
             state="ask", surface="path", target="/etc/hosts", reason="Outside the project."
         )
-        rows = [ln for ln in self.prompt.detail_lines(decision, {}) if ln.startswith("  ")]
-        starts = {len(ln) - len(ln.lstrip()) for ln in rows}
-        assert len(starts) == 1, "detail rows should share one indent"
+        rows = [ln for ln in self.prompt.detail_lines(decision, {}) if ln.strip()]
+
+        # The picker indents every row it renders, so the block adds none of
+        # its own — it would land two columns deeper than the question.
+        assert all(not ln.startswith(" ") for ln in rows), "the picker owns the indent"
+
+        # "label<pad>   value" — the value column has to line up across rows,
+        # which is the whole reason the label is padded to a common width.
+        starts = {re.match(r"\S+\s+(?=\S)", ln).end() for ln in rows}  # type: ignore[union-attr]
+        assert len(starts) == 1, "detail values should share one column"
 
     def test_a_failing_notify_does_not_block_the_prompt(self) -> None:
         # The block is decoration; losing it must not cost the user the picker.
@@ -833,6 +1012,10 @@ class TestPreview:
         assert "changes:" in block
         assert "+value = 2" in block
         assert "writes" in block  # the size summary row
+
+        # Flush with the rest of the block: the picker already indents every
+        # row it renders, and -/+/@@ marks a diff line without help.
+        assert all(not ln.startswith(" ") for ln in block.splitlines() if ln.strip())
 
     def test_the_headline_names_the_operation(self) -> None:
         prompt = importlib.import_module(f"{_PKG}.prompt")

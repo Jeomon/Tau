@@ -276,12 +276,13 @@ class UIContext:
             return None
         from tau.tui.components.select_list import SelectItem
 
-        items: list[SelectItem[str]] = [
-            SelectItem(label=o, description=title if i == 0 else "", value=o)
-            for i, o in enumerate(options)
-        ]
+        # ``title`` is the question, so it is a heading over the whole picker —
+        # not the first option's description. Putting it in that column (as
+        # this did) rendered it beside "Allow once"/"Yes" and read as a
+        # property of that single choice, which is the opposite of its meaning.
+        items: list[SelectItem[str]] = [SelectItem(label=o, value=o) for o in options]
         fut, _commit, _cancel = selector_future()
-        layout.open_tree_selector(items, _commit, _cancel)
+        layout.open_tree_selector(items, _commit, _cancel, title=title)
         return await fut
 
     async def multi_select(
