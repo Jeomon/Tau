@@ -97,6 +97,17 @@ class CycleThinkingLevelCommand(TypedDict, total=False):
     id: str
 
 
+class GetAvailableThinkingLevelsCommand(TypedDict, total=False):
+    """The thinking levels *this model* supports, plus the active one.
+
+    ``cycle_thinking_level`` already steps through exactly this set but never
+    reports what is in it, so a client could not render a picker.
+    """
+
+    type: Literal["get_available_thinking_levels"]
+    id: str
+
+
 class SetSteeringModeCommand(TypedDict, total=False):
     type: Literal["set_steering_mode"]
     id: str

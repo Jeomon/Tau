@@ -47,7 +47,7 @@ tau/
 │   ├── registry.py         # CommandRegistry
 │   └── types.py            # Command metadata, incl. idle-only declaration
 ├── console/                # CLI entry point
-│   ├── cli.py              # Click app, mode resolution, print/json runners
+│   ├── cli.py              # Click app, mode resolution, message assembly
 │   └── commands/           # auth, doctor, packages, update subcommands
 ├── core/
 │   └── registry.py         # Registry[T, E]: lazy 3-tier project→global→builtin base
@@ -98,7 +98,9 @@ tau/
 │   │   ├── ui_context.py   # Extension-facing UI customization
 │   │   ├── commands/       # auth, context, extensions, misc, model, session, settings
 │   │   └── components/     # Layout, message list, selectors, overlays, trust screen
-│   ├── print/              # Namespace only; print and json modes run from console/cli.py
+│   ├── wire.py             # Shared JSON-lines layer for the rpc and json modes
+│   ├── signals.py          # Shared signal → exit-code handling for headless modes
+│   ├── print/              # Single-shot text and json modes
 │   └── rpc/                # JSON-RPC over stdio for IDE integration
 ├── packages/               # Installed package management
 │   ├── manager.py          # Resolution without path-traversal escape
@@ -191,12 +193,28 @@ tau/
 | Mode | Selected by | Runs |
 |------|-------------|------|
 | `interactive` | Default on a TTY | `modes/interactive/app.py` → `App` |
-| `print` | `--print`/`-p`, a positional prompt, or non-TTY stdout | `_run_print()` in `console/cli.py` |
-| `json` | A prompt plus `--output-format json` | `_run_json()` in `console/cli.py` |
+| `print` | `--print`/`-p`, a positional prompt, or non-TTY stdout | `modes/print/mode.py` → `run_print_mode()` |
+| `json` | A prompt plus `--output-format json` | `modes/print/mode.py` → `run_print_mode(output="json")` |
 | `rpc` | `--mode rpc` | `modes/rpc/mode.py` → `run_rpc_mode()` |
 
-`tau/modes/print/` is an empty namespace package; print and json mode logic lives
-in `console/cli.py`.
+`print` and `json` are one module — `modes/print/mode.py` → `run_print_mode()`.
+They differ only in what reaches stdout (the final assistant message, or the
+event stream), so the prompt sequence, settle-waiting and signal handling are
+written once. `console/cli.py` builds the message list and calls it.
+
+All three headless modes share `modes/signals.py`: `SIGTERM`/`SIGHUP` abort the
+turn so tools stop and the session is written out, then the process exits `143`
+or `129`. Exiting `0` on a signal made a killed run indistinguishable from one
+whose client simply went away.
+
+`json` and `rpc` are the same stdout protocol — one emits events, the other adds
+commands on stdin — so everything about the outgoing side lives in
+`modes/wire.py`: the stdout guard and backpressure (`ProtocolOutput`), event
+serialization (`serialize_event`, `json_default`), streaming deltas
+(`StreamDeltas`) and the single `FORWARDED_EVENTS` list. Both modes import it;
+neither keeps a private copy. They previously did, and drifted — one grew delta
+output, the other grew crash-resistant encoding, and each was missing the
+other's fix.
 
 `console/commands/` holds the non-agent CLI subcommands:
 

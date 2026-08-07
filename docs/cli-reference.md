@@ -33,8 +33,9 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 | `--debug` | `-d` | off | Enable debug logging |
 | `--startup` | | off | Print per-phase startup timing to stderr (settings, model/LLM, session manager, resources, extensions, agent) |
 | `--cwd PATH` | `-c` | current dir | Set the working directory before starting |
-| `--prompt TEXT` | `-p` | | Run a single prompt non-interactively |
+| `--prompt TEXT` | `-p` | | Run a prompt non-interactively. Repeat to send several in order |
 | `--output-format` | `-f` | `text` | Non-interactive output format: `text` or `json` |
+| `--json-events` | | `compact` | Event set for `json` output: `compact` or `full` |
 | `--quiet` | `-q` | off | Hide the spinner in non-interactive mode |
 | `--provider NAME` | | from settings | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model ID` | | from settings | Model ID, or `provider/model` shorthand |
@@ -95,16 +96,21 @@ tau --theme light --effort high        # theme and reasoning effort
 
 ### Print mode
 
-Runs one prompt, prints the assistant's text to stdout, and exits.
+Runs the prompts, prints the assistant's final text to stdout, and exits.
 
 ```bash
 tau --print "Summarize this repo"
 tau --prompt "Explain this file" @src/main.py
 cat README.md | tau --print "Summarize this text"
 tau --prompt "Compare these" @src/old.py @src/new.py --quiet
+tau -p "Read the tests" -p "Now list what they miss"
 ```
 
-Piped stdin, `@file` contents, and the explicit prompt are concatenated in that order. If none of the three yields text, Tau exits with an error. A failed turn exits non-zero with the error message.
+Piped stdin, `@file` contents, and the first prompt are concatenated in that order. If none of the three yields text, Tau exits with an error. A failed turn exits non-zero with the error message.
+
+Repeating `--prompt` sends each one in turn against the same session, so a later prompt sees everything the earlier ones did. Each waits for the previous to settle. Piped stdin and `@file` contents attach to the first prompt only. This applies to `json` mode too, which emits one continuous event stream across all of them.
+
+Both modes handle `SIGTERM` and `SIGHUP`: the running turn is aborted so tools stop and the session is written out, then Tau exits `143` or `129` respectively. `SIGINT` (Ctrl-C) is left to Python's normal `KeyboardInterrupt`.
 
 ### JSON mode
 
@@ -115,25 +121,52 @@ tau --mode json --prompt "List the Python files"
 tau --prompt "Audit this repo" -f json > events.jsonl
 ```
 
-Events emitted in JSON mode:
+JSON mode and RPC mode share their event pipeline, so anything documented under
+[RPC Events](rpc.md#events) can appear here. Which of them actually arrive is
+set by `--json-events`:
 
-| Event | Fields beyond `type` |
-|-------|----------------------|
-| `agent_start` | — |
-| `agent_end` | `messages`, `reason` |
-| `message_start` | `message` |
-| `message_update` | `delta`, `thinking_delta` |
-| `message_end` | `message` |
-| `tool_execution_start` | `tool_call` |
-| `tool_execution_end` | `tool_result` |
-| `agent_error` | `error` |
-| `settled` | — |
+| `--json-events` | Emits |
+|-----------------|-------|
+| `compact` (default) | The streaming essentials — the ✓ rows below |
+| `full` | Everything RPC sends |
+
+| Event | `compact` | Fields beyond `type` |
+|-------|:---------:|----------------------|
+| `agent_start` | ✓ | — |
+| `agent_end` | ✓ | `messages`, `reason` |
+| `turn_start` | | `turn_index`, `timestamp` |
+| `turn_end` | | `turn_index`, `message`, `tool_results` |
+| `message_start` | ✓ | `message` |
+| `message_update` | ✓ | `delta`, `thinking_delta` |
+| `message_end` | ✓ | `message` |
+| `message_rollback` | ✓ | `count` |
+| `tool_execution_start` | ✓ | `tool_call` |
+| `tool_execution_update` | | `partial_tool_result` |
+| `tool_execution_end` | ✓ | `tool_result` |
+| `tool_execution_failure` | | `tool_name`, … |
+| `agent_error` | ✓ | `error` |
+| `llm_retry` | | retry detail |
+| `compaction_start` / `_end` / `_cancelled` / `_failure` | | see [RPC Events](rpc.md#events) |
+| `queue_update` | | `queue`, `message`, `messages` |
+| `terminal_execution` | | `message`, `streaming` |
+| `terminal_output` | | `message` |
+| `settled` | ✓ | — |
 
 `message_update` carries only the text appended since the previous update, not
 the message so far: `delta` for assistant text, `thinking_delta` for reasoning.
 Either field is omitted when that stream did not advance, so an update that
 only records a tool call carries neither. Concatenate the deltas to follow the
 reply live, or ignore them and read the finished message from `message_end`.
+When a block is rewritten rather than extended, the delta carries the whole new
+text — compare against what you hold instead of appending blindly.
+
+`message_rollback` retracts the last `count` committed messages. An interrupted
+tool turn persists an assistant tool-call message and its result before the
+abort lands, and both must be dropped; a consumer that mirrors the transcript
+and ignores this event drifts out of sync with the session file. It is the one
+event in `compact` that older consumers will not have seen — everything else
+the shared pipeline can emit is behind `--json-events full`, but leaving this
+one out would mean shipping a known way to corrupt a mirrored transcript.
 
 Consume the stream until `settled`:
 
@@ -143,7 +176,16 @@ tau --mode json -p "Count the test files" | while read -r line; do
 done
 ```
 
-RPC mode emits a larger event set. See [Events](#events).
+**stdout belongs to the protocol.** As in RPC mode, fd 1 is duplicated for the
+stream itself and pointed at stderr, so a `print` from a tool, an extension or
+a subprocess lands on stderr instead of corrupting a JSON line. Read stderr
+separately, or discard it. Values that are not JSON-native are coerced rather
+than dropped — enums become their value, `bytes` become base64, sets and tuples
+become arrays, paths become strings — so a tool returning an image cannot take
+its event off the stream.
+
+RPC mode adds commands on stdin and a `ready` handshake; the event stream is
+the same. See [RPC Mode](rpc.md).
 
 ## Model Selection
 

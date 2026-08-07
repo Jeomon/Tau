@@ -14,6 +14,7 @@ import pytest
 import tau.modes.rpc.mode as mode
 from tau.engine.types import FollowupMode, SteeringMode
 from tau.inference.types import ThinkingLevel
+from tau.modes import wire
 
 
 @pytest.fixture
@@ -771,75 +772,10 @@ class TestBusyGuards:
         assert captured[-1]["success"] is True
 
 
-class TestMessageUpdateDeltas:
-    """`message_update` carries the whole accumulated message on every tick, so
-    a client that only wants the new characters still pays for the full message
-    each time — stdout grows with the square of the reply length. Deltas ride
-    alongside it; `set_update_mode` drops the redundant copy."""
-
-    @staticmethod
-    def _message(text: str = "", thinking: str = ""):
-        from tau.message.types import AssistantMessage, TextContent, ThinkingContent
-
-        contents: list = []
-        if thinking:
-            contents.append(ThinkingContent(content=thinking))
-        if text:
-            contents.append(TextContent(content=text))
-        return AssistantMessage(contents=contents)
-
-    def test_each_tick_carries_only_what_was_appended(self):
-        deltas = mode._UpdateDeltas()
-
-        first = deltas.annotate({}, self._message("Let me"))
-        second = deltas.annotate({}, self._message("Let me check."))
-
-        assert first["delta"] == "Let me"
-        assert second["delta"] == " check."
-
-    def test_thinking_is_tracked_separately_from_text(self):
-        deltas = mode._UpdateDeltas()
-
-        deltas.annotate({}, self._message(thinking="hmm"))
-        payload = deltas.annotate({}, self._message(text="hi", thinking="hmm, ok"))
-
-        assert payload["thinking_delta"] == ", ok"
-        assert payload["delta"] == "hi"
-
-    def test_a_rewritten_block_resends_the_whole_text(self):
-        """TextEndEvent replaces a streaming block outright, so the accumulated
-        prefix does not always hold."""
-        deltas = mode._UpdateDeltas()
-
-        deltas.annotate({}, self._message("draft"))
-        payload = deltas.annotate({}, self._message("final answer"))
-
-        assert payload["delta"] == "final answer"
-
-    def test_reset_starts_the_next_message_from_scratch(self):
-        deltas = mode._UpdateDeltas()
-        deltas.annotate({}, self._message("first reply"))
-
-        deltas.reset()
-        payload = deltas.annotate({}, self._message("second"))
-
-        assert payload["delta"] == "second"
-
-    def test_full_mode_keeps_the_message_and_delta_mode_drops_it(self):
-        deltas = mode._UpdateDeltas()
-        assert "message" in deltas.annotate({"message": {"x": 1}}, self._message("a"))
-
-        deltas.omit_message = True
-        payload = deltas.annotate({"message": {"x": 1}}, self._message("ab"))
-
-        assert "message" not in payload
-        assert payload["delta"] == "b"
-
-    def test_an_unchanged_message_carries_no_delta_key(self):
-        deltas = mode._UpdateDeltas()
-        deltas.annotate({}, self._message("same"))
-
-        assert deltas.annotate({}, self._message("same")) == {}
+class TestSetUpdateMode:
+    """`set_update_mode` decides whether `message_update` still carries the
+    full accumulated message. The delta tracking itself is shared with the
+    JSON mode and covered in tests/test_wire.py."""
 
     @pytest.mark.asyncio
     async def test_set_update_mode_toggles_the_full_copy(self, captured):
@@ -867,3 +803,76 @@ class TestMessageUpdateDeltas:
         assert captured[-1]["success"] is False
         assert "sometimes" in captured[-1]["error"]
         assert mode._DELTAS.omit_message is False
+
+
+class TestSharedWireLayer:
+    """RPC's outgoing side is the shared one, not a private copy."""
+
+    def test_rpc_uses_the_shared_serializer_and_event_list(self):
+        assert mode._serialize_event is wire.serialize_event
+        assert mode._json_default is wire.json_default
+        assert mode._write is wire.write
+        assert mode._FORWARDED_EVENTS is wire.FORWARDED_EVENTS
+        assert isinstance(mode._DELTAS, wire.StreamDeltas)
+
+    def test_rpc_keeps_the_full_message_by_default(self):
+        """Existing clients redraw from `message`; dropping it is opt-in."""
+        assert mode._DELTAS.omit_message is False
+
+
+class TestThinkingLevelDiscovery:
+    """`cycle_thinking_level` walks the levels a model supports but never says
+    what they are, so a client could step through them blind and not render a
+    picker."""
+
+    @pytest.mark.asyncio
+    async def test_reports_the_models_levels_and_the_active_one(self, captured):
+        llm = _LLM(_Model(levels=[ThinkingLevel.Off, ThinkingLevel.Low, ThinkingLevel.High]))
+        llm.api.options.thinking_level = ThinkingLevel.Low
+        rt = _Runtime(_Agent(llm))
+
+        await mode._handle_command({"type": "get_available_thinking_levels", "id": "1"}, rt, {})
+
+        assert captured[-1]["success"] is True
+        assert captured[-1]["data"]["levels"] == ["off", "low", "high"]
+        assert captured[-1]["data"]["current"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_a_model_advertising_nothing_reports_every_level(self, captured):
+        """Absent metadata means unknown, not unsupported — `_supports_level`
+        treats every level as provisionally valid, and this must agree with it
+        or a picker would hide levels the model can actually use."""
+        from tau.inference.types import ThinkingLevel
+
+        rt = _Runtime(_Agent(_LLM(_Model(levels=[]))))
+
+        await mode._handle_command({"type": "get_available_thinking_levels", "id": "1"}, rt, {})
+
+        assert captured[-1]["success"] is True
+        assert captured[-1]["data"]["levels"] == [lvl.value for lvl in ThinkingLevel]
+
+    @pytest.mark.asyncio
+    async def test_no_model_is_an_error(self, captured):
+        await mode._handle_command(
+            {"type": "get_available_thinking_levels", "id": "1"}, _Runtime(), {}
+        )
+
+        assert captured[-1]["success"] is False
+        assert captured[-1]["error"] == "No active model"
+
+    @pytest.mark.asyncio
+    async def test_the_reported_set_is_what_cycle_walks(self, captured):
+        """If the two disagreed, a picker built from this list would offer a
+        level cycling never reaches, or miss one it does."""
+        llm = _LLM(_Model(levels=[ThinkingLevel.Off, ThinkingLevel.High]))
+        rt = _Runtime(_Agent(llm))
+
+        await mode._handle_command({"type": "get_available_thinking_levels", "id": "1"}, rt, {})
+        reported = captured[-1]["data"]["levels"]
+
+        walked = []
+        for i in range(len(reported)):
+            await mode._handle_command({"type": "cycle_thinking_level", "id": str(i)}, rt, {})
+            walked.append(captured[-1]["data"]["level"])
+
+        assert sorted(walked) == sorted(reported)

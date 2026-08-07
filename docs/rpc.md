@@ -87,7 +87,18 @@ Commands are dispatched concurrently. Each parsed line is handed to a fire-and-f
 1. The client spawns `tau --mode rpc`. Tau boots the full runtime: settings, model, session manager, resources, extensions.
 2. Tau subscribes to the agent event hooks and writes a single `ready` line.
 3. The client writes commands as JSON lines. Tau writes a `response` line for each (except `extension_ui_response`) plus a stream of events.
-4. Shutdown is triggered by EOF on stdin, `SIGTERM`, or `SIGHUP`. On a signal, Tau aborts the running agent first, then unsubscribes and exits.
+4. Shutdown is triggered by EOF on stdin, `SIGTERM`, `SIGHUP` or `SIGINT`. On a signal, Tau aborts the running agent first, then unsubscribes, flushes the stream and exits.
+
+Exit codes let a supervisor tell the two apart:
+
+| Cause | Exit |
+|-------|------|
+| EOF on stdin, or `ctx.shutdown()` | `0` |
+| `SIGINT` | `0` — a graceful stop, as at a terminal |
+| `SIGTERM` | `143` |
+| `SIGHUP` | `129` |
+
+The buffered stream is flushed and stdout restored *before* the code is reported, so a signalled server still delivers everything it had queued.
 
 The `ready` line is the handshake. It is the first line written and carries the session identity:
 
@@ -142,6 +153,7 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 | `get_available_models` | — | `{models}` |
 | `set_thinking_level` | `level` | `{level}` |
 | `cycle_thinking_level` | — | `{level}` |
+| `get_available_thinking_levels` | — | `{levels, current}` |
 | `set_steering_mode` | `mode` | `{mode}` |
 | `set_follow_up_mode` | `mode` | `{mode}` |
 | `set_update_mode` | `mode` | `{mode}` |
@@ -440,6 +452,20 @@ Lists every text model whose provider has usable authentication.
 Valid levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. An unknown level, or having no active model, produces a failure response.
 
 The level is applied to the live model for the rest of the session; it is not persisted to settings. `data.level` reports what was actually applied, which may differ from what you asked for: a level the model does not support is clamped to its nearest supported one.
+
+#### get_available_thinking_levels
+
+The levels *this model* supports, and the active one. `cycle_thinking_level` already steps through exactly this set but never reports what is in it, so a client could not render a picker.
+
+```json
+{"type": "get_available_thinking_levels"}
+```
+
+```json
+{"type": "response", "command": "get_available_thinking_levels", "success": true, "data": {"levels": ["off", "low", "high"], "current": "low"}}
+```
+
+A model that advertises no levels at all reports *every* level: absent metadata means unknown, not unsupported, and the cycling command treats it the same way. Fails with `"No active model"` when there is no model.
 
 #### cycle_thinking_level
 

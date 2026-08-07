@@ -27,7 +27,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from tau.agent.service import Agent, AgentPhase
-from tau.console.cli import _run_json
 from tau.engine.service import Engine
 from tau.engine.types import EngineContext
 from tau.hooks.engine import AgentErrorEvent, SettledEvent
@@ -35,6 +34,7 @@ from tau.hooks.service import Hooks
 from tau.inference.types import EndEvent, ErrorEvent, StopReason, TextEndEvent
 from tau.inference.utils import ErrorKind
 from tau.message.types import AssistantMessage, TextContent, UserMessage
+from tau.modes.print.mode import _run_json
 
 # ── Engine: the catch-all path now carries the error on a message ─────────────
 
@@ -277,7 +277,7 @@ class _ErroringRuntime:
 
 
 def test_json_mode_streams_agent_error(capsys) -> None:
-    asyncio.run(_run_json(_ErroringRuntime(), "prompt"))  # type: ignore[arg-type]
+    asyncio.run(_run_json(_ErroringRuntime(), ["prompt"], "compact"))  # type: ignore[arg-type]
     out = capsys.readouterr().out
     events = [json.loads(line) for line in out.splitlines() if line.strip()]
 

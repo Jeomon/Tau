@@ -16,8 +16,8 @@ import asyncio
 import click
 import pytest
 
-from tau.console.cli import _run_json, _run_print
 from tau.hooks.service import Hooks
+from tau.modes.print.mode import _run_json, _run_text
 
 
 class _FailingRuntime:
@@ -34,14 +34,14 @@ class _FailingRuntime:
 def test_print_mode_wraps_pre_stream_failure_in_click_exception() -> None:
     runtime = _FailingRuntime(ValueError("Anthropic on Vertex AI requires a project ID."))
     with pytest.raises(click.ClickException) as excinfo:
-        asyncio.run(_run_print(runtime, "prompt"))
+        asyncio.run(_run_text(runtime, ["prompt"]))
     assert "requires a project ID" in str(excinfo.value)
 
 
 def test_json_mode_wraps_pre_stream_failure_in_click_exception() -> None:
     runtime = _FailingRuntime(ValueError("Anthropic on Vertex AI requires a project ID."))
     with pytest.raises(click.ClickException) as excinfo:
-        asyncio.run(_run_json(runtime, "prompt"))
+        asyncio.run(_run_json(runtime, ["prompt"], "compact"))
     assert "requires a project ID" in str(excinfo.value)
 
 
@@ -49,7 +49,7 @@ def test_print_mode_does_not_rewrap_an_existing_click_exception() -> None:
     original = click.ClickException("already clean")
     runtime = _FailingRuntime(original)
     with pytest.raises(click.ClickException) as excinfo:
-        asyncio.run(_run_print(runtime, "prompt"))
+        asyncio.run(_run_text(runtime, ["prompt"]))
     assert excinfo.value is original
 
 
@@ -57,5 +57,5 @@ def test_json_mode_does_not_rewrap_an_existing_click_exception() -> None:
     original = click.ClickException("already clean")
     runtime = _FailingRuntime(original)
     with pytest.raises(click.ClickException) as excinfo:
-        asyncio.run(_run_json(runtime, "prompt"))
+        asyncio.run(_run_json(runtime, ["prompt"], "compact"))
     assert excinfo.value is original

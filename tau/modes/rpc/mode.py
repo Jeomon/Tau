@@ -11,16 +11,14 @@ Commands are dispatched via :func:`run_rpc_mode`.
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
-import dataclasses
-import enum
 import json
 import logging
-import os
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from tau.modes import wire
+from tau.modes.signals import exit_on_signal, raise_if_interrupted
 
 _log = logging.getLogger(__name__)
 
@@ -32,161 +30,29 @@ if TYPE_CHECKING:
 # Output helpers
 # ---------------------------------------------------------------------------
 
+# The outgoing side of the protocol is shared with `-p --mode json`; see
+# tau/modes/wire.py for why it lives there rather than here.
+_OUTPUT = wire.OUTPUT
+_write = wire.write
+_serialize_event = wire.serialize_event
+_json_default = wire.json_default
+_FORWARDED_EVENTS = wire.FORWARDED_EVENTS
 
-class _ProtocolOutput:
-    """Owns the real stdout so the JSON-lines stream cannot be corrupted.
-
-    Two jobs:
-
-    * **Guard** — ``install()`` dups fd 1 aside for protocol writes and points
-      fd 1 at stderr, so a stray ``print`` from a tool, an extension, or a
-      subprocess lands on stderr instead of in the middle of a JSON line.
-    * **Backpressure** — once :meth:`start_async` has run, writes go through an
-      ``asyncio`` pipe writer. :meth:`write` stays synchronous and never blocks
-      the event loop; async callers ``await drain()`` to wait for a slow client
-      to catch up instead of stalling the agent inside a blocking ``write``.
-
-    When neither is installed (unit tests, unsupported platforms) writes fall
-    back to the current ``sys.stdout``.
-    """
-
-    def __init__(self) -> None:
-        self._raw: Any = None  # binary file object on the dup'd stdout fd
-        self._restore_fd: int | None = None  # separate dup, kept for restore()
-        self._saved_stdout: Any = None
-        self._writer: asyncio.StreamWriter | None = None
-        self._installed = False
-
-    # ── Guard ────────────────────────────────────────────────────────────────
-
-    def install(self) -> None:
-        """Redirect fd 1 → fd 2 and keep the original stdout for protocol writes."""
-        if self._installed:
-            return
-        try:
-            dup_fd = os.dup(1)
-            restore_fd = os.dup(1)
-        except OSError:
-            _log.warning("rpc: cannot duplicate stdout; protocol stream is unguarded")
-            return
-        try:
-            raw = os.fdopen(dup_fd, "wb", buffering=0)
-            os.dup2(2, 1)
-        except OSError:
-            _log.warning("rpc: cannot redirect stdout; protocol stream is unguarded")
-            for fd in (dup_fd, restore_fd):
-                with contextlib.suppress(OSError):
-                    os.close(fd)
-            return
-        self._raw = raw
-        self._restore_fd = restore_fd
-        # Python-level writes hold their own buffer on the old fd 1; point them
-        # at stderr too so nothing is flushed into the protocol stream later.
-        self._saved_stdout = sys.stdout
-        sys.stdout = sys.stderr
-        self._installed = True
-
-    def restore(self) -> None:
-        """Undo :meth:`install` (best effort — called on the way out)."""
-        if not self._installed:
-            return
-        self._installed = False
-        if self._saved_stdout is not None:
-            sys.stdout = self._saved_stdout
-            self._saved_stdout = None
-        writer, self._writer = self._writer, None
-        if writer is not None:
-            with contextlib.suppress(Exception):
-                writer.close()
-        raw, self._raw = self._raw, None
-        if raw is not None and writer is None:
-            # With a writer attached the transport owns (and closed) this fd.
-            with contextlib.suppress(Exception):
-                raw.close()
-        restore_fd, self._restore_fd = self._restore_fd, None
-        if restore_fd is not None:
-            with contextlib.suppress(OSError):
-                os.dup2(restore_fd, 1)
-            with contextlib.suppress(OSError):
-                os.close(restore_fd)
-
-    # ── Backpressure ─────────────────────────────────────────────────────────
-
-    async def start_async(self) -> None:
-        """Attach an asyncio writer to the protocol fd (enables :meth:`drain`)."""
-        if self._raw is None or self._writer is not None:
-            return
-        loop = asyncio.get_running_loop()
-        try:
-            transport, protocol = await loop.connect_write_pipe(
-                asyncio.streams.FlowControlMixin, self._raw
-            )
-            self._writer = asyncio.StreamWriter(transport, protocol, None, loop)
-        except (NotImplementedError, OSError, ValueError):
-            # Windows Proactor loop and odd stdout targets (a regular file) do
-            # not support pipe transports — keep the blocking path.
-            _log.debug("rpc: async stdout writer unavailable", exc_info=True)
-            self._writer = None
-
-    async def drain(self) -> None:
-        """Wait until the client has consumed what we buffered."""
-        writer = self._writer
-        if writer is None:
-            return
-        with contextlib.suppress(Exception):
-            await writer.drain()
-
-    # ── Writing ──────────────────────────────────────────────────────────────
-
-    def write_line(self, line: str) -> None:
-        if self._writer is not None:
-            self._writer.write(line.encode("utf-8"))
-        elif self._raw is not None:
-            self._raw.write(line.encode("utf-8"))
-        else:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-
-
-_OUTPUT = _ProtocolOutput()
+# One stream at a time, so one tracker for the process. RPC keeps the full
+# message by default and lets a client drop it with `set_update_mode`.
+_DELTAS = wire.StreamDeltas()
 
 
 def install_output_guard() -> None:
-    """Claim stdout for the protocol as early as possible.
-
-    The CLI calls this the moment it knows the run is RPC — before the runtime
-    (and its extensions) is built, since anything they print would otherwise
-    corrupt the stream. Idempotent: ``run_rpc_mode`` calls it again.
-    """
-    _OUTPUT.install()
-
-
-def _json_default(value: object) -> Any:
-    """Last-resort encoder so an exotic field can never kill the stream."""
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        with contextlib.suppress(Exception):
-            return dataclasses.asdict(value)
-    if isinstance(value, enum.Enum):
-        return value.value
-    if isinstance(value, bytes | bytearray):
-        return base64.b64encode(bytes(value)).decode("ascii")
-    if isinstance(value, set | frozenset | tuple):
-        return list(value)
-    if isinstance(value, Path):
-        return str(value)
-    return str(value)
-
-
-def _write(obj: dict) -> None:
-    """Write a JSON line to stdout immediately."""
-    _OUTPUT.write_line(json.dumps(obj, default=_json_default) + "\n")
+    """Claim stdout for the protocol before extensions can print to it."""
+    wire.install_output_guard()
 
 
 def _dump_model(model: Any) -> Any:
     """Serialize a pydantic session entry / tree node for the wire.
 
     ``mode="json"`` so nested enums, paths and datetimes come out as JSON
-    scalars rather than leaning on ``_json_default`` to stringify them.
+    scalars rather than leaning on ``wire.json_default`` to stringify them.
     """
     dump = getattr(model, "model_dump", None)
     if callable(dump):
@@ -195,88 +61,6 @@ def _dump_model(model: Any) -> Any:
         except Exception:
             _log.debug("rpc: model_dump failed for %s", type(model).__name__, exc_info=True)
     return model
-
-
-def _shallow_asdict(event: object) -> dict:
-    """``dataclasses.asdict`` without the deep copy (used when that one fails)."""
-    return {f.name: getattr(event, f.name, None) for f in dataclasses.fields(event)}  # type: ignore[arg-type]
-
-
-class _UpdateDeltas:
-    """Tracks streamed text so ``message_update`` can carry what was appended.
-
-    ``message_update`` fires once per streamed token and carries the *whole*
-    accumulated message, so a client that only wants the new characters still
-    pays for the full message every tick — stdout grows with the square of the
-    reply length. The full ``message`` stays (clients redraw from it), and
-    ``delta``/``thinking_delta`` are added alongside for clients that would
-    rather append. ``omit_message`` drops the redundant copy for a client that
-    has opted in with ``set_update_mode``.
-    """
-
-    def __init__(self) -> None:
-        self._text = ""
-        self._thinking = ""
-        self.omit_message = False
-
-    def reset(self) -> None:
-        """Start a fresh message; deltas are relative to it, not the last one."""
-        self._text = ""
-        self._thinking = ""
-
-    @staticmethod
-    def _appended(previous: str, current: str) -> str:
-        """The suffix added to ``previous``, or all of ``current`` if rewritten.
-
-        A TextEndEvent replaces a streaming block's content outright rather than
-        appending to it, so the prefix does not always hold.
-        """
-        return current[len(previous) :] if current.startswith(previous) else current
-
-    def annotate(self, payload: dict, message: object) -> dict:
-        """Add ``delta``/``thinking_delta`` to a serialized message_update."""
-        from tau.message.types import TextContent, ThinkingContent
-
-        contents = getattr(message, "contents", []) or []
-        text = "".join(c.content for c in contents if isinstance(c, TextContent))
-        thinking = "".join(c.content for c in contents if isinstance(c, ThinkingContent))
-        if delta := self._appended(self._text, text):
-            payload["delta"] = delta
-        if delta := self._appended(self._thinking, thinking):
-            payload["thinking_delta"] = delta
-        self._text, self._thinking = text, thinking
-        if self.omit_message:
-            payload.pop("message", None)
-        return payload
-
-
-# One stream at a time, so one tracker for the process.
-_DELTAS = _UpdateDeltas()
-
-
-def _serialize_event(event: object) -> dict:
-    """Turn an event object into the dict that goes on the wire.
-
-    Field names stay Python ``snake_case`` — see docs/rpc.md. Non-dataclass
-    events keep their payload (``vars``) instead of collapsing to a bare type,
-    and a dataclass whose fields resist deep-copying degrades to a shallow dict
-    rather than raising and dropping the event entirely.
-    """
-    if dataclasses.is_dataclass(event) and not isinstance(event, type):
-        try:
-            return dataclasses.asdict(event)
-        except Exception:
-            _log.debug("rpc: asdict failed for %s; using shallow dict", type(event).__name__)
-            return _shallow_asdict(event)
-    payload = getattr(event, "__dict__", None)
-    event_type = getattr(event, "type", None)
-    if isinstance(payload, dict) and payload:
-        out = {k: v for k, v in payload.items() if not k.startswith("_")}
-        out["type"] = event_type if isinstance(event_type, str) else type(event).__name__
-        return out
-    if isinstance(event_type, str):
-        return {"type": event_type}
-    return {"type": type(event).__name__}
 
 
 # ---------------------------------------------------------------------------
@@ -1037,6 +821,27 @@ async def _handle_command(
                 applied = _apply_thinking_level(llm, next_tl)
                 _ok({"level": getattr(applied, "value", str(applied))})
 
+            case "get_available_thinking_levels":
+                # A client building a picker needs the list, not just the
+                # ability to step through it: cycle_thinking_level already
+                # walks exactly this set, but never reports what it contains.
+                agent = runtime.agent
+                llm = agent._engine.llm if agent is not None else None
+                if llm is None:
+                    _err("No active model")
+                    return
+                from tau.inference.types import ThinkingLevel
+
+                supported = [lvl for lvl in ThinkingLevel if _supports_level(llm, lvl)]
+                opts = getattr(getattr(llm, "api", None), "options", None)
+                current = getattr(opts, "thinking_level", None) or ThinkingLevel.Off
+                _ok(
+                    {
+                        "levels": [lvl.value for lvl in supported],
+                        "current": getattr(current, "value", str(current)),
+                    }
+                )
+
             # ── Queue modes ──────────────────────────────────────────────────
 
             case "set_steering_mode":
@@ -1426,37 +1231,6 @@ async def _handle_command(
 # ---------------------------------------------------------------------------
 
 
-# Events forwarded to the client. Every engine event a client needs to mirror
-# the session must be here — `message_rollback` in particular, or a client that
-# replays the transcript silently drifts after an interrupted tool turn.
-_FORWARDED_EVENTS = (
-    "agent_start",
-    "agent_end",
-    "turn_start",
-    "turn_end",
-    "message_start",
-    "message_update",
-    "message_end",
-    "message_rollback",
-    "tool_execution_start",
-    "tool_execution_update",
-    "tool_execution_end",
-    "tool_execution_failure",
-    "agent_error",
-    "llm_retry",
-    "compaction_start",
-    "compaction_end",
-    "compaction_cancelled",
-    "compaction_failure",
-    "queue_update",
-    "settled",
-    # Without these the `terminal` command is a black box: success: true and
-    # no way to see what the command printed.
-    "terminal_execution",
-    "terminal_output",
-)
-
-
 def _extension_error_payload(error: object) -> dict:
     """Envelope for one extension load/dispatch failure."""
     return {
@@ -1523,18 +1297,19 @@ async def run_rpc_mode(runtime: Runtime) -> None:
     # sys.exit(0), so buffered protocol output still gets flushed.
     runtime.set_shutdown_handler(_request_shutdown)
 
+    # SIGTERM/SIGHUP additionally record a conventional exit code, so a
+    # supervisor can tell a killed server from a client that closed stdin —
+    # both used to exit 0. SIGINT stays a plain graceful stop: a headless
+    # server interrupted at a terminal is a normal way to end a session.
+    signal_exit = exit_on_signal(_on_signal)
+    interrupted = signal_exit.__enter__()
+
     import signal as _signal
 
-    # SIGHUP does not exist on Windows (AttributeError), and add_signal_handler
-    # is unsupported on the Proactor loop (NotImplementedError). Skip whatever the
-    # platform lacks instead of failing.
-    for _sig_name in ("SIGTERM", "SIGHUP", "SIGINT"):
-        _sig = getattr(_signal, _sig_name, None)
-        if _sig is None:
-            continue
-        # Windows / unsupported event loop → add_signal_handler raises.
+    _sigint = getattr(_signal, "SIGINT", None)
+    if _sigint is not None:
         with contextlib.suppress(NotImplementedError, OSError):
-            loop.add_signal_handler(_sig, _on_signal)
+            loop.add_signal_handler(_sigint, _on_signal)
 
     # ── Announce ready ───────────────────────────────────────────────────────
     sm = runtime.session_manager
@@ -1622,5 +1397,10 @@ async def run_rpc_mode(runtime: Runtime) -> None:
         runtime.set_extension_error_callback(None)
         runtime.set_shutdown_handler(None)
         runtime.set_extension_ui_bridge(None)
+        signal_exit.__exit__(None, None, None)
         await _OUTPUT.drain()
         _OUTPUT.restore()
+
+    # After the stream is flushed and stdout restored, so a signalled server
+    # still delivers everything it had buffered before reporting the cause.
+    raise_if_interrupted(interrupted)

@@ -13,6 +13,7 @@ from tau.console.commands.auth import auth
 from tau.console.commands.doctor import doctor
 from tau.console.commands.packages import install, list_packages, remove
 from tau.console.commands.update import update
+from tau.modes.signals import Interrupted
 from tau.settings.paths import get_app_version
 
 if TYPE_CHECKING:
@@ -30,11 +31,13 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(errors="backslashreplace")
 
 
-def resolve_mode(mode: str | None, print_flag: bool, prompt: str | None, output_format: str) -> str:
+def resolve_mode(
+    mode: str | None, print_flag: bool, prompt: tuple[str, ...], output_format: str
+) -> str:
     """Determine the run mode: interactive, print, json, or rpc."""
     if mode is not None:
         return mode
-    if prompt is not None:
+    if prompt:
         return "json" if output_format == "json" else "print"
     if print_flag or not sys.stdout.isatty():
         return "print"
@@ -63,9 +66,9 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
 @click.option(
     "--prompt",
     "-p",
-    default=None,
+    multiple=True,
     metavar="TEXT",
-    help="Run a single prompt in non-interactive mode.",
+    help="Run a prompt in non-interactive mode. Repeat to send several in order.",
 )
 @click.option(
     "--output-format",
@@ -74,6 +77,13 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     default="text",
     show_default=True,
     help="Output format for non-interactive mode (text, json).",
+)
+@click.option(
+    "--json-events",
+    type=click.Choice(["compact", "full"]),
+    default="compact",
+    show_default=True,
+    help="Event set for json output: compact (essentials) or full (everything RPC sends).",
 )
 @click.option(
     "--quiet", "-q", is_flag=True, default=False, help="Hide spinner in non-interactive mode."
@@ -180,8 +190,9 @@ def cli(
     debug: bool,
     startup: bool,
     cwd: str | None,
-    prompt: str | None,
+    prompt: tuple[str, ...],
     output_format: str,
+    json_events: str,
     quiet: bool,
     provider: str | None,
     model: str | None,
@@ -220,6 +231,7 @@ def cli(
 
     ctx.ensure_object(dict)
     ctx.obj["prompt"] = prompt
+    ctx.obj["json_events"] = json_events
     ctx.obj["provider"] = provider
     ctx.obj["model"] = model
     ctx.obj["base_url"] = base_url
@@ -312,11 +324,11 @@ async def _start(opts: dict) -> None:
         project_trusted=project_trusted,
     )
 
-    if opts["mode"] == "rpc":
+    if opts["mode"] in ("rpc", "json"):
         # Claim stdout before anything else can write to it — extensions load
         # (and may print) during Runtime.create, which would otherwise land
-        # non-JSON lines in the protocol stream before RPC mode even starts.
-        from tau.modes.rpc.mode import install_output_guard
+        # non-JSON lines in the protocol stream before the mode even starts.
+        from tau.modes.wire import install_output_guard
 
         install_output_guard()
 
@@ -348,16 +360,26 @@ async def _start(opts: dict) -> None:
         match opts["mode"]:
             case "interactive":
                 await _run_interactive(runtime, opts["theme"], first_run_setup)
-            case "print":
-                message = _build_initial_message(opts.get("prompt"), opts.get("files", ()))
-                await _run_print(runtime, message, quiet=opts.get("quiet", False))
-            case "json":
-                message = _build_initial_message(opts.get("prompt"), opts.get("files", ()))
-                await _run_json(runtime, message, quiet=opts.get("quiet", False))
+            case "print" | "json":
+                from tau.modes.print.mode import run_print_mode
+
+                await run_print_mode(
+                    runtime,
+                    _build_messages(opts.get("prompt", ()), opts.get("files", ())),
+                    output=opts["mode"],
+                    json_events=opts.get("json_events", "compact"),
+                )
             case "rpc":
                 from tau.modes.rpc.mode import run_rpc_mode
 
                 await run_rpc_mode(runtime)
+    except Interrupted as exc:
+        # A signalled headless run — print, json or rpc. The turn was aborted
+        # and the session written out, so report the conventional exit code
+        # rather than a traceback, and let a supervisor tell a killed run from
+        # one whose client simply went away. `finally` still emits
+        # `runtime_stop`.
+        raise SystemExit(exc.code) from None
     except click.ClickException:
         # Deliberate user-facing validation errors, not bugs — Click already
         # renders these; logging them as a crash would be noise.
@@ -385,8 +407,13 @@ async def _run_interactive(
     await app.run()
 
 
-def _build_initial_message(message: str | None, files: tuple[Path, ...]) -> str | None:
-    """Combine piped stdin, file arguments, and the explicit prompt."""
+def _build_messages(prompts: tuple[str, ...], files: tuple[Path, ...]) -> list[str]:
+    """Build the prompt sequence for a non-interactive run.
+
+    Piped stdin and ``--file`` contents are context for the *first* prompt, so
+    they are folded into it; each additional ``--prompt`` is sent on its own
+    afterwards, against the same session.
+    """
     parts: list[str] = []
     if not sys.stdin.isatty():
         piped = sys.stdin.read()
@@ -395,151 +422,11 @@ def _build_initial_message(message: str | None, files: tuple[Path, ...]) -> str 
     for path in files:
         content = path.read_text(encoding="utf-8", errors="replace")
         parts.append(f'<file path="{path}">\n{content}\n</file>')
-    if message:
-        parts.append(message)
-    return "\n\n".join(parts) or None
-
-
-async def _run_print(runtime: Runtime, message: str | None, quiet: bool = False) -> None:
-    """Run in print mode: send a message and print the response."""
-    if not message:
-        raise click.ClickException(
-            'A message is required in print mode. Usage: tau --print "your prompt"'
-        )
-
-    from tau.message.types import AssistantMessage
-
-    result: AssistantMessage | None = None
-    settled = asyncio.Event()
-
-    async def on_message_end(event: object) -> None:
-        """Capture the final assistant message."""
-        nonlocal result
-        msg = getattr(event, "message", None)
-        if isinstance(msg, AssistantMessage):
-            result = msg
-
-    async def on_settled(_event: object) -> None:
-        """Signal that processing is complete."""
-        settled.set()
-
-    hooks = runtime.hooks
-    unsub_msg = hooks.register("message_end", on_message_end)
-    unsub_settled = hooks.register("settled", on_settled)
-
-    try:
-        try:
-            await runtime.invoke(message)
-        except click.ClickException:
-            raise
-        except Exception as exc:
-            # A mid-stream provider error lands in result.error below and gets
-            # the same clean treatment. A failure before the stream starts
-            # (bad model/provider config, etc.) has no AssistantMessage to
-            # carry it, so without this it would propagate past main() as a
-            # raw traceback instead of a one-line CLI error.
-            raise click.ClickException(str(exc)) from exc
-        await settled.wait()
-    finally:
-        unsub_msg()
-        unsub_settled()
-
-    if result is None:
-        raise click.ClickException("No response received.")
-
-    if result.error:
-        raise click.ClickException(result.error)
-
-    click.echo(result.text_content(), nl=False)
-
-
-async def _run_json(runtime: Runtime, message: str | None, quiet: bool = False) -> None:
-    """Run in JSON mode: send a message and return structured JSON output."""
-    if not message:
-        raise click.ClickException(
-            'A message is required in json mode. Usage: tau --mode json "your prompt"'
-        )
-
-    import dataclasses
-    import json
-
-    from tau.hooks.types import MessageStartEvent, MessageUpdateEvent, SettledEvent
-    from tau.message.types import TextContent, ThinkingContent
-
-    settled = asyncio.Event()
-
-    # `message_update` fires once per streamed token and carries the *whole*
-    # accumulated message, so serializing it verbatim makes stdout grow with the
-    # square of the reply length — a 188 KB answer emitted 1.5 GB. Emit only what
-    # was appended since the last update; `message_end` still carries the full
-    # message, so nothing is lost across the stream.
-    seen = {"text": "", "thinking": ""}
-
-    def _appended(previous: str, current: str) -> str:
-        """The suffix added to `previous`, or all of `current` if it was rewritten.
-
-        TextEndEvent replaces a streaming block's content outright rather than
-        appending to it, so the prefix does not always hold.
-        """
-        return current[len(previous) :] if current.startswith(previous) else current
-
-    def _update_payload(message: object) -> dict[str, object]:
-        contents = getattr(message, "contents", [])
-        text = "".join(c.content for c in contents if isinstance(c, TextContent))
-        thinking = "".join(c.content for c in contents if isinstance(c, ThinkingContent))
-        payload: dict[str, object] = {"type": "message_update"}
-        if delta := _appended(seen["text"], text):
-            payload["delta"] = delta
-        if delta := _appended(seen["thinking"], thinking):
-            payload["thinking_delta"] = delta
-        seen["text"], seen["thinking"] = text, thinking
-        return payload
-
-    def _serialize(event: object) -> str:
-        if isinstance(event, MessageUpdateEvent):
-            return json.dumps(_update_payload(event.message))
-        if dataclasses.is_dataclass(event) and not isinstance(event, type):
-            return json.dumps(dataclasses.asdict(event))
-        return json.dumps({"type": type(event).__name__})
-
-    async def on_event(event: object) -> None:
-        """Output event as JSON and signal when settled."""
-        if isinstance(event, MessageStartEvent):
-            seen["text"], seen["thinking"] = "", ""
-        click.echo(_serialize(event))
-        if isinstance(event, SettledEvent):
-            settled.set()
-
-    hooks = runtime.hooks
-    hook_names = [
-        "agent_start",
-        "agent_end",
-        "message_start",
-        "message_update",
-        "message_end",
-        "tool_execution_start",
-        "tool_execution_end",
-        "agent_error",
-        "settled",
-    ]
-    unsubs = [hooks.register(name, on_event) for name in hook_names]
-
-    try:
-        try:
-            await runtime.invoke(message)
-        except click.ClickException:
-            raise
-        except Exception as exc:
-            # A mid-stream provider error still streams through on_event as a
-            # message_end/agent_end payload with the error attached. A failure
-            # before the stream starts never gets there, so without this it
-            # would propagate past main() as a raw traceback instead of a
-            # clean CLI error.
-            raise click.ClickException(str(exc)) from exc
-        await settled.wait()
-    finally:
-        for unsub in unsubs:
-            unsub()
+    rest = list(prompts)
+    if rest:
+        parts.append(rest.pop(0))
+    first = "\n\n".join(parts)
+    return ([first] if first else []) + rest
 
 
 cli.add_command(auth)

@@ -14,7 +14,6 @@ import asyncio
 import json
 from collections.abc import Callable
 
-from tau.console.cli import _run_json
 from tau.hooks.engine import (
     MessageEndEvent,
     MessageStartEvent,
@@ -23,6 +22,7 @@ from tau.hooks.engine import (
 )
 from tau.hooks.service import Hooks
 from tau.message.types import AssistantMessage, TextContent, ThinkingContent
+from tau.modes.print.mode import _run_json
 
 # One scripted stream step: mutate the message, then hand back the event to emit.
 Step = Callable[[], object]
@@ -47,7 +47,7 @@ class _FakeRuntime:
 
 
 def _run(steps, capsys):
-    asyncio.run(_run_json(_FakeRuntime(steps), "prompt"))
+    asyncio.run(_run_json(_FakeRuntime(steps), ["prompt"], "compact"))
     out = capsys.readouterr().out
     return [json.loads(line) for line in out.splitlines() if line.strip()], out
 
