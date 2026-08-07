@@ -18,6 +18,7 @@ from typing import Any
 
 from tau.message.types import Usage
 from tau.message.utils import add_usage
+from tau.session.cache_stats import CacheWaste, compute_cache_waste, registry_price_lookup
 
 
 @dataclass
@@ -31,6 +32,9 @@ class SessionStats:
     #: Compaction and branch-summary entries on this branch.
     summaries: int = 0
     usage: Usage = field(default_factory=Usage)
+    #: Prompt tokens re-billed because the cache missed. Part of ``usage``
+    #: already — this says how much of it need not have been spent.
+    cache_waste: CacheWaste = field(default_factory=CacheWaste)
 
     @property
     def total_messages(self) -> int:
@@ -77,6 +81,7 @@ class SessionStats:
                     "total": self.usage.cost.total,
                 },
             },
+            "cacheWaste": self.cache_waste.to_dict(),
         }
 
 
@@ -85,7 +90,7 @@ def compute_session_stats(entries: list[Any]) -> SessionStats:
     from tau.message.types import AssistantMessage, ToolMessage, UserMessage
     from tau.session.types import BranchSummaryEntry, CompactionEntry, MessageEntry
 
-    stats = SessionStats()
+    stats = SessionStats(cache_waste=compute_cache_waste(entries, registry_price_lookup()))
 
     for entry in entries:
         if isinstance(entry, (CompactionEntry, BranchSummaryEntry)):

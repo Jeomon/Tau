@@ -374,6 +374,10 @@ Text is the concatenation of every content block exposing a string `content` fie
       "cacheWriteTokens": 0,
       "totalTokens": 26130,
       "cost": {"input": 0.0729, "output": 0.0273, "cacheRead": 0.0, "cacheWrite": 0.0, "total": 0.1002}
+    },
+    "cacheWaste": {
+      "missedTokens": 22200, "missedCost": 0.0666,
+      "missCount": 1, "expiredCount": 1, "modelChangeCount": 0
     }
   }
 }
@@ -389,8 +393,11 @@ This is the same object the `/session` panel renders, from the same code — the
 | `summaries` | Compaction and branch-summary entries |
 | `totalMessages` | User + assistant, plus one for the tool-result block if any |
 | `usage` | Tokens and cost, in USD |
+| `cacheWaste` | Prompt tokens re-billed because the cache missed |
 
 `usage` includes what **compaction and branch summarization** cost: both are real model calls, and nothing else in the history records them. `cacheReadTokens` and `cacheWriteTokens` only count providers that report cache tokens separately from `inputTokens` (Anthropic); where they are folded in (OpenAI, Gemini) adding them again would double-count the same tokens.
+
+`cacheWaste` is the part of `usage` that need not have been spent: every turn resends the whole conversation, and providers bill an unchanged prefix at a fraction of the input rate, so a miss re-pays for the lot. `expiredCount` counts misses following an idle gap longer than the provider's cache TTL (five minutes on Anthropic); `modelChangeCount` counts those following a model switch, which starts a fresh cache. Compaction and branch summaries reset the comparison — the prompt after one is new content, not a re-bill.
 
 Cost is `0` for any turn taken before pricing was recorded, and for models with no published rates. When there is no session manager, the payload degrades to `{"sessionId": null, "totalMessages": 0, "cwd": null}`. `contextUsage` is `null` until the first turn reports usage.
 
