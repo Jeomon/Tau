@@ -543,6 +543,10 @@ class Terminal:
         its bytecodes. ``last`` is tracked locally because ``self.width`` no
         longer updates until the loop adopts the change, and comparing against
         it would re-post the same size every tick.
+
+        The size must be *staged* on ``_pending_size`` before it is posted:
+        ``_publish_size`` drops anything that is not the latest staged value,
+        so posting without staging discarded every resize.
         """
         last = (self.width, self.height)
         while not stop.wait(_WIN_RESIZE_POLL_INTERVAL):
@@ -550,6 +554,7 @@ class Terminal:
             if new_size == last:
                 continue
             last = new_size
+            self._pending_size = new_size
             loop = self._loop
             if loop is None:
                 self._publish_size(new_size)
