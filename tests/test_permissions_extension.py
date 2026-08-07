@@ -770,6 +770,43 @@ class TestExecutionOutcome:
 
         assert len(gate._pending) == 0
 
+    def test_a_denial_carries_the_same_fields_as_an_allow(self, tmp_path: Path) -> None:
+        """A blocked call never reaches tool_result, so the block must carry them.
+
+        Otherwise the session held only the host's `blocked` flag and the reason
+        as prose — the outcome most worth auditing, stored least precisely.
+        """
+        module = importlib.import_module(_PKG)
+        decision = rules.Decision(
+            state="deny",
+            surface="path",
+            target="/x/.env",
+            matched_pattern="**/.env",
+            origin="builtin",
+        )
+
+        audit = module._audit(decision, execution="blocked")
+
+        assert audit == {
+            "state": "deny",
+            "surface": "path",
+            "pattern": "**/.env",
+            "origin": "builtin",
+            "execution": "blocked",
+        }
+
+    def test_allow_and_deny_share_one_shape(self, tmp_path: Path) -> None:
+        """A transcript should be queryable without branching on the outcome."""
+        module = importlib.import_module(_PKG)
+        allowed = module._audit(
+            rules.Decision(state="allow", surface="tool", target="read"), execution="ok"
+        )
+        denied = module._audit(
+            rules.Decision(state="deny", surface="path", target="/x"), execution="blocked"
+        )
+
+        assert sorted(allowed) == sorted(denied)
+
 
 class TestDetailBlockPlacement:
     """The specifics belong inside the picker's own frame.

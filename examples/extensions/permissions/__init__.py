@@ -130,6 +130,23 @@ class PermissionGate:
         return resolved
 
 
+def _audit(decision: Decision, *, execution: str) -> dict[str, Any]:
+    """The decision as fields, for the tool result's metadata.
+
+    The same shape whether the call was permitted or blocked, so a transcript
+    can be queried without caring which happened — ``execution`` carries that.
+    ``_denial_message`` states the reason in prose for the model to read; this
+    is the machine-readable half, which prose is a poor substitute for.
+    """
+    return {
+        "state": decision.state,
+        "surface": decision.surface,
+        "pattern": decision.matched_pattern,
+        "origin": decision.origin,
+        "execution": execution,
+    }
+
+
 def _denial_message(decision: Decision) -> str:
     """What the model is told. Specific enough to adapt to, not to probe with."""
     parts = [decision.reason or f"Denied by permission policy ({decision.surface})."]
@@ -196,7 +213,15 @@ def register(tau: Any) -> None:
         if decision.state == "allow":
             gate.remember_decision(event.tool_call_id, decision)
             return None
-        return ToolCallEventResult(block=True, reason=_denial_message(decision))
+        return ToolCallEventResult(
+            block=True,
+            reason=_denial_message(decision),
+            # A denial gets the same fields an allow does. Without this the
+            # session recorded only the host's `blocked` flag plus the reason as
+            # prose, so the one outcome most worth auditing was the one stored
+            # least precisely.
+            metadata={"_permission": _audit(decision, execution="blocked")},
+        )
 
     @tau.on("tool_result")
     async def _annotate(event: Any, ctx: Any) -> ToolResultEventResult | None:
@@ -227,17 +252,7 @@ def register(tau: Any) -> None:
             prompted=decision.origin == "session",
             outcome=f"executed:{outcome}",
         )
-        return ToolResultEventResult(
-            metadata={
-                "_permission": {
-                    "state": decision.state,
-                    "surface": decision.surface,
-                    "pattern": decision.matched_pattern,
-                    "origin": decision.origin,
-                    "execution": outcome,
-                }
-            }
-        )
+        return ToolResultEventResult(metadata={"_permission": _audit(decision, execution=outcome)})
 
     async def _cmd(ctx: Any, args: list[str]) -> None:
         if ctx.ui is None:
