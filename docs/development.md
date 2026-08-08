@@ -38,7 +38,7 @@ tau --print "Say hello"       # Requires a configured provider
 tau doctor                    # No API call; checks the whole install
 ```
 
-> **Python version split.** `.python-version` pins **3.13** for local work, while CI validates on **3.12** and `mypy.ini` targets `python_version = 3.12`. `pyproject.toml` allows `>=3.12,<3.14`. Code must work on 3.12; do not rely on 3.13-only syntax.
+> **Python version split.** `.python-version` pins **3.13** for local work. CI runs the tests on **3.12 and 3.13, on Linux and macOS**, while `mypy.ini` and `[tool.pyright]` both target **3.12**, the floor in `requires-python`. Type checking deliberately targets the oldest supported version: checking against a newer interpreter would let syntax a supported user cannot run pass the gate.
 
 The build backend is setuptools, the entry point is `tau = "tau.console.cli:main"`, and direct dependencies are `==`-pinned deliberately (`[tool.uv] resolution = "highest"`) as a supply-chain measure. Do not loosen a pin without reason.
 
@@ -116,8 +116,8 @@ Keep it that way: a new test that reaches the network will pass locally and fail
 ## Linting and Type Checking
 
 ```bash
-ruff format tau/          # Format
-ruff check tau/           # Lint
+ruff format tau/ tests/   # Format
+ruff check tau/ tests/    # Lint
 mypy tau/                 # Type check
 pyright tau/              # Second type checker (CI enforces this too)
 ```
@@ -126,19 +126,21 @@ pyright tau/              # Second type checker (CI enforces this too)
 |------|---------------|-------|
 | ruff | `[tool.ruff]` in `pyproject.toml` | `target-version = "py312"`, `line-length = 100`, rules `E, F, I, UP, B, SIM`, double quotes |
 | mypy | `mypy.ini` | `python_version = 3.12`; deliberately lenient |
-| pyright | *none* | No `pyrightconfig.json` and no `[tool.pyright]`, runs on defaults |
+| pyright | `[tool.pyright]` in `pyproject.toml` | `stubPath`, plus `venvPath`/`venv`/`pythonVersion = "3.12"` so it resolves the project environment rather than whichever interpreter it finds first |
 
 `mypy.ini` is intentionally permissive: `disallow_untyped_defs` and `check_untyped_defs` are both off, `warn_return_any` is off. It also sets `ignore_errors = True` for ~43 first-party modules, mostly inference adapters and TUI/settings hot spots, including `tau.runtime.service`, `tau.runtime.types`, `tau.engine.service`, `tau.agent.service`, `tau.settings.manager`, and `tau.session.utils`. Editing one of those means mypy will not catch your mistakes there; lean on `pyright tau/` and the tests instead.
+
+**`tests/` is linted but not type-checked**, which is a measured decision rather than an omission. ruff runs over it clean and catches the class that actually matters there — undefined names, unused imports, unreachable code. The type checkers do not: pyright reports ~990 errors on `tests/`, of which ~85% are `reportAttributeAccessIssue` and `reportArgumentType` from deliberate duck-typed doubles (`SimpleNamespace`, `_FakeRuntime`) standing in for real types. Relaxing those four rules leaves 27, and every one of them was inspected: guarded conditional imports, `Optional` values a test has already established are present, and doubles that subclass real classes loosely. No live defect among them. Gating on that would cost ongoing suppressions to catch nothing ruff does not already catch.
 
 > Tau uses **ruff exclusively** for both linting and formatting. Black, pylint, isort, and flake8 are not dependencies. Do not add editor config that invokes them.
 
 Run all five checks before pushing, in CI's order:
 
 ```bash
-ruff format --check tau/ && ruff check tau/ && mypy tau/ && pyright tau/ && python -m pytest
+ruff format --check tau/ tests/ && ruff check tau/ tests/ && mypy tau/ && pyright tau/ && python -m pytest
 ```
 
-Note that lint and format commands target `tau/` only, not `tests/`.
+ruff covers `tests/` as well; the type checkers do not (see above).
 
 ## Continuous Integration
 
@@ -149,16 +151,18 @@ Two workflows live in `.github/workflows/`.
 | `ci.yml` | Push and PR to `main` | Format, lint, type check, test |
 | `cd.yml` | Push of a `v*` tag | Build, publish to PyPI, cut a GitHub release |
 
-**`ci.yml`** runs one job, `check-and-test`, on `ubuntu-latest` with a single-entry matrix of Python `3.12`:
+**`ci.yml`** runs two jobs. `lint` runs once on `ubuntu-latest` with Python 3.12, since format, lint, and type results do not vary by platform or interpreter:
 
 ```bash
-uv sync --all-extras --dev
-uv run ruff format --check tau/
-uv run ruff check tau/
+uv run ruff format --check tau/ tests/
+uv run ruff check tau/ tests/
 uv run mypy tau/
 uv run pyright tau/
-uv run pytest
 ```
+
+`test` runs `uv run pytest` across a matrix of `{ubuntu-latest, macos-latest}` x Python `{3.12, 3.13}`, with `fail-fast: false` so a red leg does not mask the others — without every combination reported you cannot tell a version-specific failure from a platform-specific one. macOS is not decoration: parts of the codebase branch on the platform, and the unix socket path limit in `tau/remote` (104 bytes on macOS against 108 elsewhere) is only exercised there.
+
+Every action is pinned to a commit SHA with its version in a trailing comment, since a version tag is mutable and `cd.yml` holds a PyPI publishing identity. `.github/dependabot.yml` bumps them monthly in a single grouped PR.
 
 **`cd.yml`** runs `uv build`, publishes via PyPI trusted publishing (no token), slices the matching version section out of `CHANGELOG.md` into release notes, and attaches the wheel and sdist to the release. Update `CHANGELOG.md` with a `## <version>` heading or the release notes come out empty.
 
