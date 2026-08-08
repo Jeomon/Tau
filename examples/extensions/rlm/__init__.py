@@ -9,7 +9,7 @@ from __future__ import annotations
 from .tool import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_SUB_CALL_BUDGET,
-    RLMQueryTool,
+    RLMTool,
 )
 from tau.extensions import ExtensionAPI
 
@@ -22,7 +22,7 @@ def register(tau: ExtensionAPI) -> None:
         return
 
     tau.register_tool(
-        RLMQueryTool(
+        RLMTool(
             max_iterations=int(config.get("max_iterations", DEFAULT_MAX_ITERATIONS)),
             sub_call_budget=int(config.get("sub_call_budget", DEFAULT_SUB_CALL_BUDGET)),
         )

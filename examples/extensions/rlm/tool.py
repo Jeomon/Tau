@@ -146,7 +146,7 @@ async def _complete(llm: Any, system_prompt: str, conversation: str) -> str:
     return "".join(e.text.content for e in events if isinstance(e, TextDeltaEvent))
 
 
-class RLMQueryTool(Tool):
+class RLMTool(Tool):
     """Answer a question about text too large to put in the conversation."""
 
     def __init__(
@@ -155,7 +155,7 @@ class RLMQueryTool(Tool):
         sub_call_budget: int = DEFAULT_SUB_CALL_BUDGET,
     ) -> None:
         super().__init__(
-            name="rlm_query",
+            name="rlm",
             description=(
                 "Answer a question about text far too large to read into the "
                 "conversation - a huge log, a whole directory, a giant JSON "
