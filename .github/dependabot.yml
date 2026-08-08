@@ -1,0 +1,21 @@
+# Keeps the SHA-pinned actions in .github/workflows current.
+#
+# Pinning by commit is what stops a moved tag from silently changing what runs
+# in CI, but on its own it converts a supply-chain risk into a staleness one:
+# a pinned action never picks up its own security fixes. Dependabot understands
+# `uses: owner/repo@<sha> # vX.Y.Z` and bumps both the SHA and the comment, so
+# the pins stay pinned *and* stay current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "build"
+    groups:
+      # One PR a month rather than five: these move together and are reviewed
+      # the same way, and a single PR is far likelier to actually get looked at.
+      actions:
+        patterns:
+          - "*"
