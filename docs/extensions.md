@@ -919,7 +919,7 @@ def register(tau):
 |---|---|---|---|
 | `tool_call` | `tool_call_id`, `tool_name`, `input` | `ToolCallEventResult` | Interceptable, fires **before** execution. The only hook that can stop a tool from running |
 | `tool_execution_start` | `tool_call` (`ToolCallContent`) | — | Just before `execute()` runs |
-| `tool_execution_update` | `partial_tool_result` (`ToolResult`) | — | One streaming progress update |
+| `tool_execution_update` | `partial_tool_result` (`ToolResult`) | — | One streaming progress update. Never fires after `tool_execution_end` for the same call: updates from a tool still running past a timeout or abort are dropped |
 | `tool_execution_end` | `tool_result` (`ToolResultContent`) | — | `execute()` returned |
 | `tool_execution_failure` | `tool_name`, `tool_call_id`, `input`, `error` | — | The tool raised an uncaught exception, as distinct from returning an error result |
 | `tool_result` | `tool_call_id`, `tool_name`, `input`, `content`, `is_error` | `ToolResultEventResult` | Interceptable, fires **after** execution |

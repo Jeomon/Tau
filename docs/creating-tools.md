@@ -198,7 +198,7 @@ Treat every attribute as optional. Tools are unit-tested and invoked outside the
 
 Long-running tools should check `signal.is_set()` at safe cancellation points and return early with `ToolResult.error`.
 
-Tools that produce incremental output call `tool_execution_update_callback` with partial `ToolResult` values. Emit an initial update when work begins and a final update matching the returned result. Throttle high-frequency producers (the built-in `terminal` tool caps updates at one per 100 milliseconds) so they do not flood engine events or terminal renders.
+Tools that produce incremental output call `tool_execution_update_callback` with partial `ToolResult` values. Emit an initial update when work begins and a final update matching the returned result. Throttle high-frequency producers (the built-in `terminal` tool caps updates at one per 100 milliseconds) so they do not flood engine events or terminal renders. Updates sent after the engine stops awaiting the call — a tool that keeps running past a timeout or an abort — are dropped rather than emitted after `tool_execution_end`.
 
 ## Register the Tool
 

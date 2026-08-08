@@ -411,7 +411,17 @@ class Engine:
             elif before_result is not None:
                 invocation = before_result
 
+        # A tool cancelled by timeout or abort does not always observe the
+        # cancellation straight away — `_run_tool_with_controls` stops waiting
+        # for it either way — so it can keep calling this after the engine has
+        # moved on. Emitting then would place a partial result *after* this
+        # call's ToolExecutionEndEvent, which renders as a settled tool coming
+        # back to life. Drop late updates instead.
+        settled = False
+
         async def on_update(partial: ToolResult) -> None:
+            if settled:
+                return
             await emit(ToolExecutionUpdateEvent(partial_tool_result=partial))
 
         _log.debug("tool call: %s", tool_call.name)
@@ -426,16 +436,21 @@ class Engine:
         try:
             await emit(ToolExecutionStartEvent(tool_call=tool_call))
             async with profiling.aspan(f"tool.{tool_call.name}"):
-                raw, aborted, timed_out = await self._run_tool_with_controls(
-                    tool.execute(
-                        invocation=invocation,
-                        tool_execution_update_callback=on_update,
-                        signal=signal,
-                        context=self.tool_context,
-                    ),
-                    signal,
-                    timeout,
-                )
+                try:
+                    raw, aborted, timed_out = await self._run_tool_with_controls(
+                        tool.execute(
+                            invocation=invocation,
+                            tool_execution_update_callback=on_update,
+                            signal=signal,
+                            context=self.tool_context,
+                        ),
+                        signal,
+                        timeout,
+                    )
+                finally:
+                    # Settle exactly where the engine stops awaiting the tool,
+                    # whether that was a return, a timeout, an abort, or a raise.
+                    settled = True
             if aborted:
                 tool_result = ToolResultContent(
                     id=tool_call.id,

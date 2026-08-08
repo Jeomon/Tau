@@ -361,3 +361,81 @@ def test_infinite_tool_timeout_is_never_enforced() -> None:
 
     assert result.is_error is False
     assert result.content == "answered"
+
+
+class _UpdatingTool:
+    """Tool double that hands its update callback back to the test."""
+
+    kind = None
+    execution_mode = ToolExecutionMode.Parallel
+    prepare_arguments = None
+
+    def __init__(self, name: str, body, timeout_seconds: float | None = None):
+        self.name = name
+        self._body = body
+        self.timeout_seconds = timeout_seconds
+        self.on_update: Any = None
+
+    def validate(self, params):
+        return True, []
+
+    async def execute(self, invocation, tool_execution_update_callback, signal, context):
+        self.on_update = tool_execution_update_callback
+        return await self._body(invocation, tool_execution_update_callback)
+
+
+def _emitted(emit: AsyncMock) -> list[str]:
+    return [type(call.args[0]).__name__ for call in emit.await_args_list]
+
+
+def test_tool_update_before_the_call_settles_is_emitted() -> None:
+    """Control for the guard below: streaming partial output still works."""
+    from tau.tool.types import ToolResult
+
+    async def body(invocation, on_update):
+        await on_update(ToolResult(id=invocation.id, content="partial"))
+        return ToolResult(id=invocation.id, content="done")
+
+    engine = _engine()
+    engine._tools = {"streamer": _UpdatingTool("streamer", body)}
+    emit = AsyncMock()
+
+    result = asyncio.run(
+        engine._execute(ToolCallContent(id="tc1", name="streamer", args={}), emit, None)
+    )
+
+    assert result.content == "done"
+    assert _emitted(emit) == [
+        "ToolExecutionStartEvent",
+        "ToolExecutionUpdateEvent",
+        "ToolExecutionEndEvent",
+    ]
+
+
+def test_tool_update_after_the_call_settles_is_dropped() -> None:
+    """A timed-out tool keeps running and still holds the update callback. An
+    update emitted then would land after this call's ToolExecutionEndEvent and
+    render as a settled tool coming back to life."""
+    from tau.tool.types import ToolResult
+
+    async def body(_invocation, _on_update):
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    tool = _UpdatingTool("straggler", body, timeout_seconds=0.02)
+    engine = _engine()
+    engine._tools = {"straggler": tool}
+    emit = AsyncMock()
+
+    async def scenario():
+        result = await engine._execute(
+            ToolCallContent(id="tc1", name="straggler", args={}), emit, None
+        )
+        # The abandoned coroutine still owns the callback it was handed.
+        await tool.on_update(ToolResult(id="tc1", content="late chunk"))
+        return result
+
+    result = asyncio.run(scenario())
+
+    assert result.metadata["timed_out"] is True
+    assert _emitted(emit) == ["ToolExecutionStartEvent", "ToolExecutionEndEvent"]
