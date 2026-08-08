@@ -23,7 +23,8 @@ def _render_glob_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("glob", args.get("pattern", ""))
 
 
-_MAX_RESULTS = 1000
+_DEFAULT_LIMIT = 1000
+_MAX_LIMIT = 5000
 # See grep.py's _TIMEOUT_SECONDS: ripgrep is expected to be fast, so this is a
 # safety net against a hung/pathologically slow search (huge or network-mounted
 # tree), not a normal operating bound.
@@ -80,6 +81,13 @@ class GlobParams(BaseModel):
         ),
         examples=["/home/user/project", "/home/user/project/src"],
     )
+    limit: int = Field(
+        default=_DEFAULT_LIMIT,
+        ge=1,
+        le=_MAX_LIMIT,
+        description=f"Maximum paths to return (default {_DEFAULT_LIMIT}).",
+        examples=[50, 1000],
+    )
 
 
 class GlobTool(Tool):
@@ -90,8 +98,9 @@ class GlobTool(Tool):
             name="glob",
             description=(
                 "Find files matching a glob pattern. Returns absolute paths, one per line, "
-                f"up to {_MAX_RESULTS} results. Supports ** for recursive matching. Uses "
-                "ripgrep's default filtering, which excludes hidden and ignored files."
+                f"up to 'limit' of them (default {_DEFAULT_LIMIT}). Supports ** for recursive "
+                "matching. Uses ripgrep's default filtering, which excludes hidden and "
+                "ignored files."
             ),
             schema=GlobParams,
             kind=ToolKind.Read,
@@ -123,7 +132,7 @@ class GlobTool(Tool):
             return ToolResult.error(invocation.id, f"Base path is not a directory: {base}")
 
         try:
-            matches = await self._rg_files(params.pattern, base, signal)
+            matches = await self._rg_files(params.pattern, base, signal, params.limit)
         except FileNotFoundError:
             return ToolResult.error(
                 invocation.id,
@@ -132,8 +141,8 @@ class GlobTool(Tool):
         except RuntimeError as error:
             return ToolResult.error(invocation.id, str(error))
 
-        truncated = len(matches) > _MAX_RESULTS
-        matches = sorted(matches[:_MAX_RESULTS])
+        truncated = len(matches) > params.limit
+        matches = sorted(matches[: params.limit])
 
         metadata = {
             "pattern": params.pattern,
@@ -148,11 +157,13 @@ class GlobTool(Tool):
 
         result = "\n".join(matches)
         if truncated:
-            result += f"\n\n[Results truncated at {_MAX_RESULTS}. Narrow your pattern.]"
+            result += f"\n\n[Results truncated at {params.limit}. Narrow your pattern.]"
 
         return ToolResult.ok(invocation.id, result, metadata=metadata)
 
-    async def _rg_files(self, pattern: str, base: Path, signal: AbortSignal | None) -> list[str]:
+    async def _rg_files(
+        self, pattern: str, base: Path, signal: AbortSignal | None, limit: int
+    ) -> list[str]:
         # Walk from "." with cwd=base rather than passing the absolute base as
         # the search root. ripgrep matches a glob containing "/" against the
         # entire path it walks, so with an absolute root every such pattern is
@@ -162,13 +173,13 @@ class GlobTool(Tool):
         # pattern anchors at the base the way the description promises.
         cmd = ["rg", "--files", "--glob", pattern, "."]
         returncode, lines, cancelled, timed_out = await run_bounded_lines(
-            cmd, max_lines=_MAX_RESULTS, signal=signal, timeout=_TIMEOUT_SECONDS, cwd=base
+            cmd, max_lines=limit, signal=signal, timeout=_TIMEOUT_SECONDS, cwd=base
         )
         if cancelled:
             raise RuntimeError("File search cancelled.")
         if timed_out:
             raise RuntimeError(f"File search timed out after {_TIMEOUT_SECONDS:.0f}s.")
-        if returncode not in (0, 1) and len(lines) <= _MAX_RESULTS:
+        if returncode not in (0, 1) and len(lines) <= limit:
             error = "\n".join(lines).strip() or f"ripgrep exited with status {returncode}."
             raise RuntimeError(error)
         # Re-absolutize: callers (and the tool description) expect fully

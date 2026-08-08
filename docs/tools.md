@@ -112,6 +112,7 @@ Find files matching a glob pattern, evaluated relative to `path`. Ripgrep's defa
 |-----------|------|----------|---------|-------------|
 | `pattern` | string | Yes | — | Glob pattern, e.g. `src/**/*.py` |
 | `path` | string | No | `""` | Base directory. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
+| `limit` | integer | No | `1000` | Maximum paths to return; `1`–`5000` |
 
 Requires `rg` (ripgrep) on `PATH`; the tool returns an error when `rg` is unavailable.
 
@@ -125,6 +126,11 @@ Search for a regular expression across files. Directory searches are recursive. 
 | `path` | string | No | `""` | File or directory. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
 | `include` | string | No | `""` | Glob filter for files, e.g. `*.py` |
 | `case_sensitive` | boolean | No | `true` | Whether the pattern is case-sensitive |
+| `literal` | boolean | No | `false` | Match the pattern verbatim instead of as a regex (`rg --fixed-strings`) |
+| `context` | integer | No | `0` | Lines of surrounding context per match; `0`–`10` |
+| `limit` | integer | No | `500` | Maximum matching lines to return; `1`–`2000` |
+
+Matches are returned as `path:lineno:text`. Context lines use dashes — `path-lineno-text` — and non-adjacent groups are separated by a bare `--`, so the model can tell a match from its surroundings. `match_count` counts matches only, never context lines.
 
 Requires `rg` (ripgrep) on `PATH`; the tool returns an error when `rg` is unavailable.
 
@@ -135,6 +141,9 @@ List a directory's immediate contents without recursing.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | No | `""` | Directory to list. Empty uses the agent's working directory; a relative value resolves from Tau's process working directory |
+| `limit` | integer | No | `500` | Maximum entries to list; `1`–`5000` |
+
+A truncated listing reports `truncated` and `total_entries` in its metadata, and the summary line is marked `(truncated)`.
 
 ## Bundled Extension Tools
 

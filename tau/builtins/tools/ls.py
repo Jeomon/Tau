@@ -19,6 +19,9 @@ from tau.tool.types import (
 )
 from tau.utils.format import human_size
 
+_DEFAULT_LIMIT = 500
+_MAX_LIMIT = 5000
+
 
 def _render_ls_call(args: dict, _streaming: bool) -> list[str]:
     return call_line("ls", args.get("path", ""))
@@ -35,6 +38,13 @@ class LsParams(BaseModel):
         ),
         examples=["/home/user/project", "/home/user/project/src"],
     )
+    limit: int = Field(
+        default=_DEFAULT_LIMIT,
+        ge=1,
+        le=_MAX_LIMIT,
+        description=f"Maximum entries to list (default {_DEFAULT_LIMIT}).",
+        examples=[50, 500],
+    )
 
 
 def _render_ls_result(content: str, opts: Any) -> list[str]:
@@ -48,6 +58,7 @@ def _render_ls_result(content: str, opts: Any) -> list[str]:
     file_count = metadata.get("file_count", 0)
     dir_count = metadata.get("dir_count", 0)
     entries = metadata.get("entries", [])
+    truncated = metadata.get("truncated", False)
 
     parts = []
     if dir_count:
@@ -55,6 +66,8 @@ def _render_ls_result(content: str, opts: Any) -> list[str]:
     if file_count:
         parts.append(f"{file_count} {'file' if file_count == 1 else 'files'}")
     summary = f"Found {', '.join(parts)}" if parts else (path or "empty directory")
+    if truncated:
+        summary += f"  {DIM}(truncated){RESET}"
     result = [summary]
 
     if not entries:
@@ -80,7 +93,8 @@ class LsTool(Tool):
         super().__init__(
             name="ls",
             description=(
-                "List a directory's immediate files and subdirectories without recursing."
+                "List a directory's immediate files and subdirectories without recursing. "
+                f"Returns at most 'limit' entries (default {_DEFAULT_LIMIT})."
             ),
             schema=LsParams,
             kind=ToolKind.Read,
@@ -106,10 +120,10 @@ class LsTool(Tool):
     ) -> ToolResult:
         params = LsParams.model_validate(invocation.params)
         target = Path(params.path or invocation.cwd or ".").resolve()
-        return await asyncio.to_thread(self._list_directory, invocation.id, target)
+        return await asyncio.to_thread(self._list_directory, invocation.id, target, params.limit)
 
     @staticmethod
-    def _list_directory(invocation_id: str, target: Path) -> ToolResult:
+    def _list_directory(invocation_id: str, target: Path, limit: int) -> ToolResult:
         """Perform directory metadata reads away from the asyncio event loop."""
         if not target.exists():
             return ToolResult.error(invocation_id, f"Path not found: {target}")
@@ -120,6 +134,13 @@ class LsTool(Tool):
             raw_entries = sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
         except PermissionError:
             return ToolResult.error(invocation_id, f"Permission denied: {target}")
+
+        # stat() runs per entry, so cut before the loop rather than after: a
+        # directory with 50k entries should not pay for 49.5k of them only to
+        # have them dropped.
+        total_entries = len(raw_entries)
+        truncated = total_entries > limit
+        raw_entries = raw_entries[:limit]
 
         file_count = dir_count = 0
         entries = []
@@ -138,10 +159,15 @@ class LsTool(Tool):
             suffix = "/" if is_dir else ""
             lines.append(f"  {entry.name}{suffix}{f'  {size_str}' if size_str else ''}")
 
+        if truncated:
+            lines.append(f"\n[Listing truncated at {limit} of {total_entries} entries.]")
+
         metadata = {
             "path": str(target),
             "file_count": file_count,
             "dir_count": dir_count,
             "entries": entries,
+            "truncated": truncated,
+            "total_entries": total_entries,
         }
         return ToolResult.ok(invocation_id, "\n".join(lines), metadata=metadata)

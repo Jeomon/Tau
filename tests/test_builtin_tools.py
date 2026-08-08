@@ -786,6 +786,71 @@ class TestGrepTool:
         result = self._grep(tmp_path, include="*.py")
         assert result.content == f'{tmp_path / "cfg.py"}:1:needle = {{"a": 1, "b": 2}}'
 
+    # ── literal / context / limit ─────────────────────────────────────────────
+
+    def test_literal_searches_regex_metacharacters_verbatim(self, tmp_path):
+        (tmp_path / "a.py").write_text("value = foo(bar)\nvalue = fooXbar\n")
+        inv = _inv("grep", cwd=tmp_path, pattern="foo(bar)", path=str(tmp_path), literal=True)
+        result = run(self.tool.execute(inv))
+        assert not result.is_error, result.content
+        assert result.metadata["match_count"] == 1
+        assert "foo(bar)" in result.content
+
+    def test_regex_pattern_without_literal_still_groups(self, tmp_path):
+        """Control for the case above: the same pattern is a group by default."""
+        (tmp_path / "a.py").write_text("value = foo(bar)\nvalue = fooXbar\n")
+        inv = _inv("grep", cwd=tmp_path, pattern="foo(bar)", path=str(tmp_path))
+        result = run(self.tool.execute(inv))
+        assert result.metadata["match_count"] == 0
+
+    def test_context_returns_surrounding_lines_marked_with_dashes(self, tmp_path):
+        (tmp_path / "a.py").write_text("one\ntwo\nneedle\nfour\nfive\n")
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), context=1)
+        result = run(self.tool.execute(inv))
+        assert not result.is_error, result.content
+        # Context lines must not inflate the match count.
+        assert result.metadata["match_count"] == 1
+        base = tmp_path / "a.py"
+        assert result.content.splitlines() == [
+            f"{base}-2-two",
+            f"{base}:3:needle",
+            f"{base}-4-four",
+        ]
+
+    def test_context_lines_do_not_inflate_files_searched(self, tmp_path):
+        (tmp_path / "a.py").write_text("one\nneedle\nthree\n")
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), context=1)
+        result = run(self.tool.execute(inv))
+        assert result.metadata["files_searched"] == 1
+
+    def test_limit_caps_matches_and_reports_truncation(self, tmp_path):
+        (tmp_path / "a.py").write_text("needle\n" * 10)
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), limit=3)
+        result = run(self.tool.execute(inv))
+        assert not result.is_error, result.content
+        assert result.metadata["match_count"] == 3
+        assert result.metadata["truncated"] is True
+        assert "[Results truncated: showing 3 matches.]" in result.content
+        assert len([ln for ln in result.content.splitlines() if ":needle" in ln]) == 3
+
+    def test_limit_not_reached_is_not_reported_as_truncated(self, tmp_path):
+        (tmp_path / "a.py").write_text("needle\n" * 3)
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), limit=10)
+        result = run(self.tool.execute(inv))
+        assert result.metadata["match_count"] == 3
+        assert result.metadata["truncated"] is False
+        assert "truncated" not in result.content
+
+    def test_limit_with_context_drops_the_dangling_context_run(self, tmp_path):
+        """Cutting at the (limit+1)-th match must take the context lines that
+        were introducing it, not leave them under no match at all."""
+        (tmp_path / "a.py").write_text("needle\nfiller\nfiller\nneedle\nfiller\n")
+        inv = _inv("grep", cwd=tmp_path, pattern="needle", path=str(tmp_path), context=1, limit=1)
+        result = run(self.tool.execute(inv))
+        assert result.metadata["match_count"] == 1
+        body = [ln for ln in result.content.splitlines() if ln and not ln.startswith("[")]
+        assert body[-1].endswith("-2-filler")
+
 
 # ---------------------------------------------------------------------------
 # LsTool
@@ -827,6 +892,42 @@ class TestLsTool:
         assert len(entries) == 1
         assert entries[0]["name"] == "alpha.py"
         assert entries[0]["is_dir"] is False
+
+    def test_limit_caps_entries_and_reports_the_total(self, tmp_path):
+        for i in range(10):
+            (tmp_path / f"f{i:02d}.txt").write_text("x")
+        result = run(self.tool.execute(_inv("ls", cwd=tmp_path, path=str(tmp_path), limit=3)))
+        assert not result.is_error
+        assert len(result.metadata["entries"]) == 3
+        assert result.metadata["file_count"] == 3
+        assert result.metadata["truncated"] is True
+        assert result.metadata["total_entries"] == 10
+        assert "[Listing truncated at 3 of 10 entries.]" in result.content
+
+    def test_listing_under_the_limit_is_not_truncated(self, tmp_path):
+        (tmp_path / "only.txt").write_text("x")
+        result = run(self.tool.execute(_inv("ls", cwd=tmp_path, path=str(tmp_path), limit=5)))
+        assert result.metadata["truncated"] is False
+        assert result.metadata["total_entries"] == 1
+        assert "truncated" not in result.content
+
+    def test_truncated_listing_is_flagged_in_the_summary(self, tmp_path):
+        from types import SimpleNamespace
+
+        from tau.builtins.tools.ls import _render_ls_result
+
+        opts = SimpleNamespace(
+            is_error=False,
+            metadata={
+                "path": str(tmp_path),
+                "file_count": 2,
+                "dir_count": 0,
+                "entries": [{"name": "a", "is_dir": False}, {"name": "b", "is_dir": False}],
+                "truncated": True,
+            },
+        )
+        summary = re.sub(r"\x1b\[[0-9;]*m", "", _render_ls_result("", opts)[0])
+        assert summary == "Found 2 files  (truncated)"
 
 
 class TestHumanSize:
@@ -896,6 +997,29 @@ class TestGlobTool:
             self.tool.execute(_inv("glob", cwd=tmp_path, pattern="*.py", path=str(tmp_path)))
         )
         assert "x.py" in result.content
+
+    def test_limit_caps_results_and_reports_truncation(self, tmp_path):
+        for i in range(10):
+            (tmp_path / f"f{i:02d}.py").write_text("")
+        result = run(
+            self.tool.execute(
+                _inv("glob", cwd=tmp_path, pattern="*.py", path=str(tmp_path), limit=4)
+            )
+        )
+        assert not result.is_error, result.content
+        assert result.metadata["match_count"] == 4
+        assert result.metadata["truncated"] is True
+        assert "[Results truncated at 4. Narrow your pattern.]" in result.content
+
+    def test_limit_not_reached_is_not_reported_as_truncated(self, tmp_path):
+        (tmp_path / "a.py").write_text("")
+        result = run(
+            self.tool.execute(
+                _inv("glob", cwd=tmp_path, pattern="*.py", path=str(tmp_path), limit=10)
+            )
+        )
+        assert result.metadata["match_count"] == 1
+        assert result.metadata["truncated"] is False
 
     def test_errors_when_rg_is_absent(self, tmp_path, monkeypatch):
         async def fake_exec(*cmd, **kwargs):
@@ -1593,6 +1717,23 @@ class TestGrepResultRendering:
 
     def test_no_matches_short_circuits(self):
         assert self._plain("", matches=0) == ["No matches found"]
+
+    def test_context_lines_render_as_a_location_plus_dim_text(self):
+        """`--context` output uses dashes, not colons. Before this was handled
+        those lines fell through to the raw-passthrough branch."""
+        from tau.tui.utils import DIM, RESET
+
+        rendered = self._render("/proj/a.py-6-setup()\n/proj/a.py:7:x = 1")
+        assert rendered[1] == f"{DIM}/proj/a.py:6{RESET}  {DIM}setup(){RESET}"
+        assert rendered[2] == f"{DIM}/proj/a.py:7{RESET}  x = 1"
+
+    def test_group_separator_is_kept(self):
+        out = self._plain("/proj/a.py:1:x\n--\n/proj/a.py:9:y", matches=2)
+        assert out == ["Found 2 matches in 1 file", "/proj/a.py:1  x", "--", "/proj/a.py:9  y"]
+
+    def test_windows_context_line_drive_letter_is_not_split(self):
+        out = self._plain(r"C:\proj\app.py-12-def hello():")
+        assert out[1] == r"C:\proj\app.py:12  def hello():"
 
     def test_error_content_passes_through(self):
         from types import SimpleNamespace
