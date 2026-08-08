@@ -259,7 +259,7 @@ directly via its `tools` field. Custom tools are also registered by extensions, 
 | Module | Domain | Representative events |
 |--------|--------|----------------------|
 | `hooks/engine.py` | Turn lifecycle | `before_agent_start`, `agent_start`, `agent_end`, `agent_error`, `turn_start`, `turn_end`, `message_start`, `message_update`, `message_end`, `message_rollback`, `context`, `tool_call`, `tool_result`, `tool_execution_start`, `tool_execution_update`, `tool_execution_end`, `tool_execution_failure`, `save_point`, `settled`, `before_compaction`, `compaction_start`, `compaction_end`, `compaction_failure`, `compaction_cancelled` |
-| `hooks/session.py` | Session lifecycle | `session_start`, `session_before_switch`, `session_before_fork`, `session_before_tree`, `session_tree`, `session_shutdown`, `branch_summary_start`, `branch_summary_end`, `branch_summary_failure`, `branch_summary_cancelled` |
+| `hooks/session.py` | Session lifecycle | `session_start`, `session_before_switch`, `session_before_fork`, `session_before_tree`, `session_tree`, `session_info_changed`, `session_shutdown`, `branch_summary_start`, `branch_summary_end`, `branch_summary_failure`, `branch_summary_cancelled` |
 | `hooks/runtime.py` | Application lifecycle | `runtime_start`, `runtime_ready`, `runtime_stop`, `input`, `project_trust`, `resources_discover`, `terminal_execution`, `terminal_output`, `user_terminal` |
 | `hooks/inference.py` | Provider boundary | `before_provider_request`, `after_provider_response` |
 | `hooks/tui.py` | Interface | `tui_start`, `tui_ready`, `tui_exit`, `queue_update`, `model_select`, `thinking_level_select` |

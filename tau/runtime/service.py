@@ -25,6 +25,7 @@ from tau.hooks.session import (
     SessionBeforeSwitchResult,
     SessionBeforeTreeEvent,
     SessionBeforeTreeResult,
+    SessionInfoChangedEvent,
     SessionShutdownEvent,
     SessionShutdownReason,
     SessionStartEvent,
@@ -416,6 +417,24 @@ class Runtime:
             contents=[LinesContent(lines=[message, ""])],
         )
         self._layout.add_message(msg)
+
+    async def set_session_name(self, name: str) -> str | None:
+        """Set the session's display name and announce the change.
+
+        The single choke point for naming: the CLI's ``--name``, the RPC
+        ``set_session_name`` command and the extension API all route here so
+        ``session_info_changed`` fires once per rename no matter who did it.
+        Returns the new entry's id, or None when there is no session.
+        """
+        sm = self.session_manager
+        if sm is None:
+            return None
+        previous = sm.get_session_name()
+        entry_id = await asyncio.to_thread(sm.append_session_info, name)
+        await self._context.hooks.emit(
+            SessionInfoChangedEvent(name=name, previous_name=previous, entry_id=entry_id)
+        )
+        return entry_id
 
     # -------------------------------------------------------------------------
     # Core input entry point

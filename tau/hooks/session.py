@@ -109,6 +109,22 @@ class SessionTreeEvent:
 
 
 @dataclass
+class SessionInfoChangedEvent:
+    """Fired after the session's display name changes.
+
+    The name is what the session picker and window title show, so anything
+    mirroring session identity outside Tau (a status line, an editor tab, a
+    window manager) needs to know when it moves. ``previous_name`` is None the
+    first time a session is named.
+    """
+
+    type: Literal["session_info_changed"] = field(default="session_info_changed", init=False)
+    name: str = ""
+    previous_name: str | None = None
+    entry_id: str = ""
+
+
+@dataclass
 class BranchSummaryStartEvent:
     """Fired when branch summary generation begins."""
 

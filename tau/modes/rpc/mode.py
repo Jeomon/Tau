@@ -1105,8 +1105,9 @@ async def _handle_command(  # pyright: ignore[reportGeneralTypeIssues]
                 if sm is None:
                     _err("No active session")
                     return
-                # The name is a session entry, not a mutable field.
-                await asyncio.to_thread(sm.append_session_info, name)
+                # The name is a session entry, not a mutable field. Routed
+                # through the runtime so `session_info_changed` fires here too.
+                await runtime.set_session_name(name)
                 _ok({"name": name})
 
             # ── Messages ─────────────────────────────────────────────────────

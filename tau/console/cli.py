@@ -356,7 +356,7 @@ async def _start(opts: dict) -> None:
     timing.print_report()
 
     if opts.get("session_name"):
-        runtime.session_manager.append_session_info(opts["session_name"])
+        await runtime.set_session_name(opts["session_name"])
 
     # Interactive mode manages its own log file (it also has to strip
     # terminal-writing handlers and restore them on exit); every other mode

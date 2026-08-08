@@ -688,3 +688,64 @@ def test_emit_to_extension_times_out_a_hung_handler(monkeypatch) -> None:
     # gets set again and the deferred-reload drain hangs on *that* instead.
     assert runtime._extension_callback_depth == 0
     assert runtime._extension_callbacks_idle.is_set()
+
+
+class _NamingSessionManager:
+    """Session manager double that records names the way the real one does."""
+
+    def __init__(self) -> None:
+        self.names: list[str] = []
+        self.entry_ids = iter(["entry-1", "entry-2", "entry-3"])
+
+    def append_session_info(self, name: str) -> str:
+        self.names.append(name)
+        return next(self.entry_ids)
+
+    def get_session_name(self) -> str | None:
+        return self.names[-1] if self.names else None
+
+
+def _naming_runtime() -> tuple[Runtime, _NamingSessionManager, Hooks]:
+    runtime = object.__new__(Runtime)
+    sm = _NamingSessionManager()
+    hooks = Hooks()
+    runtime._context = SimpleNamespace(hooks=hooks, session_manager=sm)  # type: ignore[assignment]
+    return runtime, sm, hooks
+
+
+def test_set_session_name_announces_the_change() -> None:
+    runtime, sm, hooks = _naming_runtime()
+    seen: list[Any] = []
+    hooks.register("session_info_changed", lambda event: seen.append(event))
+
+    entry_id = asyncio.run(runtime.set_session_name("refactor rpc"))
+
+    assert sm.names == ["refactor rpc"]
+    assert entry_id == "entry-1"
+    assert len(seen) == 1
+    assert seen[0].name == "refactor rpc"
+    assert seen[0].entry_id == "entry-1"
+    # Nothing to report as the previous name the first time a session is named.
+    assert seen[0].previous_name is None
+
+
+def test_rename_reports_the_name_it_replaced() -> None:
+    runtime, _sm, hooks = _naming_runtime()
+    seen: list[Any] = []
+    hooks.register("session_info_changed", lambda event: seen.append(event))
+
+    asyncio.run(runtime.set_session_name("first"))
+    asyncio.run(runtime.set_session_name("second"))
+
+    assert [(e.previous_name, e.name) for e in seen] == [(None, "first"), ("first", "second")]
+
+
+def test_set_session_name_without_a_session_is_a_no_op() -> None:
+    runtime = object.__new__(Runtime)
+    hooks = Hooks()
+    runtime._context = SimpleNamespace(hooks=hooks, session_manager=None)  # type: ignore[assignment]
+    seen: list[Any] = []
+    hooks.register("session_info_changed", lambda event: seen.append(event))
+
+    assert asyncio.run(runtime.set_session_name("nowhere")) is None
+    assert seen == [], "an ephemeral run has no name to change"

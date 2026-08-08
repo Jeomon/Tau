@@ -49,6 +49,7 @@ from tau.hooks.session import (
     SessionBeforeForkEvent,
     SessionBeforeSwitchEvent,
     SessionBeforeTreeEvent,
+    SessionInfoChangedEvent,
     SessionShutdownEvent,
     SessionStartEvent,
     SessionTreeEvent,
@@ -69,6 +70,7 @@ HookEvent = (
     | SessionShutdownEvent
     | SessionBeforeTreeEvent
     | SessionTreeEvent
+    | SessionInfoChangedEvent
     | BranchSummaryStartEvent
     | BranchSummaryEndEvent
     | BranchSummaryFailureEvent

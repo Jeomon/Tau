@@ -866,6 +866,7 @@ The `todo` example uses `tui_ready` to paint its board widget on startup.
 | `session_before_fork` | `entry_id`, `position` | `SessionBeforeForkResult` (observe-only from extensions) | `position`: `before`, `at` |
 | `session_before_tree` | `preparation` | `SessionBeforeTreeResult` | Interceptable. `preparation` is a `TreePreparation` and may be mutated in place |
 | `session_tree` | `new_leaf_id`, `old_leaf_id`, `from_extension` | — | The tree has been rewritten |
+| `session_info_changed` | `name`, `previous_name`, `entry_id` | — | The session display name changed. `previous_name` is `None` the first time a session is named. Fires for every rename path: `--name`, the RPC `set_session_name` command, and `tau.set_session_name()` |
 | `branch_summary_start` | `old_leaf_id`, `target_id`, `from_extension` | — | Summary generation begins |
 | `branch_summary_end` | `old_leaf_id`, `target_id`, `summary_entry_id`, `summary_length`, `from_extension` | — | Summary attached to the destination |
 | `branch_summary_failure` | `old_leaf_id`, `target_id`, `error` | — | Summary failed; navigation continues without it |

@@ -780,13 +780,20 @@ class ExtensionAPI:
     # ── Session metadata ──────────────────────────────────────────────────────
 
     def set_session_name(self, name: str) -> None:
-        """Set the display name for the current session (shown in the session picker)."""
+        """Set the display name for the current session (shown in the session picker).
+
+        Fire-and-forget, like ``set_model``: the rename is scheduled and this
+        returns immediately, so it is safe to call from sync code. Handlers of
+        ``session_info_changed`` see the change once it lands.
+        """
+        import asyncio
+
         runtime = self._live_runtime()
         if runtime is None:
             return
-        sm = getattr(runtime, "session_manager", None)
-        if sm is not None:
-            sm.append_session_info(name)
+        set_fn = getattr(runtime, "set_session_name", None)
+        if set_fn is not None:
+            asyncio.ensure_future(set_fn(name))
 
     def get_session_name(self) -> str | None:
         """Return the current session display name, or None if not set."""

@@ -98,6 +98,20 @@ class _Runtime:
         self.session_manager = session_manager
         self.settings_manager = None
         self.commands = None
+        self.renames: list[str] = []
+
+    async def set_session_name(self, name: str) -> str | None:
+        """Mirror of Runtime.set_session_name — appends and announces.
+
+        The handler routes through the runtime rather than the session manager
+        so `session_info_changed` fires for RPC renames too; this double has to
+        offer the same seam or the test passes against a shape that no longer
+        exists.
+        """
+        self.renames.append(name)
+        if self.session_manager is None:
+            return None
+        return self.session_manager.append_session_info(name)
 
 
 # ── Thinking level ───────────────────────────────────────────────────────────
