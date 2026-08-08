@@ -89,6 +89,17 @@ include = ["tau", "docs", "examples", "README.md", "LICENSE", "CHANGELOG.md"]
 # the declarations. See stubs/ for why each one exists.
 [tool.pyright]
 stubPath = "stubs"
+# Without these pyright resolves imports against whatever interpreter it finds
+# first — on a dev machine that was the system Python, complete with .pth files
+# from unrelated projects. It then type-checks Tau against a dependency set Tau
+# never runs on, which invents errors and hides real ones, and gives a different
+# answer per machine. Pin it to the environment the code actually uses.
+venvPath = "."
+venv = ".venv"
+# The floor from requires-python, not whatever the local venv happens to be.
+# Checking against the newest interpreter a developer has installed would let
+# syntax that a supported user cannot run pass the gate.
+pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
