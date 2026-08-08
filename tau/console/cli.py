@@ -323,6 +323,15 @@ async def _start(opts: dict) -> None:
     )
     if resume_value and fork_value:
         raise click.ClickException("--resume and --fork cannot be used together.")
+    if opts["mode"] == "remote" and (opts.get("prompt") or opts.get("files")):
+        # Remote mode serves and waits; it has no initial-message path, so
+        # these used to be accepted and then quietly dropped. Refusing says so
+        # instead of leaving the user to notice the work never happened.
+        raise click.ClickException(
+            "--prompt and --file are not supported with --mode remote, which serves "
+            "a session rather than running one turn. Start the server, then send a "
+            "prompt command from an attached client."
+        )
     resume_latest = resume_value == _RESUME_LATEST
     session_file: Path | None = None
     if resume_value and not resume_latest:

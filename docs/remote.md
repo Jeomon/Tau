@@ -133,6 +133,7 @@ The alternative — an unbounded queue, or awaiting a blocked write inside event
 - **Path length.** `sun_path` is capped near 104 bytes on macOS and 108 on Linux. Long paths fail at bind — prefer `/tmp/tau/<id>.sock` over a deeply nested directory.
 - **No session multiplexing.** One server, one session. See [Scope](#scope).
 - **No reconnect-and-resume.** A reconnecting client gets a fresh `ready` greeting and the events from that point on; it does not replay what it missed while disconnected.
+- **No initial prompt.** `--prompt` and `--file` are rejected rather than accepted and ignored: remote mode serves a session instead of running one turn, so a `tau -p ... --mode remote` invocation would otherwise serve forever having never run the prompt. Start the server, then send a `prompt` command from a client.
 
 ## Next Steps
 
