@@ -4,6 +4,8 @@ All notable changes to `tau-coding-agent` are documented here.
 
 ## Unreleased
 
+## 0.9.3 — 2026-08-08
+
 ### Changed
 
 -   `requires-python` is now `>=3.12`, was `==3.12`. The exact pin admitted only 3.12.x, so the project could not be installed under 3.13 or 3.14 — including into the sandbox extension's own microVM, whose `python` image resolves to the latest release. Nothing in the codebase required the pin: the full suite passes unchanged on 3.14.6. `ruff`'s `target-version` and mypy's `python_version` stay at 3.12, since both should track the *oldest* supported version rather than the newest
