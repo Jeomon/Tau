@@ -72,10 +72,10 @@ Tau resolves the mode in this order:
 
 1. An explicit `--mode` always wins.
 2. Otherwise, if `--prompt` is given: `json` when `--output-format json`, else `print`.
-3. Otherwise, if `--print` is passed **or stdout is not a TTY**: `print`.
+3. Otherwise, if `--print` is passed **or stdin or stdout is not a TTY**: `print`.
 4. Otherwise: `interactive`.
 
-Step 3 means Tau automatically switches to print mode when its output is piped or redirected.
+Step 3 means Tau automatically switches to print mode when its output is piped or redirected, and when its input is. The interactive UI needs a TTY on both ends — it puts stdin into raw mode and paints stdout — so `echo "review this" | tau` runs headless with the piped text as the prompt. Pass `--mode interactive` to override the detection.
 
 | Mode | Flag | Description |
 |------|------|-------------|

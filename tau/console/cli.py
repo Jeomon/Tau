@@ -39,7 +39,12 @@ def resolve_mode(
         return mode
     if prompt:
         return "json" if output_format == "json" else "print"
-    if print_flag or not sys.stdout.isatty():
+    # Interactive needs a tty on *both* ends: the TUI puts stdin into raw mode
+    # (termios.tcgetattr on a pipe raises "Inappropriate ioctl for device") and
+    # paints stdout. Piped stdin is already prompt input as far as
+    # _build_messages is concerned, so treat it as a headless run rather than
+    # starting a TUI that has no keyboard and dies on entry.
+    if print_flag or not sys.stdout.isatty() or not sys.stdin.isatty():
         return "print"
     return "interactive"
 
