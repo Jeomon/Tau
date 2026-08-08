@@ -123,6 +123,10 @@
           "path": "rpc.md"
         },
         {
+          "title": "Remote Access",
+          "path": "remote.md"
+        },
+        {
           "title": "CLI Reference",
           "path": "cli-reference.md"
         }
