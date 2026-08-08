@@ -19,7 +19,6 @@ from tau.builtins.tools.utils import (
     serialize_file_mutation,
     split_lines,
     split_lines_with_endings,
-    stamp_lines,
     verify_resolved,
 )
 from tau.tool.render import call_line
@@ -158,23 +157,29 @@ def _verification_failure(path: Path, label: str, anchor: str, resolved_line: st
     )
 
 
-def _format_anchored_lines(
+def _format_numbered_lines(
     lines: list[str],
-    hashes: list[str],
     start_index: int,
     end_index: int,
 ) -> str:
-    """Format a current-file excerpt using read-compatible hashline anchors."""
-    return "\n".join(
-        f"{index + 1}:{hashes[index]}|{lines[index]}" for index in range(start_index, end_index)
-    )
+    """Format a current-file excerpt as bare numbered lines, without anchors.
+
+    Deliberately not read's hashline form. Tokens stamped here would satisfy
+    ``resolve_anchor`` — they describe the file on disk — and then be refused by
+    ``verify_resolved``, which compares against the digests ``read`` retained.
+    That is exactly the state this excerpt is printed in: the anchor went stale
+    because the file moved under the last read, so every token in the window
+    disagrees with the recorded one. Printing them invites a second call that
+    cannot succeed. The numbers stay so the re-read can be narrowed with
+    offset/limit.
+    """
+    return "\n".join(f"{index + 1}|{lines[index]}" for index in range(start_index, end_index))
 
 
 def _anchor_not_found_message(
     label: str,
     anchor: str,
     lines: list[str],
-    hashes: list[str],
 ) -> str:
     """Build an actionable model-visible error for stale or invalid anchors."""
     line_hint, expected_hash = _parse_anchor(anchor)
@@ -197,8 +202,8 @@ def _anchor_not_found_message(
         end_index = min(total_lines, line_hint + 2)
         message.extend(
             [
-                f"Current file content near hinted line {line_hint}:",
-                _format_anchored_lines(lines, hashes, start_index, end_index),
+                f"Current file content near hinted line {line_hint} (line numbers only):",
+                _format_numbered_lines(lines, start_index, end_index),
             ]
         )
     else:
@@ -207,7 +212,9 @@ def _anchor_not_found_message(
         )
 
     message.append(
-        "Re-read the relevant range with read and retry using the current hashline anchors."
+        "An anchor is only valid against the read that produced it, so one cannot be "
+        "built from the excerpt above. Re-read this range with read and use the anchors "
+        "it returns."
     )
     return "\n".join(message)
 
@@ -501,20 +508,17 @@ class EditTool(Tool):
         # rejoined as "\n" — destroying them. Keeping each terminator also stops
         # a CRLF file being rewritten wholesale as LF.
         lines, endings = split_lines_with_endings(original)
-        # No capacity ceiling any more: token width adapts to file length rather
-        # than the file being refused once it outgrows a fixed 4-hex space.
-        hashes = stamp_lines(lines)
         start_index = _find_anchor(lines, params.start_anchor, path)
         if start_index is None:
             return ToolResult.error(
                 invocation.id,
-                _anchor_not_found_message("Start", params.start_anchor, lines, hashes),
+                _anchor_not_found_message("Start", params.start_anchor, lines),
             )
         end_index = _find_anchor(lines, params.end_anchor, path)
         if end_index is None:
             return ToolResult.error(
                 invocation.id,
-                _anchor_not_found_message("End", params.end_anchor, lines, hashes),
+                _anchor_not_found_message("End", params.end_anchor, lines),
             )
         for label, anchor, index in (
             ("Start", params.start_anchor, start_index),

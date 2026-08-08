@@ -85,7 +85,7 @@ To replace line 3 of the `read` example above:
 }
 ```
 
-Because the complete file is rewritten, an edit may normalize line endings. Edit-result diffs also display hashline anchors: removed lines use their old hashes, while added and context lines use current hashes. If an anchor hash is stale or invalid, the model-visible error includes current nearby hashline-anchored content and asks the agent to re-read before retrying.
+Because the complete file is rewritten, an edit may normalize line endings. Edit-result diffs also display hashline anchors: removed lines use their old hashes, while added and context lines use current hashes. If an anchor hash is stale or invalid, the model-visible error quotes the current nearby content as plain numbered lines — without anchors, since an anchor is only valid against the `read` that produced it — and asks the agent to re-read that range before retrying.
 
 Diffs always show every changed line. By default they include three unchanged lines around each change and collapse larger gaps into `… (+N lines)`; Ctrl+O expands the gaps.
 

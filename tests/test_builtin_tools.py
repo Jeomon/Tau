@@ -412,9 +412,44 @@ class TestEditTool:
         )
         assert result.is_error
         assert "not found" in result.content.lower()
-        assert "Current file content near hinted line 1:" in result.content
-        assert f"{_anchor(1, 'hello world')}|hello world" in result.content
-        assert "Re-read the relevant range" in result.content
+        assert "Current file content near hinted line 1 (line numbers only):" in result.content
+        assert "1|hello world" in result.content
+        assert "Re-read this range with read" in result.content
+        # The excerpt must not hand back an anchor: a token stamped from the
+        # current file resolves but is then refused by the digest check, which
+        # made the obvious retry a guaranteed second failure.
+        assert f"{_anchor(1, 'hello world')}|" not in result.content
+
+    def test_stale_anchor_hint_offers_nothing_that_verification_would_refuse(self, tmp_path):
+        """Observed loop: the hint printed anchors, and the retry using one of
+        them was refused by the digest check.
+
+        ``resolve_anchor`` stamps the file on disk while ``verify_resolved``
+        compares against the digests ``read`` retained, so a token minted from
+        current content passes the first and fails the second — in exactly the
+        state the hint is printed in, where the file has moved under the read.
+        Nothing in the excerpt may be shaped like an anchor.
+        """
+        f = tmp_path / "f.py"
+        f.write_text("\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+        _seed(f)
+        # The file moves under the read: a formatter, another tool, the user.
+        f.write_text("\n".join(f"changed {i}" for i in range(1, 11)) + "\n")
+
+        result = run(
+            self.tool.execute(
+                _inv(
+                    "edit",
+                    path=str(f),
+                    start_anchor="5:0000",
+                    end_anchor="5:0000",
+                    new_content="x",
+                )
+            )
+        )
+        assert result.is_error
+        assert "changed 5" in result.content
+        assert not re.search(r"^\d+:[0-9a-z]{4,14}\|", result.content, re.MULTILINE)
 
     def test_line_number_params_get_actionable_hint(self):
         """Observed failure mode: model retries with line_start/line_end instead
