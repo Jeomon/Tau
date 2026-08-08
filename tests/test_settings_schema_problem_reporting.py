@@ -13,6 +13,8 @@ permission prompt waits before expiring to *denied* never appeared in the UI.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -190,3 +192,28 @@ def test_every_documented_leaf_type_is_accepted(leaf: str) -> None:
 
     assert problems == []
     assert [item.id for item in panel.items] == ["f"]
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    sorted(
+        (Path(__file__).parent.parent / "examples" / "extensions").glob("*/manifest.json"),
+        key=lambda p: p.parent.name,
+    ),
+    ids=lambda p: p.parent.name,
+)
+def test_a_shipped_manifest_has_no_field_the_panel_would_drop(manifest: Path) -> None:
+    """The tests above prove a bad field is *reported*; nothing proved our own
+    manifests are clean. Twice now a shipped extension has spelled a numeric
+    field ``number`` and silently lost the knob — permissions' prompt timeout,
+    then rlm's turn and sub-call budgets. Reporting only helps someone reading
+    a log file; this fails the build.
+    """
+    schema = (json.loads(manifest.read_text()).get("tau") or {}).get("settings")
+    if not schema:
+        pytest.skip(f"{manifest.parent.name} declares no settings")
+
+    panel, problems = _build(schema)
+
+    assert problems == [], f"{manifest.parent.name}: {problems}"
+    assert panel is not None, f"{manifest.parent.name}: schema yielded no usable items"

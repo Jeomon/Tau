@@ -15,16 +15,19 @@
         {
           "key": "max_iterations",
           "label": "Max root turns",
-          "type": "number",
+          "type": "int",
           "default": 8,
-          "description": "Exploration turns before the model must answer from what it found."
+          "min": 1,
+          "max": 30,
+          "description": "Exploration turns before the model must answer from what it found. A run never exceeds 30: the tool's own max_iterations parameter is capped there, and the smaller of the two wins."
         },
         {
           "key": "sub_call_budget",
           "label": "Sub-call budget",
-          "type": "number",
+          "type": "int",
           "default": 8,
-          "description": "Recursive llm_query calls allowed per run. Runs cost is dominated by these."
+          "min": 0,
+          "description": "Recursive llm_query calls allowed per run. A run's cost is dominated by these. 0 disables them, leaving the root model to work with code alone."
         }
       ]
     }
