@@ -122,6 +122,7 @@ The engine validates `invocation.params` against `schema` before calling `execut
 | `schema` | `type[BaseModel]` | — | Pydantic model describing the parameters |
 | `kind` | `ToolKind` | — | `Read`, `Edit`, `Write`, `Execute`, or `Web` |
 | `execution_mode` | `ToolExecutionMode` | `Sequential` | `Sequential`, `Parallel`, or `Batch` |
+| `timeout_seconds` | `float` \| `None` | `None` | Caps one `execute()` call. `None` inherits `EngineOptions.tool_timeout_seconds`; `math.inf` disables the timeout |
 | `render_call` | callable \| `None` | `None` | Renders the invocation line in the TUI |
 | `render_result` | callable \| `None` | `None` | Renders the result body in the TUI |
 | `render_shell` | `str` | `"self"` | `"self"` uses renderer output as-is; `"default"` applies the standard shell |
@@ -136,6 +137,16 @@ Choose `kind` and `execution_mode` deliberately:
 - Tools that mutate files, launch processes, or change external state should use `ToolExecutionMode.Sequential`. A sequential tool acts as an ordering barrier for its whole batch.
 - Read-only operations may use `Parallel`, but only when they share no mutable state.
 - `kind` is descriptive metadata for rendering, telemetry, and hooks. It does not gate execution. Tau has no tool approval prompt.
+
+Set `timeout_seconds` when the tool's honest worst case exceeds the engine
+default of 120s. Shelling out to a build, driving a browser, or making recursive
+model calls all routinely outlast it, and a call cancelled at the engine
+boundary returns a timeout error carrying none of the work it had done.
+
+If the tool exposes its own `timeout` parameter to the model, bound that
+parameter and set `timeout_seconds` above its maximum, so the tool's own limit
+fires first and can still report partial output. When several phases run in
+sequence, the budget must cover their sum, not the largest one.
 
 ## Return Results
 

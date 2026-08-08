@@ -286,7 +286,7 @@ Retry is **off by default**. When enabled, the values are applied to the live LL
 |---------|------|---------|-------------|
 | `terminal.shell_path` | string | system shell | Shell binary used for command execution |
 | `terminal.shell_command_prefix` | string | – | Lines prepended inside the shell before each command |
-| `tool_timeout_seconds` | number | `120.0` | Per-tool-call timeout. `null` disables the timeout |
+| `tool_timeout_seconds` | number | `120.0` | Default per-tool-call timeout. `null` disables it. Tools that declare their own `timeout_seconds` (`terminal`, `ask_user`, `subagent`, `rlm`) are held to that instead and ignore this setting |
 | `max_parallel_tool_calls` | integer | `10` | Maximum tool calls executed concurrently. Must be ≥ 1, or `null` for unlimited |
 | `event_handler_timeout_seconds` | number | `10.0` | Timeout for a single event/hook handler. `null` disables the timeout |
 

@@ -57,6 +57,12 @@ MAX_CONCURRENCY = 4
 PER_TASK_OUTPUT_CAP = 50 * 1024
 COLLAPSED_ITEM_COUNT = 10
 
+#: Engine budget for one call, overriding the much shorter engine-wide default.
+#: A call can run MAX_PARALLEL_TASKS whole agent processes MAX_CONCURRENCY at a
+#: time, or a chain whose steps run strictly one after another, so the honest
+#: worst case is minutes rather than seconds.
+SUBAGENT_TIMEOUT_SECONDS = 1800.0
+
 
 @dataclass
 class Usage:
@@ -534,6 +540,7 @@ class SubagentTool(Tool):
             schema=SubagentParams,
             kind=ToolKind.Execute,
             execution_mode=ToolExecutionMode.Parallel,
+            timeout_seconds=SUBAGENT_TIMEOUT_SECONDS,
             render_call=_render_call,
             render_result=_render_result,
             render_shell="default",

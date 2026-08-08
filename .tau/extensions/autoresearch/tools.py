@@ -40,6 +40,15 @@ from .state import (
 
 DEFAULT_TIMEOUT = 600
 DEFAULT_CHECKS_TIMEOUT = 300
+
+#: Ceilings for the model-supplied timeouts above. The benchmark and the checks
+#: script run one after the other, so the tool's engine budget below has to
+#: cover both phases plus grace, otherwise the engine cancels the call and the
+#: measurement is lost instead of being reported as a crash.
+MAX_TIMEOUT = 1800
+MAX_CHECKS_TIMEOUT = 900
+_ENGINE_TIMEOUT_GRACE = 30
+RUN_EXPERIMENT_TIMEOUT_SECONDS = float(MAX_TIMEOUT + MAX_CHECKS_TIMEOUT + _ENGINE_TIMEOUT_GRACE)
 #: Enough for the agent to diagnose a failure without flooding its context.
 OUTPUT_TAIL_LINES = 40
 
@@ -69,11 +78,20 @@ class RunParams(BaseModel):
     )
     timeout_seconds: int = Field(
         default=DEFAULT_TIMEOUT,
-        description=f"Kill the command after this long (default {DEFAULT_TIMEOUT}).",
+        ge=1,
+        le=MAX_TIMEOUT,
+        description=(
+            f"Kill the command after this long (default {DEFAULT_TIMEOUT}, max {MAX_TIMEOUT})."
+        ),
     )
     checks_timeout_seconds: int = Field(
         default=DEFAULT_CHECKS_TIMEOUT,
-        description=f"Kill .auto/checks.sh after this long (default {DEFAULT_CHECKS_TIMEOUT}).",
+        ge=1,
+        le=MAX_CHECKS_TIMEOUT,
+        description=(
+            f"Kill .auto/checks.sh after this long "
+            f"(default {DEFAULT_CHECKS_TIMEOUT}, max {MAX_CHECKS_TIMEOUT})."
+        ),
     )
 
 
@@ -197,6 +215,7 @@ class RunExperimentTool(Tool):
             schema=RunParams,
             kind=ToolKind.Execute,
             execution_mode=ToolExecutionMode.Sequential,
+            timeout_seconds=RUN_EXPERIMENT_TIMEOUT_SECONDS,
             render_call=lambda args, streaming=False: call_line(
                 "run_experiment", str(args.get("command", ""))
             ),

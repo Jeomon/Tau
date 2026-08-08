@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import traceback
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
@@ -312,8 +313,15 @@ class Engine:
         self,
         awaitable: Coroutine[Any, Any, ToolResult],
         signal: AbortSignal | None,
+        timeout: float | None,
     ) -> tuple[ToolResult | None, bool, bool]:
         """Run a tool with enforced abort and timeout boundaries.
+
+        ``timeout`` is the already-resolved budget for this call (the tool's own
+        ``timeout_seconds`` when it sets one, otherwise the engine default), so
+        the caller and the timeout message cannot disagree about the limit.
+        ``math.inf`` means "never time out" and is passed to ``asyncio.wait`` as
+        ``None``, since a non-finite delay is not a valid timer deadline.
 
         Returns ``(result, aborted, timed_out)``.  ``Tool.execute`` receives the
         signal too, but this boundary protects the engine from tools that do
@@ -324,10 +332,11 @@ class Engine:
         waiters: set[asyncio.Task[Any]] = {tool_task}
         if signal_task is not None:
             waiters.add(signal_task)
+        wait_timeout = None if timeout is not None and math.isinf(timeout) else timeout
         try:
             done, _ = await asyncio.wait(
                 waiters,
-                timeout=self.options.tool_timeout_seconds,
+                timeout=wait_timeout,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if tool_task in done:
@@ -407,6 +416,13 @@ class Engine:
 
         _log.debug("tool call: %s", tool_call.name)
         tool_result: ToolResultContent
+        # A tool that declares its own budget overrides the engine default; the
+        # resolved value is reused in the timeout message so the two agree.
+        # Read defensively: `Tool` supplies this attribute, but the engine also
+        # runs duck-typed tools that never call `Tool.__init__`, and a missing
+        # budget just means "inherit the default" rather than a crash.
+        declared = getattr(tool, "timeout_seconds", None)
+        timeout = declared if declared is not None else self.options.tool_timeout_seconds
         try:
             await emit(ToolExecutionStartEvent(tool_call=tool_call))
             async with profiling.aspan(f"tool.{tool_call.name}"):
@@ -418,6 +434,7 @@ class Engine:
                         context=self.tool_context,
                     ),
                     signal,
+                    timeout,
                 )
             if aborted:
                 tool_result = ToolResultContent(
@@ -428,7 +445,6 @@ class Engine:
                     tool_name=tool_call.name,
                 )
             elif timed_out:
-                timeout = self.options.tool_timeout_seconds
                 tool_result = ToolResultContent(
                     id=tool_call.id,
                     is_error=True,

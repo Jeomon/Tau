@@ -42,6 +42,11 @@ DEFAULT_MAX_ITERATIONS = 8
 #: these, so it is the number worth bounding.
 DEFAULT_SUB_CALL_BUDGET = 8
 
+#: Engine budget for one run, overriding the much shorter engine-wide default.
+#: A run is a chain of root turns each of which may fan out into sub-calls, so
+#: the wall clock is dominated by model latency rather than local work.
+RLM_TIMEOUT_SECONDS = 900.0
+
 #: Refuse rather than silently truncate below this. A context that fits in the
 #: conversation should just be read; the tool earns its cost above it.
 MIN_WORTHWHILE_CHARS = 2000
@@ -227,6 +232,10 @@ class RLMTool(Tool):
             schema=RLMQueryParams,
             kind=ToolKind.Read,
             execution_mode=ToolExecutionMode.Parallel,
+            # A run is a chain of model turns plus recursive sub-calls, so it
+            # routinely outlives the engine default: the 120s ceiling was
+            # cancelling real runs and discarding all the work they had done.
+            timeout_seconds=RLM_TIMEOUT_SECONDS,
             prompt_guidelines=(
                 "rlm: use for questions over inputs too large to read "
                 "directly. Ask a specific question - it explores to answer that "

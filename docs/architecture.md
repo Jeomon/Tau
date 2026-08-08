@@ -226,7 +226,7 @@ ToolCallContent from the model
    ├─ trust/ check                    for tools requiring project trust
    │
    ├─ schedule by ToolExecutionMode   Sequential | Parallel | Batch
-   │    └─ timeout + abort boundary   EngineOptions.tool_timeout_seconds
+   │    └─ timeout + abort boundary   Tool.timeout_seconds, else the engine default
    │
    ├─ Tool.execute(invocation)        may stream ToolExecutionUpdateEvent
    ├─ EngineOptions.after_tool_call   inspect or replace the result

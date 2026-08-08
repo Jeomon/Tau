@@ -223,13 +223,17 @@ await engine.run(
 | `should_skip_tool_calls` | callback | `None` | Return a `ToolResultContent` to skip a call without executing it |
 | `transform_context` | callback | `None` | Rewrite the message list immediately before each request |
 | `ephemeral_injection` | callback | `None` | Return `UserMessage` objects injected for one turn only |
-| `tool_timeout_seconds` | `float \| None` | `120.0` | Per-`Tool.execute()` timeout; `None` disables |
+| `tool_timeout_seconds` | `float \| None` | `120.0` | Default per-`Tool.execute()` timeout; `None` disables. A tool's own `timeout_seconds` overrides it |
 | `max_parallel_tool_calls` | `int \| None` | `10` | Concurrency cap; `None` means unbounded |
 | `event_handler_timeout_seconds` | `float \| None` | `10.0` | Per-handler event timeout; `None` disables |
 
 Set `tool_timeout_seconds` to `None` for embedded clients with intentionally
 long-running tools. A handler that exceeds `event_handler_timeout_seconds` is
 logged and abandoned; it never blocks the tool lifecycle.
+
+`tool_timeout_seconds` is only the default. Tools whose honest worst case is
+longer set `timeout_seconds` on themselves and are held to that instead — see
+[Per-tool timeouts](#per-tool-timeouts).
 
 ## EngineState
 
@@ -305,8 +309,49 @@ the semantic category used to apply execution policy. See
 
 Failures are contained per call. A tool that raises produces an error
 `ToolResultContent` for that call only; sibling calls in the batch continue. A
-call that exceeds `tool_timeout_seconds` is cancelled at the engine boundary even
+call that exceeds its resolved timeout is cancelled at the engine boundary even
 if the tool ignores the abort signal.
+
+### Per-tool timeouts
+
+Not every tool operates on the same time scale, so the engine-wide
+`tool_timeout_seconds` is a default rather than a ceiling. A tool may declare
+its own budget:
+
+```python
+super().__init__(
+    name="benchmark",
+    description="...",
+    schema=BenchmarkParams,
+    kind=ToolKind.Execute,
+    timeout_seconds=900.0,
+)
+```
+
+Resolution per call is:
+
+| `Tool.timeout_seconds` | Effective budget |
+|------------------------|------------------|
+| `None` (default) | `EngineOptions.tool_timeout_seconds` |
+| a number | that number, overriding the engine default in both directions |
+| `math.inf` | no timeout — the call is bounded only by abort |
+
+The resolved value is what the timeout message reports, so the number the model
+sees is always the one that actually fired.
+
+Use `math.inf` only for calls with no honest deadline, such as `ask_user`
+waiting on a human. Two rules matter in practice:
+
+- A tool exposing its own `timeout` parameter to the model must set
+  `timeout_seconds` above the largest value that parameter accepts, otherwise
+  the engine cancels the call before the tool's own limit applies and the
+  captured output is discarded. `terminal` bounds its parameter at 600s and
+  declares 615s for exactly this reason.
+- When phases run in sequence (a benchmark followed by a checks script), the
+  budget must cover their sum, not the larger of the two.
+
+The attribute is read defensively, so duck-typed tools that never call
+`Tool.__init__` simply inherit the engine default.
 
 ## Lifecycle Control
 

@@ -24,6 +24,12 @@ from tau.tool.types import (
 )
 
 _DEFAULT_TIMEOUT = 30
+# Ceiling for the model-supplied ``timeout`` parameter. The tool declares a
+# slightly larger engine budget below so its own timeout always fires first and
+# the caller gets the captured output plus a timeout note, rather than the
+# engine cancelling the call and discarding everything.
+_MAX_TIMEOUT = 600
+_ENGINE_TIMEOUT_GRACE = 15
 
 # asyncio.create_subprocess_shell always runs /bin/sh on POSIX, which on many
 # distros (Ubuntu, Debian, Alpine) is a strict POSIX shell (often dash) that
@@ -76,7 +82,8 @@ class TerminalParams(BaseModel):
     timeout: int = Field(
         default=_DEFAULT_TIMEOUT,
         ge=1,
-        description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}).",
+        le=_MAX_TIMEOUT,
+        description=f"Timeout in seconds (default {_DEFAULT_TIMEOUT}, max {_MAX_TIMEOUT}).",
         examples=[30, 120, 300],
     )
 
@@ -94,6 +101,7 @@ class TerminalTool(Tool):
             ),
             schema=TerminalParams,
             kind=ToolKind.Execute,
+            timeout_seconds=_MAX_TIMEOUT + _ENGINE_TIMEOUT_GRACE,
             render_result=_render_terminal_result,
             render_call=_render_terminal_call,
             render_shell="default",

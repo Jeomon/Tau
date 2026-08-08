@@ -531,6 +531,7 @@ def register(tau):
 | `schema` | `type[BaseModel]` | — | Pydantic model for the arguments |
 | `kind` | `ToolKind` | — | Semantic category driving execution policy |
 | `execution_mode` | `ToolExecutionMode` | `Sequential` | Concurrency policy |
+| `timeout_seconds` | `float \| None` | `None` | Caps one `execute()` call. `None` inherits `EngineOptions.tool_timeout_seconds` (120s); `math.inf` disables it |
 | `render_call` | `Callable[[dict, bool], list[str]] \| None` | `None` | Custom rendering of the tool call line |
 | `render_result` | `Callable[[str, ToolRenderOptions], list[str]] \| None` | `None` | Custom rendering of the result block |
 | `render_shell` | `str` | `"self"` | `"self"` for raw renderer output, `"default"` for the standard `└` framing |

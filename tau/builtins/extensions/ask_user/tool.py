@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import Any
 
 from tau.tool.render import call_line
@@ -91,6 +92,11 @@ class AskUserTool(Tool):
             schema=AskUserParams,
             kind=ToolKind.Read,
             execution_mode=ToolExecutionMode.Sequential,
+            # The dialog is parked on a human, so there is no honest deadline:
+            # the engine default used to cancel the question after 120s while
+            # the user was still reading it. The turn abort and this tool's own
+            # `timeout` parameter remain the ways out.
+            timeout_seconds=math.inf,
             render_call=_render_call,
             render_result=_render_result,
             render_shell="default",

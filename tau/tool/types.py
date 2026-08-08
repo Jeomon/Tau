@@ -282,6 +282,7 @@ class Tool(ABC):
     render_shell: str
     result_expandable: bool
     result_preview_lines: int | None
+    timeout_seconds: float | None
 
     def __init__(
         self,
@@ -291,6 +292,7 @@ class Tool(ABC):
         kind: ToolKind,
         execution_mode: ToolExecutionMode = ToolExecutionMode.Sequential,
         *,
+        timeout_seconds: float | None = None,
         render_call: Callable[[dict, bool], list[str]] | None = None,
         render_result: Callable[[str, ToolRenderOptions], list[str]] | None = None,
         render_shell: str = "self",
@@ -309,12 +311,21 @@ class Tool(ABC):
 
         result_expandable disables central collapsing when False.
         result_preview_lines overrides the global default-shell preview threshold.
+
+        timeout_seconds caps a single execute() call for this tool, overriding
+        ``EngineOptions.tool_timeout_seconds``. Leave it None to inherit the
+        engine-wide default; set it on tools whose honest worst case exceeds
+        that default (long shell commands, recursive model calls). A tool that
+        exposes its own timeout parameter to the model must set this high
+        enough to cover the largest value that parameter accepts, otherwise the
+        engine cancels the call before the tool's own limit can apply.
         """
         self.name = name
         self.description = description
         self.schema = schema
         self.kind = kind
         self.execution_mode = execution_mode
+        self.timeout_seconds = timeout_seconds
         self.render_call = render_call
         self.render_result = render_result
         self.render_shell = render_shell

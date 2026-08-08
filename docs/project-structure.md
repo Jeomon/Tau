@@ -396,7 +396,8 @@ class Tool(ABC):
     def __init__(self, name: str, description: str, schema: type[BaseModel],
                  kind: ToolKind,
                  execution_mode: ToolExecutionMode = ToolExecutionMode.Sequential,
-                 *, render_call=None, render_result=None, render_shell="self",
+                 *, timeout_seconds: float | None = None,
+                 render_call=None, render_result=None, render_shell="self",
                  result_expandable=True, result_preview_lines=None,
                  prompt_snippet=None, prompt_guidelines=None,
                  prepare_arguments=None) -> None: ...

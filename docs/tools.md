@@ -186,6 +186,31 @@ The engine's own `EngineOptions.execution_mode` selects the top-level policy. `B
 
 Tau always preserves the model's tool-call order in the resulting tool message. Completion events may arrive out of order during parallel execution, but result messages stay in source order.
 
+## Timeouts
+
+Every `Tool.execute()` call runs under a timeout enforced at the engine
+boundary, so a tool that ignores the abort signal cannot hang the turn.
+`EngineOptions.tool_timeout_seconds` (120s) is the default, not a ceiling:
+tools operate on very different time scales, so a tool may declare its own
+`timeout_seconds` and be held to that instead.
+
+| `Tool.timeout_seconds` | Effective budget |
+|------------------------|------------------|
+| `None` (default) | `EngineOptions.tool_timeout_seconds` |
+| a number | that number, raising or lowering the engine default |
+| `math.inf` | no timeout; only an abort ends the call |
+
+The timeout message quotes the budget that actually fired. Built-in and
+bundled tools that override the default:
+
+| Tool | Budget | Why |
+|------|--------|-----|
+| `terminal` | 615s | Its `timeout` parameter accepts up to 600s |
+| `ask_user` | `math.inf` | Parked on a human; there is no honest deadline |
+| `subagent` | 1800s | Runs whole agent processes, chained or concurrent |
+| `rlm` | 900s | A chain of model turns plus recursive sub-calls |
+| `run_experiment` | 2730s | Benchmark (max 1800s) then checks script (max 900s) |
+
 ## Result Rendering
 
 For tools using `render_shell="default"`, the TUI owns result collapsing and the Ctrl+O hint. Results at or below `tool_result_preview_lines` render in full without a hint.

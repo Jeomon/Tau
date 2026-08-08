@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -103,7 +104,9 @@ def test_non_cooperative_tool_is_timed_out_by_engine() -> None:
         raise AssertionError("unreachable")
 
     async def run() -> None:
-        result, aborted, timed_out = await engine._run_tool_with_controls(never_finishes(), None)
+        result, aborted, timed_out = await engine._run_tool_with_controls(
+            never_finishes(), None, 0.02
+        )
         assert result is None
         assert aborted is False
         assert timed_out is True
@@ -124,7 +127,7 @@ def test_engine_abort_cancels_a_non_cooperative_tool() -> None:
             raise
 
     async def run() -> None:
-        task = asyncio.create_task(engine._run_tool_with_controls(never_finishes(), signal))
+        task = asyncio.create_task(engine._run_tool_with_controls(never_finishes(), signal, None))
         await asyncio.sleep(0)
         signal.set()
         result, aborted, timed_out = await asyncio.wait_for(task, timeout=1)
@@ -191,10 +194,17 @@ class _ScriptedTool:
     execution_mode = ToolExecutionMode.Parallel
     prepare_arguments = None
 
-    def __init__(self, name: str, execute=None, validate_error: Exception | None = None):
+    def __init__(
+        self,
+        name: str,
+        execute=None,
+        validate_error: Exception | None = None,
+        timeout_seconds: float | None = None,
+    ):
         self.name = name
         self._execute = execute
         self._validate_error = validate_error
+        self.timeout_seconds = timeout_seconds
 
     def validate(self, params):
         if self._validate_error is not None:
@@ -273,3 +283,81 @@ def test_continue_preserves_the_supplied_abort_signal() -> None:
     asyncio.run(engine.run_continue(signal=supplied_signal))
 
     assert received_signals == [supplied_signal]
+
+
+def test_tool_timeout_seconds_overrides_a_longer_engine_default() -> None:
+    """A tool that declares a shorter budget than the engine default is held to
+    its own, and the timeout message quotes the budget that actually fired."""
+
+    async def never_finishes(_invocation):
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    engine = _engine(EngineOptions(tool_timeout_seconds=60.0))
+    engine._tools = {
+        "impatient": _ScriptedTool("impatient", execute=never_finishes, timeout_seconds=0.02)
+    }
+    call = ToolCallContent(id="tc1", name="impatient", args={})
+
+    result = asyncio.run(engine._execute(call, AsyncMock(), None))
+
+    assert result.is_error is True
+    assert result.metadata["timed_out"] is True
+    # The global was 60s; reporting that number here would be a lie.
+    assert "0.02 seconds" in result.content
+
+
+def test_tool_timeout_seconds_extends_past_a_shorter_engine_default() -> None:
+    """The override raises the ceiling as well as lowering it: a slow tool that
+    declares the headroom survives an engine default it would otherwise trip."""
+    from tau.tool.types import ToolResult
+
+    async def slow(invocation):
+        await asyncio.sleep(0.05)
+        return ToolResult(id=invocation.id, content="finished")
+
+    engine = _engine(EngineOptions(tool_timeout_seconds=0.01))
+    engine._tools = {"patient": _ScriptedTool("patient", execute=slow, timeout_seconds=5.0)}
+    call = ToolCallContent(id="tc1", name="patient", args={})
+
+    result = asyncio.run(engine._execute(call, AsyncMock(), None))
+
+    assert result.is_error is False
+    assert result.content == "finished"
+
+
+def test_tool_without_a_declared_timeout_inherits_the_engine_default() -> None:
+    async def never_finishes(_invocation):
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    engine = _engine(EngineOptions(tool_timeout_seconds=0.02))
+    engine._tools = {
+        "inheritor": _ScriptedTool("inheritor", execute=never_finishes, timeout_seconds=None)
+    }
+    call = ToolCallContent(id="tc1", name="inheritor", args={})
+
+    result = asyncio.run(engine._execute(call, AsyncMock(), None))
+
+    assert result.is_error is True
+    assert result.metadata["timed_out"] is True
+    assert "0.02 seconds" in result.content
+
+
+def test_infinite_tool_timeout_is_never_enforced() -> None:
+    """math.inf means "parked on something with no honest deadline" (ask_user
+    waiting on a human). It must not reach asyncio.wait as a timer deadline."""
+    from tau.tool.types import ToolResult
+
+    async def slow(invocation):
+        await asyncio.sleep(0.05)
+        return ToolResult(id=invocation.id, content="answered")
+
+    engine = _engine(EngineOptions(tool_timeout_seconds=0.01))
+    engine._tools = {"asker": _ScriptedTool("asker", execute=slow, timeout_seconds=math.inf)}
+    call = ToolCallContent(id="tc1", name="asker", args={})
+
+    result = asyncio.run(engine._execute(call, AsyncMock(), None))
+
+    assert result.is_error is False
+    assert result.content == "answered"
