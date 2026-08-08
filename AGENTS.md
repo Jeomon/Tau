@@ -158,6 +158,7 @@ See `docs/project-structure.md` for the full breakdown.
 | `/clone` | Duplicate the current session at the current position |
 | `/compact` | Summarise and compact the current context |
 | `/name [name]` | Set or show the session display name |
+| `/export [path]` | Write the session transcript to an HTML file |
 | `/session` | Show session info and message counts |
 | `/copy` | Copy the last assistant message to clipboard |
 | `/clear` | Clear all messages from the current session |

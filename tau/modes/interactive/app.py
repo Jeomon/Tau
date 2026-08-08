@@ -397,6 +397,13 @@ class App:
                 call=lambda _r, _a: cmd_session.cmd_clone(self._ctx()),
             ),
             CommandInfo(
+                name="export",
+                description="Write the session transcript to an HTML file.",
+                call=lambda _r, args: cmd_session.cmd_export(self._ctx(), " ".join(args)),
+                argument_hint="[path]",
+                requires_idle=False,
+            ),
+            CommandInfo(
                 name="session",
                 description="Show session info and stats.",
                 call=lambda _r, _a: cmd_session.cmd_session(self._ctx()),

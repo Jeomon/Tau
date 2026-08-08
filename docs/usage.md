@@ -69,6 +69,7 @@ Most commands wait until the active turn finishes. UI-only and read-only command
 | `/clone` | Duplicate the current session at the current position |
 | `/compact [instruction]` | Summarize and compact the current session context |
 | `/session` | Show session info and stats |
+| `/export [path]` | Write the session transcript to an HTML file |
 
 ### Model and Appearance
 
@@ -126,6 +127,20 @@ Branches the session tree at a specific entry ID, creating a new branch from tha
 ### `/clone`
 
 Duplicates the current branch into a new session file and switches into it. Both sessions start identical; changes in one do not affect the other. Useful for parallel explorations from a shared starting point.
+
+### `/export [path]`
+
+Writes the current branch to a standalone HTML file: user and assistant text, thinking blocks, tool calls and results, and terminal commands. Media attachments are noted but not inlined, so the file stays small.
+
+With no argument the file lands in the working directory, named after the session (its display name if set, otherwise its ID). A path argument is used as given; a path that is an existing directory becomes the destination for the same generated filename.
+
+```
+/export                      # ./my-session.html
+/export notes.html           # ./notes.html
+/export ~/exports            # ~/exports/my-session.html
+```
+
+Rendering runs off the event loop, so a long transcript does not freeze the UI. The RPC equivalent is the `export_html` command.
 
 ### `/session`
 

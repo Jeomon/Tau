@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from tau.modes.interactive.commands.context import CommandContext
 from tau.modes.interactive.ui_context import selector_future
@@ -480,6 +481,50 @@ async def _apply_clone(ctx: CommandContext) -> None:
         ctx.notify(f"Cloned into {name}")
     except Exception as exc:
         ctx.notify(f"Failed to clone: {exc}")
+
+
+def cmd_export(ctx: CommandContext, args: str = "") -> None:
+    asyncio.ensure_future(_apply_export(ctx, args.strip()))
+
+
+async def _apply_export(ctx: CommandContext, target: str) -> None:
+    from pathlib import Path
+
+    from tau.session.export import export_session_html
+
+    sm = ctx.runtime.session_manager
+    if sm is None:
+        ctx.notify("No active session to export.")
+        return
+
+    if target:
+        path = Path(target).expanduser()
+        # A directory argument is a destination, not a filename to overwrite.
+        if path.is_dir():
+            path = path / f"{_export_stem(sm)}.html"
+    else:
+        path = Path.cwd() / f"{_export_stem(sm)}.html"
+
+    try:
+        # Rendering walks the whole branch and writes a file — keep both off
+        # the event loop so a long transcript doesn't stall the UI.
+        written = await asyncio.to_thread(export_session_html, sm, path)
+    except Exception as exc:
+        ctx.notify(f"Failed to export: {exc}")
+        return
+    ctx.notify(f"Exported to {written}")
+
+
+def _export_stem(sm: Any) -> str:
+    """A filename stem from the session name, falling back to its id."""
+    import re
+
+    name = (sm.get_session_name() or "").strip()
+    if name:
+        slug = re.sub(r"[^\w.-]+", "-", name).strip("-")
+        if slug:
+            return slug
+    return sm.session_id or "session"
 
 
 def cmd_session(ctx: CommandContext) -> None:
