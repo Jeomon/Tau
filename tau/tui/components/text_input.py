@@ -140,6 +140,7 @@ class TextInput(Component):
         self._blink_task: asyncio.Task[None] | None = None
 
         self._history: list[str] = []
+        self._history_limit = 500
         self._history_idx = -1
         self._history_draft = ""
 
@@ -228,9 +229,9 @@ class TextInput(Component):
         """Return a snapshot of submitted editor history."""
         return list(self._history)
 
-    def replace_history(self, entries: list[str], *, limit: int = 500) -> None:
+    def replace_history(self, entries: list[str], *, limit: int | None = None) -> None:
         """Replace submitted editor history without exposing internal storage."""
-        self._history = list(entries[-max(1, limit) :])
+        self._history = list(entries[-max(1, limit or self._history_limit) :])
         self._history_idx = -1
         self._history_draft = ""
 
@@ -929,6 +930,13 @@ class TextInput(Component):
         history_text = self.on_history_transform(text) if self.on_history_transform else text
         if history_text and (not self._history or self._history[-1] != history_text):
             self._history.append(history_text)
+            # Trimmed here as well as on save. `replace_history` loads at most
+            # `_history_limit` and `save_history` writes the same tail, but the
+            # live list had no bound at all, so a long session held every
+            # prompt ever typed — including multi-kilobyte pastes — for its
+            # whole duration. `_undo` and `_kill_ring` are capped alongside it.
+            if len(self._history) > self._history_limit:
+                del self._history[: -self._history_limit]
         self._history_idx = -1
         self._history_draft = ""
         self.clear()

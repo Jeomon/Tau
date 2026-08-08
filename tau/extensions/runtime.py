@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import logging
 import traceback
+from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -40,6 +41,11 @@ _INTERCEPTABLE_EVENTS: frozenset[str] = frozenset(
     }
 )
 
+#: Dispatch errors retained per runtime. Enough to see a pattern in what a
+#: broken handler is doing without letting a handler that raises on every
+#: streaming chunk grow the record without limit.
+_MAX_DISPATCH_ERRORS = 200
+
 
 class ExtensionRuntime:
     """
@@ -67,7 +73,17 @@ class ExtensionRuntime:
         runtime_ref: _RuntimeRef,
     ) -> None:
         self._extensions: list[Extension] = load_result.extensions
-        self._errors: list[ExtensionError] = list(load_result.errors)
+        # Load errors are kept whole: there is one per extension that failed to
+        # load, so the count is bounded by how many are installed, and each
+        # explains why something is missing.
+        self._load_errors: list[ExtensionError] = list(load_result.errors)
+        # Dispatch errors are bounded by nothing. A handler that raises on a
+        # high-frequency event — message_update fires once per streaming chunk
+        # — records once per occurrence, so a single broken extension grew this
+        # for the life of the process: 5000 chunks measured at 2.6 MiB. Only the
+        # most recent are kept, and separately from load errors so that a flood
+        # cannot evict the record of an extension that never loaded at all.
+        self._dispatch_errors: deque[ExtensionError] = deque(maxlen=_MAX_DISPATCH_ERRORS)
         self.runtime_ref: _RuntimeRef = runtime_ref
         self._unsub = hooks.subscribe(self._dispatch)
 
@@ -95,7 +111,7 @@ class ExtensionRuntime:
         The append happens first so the record survives even when telling
         anyone about it does not.
         """
-        self._errors.append(error)
+        self._dispatch_errors.append(error)
         try:
             runtime = self.runtime_ref.runtime
             report = getattr(runtime, "report_extension_error", None)
@@ -248,8 +264,13 @@ class ExtensionRuntime:
 
     @property
     def errors(self) -> list[ExtensionError]:
-        """All accumulated load and dispatch errors."""
-        return self._errors
+        """Load errors, then the most recent dispatch errors.
+
+        Load errors come first and are never dropped: each names an extension
+        that is not running at all, which stays true however much noise a
+        different extension generates afterwards.
+        """
+        return [*self._load_errors, *self._dispatch_errors]
 
     # ── Accessors ─────────────────────────────────────────────────────────────
 
