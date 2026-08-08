@@ -120,6 +120,7 @@ class TestRunRemoteMode:
 
     async def test_it_points_extension_dialogs_at_the_clients(self, socket_dir):
         runtime = _FakeRuntime()
+        assert runtime.ui_bridge is None, "no bridge before serving: no client can be reached yet"
         path = socket_dir / "s.sock"
         task = await _serve(runtime, path)
         try:

@@ -1,7 +1,8 @@
-"""Tests for --mode remote: socket path resolution, limits, and the UI bridge.
+"""Tests for --mode remote: path resolution, limits, and the package surface.
 
 The end-to-end socket behaviour lives in test_remote_server.py; this covers the
-wiring that turns a runtime into a served socket.
+wiring that turns a runtime into a served socket, plus the lazy re-exports that
+docs/remote.md tells callers to import.
 """
 
 from __future__ import annotations
@@ -83,3 +84,37 @@ class TestCliWiring:
 
         names = {param.name for param in cli.params}
         assert "socket_path" in names
+
+
+class TestLazyPackageExports:
+    """``from tau.remote import RemoteServer`` is what the docs tell people to
+    write, and it resolves through a module ``__getattr__`` so that importing
+    the framing helpers does not drag in the RPC dispatcher. Every other test
+    imports the submodules directly, so nothing else exercises it."""
+
+    @pytest.mark.parametrize(
+        "name", ["RemoteServer", "SocketInUseError", "RemoteClient", "RemoteDisconnected"]
+    )
+    def test_socket_halves_resolve_lazily(self, name: str) -> None:
+        import tau.remote as remote
+
+        assert getattr(remote, name).__name__ == name
+
+    def test_eager_names_are_still_importable(self) -> None:
+        from tau.remote import PROTOCOL_VERSION, encode_frame
+
+        assert callable(encode_frame)
+        assert isinstance(PROTOCOL_VERSION, int)
+
+    def test_an_unknown_attribute_raises(self) -> None:
+        import tau.remote as remote
+
+        with pytest.raises(AttributeError, match="no attribute"):
+            _ = remote.NoSuchThing
+
+    def test_everything_in_all_resolves(self) -> None:
+        """A name in __all__ that cannot be fetched is a broken promise."""
+        import tau.remote as remote
+
+        for name in remote.__all__:
+            assert getattr(remote, name) is not None

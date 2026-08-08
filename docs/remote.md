@@ -114,6 +114,8 @@ Fire-and-forget calls (`notify`, `set_status`) are broadcast the same way and ex
 
 If no client answers, a dialog with a `timeout` resolves to `None` — the same value as a cancel — so an unattended server cannot wedge an extension forever. A dialog with no timeout waits indefinitely, exactly as it does over stdio.
 
+`ctx.has_ui` is `False` while extensions load and `True` once the server is listening, unlike RPC mode where it is `True` from the first handler. That reflects the truth rather than papering over it — no client can be reached before the socket exists — but an extension that samples `has_ui` once at load time and caches it will hold a stale answer. Read it when you need it.
+
 ## Slow Clients
 
 A client that stops reading is **disconnected**, not waited for. Its outbound queue is bounded by `max_queued`; when it fills, the connection is dropped.
