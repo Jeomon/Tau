@@ -33,6 +33,7 @@ import logging
 import os
 import socket
 import stat
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -55,6 +56,11 @@ DEFAULT_MAX_QUEUED_MESSAGES = 1024
 
 _SOCKET_DIR_MODE = 0o700
 _SOCKET_MODE = 0o600
+
+#: ``sockaddr_un.sun_path`` is a fixed-size field, and the kernel rejects
+#: anything longer with a bare EINVAL/ENAMETOOLONG at bind. Checking first
+#: turns that into a message naming the actual problem.
+_MAX_SOCKET_PATH_BYTES = 104 if sys.platform == "darwin" else 108
 
 
 class SocketInUseError(RuntimeError):
@@ -162,6 +168,13 @@ class RemoteServer:
         _log.info("remote: listening on %s", self._path)
 
     def _prepare_socket_path(self) -> None:
+        encoded = len(os.fsencode(self._path))
+        if encoded >= _MAX_SOCKET_PATH_BYTES:
+            # Checked before mkdir so a doomed path leaves nothing behind.
+            raise ValueError(
+                f"socket path is {encoded} bytes, over this platform's "
+                f"{_MAX_SOCKET_PATH_BYTES}-byte limit: {self._path}"
+            )
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=_SOCKET_DIR_MODE)
         if not self._path.exists():
             return

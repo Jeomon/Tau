@@ -6,14 +6,32 @@ Use it when one session needs more than one viewer or driver — a TUI plus a da
 
 ## Table of Contents
 
+- [Starting a Server](#starting-a-server)
 - [Scope](#scope)
-- [Server](#server)
+- [Server API](#server-api)
 - [Client](#client)
 - [Framing](#framing)
 - [Responses and Events](#responses-and-events)
+- [Extension Dialogs](#extension-dialogs)
 - [Slow Clients](#slow-clients)
 - [Socket Hygiene](#socket-hygiene)
 - [Limits](#limits)
+
+## Starting a Server
+
+```bash
+tau --mode remote
+# tau: serving on /Users/you/.tau/remote/<session-id>.sock
+# tau: press Ctrl-C to stop
+```
+
+The default path is named for the session. Override it with `--socket`:
+
+```bash
+tau --mode remote --socket /tmp/tau/work.sock
+```
+
+Unlike `--mode rpc`, stdout is **not** a protocol stream — it prints where it is listening and nothing else, so it is safe to read as a human or log to a file. Ctrl-C stops the server and removes the socket.
 
 ## Scope
 
@@ -21,7 +39,10 @@ Use it when one session needs more than one viewer or driver — a TUI plus a da
 
 That boundary is deliberate. Hosting several sessions needs a session-factory layer Tau does not have, and a half-built one would be worse than none.
 
-## Server
+## Server API
+
+Use this to embed a server in your own process; the CLI above is a thin wrapper over it.
+
 
 ```python
 import asyncio
@@ -84,6 +105,14 @@ Message *shapes* are identical to RPC mode — same commands, same `snake_case` 
 **Responses are point-to-point; events are broadcast.** A response goes only to the client that sent the command; an event describes the shared session, so every attached client receives it.
 
 Correlate responses by `id`. `RemoteClient.request()` does this for you: it awaits the matching id and lets everything else fall through to `next_event()`. A client that simply read the next message would routinely mistake an event for its answer.
+
+## Extension Dialogs
+
+An extension calling `ctx.select()`, `ctx.confirm()`, or `ctx.input()` emits an `extension_ui_request`, which is **broadcast to every attached client**. The first client to answer with `extension_ui_response` carrying the matching `id` wins; later answers for that id are discarded, because the request is resolved and removed when the first arrives.
+
+Fire-and-forget calls (`notify`, `set_status`) are broadcast the same way and expect no reply.
+
+If no client answers, a dialog with a `timeout` resolves to `None` — the same value as a cancel — so an unattended server cannot wedge an extension forever. A dialog with no timeout waits indefinitely, exactly as it does over stdio.
 
 ## Slow Clients
 

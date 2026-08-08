@@ -20,7 +20,7 @@ from tau.settings.paths import get_app_version
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
 
-_MODES = ("interactive", "print", "json", "rpc")
+_MODES = ("interactive", "print", "json", "rpc", "remote")
 _OUTPUT_FORMATS = ("text", "json")
 
 # On Windows, stdio is often bound to a legacy codepage (e.g. cp1252) that can't
@@ -184,7 +184,14 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     "--mode",
     type=click.Choice(_MODES),
     default=None,
-    help="Run mode: interactive (default), print, json, rpc.",
+    help="Run mode: interactive (default), print, json, rpc, remote.",
+)
+@click.option(
+    "--socket",
+    "socket_path",
+    default=None,
+    metavar="PATH",
+    help="Unix socket for --mode remote (default: a path named for the session).",
 )
 @click.option(
     "--no-context-files",
@@ -235,6 +242,7 @@ def cli(
     ephemeral: bool,
     print_flag: bool,
     mode: str | None,
+    socket_path: str | None,
     no_context_files: bool,
     approve: bool,
     no_approve: bool,
@@ -275,6 +283,7 @@ def cli(
     ctx.obj["ephemeral"] = ephemeral
     ctx.obj["quiet"] = quiet
     ctx.obj["mode"] = resolve_mode(mode, print_flag, prompt, output_format)
+    ctx.obj["socket_path"] = socket_path
     ctx.obj["no_context_files"] = no_context_files
     ctx.obj["approve"] = approve
     ctx.obj["no_approve"] = no_approve
@@ -405,6 +414,10 @@ async def _start(opts: dict) -> None:
                 from tau.modes.rpc.mode import run_rpc_mode
 
                 await run_rpc_mode(runtime)
+            case "remote":
+                from tau.modes.remote.mode import run_remote_mode
+
+                await run_remote_mode(runtime, opts.get("socket_path"))
     except Interrupted as exc:
         # A signalled headless run — print, json or rpc. The turn was aborted
         # and the session written out, so report the conventional exit code

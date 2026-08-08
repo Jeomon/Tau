@@ -12,6 +12,7 @@ Every command-line option, subcommand, and run mode Tau exposes. For day-to-day 
 - [File Arguments](#file-arguments)
 - [Subcommands](#subcommands)
 - [RPC Mode](#rpc-mode)
+- [Remote Mode](#remote-mode)
 - [Environment Variables](#environment-variables)
 - [Exit Codes](#exit-codes)
 
@@ -53,7 +54,8 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 | `--name NAME` | | | Session display name |
 | `--ephemeral` | `-e` | off | Do not save this session to disk |
 | `--print` | | | Shorthand for `--mode print` |
-| `--mode MODE` | | resolved | `interactive`, `print`, `json`, or `rpc` |
+| `--mode MODE` | | resolved | `interactive`, `print`, `json`, `rpc`, or `remote` |
+| `--socket PATH` | | session-named | Unix socket for `--mode remote` |
 | `--no-context-files` | `-nc` | off | Disable `AGENTS.md` and `CLAUDE.md` discovery |
 | `--approve` | `-a` | off | Trust project-local files (extensions, settings, context files) |
 | `--no-approve` | `-na` | off | Do not trust project-local files |
@@ -90,6 +92,7 @@ Step 3 means Tau automatically switches to print mode when its output is piped o
 | Print | `--print`, `-p TEXT` | Run one prompt, print the reply, exit |
 | JSON | `--mode json`, `-p TEXT -f json` | Emit lifecycle events as JSON lines |
 | RPC | `--mode rpc` | Bidirectional JSON-lines protocol over stdin/stdout |
+| Remote | `--mode remote` | Serve one session to several clients over a unix socket |
 
 ### Interactive
 
@@ -606,6 +609,20 @@ print(resp["data"]["text"])
 proc.stdin.close()
 proc.wait()
 ```
+
+## Remote Mode
+
+Serves one running session over a unix socket so several clients can watch and drive it at once.
+
+```bash
+tau --mode remote                          # ~/.tau/remote/<session-id>.sock
+tau --mode remote --socket /tmp/work.sock  # explicit path
+```
+
+Unlike `--mode rpc`, stdout is not a protocol stream — it prints the socket path and nothing else. Ctrl-C stops the server and removes the socket.
+
+The command and event vocabulary is identical to RPC mode; only the framing differs (length-prefixed rather than newline-delimited). For the protocol, client API, and the rules governing broadcast and slow clients, see [Remote Access](remote.md).
+
 
 ## Environment Variables
 

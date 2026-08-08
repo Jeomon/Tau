@@ -155,6 +155,34 @@ def get_sessions_dir() -> Path:
     return CONFIG_DIR_PATH / "sessions"
 
 
+def get_remote_dir() -> Path:
+    """Get the path to the directory holding remote-access sockets.
+
+    Global rather than project-scoped, matching sessions: a socket names a
+    running process, not a working directory.
+
+    Returns:
+        Path: Path to the remote socket directory
+    """
+    return CONFIG_DIR_PATH / "remote"
+
+
+def get_remote_socket_path(session_id: str) -> Path:
+    """Get the default socket path for a session served over ``--mode remote``.
+
+    Kept short on purpose. ``sun_path`` caps a unix socket path near 104 bytes,
+    so this uses the session id directly rather than nesting per-project
+    directories under it.
+
+    Args:
+        session_id: The session being served
+
+    Returns:
+        Path: Path to the socket file
+    """
+    return get_remote_dir() / f"{session_id}.sock"
+
+
 def get_logs_dir(cwd: Path | None = None) -> Path:
     """Get the path to the logs directory.
 

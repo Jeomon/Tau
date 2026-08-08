@@ -4,6 +4,8 @@ RPC mode runs Tau headlessly and speaks JSON Lines over stdin and stdout. It is 
 
 If you are writing Python, consider driving `tau.runtime.service.Runtime` in process instead, see [Python API](python-api.md). RPC mode exists for clients in other languages, or for any client that wants process isolation.
 
+One process serves one client here. If several clients need to watch or drive the same session at once, see [Remote Access](remote.md), which speaks this same command and event vocabulary over a unix socket.
+
 ## Table of Contents
 
 - [Starting RPC Mode](#starting-rpc-mode)
