@@ -156,6 +156,7 @@ tau --base-url http://localhost:8000/v1 --provider vllm  # point at a local/prox
 tau --print "Summarize this repository"  # Run once and print the result
 tau --mode json --prompt "Summarize this repo"  # Emit structured JSON events
 tau --mode rpc                           # Start JSON-RPC mode for IDE clients
+tau --mode remote                        # Serve one session to several clients over a unix socket
 tau --ephemeral                          # Temporary session, nothing saved
 ```
 
@@ -165,7 +166,7 @@ Common flags:
 |---|---|---|
 | `--prompt TEXT` | `-p` | Run a non-interactive prompt |
 | `--print` | | Print mode: run `MESSAGE` and exit (shorthand for `--mode print`) |
-| `--mode` | | `interactive` (default), `print`, `json`, `rpc` |
+| `--mode` | | `interactive` (default), `print`, `json`, `rpc`, `remote` |
 | `--provider` | | Provider to use, e.g. `anthropic`, `openai`, `groq` |
 | `--model` | | Model ID, or `provider/model` shorthand |
 | `--base-url URL` | | Temporarily override the provider's base URL for this run (not persisted) |
