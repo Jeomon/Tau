@@ -46,7 +46,12 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_MAX_QUEUED_MESSAGES", "RemoteServer", "SocketInUseError"]
+__all__ = [
+    "DEFAULT_MAX_QUEUED_MESSAGES",
+    "RemoteServer",
+    "SocketInUseError",
+    "sweep_stale_sockets",
+]
 
 #: Outbound messages a connection may fall behind by before it is dropped.
 #: A streaming turn emits message_update rapidly, so this is generous enough to
@@ -61,6 +66,68 @@ _SOCKET_MODE = 0o600
 #: anything longer with a bare EINVAL/ENAMETOOLONG at bind. Checking first
 #: turns that into a message naming the actual problem.
 _MAX_SOCKET_PATH_BYTES = 104 if sys.platform == "darwin" else 108
+
+
+def _is_listening(path: Path) -> bool:
+    """Whether a live server holds ``path``.
+
+    A socket file says nothing about whether anyone is behind it — the only way
+    to tell a live server from the corpse of a crashed one is to try.
+
+    Only "refused" and "not there" count as absence. Any other error means the
+    question was not answered — a permission problem, say — and is raised
+    rather than read as a no, because every caller treats a no as licence to
+    delete the file.
+    """
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.connect(str(path))
+    except OSError as exc:
+        if exc.errno not in (errno.ECONNREFUSED, errno.ENOENT):
+            raise
+        return False
+    else:
+        return True
+    finally:
+        probe.close()
+
+
+def sweep_stale_sockets(directory: Path, *, keep: Path | None = None) -> list[Path]:
+    """Remove socket files in ``directory`` that nobody is listening on.
+
+    Socket paths are named for their session and so are never reused, which
+    means the replace-on-bind check never revisits one. A server killed without
+    unwinding therefore leaves a file that nothing would ever clean up, and
+    those accumulate in the user's config directory indefinitely.
+
+    Only sockets are considered, and only ones that refuse a connection, so a
+    running server is never disturbed and a regular file is never touched.
+    ``keep`` exempts the path the caller is about to bind — that one belongs to
+    ``RemoteServer.start``, which reports a live holder as an error rather than
+    quietly removing it.
+
+    Returns the paths removed. Failures are logged and skipped: a tidy-up that
+    cannot proceed must not stop a server from starting.
+    """
+    removed: list[Path] = []
+    try:
+        entries = sorted(directory.glob("*.sock"))
+    except OSError:  # unreadable or missing directory — nothing to tidy
+        return removed
+    for entry in entries:
+        if keep is not None and entry == keep:
+            continue
+        try:
+            if not stat.S_ISSOCK(entry.lstat().st_mode) or _is_listening(entry):
+                continue
+            entry.unlink()
+        except OSError as exc:
+            _log.debug("remote: could not sweep %s: %s", entry, exc)
+            continue
+        removed.append(entry)
+    if removed:
+        _log.info("remote: removed %d stale socket(s)", len(removed))
+    return removed
 
 
 class SocketInUseError(RuntimeError):
@@ -189,18 +256,9 @@ class RemoteServer:
         # A socket left by a crashed server is indistinguishable from a live
         # one by inspection, so probe it: a refused connection means nobody is
         # listening and the file is safe to replace.
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            probe.connect(str(self._path))
-        except OSError as exc:
-            if exc.errno not in (errno.ECONNREFUSED, errno.ENOENT):
-                raise
-            self._path.unlink(missing_ok=True)
-            return
-        else:
+        if _is_listening(self._path):
             raise SocketInUseError(f"a server is already listening on {self._path}")
-        finally:
-            probe.close()
+        self._path.unlink(missing_ok=True)
 
     async def close(self) -> None:
         for unsubscribe in self._unsubscribes:

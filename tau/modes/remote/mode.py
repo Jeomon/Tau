@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from tau.modes.rpc.mode import install_extension_ui_bridge
 from tau.modes.signals import exit_on_signal
-from tau.remote.server import RemoteServer
+from tau.remote.server import RemoteServer, sweep_stale_sockets
 
 if TYPE_CHECKING:
     from tau.runtime.service import Runtime
@@ -40,6 +40,11 @@ def resolve_socket_path(runtime: Runtime, socket_path: str | None) -> Path:
 async def run_remote_mode(runtime: Runtime, socket_path: str | None = None) -> None:
     """Serve ``runtime`` over a unix socket until interrupted."""
     path = resolve_socket_path(runtime, socket_path)
+    # Socket paths are session-scoped and therefore never reused, so the
+    # replace-on-bind check in RemoteServer never sees the ones left by a
+    # server that died without unwinding. Without a sweep they accumulate in
+    # the config directory forever.
+    sweep_stale_sockets(path.parent, keep=path)
     server = RemoteServer(runtime, path)
     await server.start()
 
@@ -73,13 +78,23 @@ async def run_remote_mode(runtime: Runtime, socket_path: str | None = None) -> N
         loop = asyncio.get_running_loop()
         import signal as _signal
 
+        # SIGINT is a plain graceful stop here, so it is not one of the codes
+        # exit_on_signal records; it still has to reach _on_signal.
         sigint = getattr(_signal, "SIGINT", None)
+        installed_sigint = False
         if sigint is not None:
             with contextlib.suppress(NotImplementedError, OSError):
                 loop.add_signal_handler(sigint, _on_signal)
+                installed_sigint = True
         try:
             await shutdown.wait()
         finally:
+            if installed_sigint and sigint is not None:
+                # Removed for the same reason exit_on_signal removes its own:
+                # a handler left on the shared loop would have a later run
+                # inherit a callback pointing at this dead runtime.
+                with contextlib.suppress(NotImplementedError, OSError):
+                    loop.remove_signal_handler(sigint)
             serving.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await serving

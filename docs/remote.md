@@ -126,6 +126,7 @@ The alternative — an unbounded queue, or awaiting a blocked write inside event
 - A **socket** left behind by a crashed server is probed; if nothing is listening, it is replaced.
 - A **regular file** at the socket path is refused, never deleted. Everything the server removes it removes unprompted, so it only ever removes what a server clearly left behind.
 - A **live** server on the same path raises `SocketInUseError` rather than silently splitting clients between two servers.
+- Dead sockets from earlier runs are **swept on startup**. Paths are named for their session and never reused, so a server killed without unwinding (SIGKILL, crash, power loss) leaves a file the replace-on-bind check would never revisit. The sweep removes only sockets nothing is listening on, and never the path being bound.
 
 ## Limits
 
