@@ -9,17 +9,24 @@ grows with the *answer* rather than with the size of the input.
 from __future__ import annotations
 
 import asyncio
+import importlib
 from pathlib import Path
 
 import pytest
 
-from tau.builtins.extensions.rlm.repl import (
-    MAX_CELL_OUTPUT,
-    FinalAnswer,
-    ReplEnvironment,
-)
-from tau.builtins.extensions.rlm.tool import MIN_WORTHWHILE_CHARS, RLMQueryTool
 from tau.tool.types import ToolContext, ToolInvocation
+from tests.ext_loader import load_extension
+
+_rlm = load_extension("rlm")
+_repl = importlib.import_module(f"{_rlm.__name__}.repl")
+_tool = importlib.import_module(f"{_rlm.__name__}.tool")
+
+MAX_CELL_OUTPUT = _repl.MAX_CELL_OUTPUT
+FinalAnswer = _repl.FinalAnswer
+ReplEnvironment = _repl.ReplEnvironment
+MIN_WORTHWHILE_CHARS = _tool.MIN_WORTHWHILE_CHARS
+RLMQueryTool = _tool.RLMQueryTool
+register = _rlm.register
 
 
 def _env(context: str = "alpha\nbeta\ngamma\nbeta\n", **kwargs) -> ReplEnvironment:
@@ -277,16 +284,12 @@ class TestTool:
 
 class TestRegistration:
     def test_the_tool_is_registered_by_default(self):
-        from tau.builtins.extensions.rlm import register
-
         registered: list = []
         register(type("API", (), {"config": {}, "register_tool": registered.append})())
 
         assert [tool.name for tool in registered] == ["rlm_query"]
 
     def test_it_can_be_turned_off(self):
-        from tau.builtins.extensions.rlm import register
-
         registered: list = []
         register(
             type("API", (), {"config": {"enabled": False}, "register_tool": registered.append})()
@@ -295,8 +298,6 @@ class TestRegistration:
         assert registered == []
 
     def test_budgets_come_from_configuration(self):
-        from tau.builtins.extensions.rlm import register
-
         registered: list = []
         register(
             type(
@@ -317,9 +318,9 @@ class TestRegistration:
         nothing."""
         import json
 
-        manifest = json.loads(
-            (Path(__file__).parent.parent / "tau/builtins/extensions/rlm/manifest.json").read_text()
-        )
+        from tests.ext_loader import extension_dir
+
+        manifest = json.loads((extension_dir("rlm") / "manifest.json").read_text())
         keys = {field["key"] for field in manifest["tau"]["settings"]["fields"]}
 
         assert keys == {"enabled", "max_iterations", "sub_call_budget"}

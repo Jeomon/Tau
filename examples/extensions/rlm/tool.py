@@ -21,7 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tau.builtins.extensions.rlm.repl import FinalAnswer, ReplEnvironment
+from .repl import FinalAnswer, ReplEnvironment
 from tau.tool.types import (
     AbortSignal,
     Tool,
