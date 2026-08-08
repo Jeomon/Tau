@@ -376,6 +376,9 @@ Immediately after the runtime initializes, Tau emits one `ready` line:
 ```json
 {
   "type": "ready",
+  "protocolVersion": 1,
+  "runtimeVersion": "0.9.3",
+  "capabilities": {"toolCallBlocking": true, "interceptableEvents": ["..."], "projectTrust": true},
   "sessionId": "abc123",
   "cwd": "/path/to/project",
   "projectTrusted": false,
@@ -383,7 +386,9 @@ Immediately after the runtime initializes, Tau emits one `ready` line:
 }
 ```
 
-`sessionId` and `cwd` may be `null`: `sessionId` is null in ephemeral mode. `projectTrusted` says whether project-local code was loaded, and `projectTrustSource` how that was decided — `no-inputs`, `flag`, `policy`, `stored`, `undecided`, `session` or `default`. See [RPC mode](rpc.md#ready) for what each means and the `trust` command that settles an undecided project.
+`sessionId` and `cwd` may be `null`: `sessionId` is null in ephemeral mode. `projectTrusted` says whether project-local code was loaded, and `projectTrustSource` how that was decided — `no-inputs`, `flag`, `policy`, `stored`, `undecided`, `session` or `default`.
+
+`protocolVersion`, `runtimeVersion` and `capabilities` let a client feature-detect instead of pinning a version out of band; builds before 0.9.3 send none of them, so treat a missing `protocolVersion` as pre-negotiation. See [RPC mode](rpc.md#version-and-capabilities) for the bump policy, what each capability means, and the `trust` command that settles an undecided project.
 
 ### Commands
 

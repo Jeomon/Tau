@@ -105,6 +105,13 @@ The `ready` line is the handshake. It is the first line written and carries the 
 ```json
 {
   "type": "ready",
+  "protocolVersion": 1,
+  "runtimeVersion": "0.9.3",
+  "capabilities": {
+    "toolCallBlocking": true,
+    "interceptableEvents": ["before_compaction", "context", "input", "project_trust", "resources_discover", "session_before_tree", "tool_call", "tool_result", "user_terminal", "before_provider_request"],
+    "projectTrust": true
+  },
   "sessionId": "0f9c1c4a",
   "cwd": "/home/user/project",
   "projectTrusted": false,
@@ -112,7 +119,29 @@ The `ready` line is the handshake. It is the first line written and carries the 
 }
 ```
 
-`sessionId` and `cwd` are `null` when there is no session manager. There is no version or capability negotiation. The client should treat `ready` as "the runtime is up, start sending commands".
+`sessionId` and `cwd` are `null` when there is no session manager. The client should treat `ready` as "the runtime is up, start sending commands".
+
+### Version and capabilities
+
+`ready` announces rather than negotiates: there is no round trip, so a client reads what it needs from the first line and proceeds. This is deliberate — a handshake exchange would add a state machine to a protocol whose whole shape is "one line in, one line out", to answer questions the server can answer unprompted.
+
+| Field | Meaning |
+|---|---|
+| `protocolVersion` | Version of the wire protocol. Bumped only for a change a client written against the previous version cannot survive — a field removed or retyped, a command's semantics altered, a response shape rearranged |
+| `runtimeVersion` | The installed `tau-coding-agent` version |
+| `capabilities` | What this build can do, derived from the live runtime rather than declared |
+
+Adding a field, a command or an event does **not** bump `protocolVersion`. Clients are expected to ignore what they do not recognise, which is what makes additive change cheap on both sides.
+
+Builds before 0.9.3 announce none of these three keys. Treat a missing `protocolVersion` as `0` — pre-negotiation — and assume nothing about capabilities.
+
+| Capability | Meaning |
+|---|---|
+| `toolCallBlocking` | Whether an extension's `tool_call` block actually cancels the call. `false` on builds that route the event through the discarding path, where a block never reaches the engine |
+| `interceptableEvents` | Every event whose handler return value is collected, so a client can feature-detect an interception point without reading a private name to do it |
+| `projectTrust` | Whether this build reports and settles project trust — the fields above and the [`trust`](#trust) command |
+
+Each value is read from the thing it describes: `toolCallBlocking` and `interceptableEvents` come from the same set the extension bridge consults, and `projectTrust` is probed off the runtime that would serve it. A capability object that drifts from its subject is worse than none, because a client trusts it exactly where it can no longer check for itself.
 
 `projectTrusted` is whether project-local code — `.tau/` settings, extensions, context files — was loaded. `projectTrustSource` says how that was decided, which the boolean alone cannot: the resolution collapses "undecided" to `false`, so a client cannot otherwise tell a refusal from a project nobody has answered for. That matters for an unattended run, where refusing to proceed on an undecided project is correct and refusing on a decided one is a bug.
 

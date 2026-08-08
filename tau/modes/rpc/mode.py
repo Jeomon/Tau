@@ -18,7 +18,9 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from tau.modes import wire
+from tau.modes.rpc.types import PROTOCOL_VERSION
 from tau.modes.signals import exit_on_signal, raise_if_interrupted
+from tau.settings.paths import get_app_version
 
 _log = logging.getLogger(__name__)
 
@@ -404,6 +406,34 @@ def _busy_error(action: str) -> str:
     return (
         f"Agent is busy; cannot {action} mid-turn. Abort the turn or wait for the 'settled' event."
     )
+
+
+def _capabilities(runtime: Runtime) -> dict:
+    """Describe what this build can do, derived rather than declared.
+
+    Every value here is read from the thing it describes. A hardcoded literal
+    would be right on the day it was written and silently wrong afterwards —
+    and a capability object that lies is worse than none, because a client
+    trusts it precisely where it can no longer check for itself.
+
+    ``toolCallBlocking`` is the one clients ask about most: whether an
+    extension's ``tool_call`` block actually cancels the call. It reads the
+    same set the extension bridge reads, so it cannot drift from the behaviour
+    it advertises. Published builds before 0.9.3 route that event through the
+    discarding path, where a block never reaches the engine — those announce no
+    capabilities at all, which is itself the answer.
+    """
+    from tau.extensions.runtime import _INTERCEPTABLE_EVENTS
+
+    return {
+        # Read from the bridge's own set, not restated.
+        "toolCallBlocking": "tool_call" in _INTERCEPTABLE_EVENTS,
+        # The whole set, so a client can feature-detect any interception point
+        # without reaching into a private name to do it.
+        "interceptableEvents": sorted(_INTERCEPTABLE_EVENTS),
+        # Probed off the runtime that would serve it, not asserted.
+        "projectTrust": hasattr(runtime, "project_trust_source"),
+    }
 
 
 async def _start_prompt(
@@ -1375,6 +1405,13 @@ async def run_rpc_mode(runtime: Runtime) -> None:
     _write(
         {
             "type": "ready",
+            # Announced rather than negotiated: there is no round trip, so a
+            # client reads what it needs from the first line and proceeds. An
+            # older client ignores the new keys; a newer one treats their
+            # absence as "pre-negotiation build".
+            "protocolVersion": PROTOCOL_VERSION,
+            "runtimeVersion": get_app_version(),
+            "capabilities": _capabilities(runtime),
             "sessionId": getattr(sm, "session_id", None) if sm is not None else None,
             "cwd": str(sm.cwd) if sm is not None else None,
             # Reported here rather than left to be asked for: a supervising

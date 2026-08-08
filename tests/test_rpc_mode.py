@@ -9,6 +9,7 @@ import json
 import sys
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -542,3 +543,53 @@ class TestRpcInputEditorDialog:
 
         result = asyncio.run(_run())
         assert result == "edited content"
+
+
+# ── Handshake capabilities ───────────────────────────────────────────────────
+
+
+class TestCapabilities:
+    """A capability object that lies is worse than none: a client trusts it
+    exactly where it can no longer check for itself. So every value has to be
+    read from the thing it describes, and these tests hold it to that by
+    changing the source and expecting the report to follow."""
+
+    def test_tool_call_blocking_follows_the_live_set(self, monkeypatch) -> None:
+        import tau.extensions.runtime as ext_runtime
+
+        rt = SimpleNamespace(project_trust_source="stored")
+
+        monkeypatch.setattr(ext_runtime, "_INTERCEPTABLE_EVENTS", frozenset({"tool_call"}))
+        assert mode._capabilities(rt)["toolCallBlocking"] is True
+
+        # The published 0.9.2 shape: the event exists but is routed through the
+        # discarding path, so a block never reaches the engine.
+        monkeypatch.setattr(ext_runtime, "_INTERCEPTABLE_EVENTS", frozenset({"tool_result"}))
+        assert mode._capabilities(rt)["toolCallBlocking"] is False
+
+    def test_interceptable_events_are_the_live_set_sorted(self, monkeypatch) -> None:
+        import tau.extensions.runtime as ext_runtime
+
+        monkeypatch.setattr(ext_runtime, "_INTERCEPTABLE_EVENTS", frozenset({"b", "a", "c"}))
+
+        caps = mode._capabilities(SimpleNamespace())
+        assert caps["interceptableEvents"] == ["a", "b", "c"]
+
+    def test_real_build_advertises_tool_call_blocking(self) -> None:
+        """Unmonkeypatched: this build must actually honour extension blocks."""
+        caps = mode._capabilities(SimpleNamespace(project_trust_source="stored"))
+
+        assert caps["toolCallBlocking"] is True
+        assert "tool_call" in caps["interceptableEvents"]
+
+    def test_project_trust_is_probed_off_the_runtime(self) -> None:
+        assert mode._capabilities(SimpleNamespace(project_trust_source="stored"))["projectTrust"]
+        # A runtime without the accessor cannot serve the trust interface, and
+        # says so rather than being asserted capable by a literal.
+        assert mode._capabilities(SimpleNamespace())["projectTrust"] is False
+
+    def test_protocol_version_is_a_positive_int(self) -> None:
+        from tau.modes.rpc.types import PROTOCOL_VERSION
+
+        assert isinstance(PROTOCOL_VERSION, int)
+        assert PROTOCOL_VERSION >= 1

@@ -10,6 +10,19 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+#: Version of the wire protocol itself, announced in the ``ready`` line.
+#:
+#: Bumped only for a change a client written against the previous version
+#: cannot survive: a field removed or retyped, a command's semantics altered, a
+#: response shape rearranged. Adding a field, a command or an event does not
+#: bump it — clients are expected to ignore what they do not recognise, which
+#: is what makes additive change cheap on both sides.
+#:
+#: Version 1 is the protocol as it stood when negotiation was introduced; every
+#: earlier build announces no version at all, so treat a missing
+#: ``protocolVersion`` as "0, pre-negotiation".
+PROTOCOL_VERSION = 1
+
 # ── Commands (stdin) ──────────────────────────────────────────────────────────
 
 
