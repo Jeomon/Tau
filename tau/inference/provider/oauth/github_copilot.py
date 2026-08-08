@@ -15,12 +15,12 @@ import asyncio
 import base64
 import json
 import re
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
+from tau.inference.provider.oauth.device_code import DeviceCodePoller
 from tau.inference.provider.oauth.types import (
     AbortSignal,
     OAuthAuthInfo,
@@ -189,16 +189,13 @@ async def _poll_for_github_token(
     expires_in: int,
 ) -> str:
     """Poll GitHub's device flow token endpoint until authorization is granted or timeout."""
-    deadline = time.time() + expires_in
-    interval_ms = max(1000, interval_seconds * 1000)
-    multiplier = _INITIAL_POLL_INTERVAL_MULTIPLIER
-    slow_down_count = 0
-
-    while time.time() < deadline:
-        remaining = deadline - time.time()
-        wait_ms = min(interval_ms * multiplier, remaining * 1000)
-        await asyncio.sleep(wait_ms / 1000)
-
+    poller = DeviceCodePoller(
+        interval_seconds=interval_seconds,
+        expires_in=expires_in,
+        interval_multiplier=_INITIAL_POLL_INTERVAL_MULTIPLIER,
+        slow_down_multiplier=_SLOW_DOWN_POLL_INTERVAL_MULTIPLIER,
+    )
+    async for tick in poller:
         data = await asyncio.to_thread(_poll_access_token_once, domain, device_code)
 
         access_token = data.get("access_token")
@@ -209,21 +206,14 @@ async def _poll_for_github_token(
         if error == "authorization_pending":
             continue
         if error == "slow_down":
-            slow_down_count += 1
-            raw_interval = data.get("interval")
-            interval_ms = (
-                raw_interval * 1000
-                if isinstance(raw_interval, (int, float)) and raw_interval > 0
-                else max(1000, interval_ms + 5000)
-            )
-            multiplier = _SLOW_DOWN_POLL_INTERVAL_MULTIPLIER
+            tick.slow_down(data.get("interval"))
             continue
         if error:
             desc = data.get("error_description", "")
             suffix = f": {desc}" if desc else ""
             raise RuntimeError(f"Device flow failed: {error}{suffix}")
 
-    if slow_down_count > 0:
+    if poller.slow_downs > 0:
         raise RuntimeError(
             "Device flow timed out after slow_down responses. "
             "This is often caused by clock drift in WSL or VM environments."

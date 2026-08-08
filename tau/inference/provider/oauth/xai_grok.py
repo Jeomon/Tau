@@ -21,6 +21,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from tau.inference.provider.oauth.device_code import DeviceCodePoller
 from tau.inference.provider.oauth.pkce import generate_pkce
 from tau.inference.provider.oauth.types import (
     AbortSignal,
@@ -230,15 +231,13 @@ async def _poll_for_xai_grok_token(
     (``authorization_pending`` / ``slow_down``) and terminal errors
     (``access_denied`` / ``expired_token``).
     """
-    deadline = time.time() + expires_in
-    interval_ms = max(1000, interval_seconds * 1000)
-
-    while time.time() < deadline:
-        if signal is not None and signal.is_set():
-            raise RuntimeError("xAI device code login aborted")
-        remaining = deadline - time.time()
-        await asyncio.sleep(min(interval_ms / 1000, remaining))
-
+    poller = DeviceCodePoller(
+        interval_seconds=interval_seconds,
+        expires_in=expires_in,
+        signal=signal,
+        abort_message="xAI device code login aborted",
+    )
+    async for tick in poller:
         status, data = await asyncio.to_thread(
             _post_form_allow_error,
             TOKEN_URL,
@@ -256,12 +255,7 @@ async def _poll_for_xai_grok_token(
         if error == "authorization_pending":
             continue
         if error == "slow_down":
-            raw_interval = data.get("interval")
-            interval_ms = (
-                int(raw_interval) * 1000
-                if isinstance(raw_interval, (int, float)) and raw_interval > 0
-                else interval_ms + 5000
-            )
+            tick.slow_down(data.get("interval"))
             continue
         if error in ("access_denied", "authorization_denied"):
             raise RuntimeError("xAI device authorization was denied")

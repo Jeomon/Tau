@@ -18,6 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from tau.inference.provider.oauth.device_code import DeviceCodePoller
 from tau.inference.provider.oauth.pkce import generate_pkce
 from tau.inference.provider.oauth.types import (
     AbortSignal,
@@ -320,15 +321,13 @@ async def _poll_for_codex_device_code(
     or an ``error.code`` of ``deviceauth_authorization_pending``; ``slow_down``
     asks us to back off.
     """
-    deadline = time.time() + expires_in
-    interval_ms = max(1000, interval_seconds * 1000)
-
-    while time.time() < deadline:
-        if signal is not None and signal.is_set():
-            raise RuntimeError("Codex device code login aborted")
-        remaining = deadline - time.time()
-        await asyncio.sleep(min(interval_ms / 1000, remaining))
-
+    poller = DeviceCodePoller(
+        interval_seconds=interval_seconds,
+        expires_in=expires_in,
+        signal=signal,
+        abort_message="Codex device code login aborted",
+    )
+    async for tick in poller:
         status, data = await asyncio.to_thread(_poll_codex_device_once, device_auth_id, user_code)
 
         if status == 200:
@@ -346,7 +345,9 @@ async def _poll_for_codex_device_code(
         if error_code == "deviceauth_authorization_pending":
             continue
         if error_code == "slow_down":
-            interval_ms += 5000
+            # This endpoint does not restate an interval, so back off by the
+            # RFC's fixed increment.
+            tick.slow_down()
             continue
 
         raise RuntimeError(f"Codex device auth failed ({status}): {data}")

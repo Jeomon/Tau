@@ -63,6 +63,7 @@ tau/inference/
     ├── types.py           # APIProvider, OAuthProvider, Image/Audio/VideoProvider
     ├── registry.py        # Per-modality provider registries + unified ProviderRegistry
     └── oauth/             # OAuth flows (Codex, Claude Code, Copilot, Antigravity, Grok)
+        └── device_code.py # Shared RFC 8628 poll timing for the device flows
 ```
 
 Built-in model and provider definitions live under `tau.builtins.models` and
