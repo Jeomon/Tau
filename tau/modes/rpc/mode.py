@@ -470,7 +470,14 @@ async def _start_prompt(
 # ---------------------------------------------------------------------------
 
 
-async def _handle_command(
+# WARNING: pyright does not type-check the body below. At 748 lines and 35
+# `case` arms this function exceeds pyright's code-flow analysis limit, and it
+# reports that as an error rather than degrading — so the suppression is the
+# only way to keep the rest of `tau/` gated. The cost is real: every line of
+# this dispatcher is invisible to the checker until it is split into per-command
+# handlers (a `_COMMANDS` table keyed on cmd_type, so each body moves verbatim).
+# mypy still checks it, and the 154 tests in tests/test_rpc_*.py still cover it.
+async def _handle_command(  # pyright: ignore[reportGeneralTypeIssues]
     cmd: dict, runtime: Runtime, ui_pending: dict[str, asyncio.Future]
 ) -> None:
     """Dispatch one RPC command. Writes a response line when done."""
