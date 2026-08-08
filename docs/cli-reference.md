@@ -470,7 +470,7 @@ An unrecognized `type` yields `"Unknown command type: '<x>'"`.
 | `get_last_assistant_text` | — | `{text: string \| null}` |
 | `set_session_name` | `name` | — |
 | `get_commands` | — | `{commands: [{name, description, source}]}`; `source` is `"extension"`, `"prompt"`, or `"skill"` |
-| `export_html` | — | Always fails: `"export_html is not supported in this build"` |
+| `export_html` | `outputPath` (required) | `{path}`: the written HTML transcript |
 
 ### Events
 

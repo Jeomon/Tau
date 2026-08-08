@@ -221,7 +221,7 @@ class TextLLM:
         # it straight through as `default_headers=` share this exact object
         # with their HTTP client, which re-reads it on every request rather
         # than snapshotting at construction — so extensions listening on
-        # `before_provider_headers` can mutate it in place and have that
+        # `before_provider_request` can mutate it in place and have that
         # take effect on the next outgoing request.
         from tau.utils.secrets import resolve_secrets
 
