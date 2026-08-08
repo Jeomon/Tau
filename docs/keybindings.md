@@ -118,14 +118,30 @@ The prompt input. `ctrl+e` and `ctrl+d` fall through to the global handlers when
 |-----|--------|
 | `backspace` | Delete the character before the cursor |
 | `delete` / `ctrl+d` | Delete the character at the cursor (`ctrl+d` only while the editor has text) |
-| `ctrl+w` | Delete the previous word |
+| `ctrl+w` | Delete the previous word (killed) |
 | `ctrl+u` | Kill from the cursor to the start |
 | `ctrl+k` | Kill from the cursor to the end |
+| `alt+y` | Yank: insert the most recent kill at the cursor |
+| `alt+shift+y` | Yank-pop: replace the just-yanked text with the next older kill |
 | `ctrl+z` | Undo |
 | `ctrl+y` | Redo |
 | `ctrl+v` | Paste from the clipboard |
 
 Bracketed paste is handled natively: carriage returns are stripped and tabs become four spaces. A left-button mouse click inside the editor moves the cursor to the clicked position.
+
+### Kill Ring
+
+`ctrl+k`, `ctrl+u` and `ctrl+w` stash what they remove in a 16-entry kill ring, most recent last, so removed text can be put back as content rather than only unwound with undo. `alt+y` inserts the newest entry at the cursor; pressing `alt+shift+y` immediately afterwards swaps that insertion for the next older entry and keeps cycling, wrapping at the oldest. Yank-pop only applies directly after a yank — any other key in between ends the run.
+
+Readline puts yank on `ctrl+y`, which Tau already uses for redo. To take the emacs placement:
+
+```json
+{"tui.input.yank": ["ctrl+y"]}
+```
+
+Redo is not a configurable action, and the yank binding is checked first, so this makes redo unreachable — undo still works on `ctrl+z`.
+
+A yank is a single undo step, so `ctrl+z` removes the whole yanked text at once.
 
 ## Command Palette
 
@@ -311,6 +327,8 @@ One exception inside this table: the theme, thinking-effort and voice pickers, a
 | `tui.input.newline` | `shift+enter` | Insert a newline |
 | `tui.input.clear` | `ctrl+u` | Kill from the cursor to the start |
 | `tui.input.word_back` | `ctrl+w` | Delete the previous word |
+| `tui.input.yank` | `alt+y` | Insert the most recent kill at the cursor |
+| `tui.input.yank_pop` | `alt+shift+y` | Replace the just-yanked text with the next older kill |
 | `app.message.followup` | `alt+enter` | Queue as a follow-up message |
 | `app.message.dequeue` | `ctrl+up` | Restore queued messages into the editor |
 | `app.details.toggle` | `ctrl+o` | Toggle thinking and tool-result details |

@@ -1045,6 +1045,11 @@ _DEFAULTS: KeyMap = {
     "tui.input.newline": ["shift+enter"],
     "tui.input.clear": ["ctrl+u"],
     "tui.input.word_back": ["ctrl+w"],
+    # Yank the last kill (ctrl+k / ctrl+u / ctrl+w) back at the cursor. Readline
+    # puts this on ctrl+y, which tau already binds to redo, so the defaults sit
+    # on alt+y — rebind if you want the emacs placement.
+    "tui.input.yank": ["alt+y"],
+    "tui.input.yank_pop": ["alt+shift+y"],
     # Message queuing
     "app.message.followup": ["alt+enter"],  # queue as follow-up (waits for agent to finish)
     "app.message.dequeue": ["ctrl+up"],  # restore queued messages into editor

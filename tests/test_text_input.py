@@ -366,3 +366,121 @@ class TestCursorBlink:
             assert editor._tui is None  # noqa: SLF001
 
         asyncio.run(scenario())
+
+
+class TestKillRing:
+    """ctrl+k / ctrl+u / ctrl+w used to discard text outright, recoverable only
+    by undoing everything typed since. The ring keeps it available as content."""
+
+    KILL_LINE = KeyEvent(key="k", ctrl=True)
+    KILL_TO_START = KeyEvent(key="u", ctrl=True)
+    KILL_WORD = KeyEvent(key="w", ctrl=True)
+    YANK = KeyEvent(key="y", alt=True)
+    YANK_POP = KeyEvent(key="y", alt=True, shift=True)
+
+    def _editor(self, text: str, cursor: int | None = None) -> TextInput:
+        editor = TextInput()
+        editor.set_text(text)
+        if cursor is not None:
+            editor._cursor = cursor  # noqa: SLF001 — no public cursor setter
+        return editor
+
+    def test_kill_to_end_is_yanked_back(self) -> None:
+        editor = self._editor("hello world", cursor=5)
+        editor.handle_input(self.KILL_LINE)
+        assert editor.text == "hello"
+
+        editor.handle_input(self.YANK)
+        assert editor.text == "hello world"
+        assert editor.cursor == len("hello world")
+
+    def test_kill_to_start_is_yanked_back(self) -> None:
+        editor = self._editor("hello world", cursor=6)
+        editor.handle_input(self.KILL_TO_START)
+        assert editor.text == "world"
+
+        editor.handle_input(self.YANK)
+        assert editor.text == "hello world"
+
+    def test_killed_word_is_yanked_back(self) -> None:
+        editor = self._editor("alpha beta")
+        editor.handle_input(self.KILL_WORD)
+        assert editor.text == "alpha "
+
+        editor.handle_input(self.YANK)
+        assert editor.text == "alpha beta"
+
+    def test_yank_inserts_at_the_cursor_not_the_end(self) -> None:
+        editor = self._editor("abc", cursor=3)
+        editor.handle_input(self.KILL_TO_START)
+        editor.set_text("xy")
+        editor._cursor = 1  # noqa: SLF001
+
+        editor.handle_input(self.YANK)
+        assert editor.text == "xabcy"
+        assert editor.cursor == 4
+
+    def test_yank_pop_cycles_to_the_older_kill(self) -> None:
+        editor = self._editor("first")
+        editor.handle_input(self.KILL_TO_START)
+        editor.set_text("second")
+        # set_text already parks the cursor at the end; kill-to-start needs it there.
+        editor.handle_input(self.KILL_TO_START)
+
+        editor.handle_input(self.YANK)
+        assert editor.text == "second"
+        editor.handle_input(self.YANK_POP)
+        assert editor.text == "first"
+        # The ring wraps rather than running out.
+        editor.handle_input(self.YANK_POP)
+        assert editor.text == "second"
+
+    def test_yank_pop_is_inert_unless_the_previous_key_was_a_yank(self) -> None:
+        """Otherwise there is no span to replace and it becomes a second yank."""
+        editor = self._editor("killed")
+        editor.handle_input(self.KILL_TO_START)
+        editor.handle_input(self.YANK)
+        editor.handle_input(KeyEvent(key="left"))
+
+        editor.handle_input(self.YANK_POP)
+        assert editor.text == "killed"
+
+    def test_yank_with_an_empty_ring_does_nothing(self) -> None:
+        editor = self._editor("text")
+        editor.handle_input(self.YANK)
+        assert editor.text == "text"
+
+    def test_ring_is_bounded(self) -> None:
+        editor = TextInput()
+        for i in range(editor._kill_ring_limit + 5):  # noqa: SLF001
+            editor.set_text(f"kill{i}")  # leaves the cursor at the end
+            editor.handle_input(self.KILL_TO_START)
+        assert len(editor._kill_ring) == editor._kill_ring_limit  # noqa: SLF001
+
+    def test_yank_is_undoable_as_one_step(self) -> None:
+        editor = self._editor("hello world", cursor=5)
+        editor.handle_input(self.KILL_LINE)
+        editor.handle_input(self.YANK)
+        assert editor.text == "hello world"
+
+        editor.handle_input(KeyEvent(key="z", ctrl=True))
+        assert editor.text == "hello"
+
+    def test_ctrl_y_still_redoes(self) -> None:
+        """The readline placement for yank is ctrl+y, which tau uses for redo —
+        the kill ring must not have quietly taken it over."""
+        editor = self._editor("hello world", cursor=5)
+        editor.handle_input(self.KILL_LINE)
+        editor.handle_input(KeyEvent(key="z", ctrl=True))
+        assert editor.text == "hello world"
+
+        editor.handle_input(KeyEvent(key="y", ctrl=True))
+        assert editor.text == "hello"
+
+    def test_yank_bindings_are_configurable(self) -> None:
+        configure_keybindings({"tui.input.yank": ["ctrl+y"]})
+        editor = self._editor("hello world", cursor=5)
+        editor.handle_input(self.KILL_LINE)
+
+        editor.handle_input(KeyEvent(key="y", ctrl=True))
+        assert editor.text == "hello world"

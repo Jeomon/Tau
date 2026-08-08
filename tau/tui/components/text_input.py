@@ -151,6 +151,18 @@ class TextInput(Component):
         self._last_edit: str | None = None
         self._undo_limit = 200
 
+        # Kill ring. ctrl+k / ctrl+u / ctrl+w stash what they remove here so it
+        # can be yanked back, most recent last. Undo can recover the same text,
+        # but only by also reverting everything typed since — the ring makes the
+        # removed text available as content, at the cursor, without unwinding.
+        self._kill_ring: list[str] = []
+        self._kill_ring_limit = 16
+        # Span of the text the last yank inserted, or None if the previous key
+        # was not a yank. yank-pop replaces that span with the next-older entry,
+        # so it is only meaningful directly after a yank.
+        self._yank_span: tuple[int, int] | None = None
+        self._yank_index = 0
+
         # How many leading chars to hide in the rendered display (kept in _text
         # for submission). Set to 1 when the prefix has consumed the leading '!'.
         self._visual_strip: int = 0
@@ -467,6 +479,11 @@ class TextInput(Component):
 
         keybindings = get_keybindings()
 
+        # yank-pop is only valid directly after a yank, so the span is cleared
+        # on every key and re-armed by the two yank branches themselves.
+        yanked_span = self._yank_span
+        self._yank_span = None
+
         # Modified combos are listed before their bare counterparts; matching is
         # exact on modifiers, so order is for readability, not correctness.
         if keybindings.matches(event, "tui.input.newline"):
@@ -512,17 +529,23 @@ class TextInput(Component):
             if self._cursor < len(self._text):
                 self._checkpoint("kill")
                 self._last_edit = None
+                self._kill(self._text[self._cursor :])
                 self._text = self._text[: self._cursor]
                 self._line_scrolls = {}
         elif keybindings.matches(event, "tui.input.clear"):
             if self._cursor > 0:
                 self._checkpoint("kill")
                 self._last_edit = None
+                self._kill(self._text[: self._cursor])
                 self._text = self._text[self._cursor :]
                 self._cursor = 0
                 self._line_scrolls = {}
         elif keybindings.matches(event, "tui.input.word_back"):
             self._delete_word_back()
+        elif keybindings.matches(event, "tui.input.yank_pop"):
+            self._yank_pop(yanked_span)
+        elif keybindings.matches(event, "tui.input.yank"):
+            self._yank()
         elif event.matches(Key.ctrl("z")):
             self._undo_op()
         elif event.matches(Key.ctrl("y")):
@@ -649,6 +672,53 @@ class TextInput(Component):
         self._line_scrolls = {}
         self._last_edit = None
         self._history_idx = -1
+
+    # ── Kill ring ───────────────────────────────────────────────────────────
+    def _kill(self, text: str) -> None:
+        """Stash text removed by a kill so it can be yanked back."""
+        if not text:
+            return
+        self._kill_ring.append(text)
+        if len(self._kill_ring) > self._kill_ring_limit:
+            self._kill_ring.pop(0)
+
+    def _yank(self) -> None:
+        """Insert the most recent kill at the cursor."""
+        if not self._kill_ring:
+            return
+        self._yank_index = len(self._kill_ring) - 1
+        start = self._cursor
+        text = self._kill_ring[self._yank_index]
+        self._begin_group()
+        self._last_edit = None
+        self._text = self._text[:start] + text + self._text[start:]
+        self._cursor = start + len(text)
+        self._line_scrolls = {}
+        self._history_idx = -1
+        self._yank_span = (start, self._cursor)
+
+    def _yank_pop(self, previous: tuple[int, int] | None) -> None:
+        """Replace the text the previous yank inserted with the next older kill.
+
+        A no-op unless the previous key was itself a yank: without a span to
+        replace there is nothing to cycle, and inserting instead would make
+        yank-pop a second, silently different yank.
+        """
+        if previous is None or len(self._kill_ring) < 2:
+            # Re-arm so a run of yank-pops keeps cycling even when the ring is
+            # too short to change anything.
+            self._yank_span = previous
+            return
+        start, end = previous
+        self._yank_index = (self._yank_index - 1) % len(self._kill_ring)
+        text = self._kill_ring[self._yank_index]
+        self._begin_group()
+        self._last_edit = None
+        self._text = self._text[:start] + text + self._text[end:]
+        self._cursor = start + len(text)
+        self._line_scrolls = {}
+        self._history_idx = -1
+        self._yank_span = (start, self._cursor)
 
     def _insert(self, text: str) -> None:
         # Editing the buffer commits out of history/message-tree browsing, so the
@@ -837,6 +907,7 @@ class TextInput(Component):
         else:
             while i > 0 and self._text[i - 1] not in (" ", "\n"):
                 i -= 1
+        self._kill(self._text[i : self._cursor])
         self._text = self._text[:i] + self._text[self._cursor :]
         self._cursor = i
         self._line_scrolls = {}
