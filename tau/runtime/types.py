@@ -135,6 +135,7 @@ class RuntimeContext:
         resource_loader: ResourceLoader | None = None,
         resource_snapshot: ResourceSnapshot | None = None,
         project_trusted: bool = False,
+        project_trust_source: str = "default",
         requested_model_id: str = "",
         requested_provider_id: str | None = None,
     ) -> None:
@@ -149,6 +150,8 @@ class RuntimeContext:
         self.resource_loader = resource_loader
         self.resource_snapshot = resource_snapshot
         self._project_trusted = project_trusted
+        #: How the trust decision was reached — see `project_trust_source`.
+        self._project_trust_source = project_trust_source
         self.requested_model_id = requested_model_id
         self.requested_provider_id = requested_provider_id
 
@@ -165,6 +168,35 @@ class RuntimeContext:
         if self.settings_manager is not None:
             return self.settings_manager.is_project_trusted()
         return self._project_trusted
+
+    @property
+    def project_trust_source(self) -> str:
+        """How the trust decision was reached, alongside the boolean itself.
+
+        The boolean alone cannot distinguish "explicitly refused" from "never
+        asked", because the resolution collapses undecided to False — safe as a
+        default, ambiguous as a report. A client supervising an unattended run
+        needs the difference: refusing to proceed on an *undecided* project is
+        correct, refusing on a decided one is a bug.
+
+        One of:
+
+        ``no-inputs``   nothing project-local to trust, so trusted vacuously
+        ``flag``        ``--approve`` / ``--no-approve`` at launch
+        ``policy``      the global ``project_trust`` setting was always/never
+        ``stored``      a decision in ``~/.tau/trust.json`` (possibly a parent's)
+        ``undecided``   policy is ``ask`` and nothing is stored — denied by
+                        default; interactively this is where the prompt appears
+        ``session``     changed after startup, via ``/trust`` or an extension
+        ``default``     resolved outside ``create`` (an injected settings
+                        manager, or a context built directly)
+        """
+        if (
+            self.settings_manager is not None
+            and self.settings_manager.is_project_trusted() != self._project_trusted
+        ):
+            return "session"
+        return self._project_trust_source
 
     @classmethod
     async def create(
@@ -191,6 +223,9 @@ class RuntimeContext:
         project_trusted: bool = (
             config.project_trusted if config.project_trusted is not None else False
         )
+        # Recorded alongside the boolean because the resolution below collapses
+        # "undecided" to False, and a client cannot tell that from a refusal.
+        trust_source: str = "flag" if config.project_trusted is not None else "default"
 
         # ── Settings ──────────────────────────────────────────────────────────
         _trust_pending = False
@@ -208,8 +243,10 @@ class RuntimeContext:
             _trust_probe_sm: SettingsManager | None = None
             if not has_project_trust_inputs(cwd):
                 project_trusted = True
+                trust_source = "no-inputs"
             elif config.project_trusted is not None:
                 project_trusted = config.project_trusted
+                trust_source = "flag"
             else:
                 # Load global settings first to read project_trust policy
                 settings_context = SettingsFactoryContext(
@@ -230,12 +267,15 @@ class RuntimeContext:
                 match policy:
                     case "always":
                         project_trusted = True
+                        trust_source = "policy"
                     case "never":
                         project_trusted = False
+                        trust_source = "policy"
                     case "ask" | _:
                         stored = trust_store.get(cwd)
                         project_trusted = stored if stored is not None else False
                         _trust_pending = stored is None  # no prior decision → TrustScreen will show
+                        trust_source = "undecided" if stored is None else "stored"
             if _trust_probe_sm is not None:
                 _trust_probe_sm.set_project_trusted(project_trusted)
                 settings_manager = _trust_probe_sm
@@ -540,6 +580,7 @@ class RuntimeContext:
             resource_loader=resource_loader,
             resource_snapshot=resources,
             project_trusted=project_trusted,
+            project_trust_source=trust_source,
             requested_model_id=model_id,
             requested_provider_id=provider,
         )

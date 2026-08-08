@@ -302,6 +302,16 @@ class Runtime:
         return self._context.settings_manager
 
     @property
+    def project_trusted(self) -> bool:
+        """Whether the project directory is currently trusted."""
+        return self._context.project_trusted
+
+    @property
+    def project_trust_source(self) -> str:
+        """How that decision was reached — see `RuntimeContext.project_trust_source`."""
+        return self._context.project_trust_source
+
+    @property
     def extension_runtime(self):
         """Get the extension runtime."""
         return self._context.ext_runtime

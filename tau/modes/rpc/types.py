@@ -69,6 +69,21 @@ class GetStateCommand(TypedDict, total=False):
     id: str
 
 
+class TrustCommand(TypedDict, total=False):
+    """Read or settle the project-trust decision.
+
+    With no fields beyond ``type`` it reports. ``trusted`` sets the decision for
+    this session; add ``remember`` to persist it to ``~/.tau/trust.json``.
+    ``forget`` drops the stored answer, leaving the session as it is.
+    """
+
+    type: Literal["trust"]
+    id: str
+    trusted: bool
+    remember: bool
+    forget: bool
+
+
 class SetModelCommand(TypedDict, total=False):
     type: Literal["set_model"]
     id: str
@@ -366,3 +381,5 @@ class RpcSessionState(TypedDict, total=False):
     autoCompactionEnabled: bool
     messageCount: int
     pendingMessageCount: int
+    projectTrusted: bool
+    projectTrustSource: str

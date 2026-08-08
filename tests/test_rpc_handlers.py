@@ -99,6 +99,12 @@ class _Runtime:
         self.settings_manager = None
         self.commands = None
         self.renames: list[str] = []
+        self.project_trusted = False
+        self.project_trust_source = "undecided"
+        self.reloads = 0
+
+    async def reload_extensions(self) -> None:
+        self.reloads += 1
 
     async def set_session_name(self, name: str) -> str | None:
         """Mirror of Runtime.set_session_name — appends and announces.
@@ -890,3 +896,174 @@ class TestThinkingLevelDiscovery:
             walked.append(captured[-1]["data"]["level"])
 
         assert sorted(walked) == sorted(reported)
+
+
+# ── Project trust ────────────────────────────────────────────────────────────
+
+
+class _Settings:
+    def __init__(self, trusted: bool = False) -> None:
+        self._trusted = trusted
+
+    def is_project_trusted(self) -> bool:
+        return self._trusted
+
+    def set_project_trusted(self, trusted: bool) -> None:
+        self._trusted = trusted
+
+
+class _TrustStore:
+    """Stands in for the real store so tests never touch ~/.tau/trust.json."""
+
+    def __init__(self) -> None:
+        self.decisions: dict[str, bool | None] = {}
+
+    def get(self, cwd):
+        return self.decisions.get(str(cwd))
+
+    def get_stored_path(self, cwd):
+        return str(cwd) if str(cwd) in self.decisions else None
+
+    def set(self, cwd, decision) -> None:
+        if decision is None:
+            self.decisions.pop(str(cwd), None)
+        else:
+            self.decisions[str(cwd)] = decision
+
+
+@pytest.fixture
+def store(monkeypatch):
+    import tau.trust.manager as trust_manager
+
+    fake = _TrustStore()
+    monkeypatch.setattr(trust_manager, "trust_store", fake)
+    return fake
+
+
+def _trust_runtime(trusted: bool = False, source: str = "undecided") -> _Runtime:
+    rt = _Runtime(_Agent(), _SessionManager())
+    rt.settings_manager = _Settings(trusted)  # type: ignore[assignment]
+    rt.project_trusted = trusted
+    rt.project_trust_source = source
+    return rt
+
+
+class TestTrust:
+    """An RPC client supervising an unattended worker has to be able to see —
+    and settle — the trust decision. Without this it can only observe a boolean
+    that reads False for both "refused" and "never asked"."""
+
+    @pytest.mark.asyncio
+    async def test_reports_the_decision_and_how_it_was_reached(self, captured, store):
+        rt = _trust_runtime(trusted=False, source="undecided")
+
+        await mode._handle_command({"type": "trust", "id": "1"}, rt, {})
+
+        data = captured[-1]["data"]
+        assert data["trusted"] is False
+        # The distinction the boolean alone cannot carry.
+        assert data["source"] == "undecided"
+        assert data["stored"] is None
+        assert data["cwd"] == "/work"
+
+    @pytest.mark.asyncio
+    async def test_reporting_does_not_change_anything(self, captured, store):
+        rt = _trust_runtime(trusted=False)
+
+        await mode._handle_command({"type": "trust", "id": "1"}, rt, {})
+
+        assert store.decisions == {}
+        assert rt.settings_manager.is_project_trusted() is False  # type: ignore[union-attr]
+        assert rt.reloads == 0
+
+    @pytest.mark.asyncio
+    async def test_granting_trust_applies_for_the_session_without_persisting(self, captured, store):
+        rt = _trust_runtime(trusted=False)
+
+        await mode._handle_command({"type": "trust", "id": "1", "trusted": True}, rt, {})
+
+        assert rt.settings_manager.is_project_trusted() is True  # type: ignore[union-attr]
+        assert store.decisions == {}, "session-only must not write to disk"
+        assert captured[-1]["data"]["stored"] is None
+
+    @pytest.mark.asyncio
+    async def test_remember_persists_the_decision(self, captured, store):
+        rt = _trust_runtime(trusted=False)
+
+        await mode._handle_command(
+            {"type": "trust", "id": "1", "trusted": True, "remember": True}, rt, {}
+        )
+
+        assert store.decisions == {"/work": True}
+        assert captured[-1]["data"]["stored"] is True
+
+    @pytest.mark.asyncio
+    async def test_granting_mid_session_reloads_extensions(self, captured, store):
+        """Project settings were skipped at startup and context files are read
+        while the session is built, so they need a reload to take effect —
+        matching what the interactive /trust command does."""
+        rt = _trust_runtime(trusted=False)
+
+        await mode._handle_command({"type": "trust", "id": "1", "trusted": True}, rt, {})
+
+        assert rt.reloads == 1
+        assert captured[-1]["data"]["reloaded"] is True
+
+    @pytest.mark.asyncio
+    async def test_reaffirming_existing_trust_does_not_reload(self, captured, store):
+        rt = _trust_runtime(trusted=True, source="stored")
+
+        await mode._handle_command({"type": "trust", "id": "1", "trusted": True}, rt, {})
+
+        assert rt.reloads == 0
+        assert captured[-1]["data"]["reloaded"] is False
+
+    @pytest.mark.asyncio
+    async def test_refusing_trust_never_reloads(self, captured, store):
+        rt = _trust_runtime(trusted=True, source="stored")
+
+        await mode._handle_command({"type": "trust", "id": "1", "trusted": False}, rt, {})
+
+        assert rt.settings_manager.is_project_trusted() is False  # type: ignore[union-attr]
+        assert rt.reloads == 0
+
+    @pytest.mark.asyncio
+    async def test_forget_drops_the_stored_answer_and_leaves_the_session(self, captured, store):
+        rt = _trust_runtime(trusted=True, source="stored")
+        store.decisions["/work"] = True
+
+        await mode._handle_command({"type": "trust", "id": "1", "forget": True}, rt, {})
+
+        assert store.decisions == {}
+        assert rt.settings_manager.is_project_trusted() is True  # type: ignore[union-attr]
+        assert captured[-1]["data"]["stored"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_non_boolean_is_rejected(self, captured, store):
+        """`"trusted": "yes"` is truthy in Python and would silently grant."""
+        rt = _trust_runtime(trusted=False)
+
+        await mode._handle_command({"type": "trust", "id": "1", "trusted": "yes"}, rt, {})
+
+        assert captured[-1]["success"] is False
+        assert rt.settings_manager.is_project_trusted() is False  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_no_session_is_an_error(self, captured, store):
+        rt = _Runtime(_Agent(), None)
+
+        await mode._handle_command({"type": "trust", "id": "1"}, rt, {})
+
+        assert captured[-1]["success"] is False
+
+
+class TestTrustInState:
+    @pytest.mark.asyncio
+    async def test_get_state_carries_trust(self, captured):
+        rt = _trust_runtime(trusted=True, source="stored")
+
+        await mode._handle_command({"type": "get_state", "id": "1"}, rt, {})
+
+        data = captured[-1]["data"]
+        assert data["projectTrusted"] is True
+        assert data["projectTrustSource"] == "stored"

@@ -374,10 +374,16 @@ Records are delimited by `\n` (LF); each record is one complete JSON object. Whe
 Immediately after the runtime initializes, Tau emits one `ready` line:
 
 ```json
-{"type": "ready", "sessionId": "abc123", "cwd": "/path/to/project"}
+{
+  "type": "ready",
+  "sessionId": "abc123",
+  "cwd": "/path/to/project",
+  "projectTrusted": false,
+  "projectTrustSource": "undecided"
+}
 ```
 
-Both fields may be `null`: `sessionId` is null in ephemeral mode.
+`sessionId` and `cwd` may be `null`: `sessionId` is null in ephemeral mode. `projectTrusted` says whether project-local code was loaded, and `projectTrustSource` how that was decided — `no-inputs`, `flag`, `policy`, `stored`, `undecided`, `session` or `default`. See [RPC mode](rpc.md#ready) for what each means and the `trust` command that settles an undecided project.
 
 ### Commands
 
@@ -425,8 +431,9 @@ An unrecognized `type` yields `"Unknown command type: '<x>'"`.
 
 | Command | Response `data` |
 |---------|----------------|
-| `get_state` | `{model: {id, provider} \| null, thinkingLevel, isStreaming, isCompacting, sessionFile, sessionId, autoCompactionEnabled, messageCount, pendingMessageCount}` |
+| `get_state` | `{model: {id, provider} \| null, thinkingLevel, isStreaming, isCompacting, sessionFile, sessionId, autoCompactionEnabled, messageCount, pendingMessageCount, projectTrusted, projectTrustSource}` |
 | `get_messages` | `{messages: [{role, text}]}` |
+| `trust` | `{trusted, source, stored, storedPath, cwd, reloaded}`. Fields: `trusted?`, `remember?`, `forget?` |
 
 > `isCompacting` and `pendingMessageCount` are currently always `false` and `0` respectively.
 

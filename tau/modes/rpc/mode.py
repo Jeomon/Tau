@@ -696,8 +696,67 @@ async def _handle_command(  # pyright: ignore[reportGeneralTypeIssues]
                         "autoCompactionEnabled": auto_compact,
                         "messageCount": msg_count,
                         "pendingMessageCount": pending,
+                        # Repeated from `ready` because trust can change
+                        # mid-session (`/trust`, an extension, the `trust`
+                        # command below), and a client that only saw the
+                        # handshake would be reading a stale answer.
+                        "projectTrusted": runtime.project_trusted,
+                        "projectTrustSource": runtime.project_trust_source,
                     }
                 )
+
+            case "trust":
+                # Read and write the project-trust decision. Without this an
+                # RPC client can observe trust but never settle it, so an
+                # undecided project is a dead end for an unattended run: there
+                # is no prompt to answer and no way to answer it.
+                from pathlib import Path as _Path
+
+                from tau.trust.manager import trust_store
+
+                settings = runtime.settings_manager
+                sm = runtime.session_manager
+                if settings is None or sm is None:
+                    _err("No active session")
+                    return
+                cwd = _Path(sm.cwd)
+
+                def _trust_state(reloaded: bool = False) -> dict:
+                    return {
+                        "trusted": runtime.project_trusted,
+                        "source": runtime.project_trust_source,
+                        "stored": trust_store.get(cwd),
+                        "storedPath": trust_store.get_stored_path(cwd),
+                        "cwd": str(cwd),
+                        "reloaded": reloaded,
+                    }
+
+                if cmd.get("forget"):
+                    trust_store.set(cwd, None)
+                    _ok(_trust_state())
+                    return
+
+                requested = cmd.get("trusted")
+                if requested is None:
+                    _ok(_trust_state())
+                    return
+                if not isinstance(requested, bool):
+                    _err("'trusted' must be a boolean")
+                    return
+
+                was_trusted = bool(settings.is_project_trusted())
+                settings.set_project_trusted(requested)
+                if cmd.get("remember"):
+                    trust_store.set(cwd, requested)
+
+                # Granting trust mid-session loads the project settings skipped
+                # at startup; extensions and context files are read while the
+                # session is built, so they need a reload to take effect. Same
+                # rule as the interactive /trust command.
+                reloaded = requested and not was_trusted
+                if reloaded:
+                    await runtime.reload_extensions()
+                _ok(_trust_state(reloaded))
 
             # ── Model ────────────────────────────────────────────────────────
 
@@ -1318,6 +1377,11 @@ async def run_rpc_mode(runtime: Runtime) -> None:
             "type": "ready",
             "sessionId": getattr(sm, "session_id", None) if sm is not None else None,
             "cwd": str(sm.cwd) if sm is not None else None,
+            # Reported here rather than left to be asked for: a supervising
+            # client has to know whether project-local code was trusted before
+            # it sends the first prompt, not after.
+            "projectTrusted": runtime.project_trusted,
+            "projectTrustSource": runtime.project_trust_source,
         }
     )
 

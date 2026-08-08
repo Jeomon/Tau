@@ -103,10 +103,28 @@ The buffered stream is flushed and stdout restored *before* the code is reported
 The `ready` line is the handshake. It is the first line written and carries the session identity:
 
 ```json
-{"type": "ready", "sessionId": "0f9c1c4a", "cwd": "/home/user/project"}
+{
+  "type": "ready",
+  "sessionId": "0f9c1c4a",
+  "cwd": "/home/user/project",
+  "projectTrusted": false,
+  "projectTrustSource": "undecided"
+}
 ```
 
-Both fields are `null` when there is no session manager. There is no version or capability negotiation. The client should treat `ready` as "the runtime is up, start sending commands".
+`sessionId` and `cwd` are `null` when there is no session manager. There is no version or capability negotiation. The client should treat `ready` as "the runtime is up, start sending commands".
+
+`projectTrusted` is whether project-local code — `.tau/` settings, extensions, context files — was loaded. `projectTrustSource` says how that was decided, which the boolean alone cannot: the resolution collapses "undecided" to `false`, so a client cannot otherwise tell a refusal from a project nobody has answered for. That matters for an unattended run, where refusing to proceed on an undecided project is correct and refusing on a decided one is a bug.
+
+| `projectTrustSource` | Meaning |
+|---|---|
+| `no-inputs` | Nothing project-local to trust; trusted vacuously |
+| `flag` | `--approve` / `--no-approve` at launch |
+| `policy` | The global `project_trust` setting was `always` or `never` |
+| `stored` | A decision in `~/.tau/trust.json`, possibly inherited from a parent directory |
+| `undecided` | Policy is `ask` and nothing is stored — denied by default. Interactively this is where the trust prompt appears; over RPC there is no prompt, so use the [`trust`](#trust) command |
+| `session` | Changed after startup, via `/trust`, an extension, or the `trust` command |
+| `default` | Resolved outside the normal path (an injected settings manager, or a context built directly) |
 
 ## Message Shapes
 
@@ -148,6 +166,7 @@ Every command type declared in `tau/modes/rpc/types.py`, in full.
 | `abort` | — | — |
 | `new_session` | `parentSession?` | `{cancelled}` |
 | `get_state` | — | session state object |
+| `trust` | `trusted?`, `remember?`, `forget?` | `{trusted, source, stored, storedPath, cwd, reloaded}` |
 | `set_model` | `modelId`, `provider?` | `{id, provider}` or `null` |
 | `cycle_model` | — | `{model}` |
 | `get_available_models` | — | `{models}` |
@@ -320,6 +339,56 @@ Refused while a turn is in flight: the running agent would keep writing to the c
 | `autoCompactionEnabled` | bool | From the agent's compaction config |
 | `messageCount` | int | Message entries on the active branch |
 | `pendingMessageCount` | int | Steering plus follow-up messages waiting |
+| `projectTrusted` | bool | Whether project-local code was loaded |
+| `projectTrustSource` | string | How that was decided — see the [`ready`](#ready) table |
+
+Trust is repeated here rather than left to the handshake because it can change
+mid-session, through `/trust`, an extension, or the `trust` command below.
+
+#### trust
+
+Reads and settles the project-trust decision. With no fields beyond `type` it
+reports without changing anything:
+
+```json
+{"id": "t1", "type": "trust"}
+```
+
+```json
+{
+  "type": "response",
+  "command": "trust",
+  "id": "t1",
+  "success": true,
+  "data": {
+    "trusted": false,
+    "source": "undecided",
+    "stored": null,
+    "storedPath": null,
+    "cwd": "/home/user/project",
+    "reloaded": false
+  }
+}
+```
+
+| Field | Effect |
+|---|---|
+| `trusted` | Sets the decision for this session. Must be a boolean — a string would be truthy and silently grant |
+| `remember` | With `trusted`, persists it to `~/.tau/trust.json` |
+| `forget` | Drops the stored answer, leaving the current session as it is |
+
+`stored` is the decision on disk (`null` when there is none) and `storedPath`
+the directory holding it, which may be a parent of `cwd`. `reloaded` reports
+whether granting trust triggered an extension reload: project settings are
+skipped at startup and context files are read while the session is built, so
+trusting mid-session needs a reload to take effect. Refusing never reloads, and
+neither does reaffirming trust that was already in effect.
+
+This is the only way an RPC client can settle an `undecided` project. There is
+no prompt over the protocol — the interactive trust screen has no equivalent
+here — so a supervising client that refuses to proceed on `undecided` must
+either answer with this command or launch the worker with `--approve` /
+`--no-approve`.
 
 #### get_messages
 
