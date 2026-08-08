@@ -21,7 +21,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .repl import FinalAnswer, ReplEnvironment
 from tau.tool.types import (
     AbortSignal,
     Tool,
@@ -32,6 +31,8 @@ from tau.tool.types import (
     ToolKind,
     ToolResult,
 )
+
+from .repl import FinalAnswer, ReplEnvironment
 
 #: Root turns before the tool gives up and asks for an answer from what it has.
 DEFAULT_MAX_ITERATIONS = 8
@@ -168,7 +169,7 @@ class RLMTool(Tool):
             kind=ToolKind.Read,
             execution_mode=ToolExecutionMode.Parallel,
             prompt_guidelines=(
-                "rlm_query: use for questions over inputs too large to read "
+                "rlm: use for questions over inputs too large to read "
                 "directly. Ask a specific question - it explores to answer that "
                 "question, and a vague one wastes model calls."
             ),
@@ -188,7 +189,7 @@ class RLMTool(Tool):
         llm = getattr(context, "llm", None)
         if llm is None:
             return ToolResult.error(
-                invocation.id, "rlm_query needs an active model and none was available."
+                invocation.id, "rlm needs an active model and none was available."
             )
 
         failed: list[str]
@@ -197,7 +198,7 @@ class RLMTool(Tool):
         elif params.paths:
             body, loaded, failed = _load_paths(params.paths, base)
         else:
-            return ToolResult.error(invocation.id, "rlm_query needs either paths or text.")
+            return ToolResult.error(invocation.id, "rlm needs either paths or text.")
 
         if not body:
             detail = f" Could not read: {', '.join(failed)}" if failed else ""
@@ -237,7 +238,7 @@ class RLMTool(Tool):
         for turn in range(1, budget + 1):
             iterations = turn
             if signal is not None and signal.is_set():
-                return ToolResult.error(invocation.id, "rlm_query cancelled.")
+                return ToolResult.error(invocation.id, "rlm cancelled.")
 
             reply = await _complete(llm, _SYSTEM_PROMPT, "\n\n".join(transcript))
             blocks = _CODE_BLOCK.findall(reply)

@@ -25,7 +25,7 @@ MAX_CELL_OUTPUT = _repl.MAX_CELL_OUTPUT
 FinalAnswer = _repl.FinalAnswer
 ReplEnvironment = _repl.ReplEnvironment
 MIN_WORTHWHILE_CHARS = _tool.MIN_WORTHWHILE_CHARS
-RLMQueryTool = _tool.RLMQueryTool
+RLMTool = _tool.RLMTool
 register = _rlm.register
 
 
@@ -54,7 +54,7 @@ class _ScriptedLLM:
         return [TextEndEvent(text=TextContent(content=next(self._replies)))]
 
 
-def _run(tool: RLMQueryTool, cwd: Path, llm, **params):
+def _run(tool: RLMTool, cwd: Path, llm, **params):
     invocation = ToolInvocation(id="call-1", name=tool.name, cwd=cwd, params=params)
     return asyncio.run(tool.execute(invocation, context=ToolContext(cwd=cwd, llm=llm)))
 
@@ -172,7 +172,7 @@ class TestTool:
         )
 
         result = _run(
-            RLMQueryTool(), tmp_path, llm, query="What errors occurred?", paths=["big.log"]
+            RLMTool(), tmp_path, llm, query="What errors occurred?", paths=["big.log"]
         )
 
         assert not result.is_error
@@ -186,7 +186,7 @@ class TestTool:
         small = tmp_path / "small.txt"
         small.write_text("hello")
 
-        result = _run(RLMQueryTool(), tmp_path, _ScriptedLLM([]), query="q", paths=["small.txt"])
+        result = _run(RLMTool(), tmp_path, _ScriptedLLM([]), query="q", paths=["small.txt"])
 
         assert result.is_error
         assert "read" in result.content
@@ -195,7 +195,7 @@ class TestTool:
         llm = _ScriptedLLM(["```python\nFINAL('counted')\n```"])
 
         result = _run(
-            RLMQueryTool(), tmp_path, llm, query="how many?", text="word " * MIN_WORTHWHILE_CHARS
+            RLMTool(), tmp_path, llm, query="how many?", text="word " * MIN_WORTHWHILE_CHARS
         )
 
         assert not result.is_error
@@ -213,7 +213,7 @@ class TestTool:
         )
 
         result = _run(
-            RLMQueryTool(), tmp_path, llm, query="what is it?", text="x" * MIN_WORTHWHILE_CHARS
+            RLMTool(), tmp_path, llm, query="what is it?", text="x" * MIN_WORTHWHILE_CHARS
         )
 
         assert llm.sub_calls == 1
@@ -226,7 +226,7 @@ class TestTool:
         )
 
         result = _run(
-            RLMQueryTool(),
+            RLMTool(),
             tmp_path,
             llm,
             query="how big?",
@@ -242,28 +242,28 @@ class TestTool:
         llm = _ScriptedLLM(["There are three errors."])
 
         result = _run(
-            RLMQueryTool(), tmp_path, llm, query="how many?", text="x" * MIN_WORTHWHILE_CHARS
+            RLMTool(), tmp_path, llm, query="how many?", text="x" * MIN_WORTHWHILE_CHARS
         )
 
         assert result.content == "There are three errors."
 
     def test_without_a_model_it_fails_rather_than_pretending(self, tmp_path):
         invocation = ToolInvocation(
-            id="c", name="rlm_query", cwd=tmp_path, params={"query": "q", "text": "x" * 5000}
+            id="c", name="rlm", cwd=tmp_path, params={"query": "q", "text": "x" * 5000}
         )
 
-        result = asyncio.run(RLMQueryTool().execute(invocation, context=ToolContext(cwd=tmp_path)))
+        result = asyncio.run(RLMTool().execute(invocation, context=ToolContext(cwd=tmp_path)))
 
         assert result.is_error
 
     def test_neither_paths_nor_text_is_an_error(self, tmp_path):
-        result = _run(RLMQueryTool(), tmp_path, _ScriptedLLM([]), query="q")
+        result = _run(RLMTool(), tmp_path, _ScriptedLLM([]), query="q")
 
         assert result.is_error
         assert "paths or text" in result.content
 
     def test_unreadable_paths_are_reported_not_swallowed(self, tmp_path):
-        result = _run(RLMQueryTool(), tmp_path, _ScriptedLLM([]), query="q", paths=["missing.log"])
+        result = _run(RLMTool(), tmp_path, _ScriptedLLM([]), query="q", paths=["missing.log"])
 
         assert result.is_error
 
@@ -276,7 +276,7 @@ class TestTool:
             ["```python\nFINAL(str([n for n in ('a.txt', 'b.txt') if n in context]))\n```"]
         )
 
-        result = _run(RLMQueryTool(), tmp_path, llm, query="q", paths=["a.txt", "b.txt"])
+        result = _run(RLMTool(), tmp_path, llm, query="q", paths=["a.txt", "b.txt"])
 
         assert result.content == "['a.txt', 'b.txt']"
         assert len(result.metadata["sources"]) == 2
@@ -287,7 +287,7 @@ class TestRegistration:
         registered: list = []
         register(type("API", (), {"config": {}, "register_tool": registered.append})())
 
-        assert [tool.name for tool in registered] == ["rlm_query"]
+        assert [tool.name for tool in registered] == ["rlm"]
 
     def test_it_can_be_turned_off(self):
         registered: list = []

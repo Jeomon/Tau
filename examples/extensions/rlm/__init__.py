@@ -1,17 +1,18 @@
 """Recursive Language Model querying over text too large to read.
 
-Registers ``rlm_query``. See ``tool.py`` for what the tool does and
+Registers ``rlm``. See ``tool.py`` for what the tool does and
 ``repl.py`` for the environment the model drives.
 """
 
 from __future__ import annotations
+
+from tau.extensions import ExtensionAPI
 
 from .tool import (
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_SUB_CALL_BUDGET,
     RLMTool,
 )
-from tau.extensions import ExtensionAPI
 
 __all__ = ["register"]
 
