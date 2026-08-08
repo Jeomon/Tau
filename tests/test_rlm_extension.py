@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -54,9 +55,9 @@ class _ScriptedLLM:
         return [TextEndEvent(text=TextContent(content=next(self._replies)))]
 
 
-def _run(tool: RLMTool, cwd: Path, llm, **params):
+def _run(tool: RLMTool, cwd: Path, llm, on_update=None, **params):
     invocation = ToolInvocation(id="call-1", name=tool.name, cwd=cwd, params=params)
-    return asyncio.run(tool.execute(invocation, context=ToolContext(cwd=cwd, llm=llm)))
+    return asyncio.run(tool.execute(invocation, on_update, context=ToolContext(cwd=cwd, llm=llm)))
 
 
 class TestReplNamespace:
@@ -171,9 +172,7 @@ class TestTool:
             ]
         )
 
-        result = _run(
-            RLMTool(), tmp_path, llm, query="What errors occurred?", paths=["big.log"]
-        )
+        result = _run(RLMTool(), tmp_path, llm, query="What errors occurred?", paths=["big.log"])
 
         assert not result.is_error
         assert result.content == "one disk-quota error on /dev/sda1"
@@ -241,9 +240,7 @@ class TestTool:
         """Insisting on ceremony would cost another turn for no information."""
         llm = _ScriptedLLM(["There are three errors."])
 
-        result = _run(
-            RLMTool(), tmp_path, llm, query="how many?", text="x" * MIN_WORTHWHILE_CHARS
-        )
+        result = _run(RLMTool(), tmp_path, llm, query="how many?", text="x" * MIN_WORTHWHILE_CHARS)
 
         assert result.content == "There are three errors."
 
@@ -280,6 +277,93 @@ class TestTool:
 
         assert result.content == "['a.txt', 'b.txt']"
         assert len(result.metadata["sources"]) == 2
+
+
+class TestProgress:
+    """A run is several model calls long and silent until the last one."""
+
+    @staticmethod
+    def _collector() -> tuple[list, Any]:
+        seen: list = []
+
+        async def on_update(partial):
+            seen.append(partial)
+
+        return seen, on_update
+
+    def test_every_turn_is_reported_while_it_runs(self, tmp_path):
+        seen, on_update = self._collector()
+        llm = _ScriptedLLM(
+            [
+                "```python\nhits = len(re.findall('x', context))\nprint(hits)\n```",
+                "```python\nFINAL(str(hits))\n```",
+            ]
+        )
+
+        result = _run(
+            RLMTool(),
+            tmp_path,
+            llm,
+            on_update=on_update,
+            query="how many?",
+            text="x" * MIN_WORTHWHILE_CHARS,
+        )
+
+        assert seen, "the tool ran silently"
+        log = seen[-1].content.splitlines()
+        assert log[0].startswith("loaded ")
+        assert [line.split(" ·")[0] for line in log[1:]] == ["turn 1/8", "turn 2/8"]
+        # The turn line ends up carrying the code and how the cell went, not
+        # just that a turn happened.
+        assert "hits = len(re.findall('x', context))" in log[1]
+        assert "chars" in log[1]
+        # Progress is a side channel: the result itself is still the answer.
+        assert result.content == str(MIN_WORTHWHILE_CHARS)
+
+    def test_a_failing_cell_says_so_instead_of_looking_idle(self, tmp_path):
+        seen, on_update = self._collector()
+        llm = _ScriptedLLM(["```python\nprint(nope)\n```", "```python\nFINAL('recovered')\n```"])
+
+        _run(
+            RLMTool(),
+            tmp_path,
+            llm,
+            on_update=on_update,
+            query="q",
+            text="x" * MIN_WORTHWHILE_CHARS,
+        )
+
+        assert "error: NameError" in seen[-1].content
+
+    def test_sub_calls_are_visible_because_they_are_what_a_run_costs(self, tmp_path):
+        seen, on_update = self._collector()
+        llm = _ScriptedLLM(
+            [
+                "```python\nverdict = llm_query('classify')\nprint(verdict)\n```",
+                "```python\nFINAL(verdict)\n```",
+            ],
+            sub_reply="a disk fault",
+        )
+
+        _run(
+            RLMTool(),
+            tmp_path,
+            llm,
+            on_update=on_update,
+            query="q",
+            text="x" * MIN_WORTHWHILE_CHARS,
+        )
+
+        assert "1 sub-call" in seen[-1].content
+        assert seen[-1].metadata["sub_calls"] == 1
+
+    def test_it_still_runs_without_anyone_listening(self, tmp_path):
+        """The callback is optional; the API-embedded case passes None."""
+        llm = _ScriptedLLM(["```python\nFINAL('fine')\n```"])
+
+        result = _run(RLMTool(), tmp_path, llm, query="q", text="x" * MIN_WORTHWHILE_CHARS)
+
+        assert result.content == "fine"
 
 
 class TestRegistration:

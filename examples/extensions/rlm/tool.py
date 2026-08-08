@@ -45,6 +45,10 @@ DEFAULT_SUB_CALL_BUDGET = 8
 #: conversation should just be read; the tool earns its cost above it.
 MIN_WORTHWHILE_CHARS = 2000
 
+#: Characters of a code line or error echoed into a progress line. Progress is
+#: glanced at, not read, and a wrapped line makes the log harder to follow.
+PROGRESS_SNIPPET = 64
+
 _CODE_BLOCK = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
 
 _SYSTEM_PROMPT = """\
@@ -128,6 +132,42 @@ def _load_paths(paths: list[str], base: Path) -> tuple[str, list[str], list[str]
             loaded.append(str(match))
             parts.append(f"===== {match} =====\n{body}")
     return "\n\n".join(parts), loaded, failed
+
+
+def _snippet(text: str) -> str:
+    """The first line worth showing from ``text``, shortened to one row.
+
+    Comments and imports are skipped rather than taken: a cell that opens with
+    ``import re`` would otherwise be summarised by its least informative line,
+    which tells the reader nothing about what the turn is doing.
+    """
+    fallback = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not fallback:
+            fallback = stripped
+        if stripped.startswith(("#", "import ", "from ")):
+            continue
+        return _shorten(stripped)
+    return _shorten(fallback)
+
+
+def _shorten(line: str) -> str:
+    if len(line) > PROGRESS_SNIPPET:
+        return line[: PROGRESS_SNIPPET - 1] + "…"
+    return line
+
+
+def _outcome(cell: Any) -> str:
+    """How a finished cell went, in a few words."""
+    if cell.stderr:
+        return f"error: {_snippet(cell.stderr)}"
+    if not cell.stdout:
+        return "no output"
+    lines = cell.stdout.count("\n") + 1
+    return f"{len(cell.stdout)} chars, {lines} line{'s' if lines != 1 else ''}"
 
 
 async def _complete(llm: Any, system_prompt: str, conversation: str) -> str:
@@ -235,31 +275,75 @@ class RLMTool(Tool):
         iterations = 0
         budget = min(params.max_iterations, self._max_iterations)
 
+        progress: list[str] = [
+            f"loaded {len(body)} chars from {len(loaded)} source{'s' if len(loaded) != 1 else ''}"
+        ]
+
+        async def _progress(line: str, *, replace: bool = False) -> None:
+            """Report what the run is doing while it does it.
+
+            A run is several model calls long and produces nothing until the
+            last one returns, so without this the caller watches a spinner for
+            a minute with no way to tell exploring from stuck. ``replace``
+            rewrites the current turn's line as it advances, so the log stays
+            one line per turn rather than three.
+            """
+            if tool_execution_update_callback is None:
+                return
+            if replace and progress:
+                progress[-1] = line
+            else:
+                progress.append(line)
+            await tool_execution_update_callback(
+                ToolResult.ok(
+                    invocation.id,
+                    "\n".join(progress),
+                    metadata={
+                        "running": True,
+                        "context_chars": len(body),
+                        "sources": loaded,
+                        "iterations": iterations,
+                        "sub_calls": env.sub_calls,
+                    },
+                )
+            )
+
         for turn in range(1, budget + 1):
             iterations = turn
             if signal is not None and signal.is_set():
                 return ToolResult.error(invocation.id, "rlm cancelled.")
 
+            head = f"turn {turn}/{budget}"
+            await _progress(f"{head} · deciding what to run")
             reply = await _complete(llm, _SYSTEM_PROMPT, "\n\n".join(transcript))
             blocks = _CODE_BLOCK.findall(reply)
             if not blocks:
                 # No code and no FINAL means the model answered in prose. Take
                 # it rather than burning another turn insisting on ceremony.
                 answer = reply.strip()
+                await _progress(f"{head} · answered directly", replace=True)
                 break
 
             code = blocks[0]
             transcript.append(f"You ran:\n```python\n{code}```")
+            await _progress(f"{head} · {_snippet(code)}", replace=True)
             try:
                 cell = await asyncio.to_thread(env.run, code)
             except FinalAnswer as final:
                 answer = final.answer
+                await _progress(f"{head} · {_snippet(code)} → answer", replace=True)
                 break
+            calls = f", {env.sub_calls} sub-call{'s' if env.sub_calls != 1 else ''}"
+            await _progress(
+                f"{head} · {_snippet(code)} → {_outcome(cell)}{calls if env.sub_calls else ''}",
+                replace=True,
+            )
             transcript.append(f"Output:\n{cell.for_model()}")
 
         if answer is None:
             # Out of turns. Ask for the best answer from what was gathered
             # rather than returning nothing for the work already paid for.
+            await _progress("out of turns · answering from what was found")
             transcript.append("You are out of turns. Answer the question now from what you found.")
             answer = (await _complete(llm, _SYSTEM_PROMPT, "\n\n".join(transcript))).strip()
 
