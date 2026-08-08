@@ -82,9 +82,22 @@ class RpcExtensionUIContext:
     emit without waiting for a reply.
     """
 
-    def __init__(self, pending: dict[str, asyncio.Future]) -> None:
+    def __init__(
+        self, pending: dict[str, asyncio.Future], write: Callable[[dict], None] | None = None
+    ) -> None:
         self._pending = pending
         self._next_id = 0
+        self._write = write
+
+    def set_write(self, write: Callable[[dict], None]) -> None:
+        """Redirect requests to a different sink (see the remote server)."""
+        self._write = write
+
+    def _emit(self, request: dict) -> None:
+        # Resolved per call rather than bound once: the module-global _write is
+        # monkeypatched by tests and replaced by the output guard at startup,
+        # so capturing it in __init__ would freeze whichever one existed first.
+        (self._write or _write)(request)
 
     def _new_req_id(self) -> str:
         self._next_id += 1
@@ -104,7 +117,7 @@ class RpcExtensionUIContext:
         request = {"type": "extension_ui_request", "id": req_id, **payload}
         if timeout is not None:
             request["timeout"] = int(timeout * 1000)
-        _write(request)
+        self._emit(request)
         try:
             if timeout is None:
                 return await fut
@@ -129,7 +142,7 @@ class RpcExtensionUIContext:
     def _fire(self, payload: dict) -> None:
         """Emit a fire-and-forget notification (no client response expected)."""
         req_id = self._new_req_id()
-        _write({"type": "extension_ui_request", "id": req_id, **payload})
+        self._emit({"type": "extension_ui_request", "id": req_id, **payload})
 
     async def select(
         self, title: str, options: list[str], timeout: float | None = None
@@ -209,16 +222,28 @@ _UI_PENDING: dict[str, asyncio.Future] = {}
 _UI_BRIDGE: RpcExtensionUIContext | None = None
 
 
-def install_extension_ui_bridge(runtime: Any) -> RpcExtensionUIContext:
+def install_extension_ui_bridge(
+    runtime: Any, write: Callable[[dict], None] | None = None
+) -> RpcExtensionUIContext:
     """Give ``runtime`` the protocol-backed ``ctx.ui`` / ``ctx.select`` backend.
 
     Called from ``Runtime.create`` for an RPC run so extension UI works from the
     very first lifecycle event, and again from ``run_rpc_mode``. Idempotent —
     the same bridge instance is reused so pending dialogs survive.
+
+    ``write`` names where requests go, defaulting to stdout. ``tau.remote``
+    passes its broadcast so a dialog reaches the attached clients instead of a
+    stream nobody is reading; without it an extension calling ``ctx.select``
+    over a socket would block on an answer that could never arrive.
     """
     global _UI_BRIDGE
     if _UI_BRIDGE is None:
-        _UI_BRIDGE = RpcExtensionUIContext(_UI_PENDING)
+        _UI_BRIDGE = RpcExtensionUIContext(_UI_PENDING, write=write)
+    elif write is not None:
+        # A bridge installed by Runtime.create is stdout-bound; point the
+        # existing instance at the real sink rather than replacing it, so
+        # dialogs already pending when the server starts still resolve.
+        _UI_BRIDGE.set_write(write)
     runtime.set_extension_ui_bridge(_UI_BRIDGE)
     return _UI_BRIDGE
 
