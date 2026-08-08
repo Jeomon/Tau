@@ -7,11 +7,56 @@ on:
     branches: [ "main" ]
 
 jobs:
-  check-and-test:
+  # Lint and type checks are platform- and version-independent, so they run
+  # once rather than on every leg of the test matrix.
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Ruff Format Check
+        run: uv run ruff format --check tau/
+
+      - name: Run Ruff Lint Check
+        run: uv run ruff check tau/
+
+      - name: Run Mypy Type Check
+        run: uv run mypy tau/
+
+      - name: Run Pyright Type Check
+        run: uv run pyright tau/
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Report every failing combination, not just the first. A matrix that
+      # stops at the first red leg hides whether a failure is version-specific
+      # or platform-specific, which is the only reason to have a matrix.
+      fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        # 3.12 is the floor in requires-python; 3.13 is what contributors
+        # actually run, and was previously untested here. macOS earns its place
+        # because parts of the codebase branch on the platform — unix socket
+        # path limits differ (104 bytes vs 108), and only this leg exercises
+        # the shorter one.
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
 
     steps:
       - name: Checkout repository
@@ -30,18 +75,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --all-extras --dev
-
-      - name: Run Ruff Format Check
-        run: uv run ruff format --check tau/
-
-      - name: Run Ruff Lint Check
-        run: uv run ruff check tau/
-
-      - name: Run Mypy Type Check
-        run: uv run mypy tau/
-
-      - name: Run Pyright Type Check
-        run: uv run pyright tau/
 
       - name: Run Tests
         run: uv run pytest

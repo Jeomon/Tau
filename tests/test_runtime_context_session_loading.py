@@ -16,6 +16,7 @@ above the session-manager block in tau/runtime/types.py).
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -78,13 +79,12 @@ async def test_session_loading_does_not_block_the_event_loop(tmp_path: Path) -> 
     # git-status task) — matches the profiled ~150ms scale for 5000 turns.
     session_file = _build_large_session_file(session_dir, n_turns=5000, tool_result_chars=2000)
 
-    heartbeats = 0
+    ticks: list[float] = []
 
     async def _heartbeat() -> None:
-        nonlocal heartbeats
         while True:
             await asyncio.sleep(0.005)
-            heartbeats += 1
+            ticks.append(time.perf_counter())
 
     config = RuntimeConfig(
         cwd=tmp_path,
@@ -103,23 +103,34 @@ async def test_session_loading_does_not_block_the_event_loop(tmp_path: Path) -> 
     )
 
     heartbeat_task = asyncio.ensure_future(_heartbeat())
+    started = time.perf_counter()
     try:
         context = await RuntimeContext.create(config)
     finally:
+        elapsed = time.perf_counter() - started
         heartbeat_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await heartbeat_task
 
     assert context.session_manager is not None
     assert len(context.session_manager.entries) > 3000
-    # The real assertion: the event loop kept ticking (heartbeat firing every
-    # ~5ms) *while* the ~150ms+ session load was happening in a thread. A
-    # synchronous load on the event loop would starve the heartbeat task for
-    # that whole span, capping this at however many ticks fit in create()'s
-    # other async setup (settings, LLM, git-status task) — empirically ~5,
-    # regardless of session size. Threshold sits well below the ~15 observed
-    # with the fix, comfortably above that ~5 baseline.
-    assert heartbeats > 10, (
-        f"only {heartbeats} heartbeats fired during session load — "
-        "the event loop was blocked, not free to run other tasks"
+    assert ticks, "the heartbeat never ran at all"
+
+    # The real assertion: no single stall dominated create(). A synchronous
+    # load would block the loop for the whole ~150ms read, leaving one gap
+    # about as long as create() itself; loading in a thread leaves the loop
+    # free, so the longest gap is just sleep granularity.
+    #
+    # Deliberately a *ratio* rather than a heartbeat count. A count is a
+    # proxy for speed as much as for blocking: on a loaded runner
+    # asyncio.sleep(0.005) can take several times as long, thinning the
+    # ticks until a passing run looks like a blocked one. Both sides of a
+    # ratio scale with the machine, so it measures what it claims to.
+    gaps = [later - earlier for earlier, later in zip(ticks, ticks[1:], strict=False)]
+    longest_stall = max([*gaps, ticks[0] - started])
+
+    assert longest_stall < elapsed * 0.5, (
+        f"the event loop stalled for {longest_stall * 1000:.0f}ms of a "
+        f"{elapsed * 1000:.0f}ms create() — the session load blocked it "
+        "instead of running in a thread"
     )
