@@ -49,6 +49,7 @@ class RemoteClient:
         self._events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._ids = count(1)
         self._closed = False
+        self._last_revision = 0
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -118,6 +119,35 @@ class RemoteClient:
     def pending_events(self) -> int:
         return self._events.qsize()
 
+    @property
+    def last_revision(self) -> int:
+        """The revision of the most recent settled event seen.
+
+        Survives ``close()`` on purpose: it is the cursor a reconnecting
+        client hands back to the server, so a client that drops the connection
+        and builds a new one can still say where it got to.
+        """
+        return self._last_revision
+
+    async def resume(
+        self, *, since: int | None = None, timeout: float | None = None
+    ) -> dict[str, Any]:
+        """Ask the server to replay settled events missed since ``since``.
+
+        Defaults to this client's own cursor. Returns the ``resumed`` reply;
+        check ``replayed`` before trusting the stream to be complete, because
+        False means the requested point has already been evicted and the
+        session must be refetched with ``get_messages``/``get_state`` instead.
+
+        The replayed events arrive after this returns, on the normal event
+        queue, so ordinary consumption picks them up.
+        """
+        message = {
+            "type": "resume",
+            "since": self._last_revision if since is None else since,
+        }
+        return await self.request(message, timeout=timeout)
+
     async def _read_loop(self) -> None:
         assert self._reader is not None
         decoder = FrameDecoder(max_frame_length=self._max_frame_length)
@@ -139,8 +169,18 @@ class RemoteClient:
             # The server framed it correctly but sent something unreadable.
             # Dropping one message is better than tearing down a live session.
             return
+        revision = message.get("revision")
+        if isinstance(revision, int) and not isinstance(revision, bool):
+            # Tracked from the message itself, so a replayed event advances the
+            # cursor exactly as the original would have. Assigned rather than
+            # maxed: replay arrives in order, and clamping would hide a server
+            # that restarted and began renumbering.
+            self._last_revision = revision
         message_id = message.get("id")
-        if message.get("type") == "response" and isinstance(message_id, str):
+        # `resumed` is correlated like a response: it answers a specific
+        # request, and letting it fall through to the event queue would leave
+        # resume() waiting on a message it had already been handed.
+        if message.get("type") in ("response", "resumed") and isinstance(message_id, str):
             future = self._pending.pop(message_id, None)
             if future is not None and not future.done():
                 future.set_result(message)

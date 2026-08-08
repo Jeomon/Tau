@@ -164,7 +164,12 @@ class TestBroadcast:
 
             for client in (first, second):
                 event = await client.next_event(timeout=TIMEOUT)
-                assert event == {"type": "custom_event", "value": 42}
+                # Settled events also carry the replay revision now.
+                assert {k: v for k, v in event.items() if k != "revision"} == {
+                    "type": "custom_event",
+                    "value": 42,
+                }
+                assert event["revision"] >= 1
 
     async def test_runtime_events_reach_clients(self, socket_path):
         """Events come from the same hook set stdio RPC forwards."""

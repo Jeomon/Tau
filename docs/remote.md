@@ -13,6 +13,7 @@ Use it when one session needs more than one viewer or driver — a TUI plus a da
 - [Framing](#framing)
 - [Responses and Events](#responses-and-events)
 - [Extension Dialogs](#extension-dialogs)
+- [Reconnecting](#reconnecting)
 - [Slow Clients](#slow-clients)
 - [Socket Hygiene](#socket-hygiene)
 - [Limits](#limits)
@@ -116,6 +117,32 @@ If no client answers, a dialog with a `timeout` resolves to `None` — the same 
 
 `ctx.has_ui` is `False` while extensions load and `True` once the server is listening, unlike RPC mode where it is `True` from the first handler. That reflects the truth rather than papering over it — no client can be reached before the socket exists — but an extension that samples `has_ui` once at load time and caches it will hold a stale answer. Read it when you need it.
 
+## Reconnecting
+
+Every settled event carries a monotonic `revision`, and `ready` reports where the stream has reached. A client that drops the connection can ask for what it missed:
+
+```python
+async with RemoteClient(path) as client:
+    reply = await client.resume()          # defaults to the client's own cursor
+    if not reply["replayed"]:
+        await client.request({"type": "get_messages"})   # too far behind; refetch
+```
+
+```json
+{"type": "resumed", "replayed": true, "count": 11, "revision": 412, "oldestRevision": 157}
+```
+
+The missed events follow the reply on the normal event stream, each carrying the same `revision` it had originally, so consuming them advances the cursor exactly as the originals would have.
+
+**`replayed` is the whole contract.** True means every settled event after the requested revision follows. False means the request cannot be satisfied — the point has been evicted, or it came from a different server — and the client must resync with `get_messages`/`get_state`. There is no partial replay, because one that reported success would leave a client confidently out of date, which is the failure replay exists to prevent.
+
+Two consequences worth knowing:
+
+- **Streaming `message_update` deltas are neither buffered nor numbered.** They are superseded by the `message_end` that follows, so replaying them would spend memory to deliver something the client immediately overwrites. Not numbering them is what keeps replay exact: if they consumed revisions, a client could be told it was caught up while the events in between had never been retained.
+- **A restarted server renumbers from zero.** A cursor from the previous process is ahead of the new one, which reports `replayed: false` rather than replaying the wrong events.
+
+The buffer is bounded by both count and total bytes (`max_replay_events`, `max_replay_bytes`). Both apply: capping only the count lets a few large events hold megabytes, and capping only the bytes lets a flood of small ones grow without limit.
+
 ## Slow Clients
 
 A client that stops reading is **disconnected**, not waited for. Its outbound queue is bounded by `max_queued`; when it fills, the connection is dropped.
@@ -135,7 +162,7 @@ The alternative — an unbounded queue, or awaiting a blocked write inside event
 - **Unix sockets only.** No TCP, so there is no authentication surface to get wrong; access is governed by file permissions.
 - **Path length.** `sun_path` is capped near 104 bytes on macOS and 108 on Linux. Long paths fail at bind — prefer `/tmp/tau/<id>.sock` over a deeply nested directory.
 - **No session multiplexing.** One server, one session. See [Scope](#scope).
-- **No reconnect-and-resume.** A reconnecting client gets a fresh `ready` greeting and the events from that point on; it does not replay what it missed while disconnected.
+- **Replay is bounded.** A reconnecting client can catch up only as far back as the buffer reaches (see [Reconnecting](#reconnecting)); beyond that it must refetch the session. Nothing is replayed across a server restart, since revisions begin again from zero.
 - **No initial prompt.** `--prompt` and `--file` are rejected rather than accepted and ignored: remote mode serves a session instead of running one turn, so a `tau -p ... --mode remote` invocation would otherwise serve forever having never run the prompt. Start the server, then send a `prompt` command from a client.
 
 ## Next Steps

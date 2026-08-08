@@ -34,6 +34,7 @@ import os
 import socket
 import stat
 import sys
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +59,18 @@ __all__ = [
 #: absorb a client that pauses to render, and far below the point where a stuck
 #: client's backlog becomes a memory problem for the server.
 DEFAULT_MAX_QUEUED_MESSAGES = 1024
+
+#: Settled events retained for replay to a reconnecting client, and the total
+#: bytes they may occupy. Both bounds apply: a few enormous events must not
+#: consume the memory a long tail of small ones would have used.
+DEFAULT_REPLAY_EVENTS = 256
+DEFAULT_REPLAY_BYTES = 4 * 1024 * 1024
+
+#: Event types excluded from the replay buffer. A streaming turn emits
+#: message_update continuously and each is superseded by the message_end that
+#: follows, so replaying them costs memory to deliver something the client
+#: would immediately overwrite.
+_EPHEMERAL_EVENTS = frozenset({"message_update"})
 
 _SOCKET_DIR_MODE = 0o700
 _SOCKET_MODE = 0o600
@@ -134,6 +147,87 @@ class SocketInUseError(RuntimeError):
     """Another live server already holds the socket path."""
 
 
+class _ReplayBuffer:
+    """The recent settled events, so a reconnecting client can catch up.
+
+    Revisions are assigned **only** to events that enter the buffer. That is
+    what makes a replay exact rather than approximate: if ephemeral events also
+    consumed numbers, a client asking for everything after revision 400 could
+    be told it was fully caught up while the events numbered 401-410 had never
+    been retained. A gap the client cannot see is worse than no replay at all,
+    so unbuffered events are simply not numbered.
+
+    Both bounds apply. Capping only the count lets a handful of very large
+    events hold megabytes; capping only the bytes lets a flood of tiny ones
+    grow the deque without limit.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_events: int = DEFAULT_REPLAY_EVENTS,
+        max_bytes: int = DEFAULT_REPLAY_BYTES,
+    ) -> None:
+        if max_events < 0 or max_bytes < 0:
+            raise ValueError("replay bounds must not be negative")
+        self._max_events = max_events
+        self._max_bytes = max_bytes
+        self._events: deque[tuple[int, dict[str, Any], int]] = deque()
+        self._bytes = 0
+        self._revision = 0
+
+    @property
+    def latest_revision(self) -> int:
+        """The highest revision issued, whether or not it is still retained."""
+        return self._revision
+
+    @property
+    def oldest_revision(self) -> int | None:
+        """The oldest revision still replayable, or None when empty."""
+        return self._events[0][0] if self._events else None
+
+    def __len__(self) -> int:
+        return len(self._events)
+
+    def add(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Stamp a settled event with its revision, retain it, and return it.
+
+        The stamped copy is what gets both buffered and sent, so a replayed
+        event carries the same ``revision`` it did the first time. Buffering
+        the unstamped original would hand a reconnecting client events it
+        could not number, leaving it unable to say where it got to.
+        """
+        self._revision += 1
+        stamped = {**message, "revision": self._revision}
+        size = len(encode_message(stamped))
+        self._events.append((self._revision, stamped, size))
+        self._bytes += size
+        while self._events and (
+            len(self._events) > self._max_events or self._bytes > self._max_bytes
+        ):
+            _, _, evicted = self._events.popleft()
+            self._bytes -= evicted
+        return stamped
+
+    def since(self, revision: int) -> tuple[list[dict[str, Any]], bool]:
+        """Return the events after ``revision`` and whether they are complete.
+
+        The boolean is the honest part of the contract: False means the
+        requested point has already been evicted, so the caller must resync
+        from the session rather than assume the returned list is the whole
+        story.
+        """
+        if revision < 0 or revision > self._revision:
+            # Ahead of the server: a different server, or a restarted one.
+            return [], False
+        if revision == self._revision:
+            return [], True  # already current, nothing missed
+        oldest = self.oldest_revision
+        if oldest is None or revision + 1 < oldest:
+            return [], False
+        return [message for number, message, _ in self._events if number > revision], True
+
+
 class _Connection:
     """One attached client, with its own outbound queue and writer task."""
 
@@ -205,6 +299,8 @@ class RemoteServer:
         *,
         max_frame_length: int = DEFAULT_MAX_FRAME_LENGTH,
         max_queued: int = DEFAULT_MAX_QUEUED_MESSAGES,
+        max_replay_events: int = DEFAULT_REPLAY_EVENTS,
+        max_replay_bytes: int = DEFAULT_REPLAY_BYTES,
     ) -> None:
         self._runtime = runtime
         self._path = Path(socket_path)
@@ -213,6 +309,7 @@ class RemoteServer:
         self._connections: set[_Connection] = set()
         self._server: asyncio.AbstractServer | None = None
         self._unsubscribes: list[Any] = []
+        self._replay = _ReplayBuffer(max_events=max_replay_events, max_bytes=max_replay_bytes)
 
     @property
     def socket_path(self) -> Path:
@@ -299,6 +396,14 @@ class RemoteServer:
         self._unsubscribes = [hooks.register(name, on_event) for name in rpc._FORWARDED_EVENTS]
 
     def broadcast(self, message: dict[str, Any]) -> None:
+        """Send an event to every attached client, retaining it for replay.
+
+        Settled events are numbered and buffered; ephemeral ones go out
+        unnumbered, since a client that reconnects mid-stream wants the
+        message that settled, not the deltas that built it.
+        """
+        if message.get("type") not in _EPHEMERAL_EVENTS:
+            message = self._replay.add(message)
         for connection in list(self._connections):
             connection.send(message)
             if connection.dropped:
@@ -328,6 +433,11 @@ class RemoteServer:
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": rpc._capabilities(self._runtime),
             "attached": len(self._connections),
+            # Where the event stream has got to, so a client that reconnects
+            # knows what to ask for — and, on a first connection, what its
+            # starting point is.
+            "revision": self._replay.latest_revision,
+            "oldestRevision": self._replay.oldest_revision,
         }
 
     async def _read_loop(self, reader: asyncio.StreamReader, connection: _Connection) -> None:
@@ -363,6 +473,12 @@ class RemoteServer:
                 }
             )
             return
+        if command.get("type") == "resume":
+            # Answered here rather than by the runtime dispatcher: replay is a
+            # property of this connection's transport, not of the session, and
+            # the dispatcher would rightly call it an unknown command.
+            self._resume(command, connection)
+            return
         # Concurrent, like the stdio loop: a client must be able to interrupt
         # its own in-flight prompt, which a sequential loop would deadlock.
         task = asyncio.ensure_future(
@@ -370,3 +486,49 @@ class RemoteServer:
         )
         connection.tasks.add(task)
         task.add_done_callback(connection.tasks.discard)
+
+    def _resume(self, command: dict[str, Any], connection: _Connection) -> None:
+        """Replay settled events after ``since`` for a reconnecting client.
+
+        The ``replayed`` flag carries the whole contract. True means every
+        settled event after ``since`` follows; False means the requested point
+        has already been evicted (or came from a different server) and the
+        client must resync from the session with ``get_messages``/``get_state``
+        instead. Saying so is the point — a partial replay that looks complete
+        would leave a client confidently out of date.
+        """
+        since = command.get("since")
+        # bool is an int in Python, and `since: true` is a client bug worth
+        # naming rather than quietly treating as revision 1.
+        if not isinstance(since, int) or isinstance(since, bool) or since < 0:
+            connection.send(
+                {
+                    "type": "resumed",
+                    "id": command.get("id"),
+                    "replayed": False,
+                    "reason": f"'since' must be a non-negative integer, got {since!r}",
+                    "revision": self._replay.latest_revision,
+                }
+            )
+            return
+
+        events, replayed = self._replay.since(since)
+        reply: dict[str, Any] = {
+            "type": "resumed",
+            "id": command.get("id"),
+            "replayed": replayed,
+            "count": len(events),
+            "revision": self._replay.latest_revision,
+            "oldestRevision": self._replay.oldest_revision,
+        }
+        if not replayed:
+            reply["reason"] = (
+                f"revision {since} is no longer buffered; resync from the session"
+                if since <= self._replay.latest_revision
+                else f"revision {since} is ahead of this server (at {self._replay.latest_revision})"
+            )
+        connection.send(reply)
+        # After the header, so the client knows how many to expect before they
+        # start arriving.
+        for event in events:
+            connection.send(event)
