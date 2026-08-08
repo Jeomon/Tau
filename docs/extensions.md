@@ -1303,6 +1303,7 @@ no user-facing surface at all (print/JSON modes). Always guard on it.
 |------------|-----|-----|-------|
 | Dialogs: `select`, `confirm`, `prompt`, `editor` | ✅ | ✅ | `ctx.has_ui` |
 | `notify`, `set_status`, `set_widget` (lines), `set_title`, `set_editor_text` | ✅ | ✅ | `ctx.has_ui` |
+| `custom_message`: post a message a registered renderer draws | ✅ | ⚠️ forwarded as `notify` | `ctx.has_ui` |
 | `multi_select`: pick several | ✅ | ✅ | `ctx.has_ui` |
 | Components: `custom`, `custom_inline`, `show_overlay`, footers, headers, themes | ✅ | ❌ no-op | **`ctx.ui.supports_components`** |
 
@@ -2074,7 +2075,7 @@ narrative version. Summary of the full surface:
 | Overlays | `show_overlay`, `has_active_selector` |
 | Widgets | `set_widget`, `remove_widget` |
 | Footer | `set_footer`, `restore_footer`, `set_status`, `clear_status` |
-| Messages | `notify`, `clear_messages` |
+| Messages | `notify`, `custom_message`, `clear_messages` |
 | Chrome | `set_header`, `set_title`, `set_working_message`, `push_working_reason`, `pop_working_reason`, `set_working_visible`, `set_working_indicator`, `set_hidden_thinking_label` |
 | Editor | `get_editor_text`, `set_editor_text`, `paste_to_editor`, `set_editor_component`, `get_editor_component`, `get_input_text`, `set_input_text`, `clear_input`, `insert_input_text`, `backspace_input`, `set_input_placeholder`, `reset_input_placeholder`, `set_input_cursor`, `reset_input_cursor` |
 | Theme | `theme`, `get_all_themes`, `set_theme` |

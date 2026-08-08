@@ -77,6 +77,20 @@ class RpcUIContext:
         text = "\n".join(message) if isinstance(message, list) else message
         self._bridge.notify(text, type)
 
+    def custom_message(
+        self, custom_type: str, content: str | list[str], details: Any = None
+    ) -> None:
+        """Forwarded as a plain notification: message renderers are TUI-side.
+
+        The interactive context posts a CustomMessage that a registered
+        renderer draws. There is no renderer registry over the protocol — the
+        client owns its own display — so the text still arrives rather than
+        vanishing, and ``custom_type``/``details`` are dropped.
+        """
+        text = "\n".join(content) if isinstance(content, list) else content
+        _log.debug("rpc ui: custom_message %r forwarded as a notification", custom_type)
+        self._bridge.notify(text, "info")
+
     def set_status(self, key: str, text: str | None) -> None:
         self._bridge.set_status(key, text)
 

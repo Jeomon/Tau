@@ -490,7 +490,10 @@ class ExtensionAPI:
         ``renderer(message, theme, width) -> list[str]``
 
         Called by MessageList when it encounters a CustomMessage whose
-        ``custom_type`` matches ``custom_type``.
+        ``custom_type`` matches ``custom_type``. Post one with
+        ``ctx.ui.custom_message(custom_type, content)`` — ``notify`` always
+        posts under ``system``/``tool``, so it never reaches a renderer
+        registered here.
         """
         self._extension.message_renderers[custom_type] = renderer
 

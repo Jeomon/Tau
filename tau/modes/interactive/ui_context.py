@@ -589,6 +589,51 @@ class UIContext:
         layout.add_message(msg)
         layout._tui.request_render()
 
+    def custom_message(
+        self,
+        custom_type: str,
+        content: str | list[str],
+        details: Any = None,
+    ) -> None:
+        """Post a message of an arbitrary custom type into the transcript.
+
+        This is the other half of ``tau.register_message_renderer``: the
+        registry dispatches on ``custom_type`` (see MessageRendererRegistry),
+        so a renderer registered for ``"banner"`` renders what this posts under
+        that type. Without this, the registry was unreachable from an
+        extension — ``notify`` forces ``system``/``tool``, and the persisted
+        entry written by ``tau.append_entry`` is data, never rendered.
+
+        ``details`` is carried on the message untouched for the renderer to
+        read. With no renderer registered for ``custom_type``, the message
+        falls back to the same framing ``notify`` uses, so an extension is
+        never left posting something invisible.
+
+        Display only: the message is not written to the session, so it does
+        not survive a restart.
+        """
+        layout = self._layout()
+        if layout is None:
+            return
+        import time
+        from typing import cast
+
+        from tau.message.types import CustomMessage, ImageContent, LinesContent, TextContent
+
+        contents: list[TextContent | ImageContent | LinesContent] = (
+            [LinesContent(lines=[*content, ""])]
+            if isinstance(content, list)
+            else [TextContent(content=content)]
+        )
+        msg = CustomMessage(
+            custom_type=custom_type,
+            timestamp=time.time(),
+            contents=cast(list[TextContent | ImageContent | LinesContent], contents),
+            details=details,
+        )
+        layout.add_message(msg)
+        layout._tui.request_render()
+
     def clear_messages(self) -> None:
         """Clear all messages from the message list."""
         layout = self._layout()
