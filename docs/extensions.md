@@ -974,6 +974,29 @@ swallowing it — an aborted turn or rolled-back message reveals anything still
 pending, but a handler that never returns would leave the call hidden until the
 turn ends.
 
+#### Stability
+
+The `tool_call` contract is stable public API. Anything building a permission
+gate, an audit trail or a policy filter on it can rely on these not changing
+incompatibly:
+
+-   The event fires **before** execution, for every tool the model can reach —
+    built-in, extension-registered, or otherwise. It sits in the engine's single
+    execution path, so a tool cannot arrive by a route that skips it.
+-   `ToolCallEventResult` keeps `block`, `reason`, `params` and `metadata` with
+    the meanings in the table above.
+-   `block` wins over `params` on the same result, and the first handler to
+    return `block=True` decides.
+-   A blocked call's result carries `blocked: True` and `blocked_by` in its
+    metadata, and never executes.
+-   A handler that raises is recorded as an error and does not count as consent.
+
+Fields may be **added** to the event or the result; existing names and their
+semantics will not change under a minor version. Guarantees on this hook start
+with the release noted in the changelog entry that introduced it — earlier
+published versions routed `tool_call` through the discarding path, where a block
+never reached the engine.
+
 `content` and `is_error` are first-wins: the first handler to set either claims
 it, and later handlers cannot override. Two extensions rewriting the same output
 is a genuine conflict, and resolving it by load order would be arbitrary.
