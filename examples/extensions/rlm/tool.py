@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -160,14 +161,32 @@ def _shorten(line: str) -> str:
     return line
 
 
-def _outcome(cell: Any) -> str:
-    """How a finished cell went, in a few words."""
+def _duration(seconds: float) -> str:
+    """Elapsed time at the precision a reader can act on."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    return f"{seconds:.1f}s"
+
+
+def _outcome(cell: Any, sub_calls: int = 0) -> str:
+    """How a finished cell went, in a few words.
+
+    Time comes last and is always present: when a run feels stuck, the first
+    question is how long the last thing took, and a line without it cannot
+    answer that. Sub-calls sit next to it because they are what made it slow.
+    """
+    parts: list[str] = []
     if cell.stderr:
-        return f"error: {_snippet(cell.stderr)}"
-    if not cell.stdout:
-        return "no output"
-    lines = cell.stdout.count("\n") + 1
-    return f"{len(cell.stdout)} chars, {lines} line{'s' if lines != 1 else ''}"
+        parts.append(f"error: {_snippet(cell.stderr)}")
+    elif not cell.stdout:
+        parts.append("no output")
+    else:
+        lines = cell.stdout.count("\n") + 1
+        parts.append(f"{len(cell.stdout)} chars, {lines} line{'s' if lines != 1 else ''}")
+    if sub_calls:
+        parts.append(f"{sub_calls} sub-call{'s' if sub_calls != 1 else ''}")
+    parts.append(_duration(cell.elapsed))
+    return ", ".join(parts)
 
 
 async def _complete(llm: Any, system_prompt: str, conversation: str) -> str:
@@ -253,12 +272,28 @@ class RLMTool(Tool):
 
         loop = asyncio.get_running_loop()
 
+        #: The current turn's progress line, which a sub-call decorates while
+        #: it is in flight. Written by the turn loop, read from the worker
+        #: thread running the cell.
+        head_line = ""
+
         def _sub_query(prompt: str) -> str:
             """Bridge the REPL's synchronous world back to the async model.
 
             The cell runs in a worker thread so the event loop stays free; the
             sub-call has to hop back onto the loop to reach the model.
             """
+            # A cell that calls this is the longest a run ever goes without
+            # saying anything: the turn line was written before the cell
+            # started and nothing else is emitted until it returns. Announce
+            # the sub-call from here — fire-and-forget, because blocking this
+            # thread on a progress update would serialise it behind the very
+            # loop the sub-call needs.
+            if tool_execution_update_callback is not None:
+                asyncio.run_coroutine_threadsafe(
+                    _progress(f"{head_line} ← sub-call {env.sub_calls} running…", replace=True),
+                    loop,
+                )
             future = asyncio.run_coroutine_threadsafe(
                 _complete(llm, "Answer the question about the provided text.", prompt), loop
             )
@@ -314,30 +349,31 @@ class RLMTool(Tool):
                 return ToolResult.error(invocation.id, "rlm cancelled.")
 
             head = f"turn {turn}/{budget}"
-            await _progress(f"{head} · deciding what to run")
+            head_line = f"{head} · deciding what to run"
+            await _progress(head_line)
             reply = await _complete(llm, _SYSTEM_PROMPT, "\n\n".join(transcript))
             blocks = _CODE_BLOCK.findall(reply)
             if not blocks:
                 # No code and no FINAL means the model answered in prose. Take
                 # it rather than burning another turn insisting on ceremony.
                 answer = reply.strip()
-                await _progress(f"{head} · answered directly", replace=True)
+                head_line = f"{head} · answered directly"
+                await _progress(head_line, replace=True)
                 break
 
             code = blocks[0]
             transcript.append(f"You ran:\n```python\n{code}```")
-            await _progress(f"{head} · {_snippet(code)}", replace=True)
+            head_line = f"{head} · {_snippet(code)}"
+            await _progress(head_line, replace=True)
+            before, started = env.sub_calls, time.monotonic()
             try:
                 cell = await asyncio.to_thread(env.run, code)
             except FinalAnswer as final:
                 answer = final.answer
-                await _progress(f"{head} · {_snippet(code)} → answer", replace=True)
+                elapsed = _duration(time.monotonic() - started)
+                await _progress(f"{head_line} → answer, {elapsed}", replace=True)
                 break
-            calls = f", {env.sub_calls} sub-call{'s' if env.sub_calls != 1 else ''}"
-            await _progress(
-                f"{head} · {_snippet(code)} → {_outcome(cell)}{calls if env.sub_calls else ''}",
-                replace=True,
-            )
+            await _progress(f"{head_line} → {_outcome(cell, env.sub_calls - before)}", replace=True)
             transcript.append(f"Output:\n{cell.for_model()}")
 
         if answer is None:

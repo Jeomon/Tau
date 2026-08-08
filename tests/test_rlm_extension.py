@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +68,22 @@ class TestReplNamespace:
         env = _env()
 
         assert env.run("print(context_length)").for_model().strip() == str(len(env.context))
+
+    def test_a_cell_captures_its_own_output_without_touching_sys_stdout(self):
+        """The cell runs in a worker thread while the event loop keeps writing.
+
+        Capturing by redirecting the process-global sys.stdout swallowed
+        whatever the loop printed meanwhile — progress updates, repaints —
+        into the cell's output, losing it from the screen and corrupting the
+        cell's own result.
+        """
+        during: list = []
+        env = _env(sub_query=lambda _prompt: str(during.append(sys.stdout) or "ok"))
+
+        cell = env.run("print(llm_query('x'))")
+
+        assert during == [sys.stdout]
+        assert cell.stdout.strip() == "ok"
 
     def test_text_operations_are_available(self):
         env = _env()
@@ -356,6 +374,52 @@ class TestProgress:
 
         assert "1 sub-call" in seen[-1].content
         assert seen[-1].metadata["sub_calls"] == 1
+
+    def test_a_sub_call_is_announced_before_it_returns(self, tmp_path):
+        """The longest silence in a run: the turn line is written before the
+        cell starts and a cell full of sub-calls says nothing until it ends."""
+        seen, on_update = self._collector()
+        llm = _ScriptedLLM(
+            [
+                "```python\na = llm_query('one')\nb = llm_query('two')\nprint(a, b)\n```",
+                "```python\nFINAL(a)\n```",
+            ],
+            sub_reply="a disk fault",
+        )
+
+        _run(
+            RLMTool(),
+            tmp_path,
+            llm,
+            on_update=on_update,
+            query="q",
+            text="x" * MIN_WORTHWHILE_CHARS,
+        )
+
+        in_flight = [p.content.splitlines()[-1] for p in seen if "running…" in p.content]
+        assert [line.split("← ")[1] for line in in_flight] == [
+            "sub-call 1 running…",
+            "sub-call 2 running…",
+        ]
+
+    def test_every_turn_says_how_long_it_took(self, tmp_path):
+        """The first question about a run that feels stuck."""
+        seen, on_update = self._collector()
+        llm = _ScriptedLLM(
+            ["```python\nprint(context_length)\n```", "```python\nFINAL('done')\n```"]
+        )
+
+        _run(
+            RLMTool(),
+            tmp_path,
+            llm,
+            on_update=on_update,
+            query="q",
+            text="x" * MIN_WORTHWHILE_CHARS,
+        )
+
+        assert re.search(r"→ .*, (\d+ms|\d+\.\d+s)$", seen[-1].content.splitlines()[1])
+        assert re.search(r"→ answer, (\d+ms|\d+\.\d+s)$", seen[-1].content.splitlines()[2])
 
     def test_it_still_runs_without_anyone_listening(self, tmp_path):
         """The callback is optional; the API-embedded case passes None."""

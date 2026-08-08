@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import builtins
 import contextlib
+import functools
 import io
 import time
 from collections.abc import Callable
@@ -195,15 +196,22 @@ class ReplEnvironment:
     def run(self, code: str) -> CellResult:
         """Execute one cell, capturing what it printed.
 
+        Output is captured by binding ``print`` to this cell's buffer, not by
+        redirecting ``sys.stdout``: the cell runs in a worker thread while the
+        event loop keeps running, and ``redirect_stdout`` swaps a
+        process-global. Anything the loop wrote meanwhile — a progress update,
+        a repaint — landed in the cell's captured output instead of on the
+        screen, and was lost from both.
+
         Errors are captured rather than raised: a traceback is information the
         model can act on, and killing the run on the first bad line would waste
         everything gathered so far.
         """
         stdout, stderr = io.StringIO(), io.StringIO()
         started = time.monotonic()
+        self.namespace["print"] = functools.partial(print, file=stdout)
         try:
-            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                exec(code, self.namespace, self.namespace)  # noqa: S102 - the point of a REPL
+            exec(code, self.namespace, self.namespace)  # noqa: S102 - the point of a REPL
         except FinalAnswer:
             raise
         except Exception as error:
