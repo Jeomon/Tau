@@ -25,6 +25,8 @@ from tau.settings.paths import get_app_version
 _log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tau.runtime.service import Runtime
 
 
@@ -508,9 +510,22 @@ async def _start_prompt(
 # handlers (a `_COMMANDS` table keyed on cmd_type, so each body moves verbatim).
 # mypy still checks it, and the 154 tests in tests/test_rpc_*.py still cover it.
 async def _handle_command(  # pyright: ignore[reportGeneralTypeIssues]
-    cmd: dict, runtime: Runtime, ui_pending: dict[str, asyncio.Future]
+    cmd: dict,
+    runtime: Runtime,
+    ui_pending: dict[str, asyncio.Future],
+    write: Callable[[dict], None] | None = None,
 ) -> None:
-    """Dispatch one RPC command. Writes a response line when done."""
+    """Dispatch one RPC command. Writes a response line when done.
+
+    ``write`` names where the response goes. It defaults to the stdout writer,
+    which is what stdio RPC wants and keeps every existing caller unchanged;
+    ``tau.remote`` passes the sink for the connection that sent the command, so
+    one dispatcher can serve several clients without a reply reaching the wrong
+    one. Responses are point-to-point — only the client that asked gets the
+    answer — while events are broadcast by the server, which is why events are
+    not routed through here.
+    """
+    emit = write if write is not None else _write
     cmd_type = cmd.get("type", "")
     cmd_id = cmd.get("id")
 
@@ -520,13 +535,13 @@ async def _handle_command(  # pyright: ignore[reportGeneralTypeIssues]
             resp["id"] = cmd_id
         if data is not None:
             resp["data"] = data
-        _write(resp)
+        emit(resp)
 
     def _err(message: str) -> None:
         resp: dict = {"type": "response", "command": cmd_type, "success": False, "error": message}
         if cmd_id is not None:
             resp["id"] = cmd_id
-        _write(resp)
+        emit(resp)
 
     try:
         match cmd_type:
