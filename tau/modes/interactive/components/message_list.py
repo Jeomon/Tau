@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any
 from tau.tui.component import Component
 from tau.tui.compose import wrap_to_rows as _wrap_to_rows
 from tau.tui.input import InputEvent, Key, KeyEvent, get_keybindings
-from tau.tui.markdown import StreamingMarkdownRenderer, render_markdown
+from tau.tui.markdown import (
+    StreamingMarkdownRenderer,
+    markdown_transformer_registry,
+    render_markdown,
+)
 from tau.tui.style import Style, apply_style
 from tau.tui.theme import MessageTheme
 from tau.tui.utils import BOLD, RESET, _is_diff, cursor_block, visible_width, wrap
@@ -298,6 +302,13 @@ class MessageBlock:
                 self._theme.markdown,
                 preserve_soft_breaks=preserve_soft_breaks,
             )
+        # Extension transformers run here and not in the streaming branch
+        # above: both the parse cache and the streaming renderer are keyed on
+        # the text, so rewriting it per frame would churn those caches for a
+        # result the reader sees for one flush. A settled message is
+        # transformed once and cached under its transformed text.
+        if markdown_transformer_registry:
+            text = markdown_transformer_registry.apply(text)
         lines = render_markdown(
             text,
             width,

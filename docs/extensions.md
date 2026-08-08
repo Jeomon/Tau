@@ -111,6 +111,7 @@ Capabilities an extension can register:
 | System-prompt additions | `tau.append_prompt(text)` | [The register() Entry Point](#the-register-entry-point) |
 | TUI widgets, dialogs, overlays | `ctx.ui.*` | [TUI](#tui-widgets-dialogs-and-overlays) |
 | Custom message rendering | `tau.register_message_renderer(...)` | [Message Renderers](#custom-message-renderers) |
+| Rewriting markdown before render | `tau.register_markdown_transformer(...)` | [Markdown Transformers](#markdown-transformers) |
 | Editor autocomplete | `tau.add_autocomplete_provider(...)` | [Autocomplete](#editor-autocomplete-providers) |
 | Themes | `tau.register_theme(...)` | [Themes](#themes) |
 | LLM providers and models | `tau.register_provider(...)` | [Custom Providers](#custom-llm-providers) |
@@ -1572,6 +1573,39 @@ not a stable surface for extensions loaded from `~/.tau`.
 Renderers are replaced wholesale on reload; the last extension to register a given type
 wins.
 
+Post a message a renderer will draw with `ctx.ui.custom_message(custom_type, content)`.
+`notify()` always posts under `system`/`tool`, so it never reaches a renderer registered
+here.
+
+## Markdown Transformers
+
+Rewrite markdown before it is rendered — linkifying issue references, redacting secrets,
+expanding shorthand.
+
+```python
+import re
+
+
+def register(tau):
+    tau.register_markdown_transformer(
+        lambda text: re.sub(r"#(\d+)", r"[#\1](https://git.example/issues/\1)", text)
+    )
+```
+
+The signature is `transformer(text: str) -> str`. Transformers run in registration order,
+each seeing the previous one's output, and are replaced wholesale on reload. Returning
+the text unchanged (or anything that is not a `str`) leaves it alone. One that raises is
+skipped and logged, so a broken extension costs its own rewrite rather than the message.
+
+**Transformers apply to settled messages only, never to streaming text.** Both the parse
+cache and the streaming renderer are keyed on the text, so rewriting on every flushed
+token would turn a bounded cache into one entry per chunk of output — for a result the
+reader sees for a few milliseconds before it is replaced. Live text renders as the model
+sent it and picks up the rewrite when the turn settles.
+
+Because the rewrite happens before parsing, a transformer can introduce markup and not
+just text: returning `**TODO**` renders as bold, not as literal asterisks.
+
 ## Editor Autocomplete Providers
 
 A provider is activated by a single trigger character typed in the editor. As the user
@@ -1929,6 +1963,7 @@ from handlers that fire after startup.
 | `tau.append_prompt(text)` | Append text verbatim to the system prompt |
 | `tau.register_theme(name, theme_or_factory)` | Add a named theme to the `/theme` picker |
 | `tau.register_message_renderer(custom_type, renderer)` | Render a custom message type in the TUI |
+| `tau.register_markdown_transformer(transformer)` | Rewrite markdown before rendering (settled messages only) |
 | `tau.add_autocomplete_provider(trigger, get_items, description="")` | Register an editor autocomplete provider |
 | `tau.register_settings(items, title="", on_change=None)` | Expose a `/settings` sub-panel |
 | `tau.register_provider(provider_id, config)` | Register a custom LLM provider |

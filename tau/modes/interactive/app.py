@@ -1084,12 +1084,14 @@ class App:
 
     def _refresh_extension_ui(self) -> None:
         """Replace extension renderers, completions, shortcuts, and palette after reload."""
-        from tau.tui.markdown import message_renderer_registry
+        from tau.tui.markdown import markdown_transformer_registry, message_renderer_registry
 
         ext = self._runtime.extension_runtime
         renderers = ext.get_message_renderers() if ext is not None else {}
+        transformers = ext.get_markdown_transformers() if ext is not None else []
         providers = ext.get_autocomplete_providers() if ext is not None else []
         message_renderer_registry.replace(renderers)
+        markdown_transformer_registry.replace(transformers)
         self._layout.replace_autocomplete_providers(providers)
         # Rebuild the "/" command palette too: reload swaps the extension source
         # in self._runtime.commands (so a new command already *runs*), but the

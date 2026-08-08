@@ -72,6 +72,7 @@ class Extension:
     shortcuts: list[ShortcutRegistration] = field(default_factory=list)
     prompt_appends: list[str] = field(default_factory=list)
     message_renderers: dict[str, Callable] = field(default_factory=dict)
+    markdown_transformers: list[Callable] = field(default_factory=list)
     autocomplete_providers: list[Any] = field(
         default_factory=list
     )  # list[AutocompleteRegistration]
@@ -496,6 +497,28 @@ class ExtensionAPI:
         registered here.
         """
         self._extension.message_renderers[custom_type] = renderer
+
+    def register_markdown_transformer(self, transformer: Callable) -> None:
+        """Register a hook that rewrites markdown before it is rendered.
+
+        ``transformer(text: str) -> str`` — return the rewritten markdown, or
+        the text unchanged to leave it alone. Transformers run in registration
+        order, each seeing the previous one's output. One that raises is
+        skipped and the text passes through, so a broken extension costs its
+        own rewrite rather than the whole message.
+
+        Applied to settled messages only, never to streaming text: the parse
+        cache and the streaming renderer are both keyed on the text, so
+        rewriting per frame would churn them for a result visible for a single
+        flush. Live text renders untransformed until the turn settles.
+
+        Example — turn issue references into links::
+
+            tau.register_markdown_transformer(
+                lambda text: re.sub(r"#(\\d+)", r"[#\\1](https://git/issues/\\1)", text)
+            )
+        """
+        self._extension.markdown_transformers.append(transformer)
 
     # ── Autocomplete providers ────────────────────────────────────────────────
 

@@ -292,6 +292,13 @@ class ExtensionRuntime:
             result.update(ext.message_renderers)
         return result
 
+    def get_markdown_transformers(self) -> list[Any]:
+        """Return every markdown transformer, in extension load order."""
+        result: list[Any] = []
+        for ext in self._extensions:
+            result.extend(ext.markdown_transformers)
+        return result
+
     def get_autocomplete_providers(self) -> list[Any]:
         """Return all autocomplete providers registered by extensions."""
         result: list[Any] = []

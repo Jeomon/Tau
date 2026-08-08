@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from tau.tui.utils import RESET, visible_width, wrap
 
 if TYPE_CHECKING:
     from tau.tui.theme import MarkdownTheme
+
+_log = logging.getLogger(__name__)
 
 
 # LaTeX math lives in tau.tui.latex: it is extracted and converted before
@@ -1048,3 +1051,53 @@ class MessageRendererRegistry:
 
 
 message_renderer_registry = MessageRendererRegistry()
+
+
+# ---------------------------------------------------------------------------
+# Markdown transformers
+# ---------------------------------------------------------------------------
+
+TransformerFn = Callable[[str], str]
+
+
+class MarkdownTransformerRegistry:
+    """Extension hooks that rewrite markdown text before it is rendered.
+
+    Applied to *completed* messages only, never to streaming text. Both the
+    parse cache and the streaming renderer are keyed on the text, so running a
+    transformer per frame would rewrite that key on every flushed token —
+    turning a bounded cache into one entry per keystroke of output, for a
+    result the reader sees for a few milliseconds before it is replaced.
+
+    A transformer that raises is skipped and the text passes through
+    unchanged: rewriting markdown is decoration, and a broken extension should
+    not cost the whole message.
+    """
+
+    def __init__(self) -> None:
+        self._transformers: list[TransformerFn] = []
+
+    def register(self, fn: TransformerFn) -> None:
+        self._transformers.append(fn)
+
+    def replace(self, transformers: list[TransformerFn]) -> None:
+        """Replace extension-provided transformers atomically."""
+        self._transformers = list(transformers)
+
+    def __bool__(self) -> bool:
+        return bool(self._transformers)
+
+    def apply(self, text: str) -> str:
+        """Run every transformer in registration order, skipping failures."""
+        for fn in self._transformers:
+            try:
+                result = fn(text)
+            except Exception:  # noqa: BLE001 - see the class docstring
+                _log.exception("markdown transformer failed; leaving the text unchanged")
+                continue
+            if isinstance(result, str):
+                text = result
+        return text
+
+
+markdown_transformer_registry = MarkdownTransformerRegistry()
