@@ -238,12 +238,11 @@ class DashboardOverlay(Component):
 
     ↑/↓/j/k line, PageUp/PageDown/u/d page, g/G top/bottom, Esc/q close.
 
-    Overlay protocol note: the TUI host calls ``render_cells`` with a
-    **height-0 rect as a measuring pass** and blits ``min(returned rows,
-    max_height)`` — a component that paints "into" ``area.height`` and returns
-    it renders zero rows and is silently invisible. So this component sizes
-    itself: it windows its content to an estimated viewport (``height_hint``)
-    and returns how many rows it actually painted.
+    Overlay protocol note: the TUI host calls ``render(width)`` and takes the
+    returned line count as the overlay's natural height, clamped to
+    ``max_height`` — it never tells the component how tall it may be. So this
+    component sizes itself: it windows its content to an estimated viewport
+    (``height_hint``) and returns only the rows it wants shown.
     """
 
     def __init__(

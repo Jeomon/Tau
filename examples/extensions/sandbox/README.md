@@ -27,7 +27,7 @@ sandbox/
 ├── README.md         # This file
 ├── __init__.py        # The extension (entry point, register(tau))
 ├── manager.py          # SandboxManager: microVM lifecycle
-├── sandbox_tool.py      # The tool: same interface as built-in terminal
+├── tool.py             # The tool: same interface as built-in terminal
 └── manifest.json         # Settings schema + declares the microsandbox dependency
 ```
 
@@ -39,7 +39,7 @@ From the repository root, symlink the files:
 mkdir -p ~/.tau/extensions/sandbox
 ln -sf "$(pwd)/examples/extensions/sandbox/__init__.py" ~/.tau/extensions/sandbox/__init__.py
 ln -sf "$(pwd)/examples/extensions/sandbox/manager.py" ~/.tau/extensions/sandbox/manager.py
-ln -sf "$(pwd)/examples/extensions/sandbox/sandbox_tool.py" ~/.tau/extensions/sandbox/sandbox_tool.py
+ln -sf "$(pwd)/examples/extensions/sandbox/tool.py" ~/.tau/extensions/sandbox/tool.py
 ln -sf "$(pwd)/examples/extensions/sandbox/manifest.json" ~/.tau/extensions/sandbox/manifest.json
 ```
 

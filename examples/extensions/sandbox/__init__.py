@@ -1,7 +1,7 @@
 """sandbox — run the agent's terminal commands inside a microsandbox microVM.
 
 Registers a tool named ``terminal`` (same schema/description as the built-in
-one — see the parent docstring in sandbox_tool.py) so it transparently
+one — see the parent docstring in tool.py) so it transparently
 replaces host execution with a microVM: `pip install microsandbox`, hardware
 isolation via a real guest kernel, project directory bind-mounted at
 /workspace. Falls back to the real built-in tool when the runtime is

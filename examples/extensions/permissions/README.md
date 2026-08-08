@@ -4,7 +4,7 @@ A permission gate for Tau. Every tool call is resolved against a layered policy
 before it executes, and comes back `allow`, `ask`, or `deny`.
 
 ```
-pi/tau tool call ──▶ tool_call hook ──▶ resolve() ──┬─▶ allow  ─▶ tool runs
+tau tool call    ──▶ tool_call hook ──▶ resolve() ──┬─▶ allow  ─▶ tool runs
                                                     ├─▶ ask    ─▶ prompt ─▶ …
                                                     └─▶ deny   ─▶ blocked
 ```
