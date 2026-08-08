@@ -84,6 +84,12 @@ exclude = ["tau/.tau"]
 [tool.hatch.build.targets.sdist]
 include = ["tau", "docs", "examples", "README.md", "LICENSE", "CHANGELOG.md"]
 
+# Local stubs for dependencies that ship no py.typed. mypy skips those packages
+# outright (mypy.ini); pyright reads their untyped source instead, so it needs
+# the declarations. See stubs/ for why each one exists.
+[tool.pyright]
+stubPath = "stubs"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

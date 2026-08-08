@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import os
 import sys
@@ -26,8 +27,13 @@ _OUTPUT_FORMATS = ("text", "json")
 # encode arbitrary Unicode (e.g. a zero-width space embedded in a COM error
 # message). Without this, such characters crash the log call itself and mask
 # the original error behind a "Logging error" traceback.
+#
+# isinstance rather than hasattr: reconfigure() lives on TextIOWrapper, which is
+# what the real console streams are, and the narrower check is one a type
+# checker can follow. A replaced stdout (pytest capture, a redirect) is left
+# alone, which is the safe default — this only exists for the console.
 for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
+    if isinstance(_stream, io.TextIOWrapper):
         _stream.reconfigure(errors="backslashreplace")
 
 

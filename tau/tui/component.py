@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextlib
 from abc import ABC
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from tau.tui.geometry import Position
 
@@ -15,7 +15,11 @@ def _child_lines(child: object, width: int) -> list[str]:
     """Ask a child for its lines."""
     render = getattr(child, "render", None)
     if callable(render):
-        return render(width)
+        # Children are duck-typed against the render contract rather than
+        # required to inherit Component, so getattr hands back `object` and the
+        # return shape has to be asserted here. The TypeError below is what
+        # catches a child that does not honour it.
+        return cast("list[str]", render(width))
     raise TypeError(
         f"{type(child).__name__} is not renderable: it does not implement "
         "render(width) -> list[str]"
