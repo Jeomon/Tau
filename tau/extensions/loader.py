@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import importlib.util
 import inspect
@@ -38,6 +39,58 @@ _ENTRY_POINT = "register"
 # one loads. Sources outside this map (explicit settings.json paths, inline,
 # package) are unranked and never suppressed by this scheme.
 _SOURCE_PRIORITY = {"project": 0, "global": 1, "builtin": 2}
+
+#: Where the outcome of the last load is recorded, so a separate process can
+#: report it. `tau doctor` deliberately never executes extension code, which
+#: means an extension that raises on import is invisible to it: the manifest
+#: parses, the files exist, and nothing static distinguishes it from a healthy
+#: one. Only the loader knows, and it used to keep that to itself — `/reload`
+#: said "1 error" while `doctor` said "no issues found", each answering a
+#: different question while appearing to answer the same one.
+_LOAD_STATUS_FILENAME = "extension_load_status.json"
+
+
+def load_status_path() -> Path:
+    """The file recording each extension's last load outcome."""
+    from tau.settings.paths import get_config_dir
+
+    return get_config_dir() / _LOAD_STATUS_FILENAME
+
+
+def read_load_status() -> dict[str, dict]:
+    """Last recorded load outcome per extension directory. Empty when unknown."""
+    try:
+        data = json.loads(load_status_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_load_status(discovered: list[Path], errors: list[ExtensionError]) -> None:
+    """Record which extensions loaded and which raised.
+
+    Keyed by the extension's directory, because that is what a caller
+    inspecting the filesystem — doctor scanning `.tau/extensions` — has in
+    hand; the loader's own key is the entry-point file inside it.
+    """
+    failed: dict[str, str] = {}
+    for error in errors:
+        if error.event != "load":
+            continue
+        with contextlib.suppress(OSError, ValueError):
+            failed[str(Path(error.extension_path).resolve().parent)] = error.error
+
+    status: dict[str, dict] = {}
+    for path in discovered:
+        with contextlib.suppress(OSError, ValueError):
+            key = str(path.resolve().parent)
+            message = failed.get(key)
+            status[key] = {"ok": False, "error": message} if message is not None else {"ok": True}
+
+    with contextlib.suppress(OSError):
+        target = load_status_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(target, json.dumps(status, indent=2, sort_keys=True))
 
 
 def _extension_identity(path: Path) -> str:
@@ -556,6 +609,7 @@ class ExtensionLoader:
                 extensions.append(ext)
             errors.extend(errs)
 
+        _write_load_status([p for p, _s in discovered], errors)
         return LoadExtensionsResult(extensions=extensions, errors=errors)
 
     async def _load_one(

@@ -481,10 +481,29 @@ def _check_manifest_declarations(
     return results
 
 
+def _load_failure(status: dict, subdir: Path) -> str | None:
+    """The recorded reason this extension last failed to load, if it did.
+
+    Silent when there is no record: an extension never loaded here is not a
+    broken one, and reporting it as such would make a fresh checkout look ill.
+    """
+    entry = status.get(str(subdir.resolve()))
+    if not isinstance(entry, dict) or entry.get("ok", True):
+        return None
+    reason = entry.get("error") or "unknown error"
+    return f"failed to load on last run: {reason}"
+
+
 def _check_extensions(sm, cwd: Path, fix: bool = False) -> Section:
+    from tau.extensions.loader import read_load_status
     from tau.settings.paths import get_extensions_dir
 
     results: list[CheckResult] = []
+    # What the last load actually did. Static checks cannot see an extension
+    # that raises on import — the manifest parses and the files are all there —
+    # so without this doctor reports "no issues found" while /reload reports an
+    # error, and neither says which extension or why.
+    load_status = read_load_status()
 
     if not sm.is_extensions_enabled():
         results.append(CheckResult("Extensions", "pass", "disabled globally"))
@@ -516,6 +535,8 @@ def _check_extensions(sm, cwd: Path, fix: bool = False) -> Section:
                 results.append(result)
                 continue  # invalid/unexpected shape — skip declaration checks below
             results.extend(_check_manifest_declarations(manifest, subdir, cwd, source))
+            if failure := _load_failure(load_status, subdir):
+                results.append(CheckResult(f"{subdir.name} ({source})", "fail", failure))
 
     if not results:
         results.append(CheckResult("Extensions", "pass", "no issues found"))
