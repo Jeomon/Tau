@@ -103,4 +103,14 @@ dev = [
     "mypy==1.19.1",
     "pyright>=1.1.360",
     "pytest-asyncio==1.3.0",
+    # Needed by tests/test_permissions_extension.py, not by tau itself. The
+    # permissions example extension declares bashlex in its own manifest and
+    # tau's loader installs it into a per-extension venv at runtime — but the
+    # test imports the module directly, so nothing put it on the path in CI.
+    # The extension degrades gracefully without a parser, so its absence did
+    # not error: it silently stopped decomposing commands, and 16 assertions
+    # about sudo stripping, `bash -c` reparsing and deny propagation failed on
+    # every CI run while passing locally, where the extension had already
+    # installed it.
+    "bashlex>=0.18",
 ]
