@@ -101,6 +101,8 @@ class RuntimeConfig(BaseModel):
     tool_allowlist: set[str] | None = None
     exclude_tools: set[str] = Field(default_factory=set)
     system_prompt: str = ""
+    # Appended after the prompt, whether that prompt was generated or replaced.
+    append_system_prompt: str = ""
     disable_context_files: bool = False
     resource_loader: ResourceLoader | None = None
     extension_factories: list[ExtensionFactory] = Field(default_factory=list)
@@ -472,21 +474,28 @@ class RuntimeContext:
 
         # ── System prompt ─────────────────────────────────────────────────────
         git_snapshot = await git_task if git_task is not None else None
-        system_prompt = (
-            config.system_prompt
-            or resources.system_prompt
-            or build_prompt(
-                PromptOptions(
-                    cwd=cwd,
-                    tools=all_tools,
-                    extra_appends=extra_appends,
-                    skills=skills,
-                    disable_context_files=config.disable_context_files,
-                    project_trusted=project_trusted,
-                    context_files=resources.context_files,
-                    git_snapshot=git_snapshot,
-                )
+        # A replaced prompt (--system, or one supplied by an extension) skips
+        # build_prompt entirely, so an append has to be applied here as well —
+        # otherwise --append-system-prompt would silently do nothing whenever
+        # --system was also passed.
+        replaced_prompt = config.system_prompt or resources.system_prompt
+        base_prompt = replaced_prompt or build_prompt(
+            PromptOptions(
+                cwd=cwd,
+                tools=all_tools,
+                extra_appends=extra_appends,
+                skills=skills,
+                disable_context_files=config.disable_context_files,
+                project_trusted=project_trusted,
+                context_files=resources.context_files,
+                git_snapshot=git_snapshot,
+                append_prompt=config.append_system_prompt or None,
             )
+        )
+        system_prompt = (
+            f"{base_prompt}\n\n{config.append_system_prompt}"
+            if replaced_prompt and config.append_system_prompt
+            else base_prompt
         )
 
         # ── Agent config ──────────────────────────────────────────────────────

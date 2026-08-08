@@ -156,10 +156,23 @@ def resolve_model(model: str | None, provider: str | None) -> tuple[str | None, 
     help="Replace the generated system prompt completely.",
 )
 @click.option(
+    "--append-system-prompt",
+    default=None,
+    metavar="TEXT",
+    help="Append text to the system prompt. Applies whether the prompt is generated "
+    "or replaced with --system.",
+)
+@click.option(
     "--tools",
     default=None,
     metavar="NAMES",
     help="Comma-separated allowlist of tool names to enable (default: all).",
+)
+@click.option(
+    "--exclude-tools",
+    default=None,
+    metavar="NAMES",
+    help="Comma-separated tool names to disable. Applied after --tools.",
 )
 @click.option(
     "--ephemeral", "-e", is_flag=True, default=False, help="Don't save this session to disk."
@@ -216,7 +229,9 @@ def cli(
     session_name: str | None,
     files: tuple[Path, ...],
     system: str | None,
+    append_system_prompt: str | None,
     tools: str | None,
+    exclude_tools: str | None,
     ephemeral: bool,
     print_flag: bool,
     mode: str | None,
@@ -254,7 +269,9 @@ def cli(
     ctx.obj["session_name"] = session_name
     ctx.obj["files"] = files
     ctx.obj["system"] = system or ""
+    ctx.obj["append_system_prompt"] = append_system_prompt or ""
     ctx.obj["tools"] = tools
+    ctx.obj["exclude_tools"] = exclude_tools
     ctx.obj["ephemeral"] = ephemeral
     ctx.obj["quiet"] = quiet
     ctx.obj["mode"] = resolve_mode(mode, print_flag, prompt, output_format)
@@ -313,10 +330,12 @@ async def _start(opts: dict) -> None:
     elif opts.get("no_approve"):
         project_trusted = False
 
+    def _name_set(value: str | None) -> set[str]:
+        return {name.strip() for name in value.split(",") if name.strip()} if value else set()
+
     tools_opt = opts.get("tools")
-    tool_allowlist = (
-        {name.strip() for name in tools_opt.split(",") if name.strip()} if tools_opt else None
-    )
+    tool_allowlist = _name_set(tools_opt) if tools_opt else None
+    excluded_tools = _name_set(opts.get("exclude_tools"))
 
     config = RuntimeConfig(
         cwd=Path.cwd(),
@@ -330,7 +349,9 @@ async def _start(opts: dict) -> None:
         persist_session=not opts["ephemeral"],
         mode=opts["mode"],
         system_prompt=opts.get("system", ""),
+        append_system_prompt=opts.get("append_system_prompt", ""),
         tool_allowlist=tool_allowlist,
+        exclude_tools=excluded_tools,
         disable_context_files=opts.get("no_context_files", False),
         project_trusted=project_trusted,
     )
@@ -455,6 +476,7 @@ def _rewrite_args(argv: list[str]) -> list[str]:
     sys.argv before click sees it:
       --resume         → --resume __LATEST__   (resume most recent)
       --resume <id>    → --resume <id>          (resume specific session)
+      --continue       → --resume __LATEST__   (alias; -c is already --cwd)
       @README.md       → --file README.md
     """
     out: list[str] = []
@@ -463,6 +485,12 @@ def _rewrite_args(argv: list[str]) -> list[str]:
         arg = argv[i]
         if arg.startswith("@") and len(arg) > 1:
             out.extend(["--file", arg[1:]])
+            i += 1
+        elif arg == "--continue":
+            # Spelled --continue in most agent CLIs, and the muscle memory is
+            # worth honouring. Deliberately id-less: --resume already covers
+            # "this specific session", so anything following it is left alone.
+            out.extend(["--resume", _RESUME_LATEST])
             i += 1
         elif arg in ("--resume", "-r"):
             out.append("--resume")

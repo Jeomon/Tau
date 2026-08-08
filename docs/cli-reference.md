@@ -43,8 +43,11 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 | `--effort LEVEL` | | model default | Thinking/reasoning effort for this run |
 | `--theme NAME` | `-t` | `dark` | UI theme: any of the 17 built-ins, a custom theme, or `auto` to follow the terminal background. See [Themes](themes.md) |
 | `--system TEXT` | `-s` | generated | Replace the generated system prompt completely |
+| `--append-system-prompt TEXT` | | | Append text to the system prompt, generated or replaced |
 | `--tools NAMES` | | all | Comma-separated allowlist of tool names |
+| `--exclude-tools NAMES` | | | Comma-separated tool names to disable, applied after `--tools` |
 | `--resume [ID]` | `-r` | | Resume the most recent session, or a specific one by ID |
+| `--continue` | | | Resume the most recent session; alias for bare `--resume` |
 | `--fork ID` | | | Fork a session by ID into a new session |
 | `--session-dir PATH` | | `~/.tau/sessions` | Session storage directory |
 | `--name NAME` | | | Session display name |
@@ -55,7 +58,7 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 | `--approve` | `-a` | off | Trust project-local files (extensions, settings, context files) |
 | `--no-approve` | `-na` | off | Do not trust project-local files |
 
-> **`-c` is `--cwd`, not "continue".** Use `-r` / `--resume` to continue a session.
+> **`-c` is `--cwd`, not "continue".** Use `--continue`, `-r`, or bare `--resume` to continue a session.
 
 `--effort` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. The value is not persisted and is clamped to what the selected model actually supports.
 
@@ -64,7 +67,11 @@ Tau takes no positional message argument. Supply prompts with `--prompt`/`-p`, p
 ```bash
 tau --tools read,grep,glob,ls          # read-only agent; cannot write or run commands
 tau --tools read,edit,write            # file edits only; no shell access
+tau --exclude-tools terminal           # everything except the shell
 ```
+
+`--exclude-tools` is applied after `--tools`, so a name in both is disabled. Use it to
+subtract from the default set without having to enumerate everything you want to keep.
 
 ## Run Modes
 
